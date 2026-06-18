@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CDP Profiles Dashboard - ProfileDB</title>
+  <!-- Modern Inter Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <!-- Chart.js CDN for interactive graphs -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+  <!-- Dashboard Container -->
+  <div class="dashboard">
+    
+    <!-- Top Premium Header -->
+    <header class="header">
+      <div class="logo-area">
+        <div class="logo-icon">CDP</div>
+        <div>
+          <h1>ProfileDB Control Centre</h1>
+          <p class="subtitle">Centralized Behavioral Telemetry & Identity Resolution Hub</p>
+        </div>
+      </div>
+      
+      <!-- Live KPI counters -->
+      <div class="kpis">
+        <div class="kpi-card">
+          <span class="kpi-label">Businesses</span>
+          <span class="kpi-value" id="kpi-tenants">-</span>
+        </div>
+        <div class="kpi-card accent">
+          <span class="kpi-label">Profiles</span>
+          <span class="kpi-value" id="kpi-profiles">-</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Total Events</span>
+          <span class="kpi-value" id="kpi-events">-</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Avg. Engagement</span>
+          <span class="kpi-value" id="kpi-avg-score">-</span>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="header-actions">
+        <select id="tenant-select" class="select-field">
+          <option value="mlo" selected>Business: mlo</option>
+        </select>
+        <button id="btn-sync" class="btn-primary">
+          <svg class="icon animate-spin-hover" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+          Sync Data
+        </button>
+      </div>
+    </header>
+
+    <!-- Work Area -->
+    <main class="main-content">
+      
+      <!-- Sidebar Filters -->
+      <aside class="sidebar">
+        <div class="sidebar-section">
+          <h2>Identity Search</h2>
+          <div class="search-input-wrapper">
+            <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="text" id="search-query" class="input-field" placeholder="Search name, email, phone...">
+          </div>
+        </div>
+
+        <div class="sidebar-section">
+          <h2>Intent Stage Filters</h2>
+          <div class="filter-options" id="bucket-filters">
+            <label class="filter-option">
+              <input type="radio" name="bucket" value="" checked>
+              <span>All Stages</span>
+            </label>
+            <label class="filter-option">
+              <input type="radio" name="bucket" value="emergency">
+              <span class="badge badge-emergency">Emergency</span>
+            </label>
+            <label class="filter-option">
+              <input type="radio" name="bucket" value="active">
+              <span class="badge badge-active">Active</span>
+            </label>
+            <label class="filter-option">
+              <input type="radio" name="bucket" value="comparison">
+              <span class="badge badge-comparison">Comparison</span>
+            </label>
+            <label class="filter-option">
+              <input type="radio" name="bucket" value="research">
+              <span class="badge badge-research">Research</span>
+            </label>
+            <label class="filter-option">
+              <input type="radio" name="bucket" value="unclassified">
+              <span class="badge badge-unclassified">Unclassified</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="sidebar-section">
+          <h2>Engagement Temp</h2>
+          <select id="temp-filter" class="select-field w-full">
+            <option value="">All Temperatures</option>
+            <option value="hot">Hot (Score &ge; 80)</option>
+            <option value="warm">Warm (Score &ge; 40)</option>
+            <option value="cold">Cold (Score &lt; 40)</option>
+          </select>
+        </div>
+
+        <div class="sidebar-footer">
+          <button id="btn-clear-db" class="btn-danger w-full">
+            <svg class="icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+            Clear Telemetry Logs
+          </button>
+        </div>
+      </aside>
+
+      <!-- Main Content Area Wrapper -->
+      <div class="dashboard-content-area" style="display: flex; flex-direction: column; gap: 2rem; min-width: 0;">
+
+        <!-- Interactive Analytics Section -->
+        <section class="charts-section">
+          <div class="charts-grid">
+            <div class="chart-card">
+              <h3>Intent Stage Distribution</h3>
+              <div class="chart-container">
+                <canvas id="chart-intent"></canvas>
+              </div>
+            </div>
+            <div class="chart-card">
+              <h3>Lead Temperature</h3>
+              <div class="chart-container">
+                <canvas id="chart-temp"></canvas>
+              </div>
+            </div>
+            <div class="chart-card">
+              <h3>Activity Volume (7 Days)</h3>
+              <div class="chart-container">
+                <canvas id="chart-activity"></canvas>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Profiles Listing Table -->
+        <section class="table-section">
+          <div class="table-card">
+            <div class="table-header">
+              <h2>Business Customer Directory</h2>
+              <div id="results-count" class="text-muted text-xs">Loading profiles...</div>
+            </div>
+            
+            <div class="table-wrapper">
+              <table id="profiles-table">
+                <thead>
+                  <tr>
+                    <th>Customer Profile / Identity</th>
+                    <th class="text-center">Group & Tier</th>
+                    <th class="text-center">Sessions</th>
+                    <th>Engagement Score</th>
+                    <th>Intent Stage</th>
+                    <th>Status & Metrics</th>
+                    <th>Last Seen</th>
+                    <th class="text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="profiles-tbody">
+                  <!-- Javascript will load entries here -->
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Pagination Bar -->
+            <div class="pagination">
+              <button id="btn-prev" class="btn-secondary" disabled>
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                Prev
+              </button>
+              <span id="page-indicator">Page 1 of 1</span>
+              <button id="btn-next" class="btn-secondary" disabled>
+                Next
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </button>
+            </div>
+          </div>
+        </section>
+
+      </div>
+      
+    </main>
+ 
+    <!-- Side Slider Detail Drawer -->
+    <div id="detail-drawer" class="drawer">
+      <div class="drawer-overlay" id="drawer-overlay"></div>
+      <div class="drawer-content">
+        
+        <!-- Drawer Header -->
+        <div class="drawer-header">
+          <div class="drawer-title-group">
+            <div class="avatar" id="drawer-avatar">?</div>
+            <div>
+              <h2 id="drawer-name">Anonymous Profile</h2>
+              <p id="drawer-id-sub" class="text-muted text-xs">ID: -</p>
+            </div>
+          </div>
+          <button id="drawer-close" class="btn-close">
+            <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+        </div>
+
+        <!-- Drawer Body -->
+        <div class="drawer-body">
+          
+          <!-- Identity Card -->
+          <div class="info-card">
+            <h3>Identity Resolution Values</h3>
+            <div class="info-grid">
+              <div class="info-item">
+                <span class="info-label">Email Address</span>
+                <span class="info-value" id="drawer-email">-</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Phone Number</span>
+                <span class="info-value" id="drawer-phone">-</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Customer Name</span>
+                <span class="info-value" id="drawer-full-name">-</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Attribution Group</span>
+                <span class="info-value" id="drawer-group">-</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Confidence Tier</span>
+                <span class="info-value" id="drawer-tier">-</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Score Metrics Card -->
+          <div class="info-card">
+            <h3>CDP Score Breakdown</h3>
+            <div class="scores-row">
+              <div class="score-radial">
+                <span class="score-radial-val" id="drawer-score-live">-</span>
+                <span class="score-radial-lbl">Live Score</span>
+              </div>
+              <div class="score-stats">
+                <div class="score-stat-item">
+                  <span class="lbl">Raw Accrued Score</span>
+                  <span class="val" id="drawer-score-raw">-</span>
+                </div>
+                <div class="score-stat-item">
+                  <span class="lbl">Active Score Decay</span>
+                  <span class="val" id="drawer-decay-pct">-</span>
+                </div>
+                <div class="score-stat-item">
+                  <span class="lbl">Grace Period State</span>
+                  <span class="val" id="drawer-grace-status">-</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Device Fingerprints -->
+          <div class="info-card">
+            <h3>Linked Browser Fingerprints</h3>
+            <div id="drawer-fingerprints-list" class="fingerprints-list">
+              <!-- JS populates list -->
+            </div>
+          </div>
+
+          <!-- Event Log Timeline -->
+          <div class="info-card">
+            <h3>Unified Customer Journey Timeline</h3>
+            <div class="timeline" id="drawer-timeline">
+              <!-- JS populates event items -->
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
