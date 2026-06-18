@@ -1,0 +1,618 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/clearsky-db-client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Auth collections (converted from PocketBase auth type)
+model User {
+  id              String   @id @default(cuid())
+  email           String   @unique
+  password        String   // Hashed password
+  tokenKey        String   @unique @default(cuid())
+  emailVisibility Boolean  @default(false)
+  verified        Boolean  @default(false)
+  name            String?
+  avatar          String?  // File path/URL
+  role            UserRole?
+  companyId       String?
+  company         Company? @relation(fields: [companyId], references: [id])
+  created         DateTime  @default(now())
+  updated         DateTime  @updatedAt
+
+  // Relations
+  ownedCompanies                    Company[]                            @relation("CompanyOwner")
+  teamMemberships                   CompanyMember[]
+  communicationLogs                 CommunicationLog[]
+  assignedCommunicationLogs         CommunicationLogAssignedMember[]
+  assignedMessages                  Message[]
+  ownedLeadboxes                    Leadbox[]
+  ownedLeadforms                    Leadform[]
+  sentInvites                       Invite[]                             @relation("InvitedBy")
+  receivedInvites                   Invite[]                             @relation("InvitedUser")
+  personalShortcuts                 Shortcut[]
+  devices                           UserDevice[]
+  assignedTasks                     Task[]                               @relation("UserTasks")
+
+  @@index([email])
+  @@index([tokenKey])
+  @@map("users")
+}
+
+enum UserRole {
+  owner
+  admin
+  agent
+}
+
+// Superuser model (system admin users)
+model SuperUser {
+  id              String   @id @default(cuid())
+  email           String   @unique
+  password        String   // Hashed password
+  tokenKey        String   @unique @default(cuid())
+  emailVisibility Boolean  @default(false)
+  verified        Boolean  @default(false)
+  created         DateTime  @default(now())
+  updated         DateTime  @updatedAt
+
+  @@index([email])
+  @@index([tokenKey])
+  @@map("_superusers")
+}
+
+// System auth tables
+model AuthOrigin {
+  id           String   @id @default(cuid())
+  collectionRef String
+  recordRef    String
+  fingerprint  String
+  created      DateTime  @default(now())
+  updated      DateTime  @updatedAt
+
+  @@unique([collectionRef, recordRef, fingerprint])
+  @@map("_authOrigins")
+}
+
+model ExternalAuth {
+  id          String   @id @default(cuid())
+  collectionRef String
+  recordRef   String
+  provider    String
+  providerId  String
+  created     DateTime  @default(now())
+  updated     DateTime  @updatedAt
+
+  @@unique([collectionRef, recordRef, provider])
+  @@unique([collectionRef, provider, providerId])
+  @@map("_externalAuths")
+}
+
+model Mfa {
+  id           String   @id @default(cuid())
+  collectionRef String
+  recordRef    String
+  method       String
+  created      DateTime  @default(now())
+  updated      DateTime  @updatedAt
+
+  @@index([collectionRef, recordRef])
+  @@map("_mfas")
+}
+
+model Otp {
+  id             String   @id @default(cuid())
+  collectionRef  String
+  recordRef      String
+  password       String   // Hashed OTP
+  sentTo         String?
+  signupPayload  Json?    // For signup: { name, passwordHash }
+  created        DateTime @default(now())
+  updated        DateTime @updatedAt
+
+  @@index([collectionRef, recordRef])
+  @@map("_otps")
+}
+
+// Main application models
+model Company {
+  id          String   @id @default(cuid())
+  name        String?
+  website     String?
+  ownerId     String
+  owner       User     @relation("CompanyOwner", fields: [ownerId], references: [id])
+  settings    Json?
+  logo        String?  // File path/URL
+  emailSlug   String?  @unique
+  created     DateTime  @default(now())
+  updated     DateTime  @updatedAt
+
+  // Relations
+  users                   User[]
+  teamMembers             CompanyMember[]
+  contacts                Contact[]
+  communicationLogs      CommunicationLog[]
+  messages                Message[]
+  invites                 Invite[]
+  locations               Location[]
+  notifications           Notification[]
+  callFlows               CallFlow[]
+  phoneNumbers            CompanyPhoneNumber[]
+  callTrackingCategories  CallTrackingCategory[]
+  scheduleEvents          ScheduleEvent[]
+  shortcuts               Shortcut[]
+  tasks                   Task[]
+
+  @@map("companies")
+}
+
+// Call tracking: company-defined categories (e.g. "Facebook", "Customer Care") for numbers
+model CallTrackingCategory {
+  id                   String   @id @default(cuid())
+  companyId            String
+  company              Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name                 String   // e.g. "Facebook", "Customer Care"
+  sortOrder            Int      @default(0)
+  created              DateTime @default(now())
+  updated              DateTime @updatedAt
+
+  companyPhoneNumbers  CompanyPhoneNumber[]
+  communicationLogs   CommunicationLog[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("call_tracking_categories")
+}
+
+// Numbers bought via Telnyx and assigned to a company for dialing, IVR, SMS
+model CompanyPhoneNumber {
+  id                      String                 @id @default(cuid())
+  companyId               String
+  company                 Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  phoneNumber             String                 // E.164 e.g. +17051234567
+  telnyxPhoneNumberId     String?                // Telnyx phone_number id if needed
+  connectionLabel         String?                // UI label for connection/application
+  callFlowId              String?                // When set, this number uses this IVR flow; when null, no IVR (pending call)
+  callFlow                CallFlow?              @relation(fields: [callFlowId], references: [id], onDelete: SetNull)
+  callTrackingCategoryId  String?                // For call tracking analytics (e.g. "Facebook", "Customer Care")
+  callTrackingCategory    CallTrackingCategory?  @relation(fields: [callTrackingCategoryId], references: [id], onDelete: SetNull)
+  created                 DateTime               @default(now())
+  updated                 DateTime               @updatedAt
+
+  @@unique([phoneNumber])
+  @@index([companyId])
+  @@index([callFlowId])
+  @@index([callTrackingCategoryId])
+  @@map("company_phone_numbers")
+}
+
+model CallFlow {
+  id                     String                 @id @default(cuid())
+  companyId              String
+  company                Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  title                  String
+  greetingAudioUrl       String?
+  queueHoldAudioUrl      String?   // hold music when all reps on call
+  allUnavailableAudioUrl String?   // when offline/no forwarding
+  backupCellAudioUrl     String?   // after attempt 5 rings, no answer
+  failoverConfig         Json?     // [{ key, name, durationSec, audioUrl }] for Add Failover keys 4-9
+  created                DateTime               @default(now())
+  updated                DateTime               @updatedAt
+  rules                  CallFlowRule[]
+  companyPhoneNumbers    CompanyPhoneNumber[]
+
+  @@index([companyId])
+  @@map("call_flows")
+}
+
+model CallFlowRule {
+  id                   String    @id @default(cuid())
+  callFlowId           String
+  callFlow             CallFlow  @relation(fields: [callFlowId], references: [id], onDelete: Cascade)
+  ruleTitle            String
+  schedule             Json      // { Mon: { start, end }, Tue: ..., Sun: null } or "closed"
+  promptsAudioUrl      String?
+  keyPrompts           Json      // [{ key, name, extension }]
+  failoverCount        Int       @default(2)
+  failoverDelayMinutes Int       @default(2)
+  failoverAudioUrl     String?
+  hangupAudioUrl       String?
+  leaveMessageOnHash   Boolean   @default(true)
+  backDigit            String?   // e.g. * or 0 — replay prompts when pressed; null = disabled
+  created              DateTime  @default(now())
+  updated              DateTime  @updatedAt
+
+  @@index([callFlowId])
+  @@map("call_flow_rules")
+}
+
+model Location {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String
+  address   String?
+  city      String?
+  phone     String?
+  hours     Json?    // { Mon: string, Tue: string, ... }
+  created   DateTime @default(now())
+  updated   DateTime @updatedAt
+
+  @@index([companyId])
+  @@map("locations")
+}
+
+model CompanyMember {
+  id          String            @id @default(cuid())
+  userId      String
+  user        User              @relation(fields: [userId], references: [id])
+  companyId   String
+  company     Company           @relation(fields: [companyId], references: [id])
+  role        CompanyMemberRole
+  permissions Json?
+  status      CompanyMemberStatus
+  joinedAt    DateTime?
+  created     DateTime          @default(now())
+  updated     DateTime          @updatedAt
+
+  @@unique([userId, companyId])
+  @@map("company_members")
+}
+
+enum CompanyMemberRole {
+  owner
+  admin
+  member
+}
+
+enum CompanyMemberStatus {
+  active
+  inactive
+  suspended
+}
+
+model Contact {
+  id            String   @id @default(cuid())
+  companyId     String
+  company       Company  @relation(fields: [companyId], references: [id])
+  email         String?
+  phone         String?
+  name          String?
+  address       String?
+  landline      String?
+  cell          String?
+  smsPermission Boolean  @default(false)
+  pastNames     Json?
+  contactType   String?  @default("phone") // phone | email | sms | facebook (ClearSky spec)
+  notes         String?
+  companyName   String?  // Display name e.g. "Dredhart Inc." (ClearSky spec)
+  avatarUrl     String?  // URL to the uploaded avatar
+  created       DateTime  @default(now())
+  updated       DateTime  @updatedAt
+
+  // Relations
+  communicationLogs CommunicationLog[]
+  tasks             Task[]
+
+  @@index([companyId])
+  @@map("contacts")
+}
+
+model CommunicationLog {
+  id                     String                    @id @default(cuid())
+  type                   CommunicationType
+  direction              CommunicationDirection
+  status                 CommunicationStatus
+  source                 String?
+  destination            String?
+  customerId             String?
+  customer               Contact?                 @relation(fields: [customerId], references: [id])
+  companyId              String
+  company                Company                  @relation(fields: [companyId], references: [id])
+  userId                 String?
+  user                   User?                    @relation(fields: [userId], references: [id])
+  callTrackingCategoryId String?                  // Set from number's category when call is logged
+  callTrackingCategory   CallTrackingCategory?   @relation(fields: [callTrackingCategoryId], references: [id], onDelete: SetNull)
+  assignedMembers        CommunicationLogAssignedMember[]
+  summary                String?
+  content                String?
+  duration               Float?
+  metadata               Json?
+  created                DateTime                 @default(now())
+  updated                DateTime                 @updatedAt
+
+  @@index([companyId])
+  @@index([customerId])
+  @@index([userId])
+  @@index([callTrackingCategoryId])
+  @@index([companyId, type, created])
+  @@map("communication_logs")
+}
+
+// Join table for many-to-many relationship between CommunicationLog and User (assigned members)
+model CommunicationLogAssignedMember {
+  communicationLogId String
+  communicationLog   CommunicationLog @relation(fields: [communicationLogId], references: [id], onDelete: Cascade)
+  userId             String
+  user               User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([communicationLogId, userId])
+  @@map("_communication_log_assigned_members")
+}
+
+enum CommunicationType {
+  email
+  sms
+  voice
+  web
+  facebook
+  chatbot
+  leadform
+  leadbox
+}
+
+enum CommunicationDirection {
+  inbound
+  outbound
+}
+
+enum CommunicationStatus {
+  success
+  failed
+  pending
+  missed
+  completed
+}
+
+model Invite {
+  id         String        @id @default(cuid())
+  email      String?
+  companyId  String?
+  company    Company?      @relation(fields: [companyId], references: [id])
+  invitedById String?
+  invitedBy  User?        @relation("InvitedBy", fields: [invitedById], references: [id])
+  userId     String?
+  user       User?        @relation("InvitedUser", fields: [userId], references: [id])
+  role       InviteRole?
+  status     InviteStatus
+  expiresAt  DateTime?
+  acceptedAt DateTime?
+  declinedAt DateTime?
+  created    DateTime      @default(now())
+  updated    DateTime      @updatedAt
+
+  @@index([companyId])
+  @@index([email])
+  @@map("invites")
+}
+
+enum InviteRole {
+  admin
+  member
+}
+
+enum InviteStatus {
+  accepted
+  pending
+  declined
+}
+
+model Leadbox {
+  id          String        @id @default(cuid())
+  ownerId     String
+  owner       User          @relation(fields: [ownerId], references: [id])
+  name        String?
+  status      LeadboxStatus
+  leadboxData Json?
+  created     DateTime      @default(now())
+  updated     DateTime      @updatedAt
+
+  @@index([ownerId])
+  @@map("leadboxes")
+}
+
+enum LeadboxStatus {
+  active
+  inactive
+}
+
+model Leadform {
+  id        String   @id @default(cuid())
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id])
+  name      String
+  formData  Json?
+  created   DateTime @default(now())
+  updated   DateTime @updatedAt
+
+  @@index([ownerId])
+  @@map("leadforms")
+}
+
+model Logo {
+  id    String   @id @default(cuid())
+  logo  String?  // File path/URL
+  created DateTime @default(now())
+  updated DateTime @updatedAt
+
+  @@map("logos")
+}
+
+model Message {
+  id            String        @id @default(cuid())
+  threadId      String        @unique
+  companyId     String
+  company       Company       @relation(fields: [companyId], references: [id])
+  customerName  String?
+  customerEmail String?
+  customerPhone String?
+  assignedToId  String?
+  assignedTo    User?        @relation(fields: [assignedToId], references: [id])
+  status        MessageStatus
+  urgency       MessageUrgency?
+  urgencyScore  Int?
+  sentiment     String?
+  intent        String?
+  draftResponse String?
+  aiSummary     String?
+  messages      Json?         // Array of message objects
+  created       DateTime      @default(now())
+  updated       DateTime      @updatedAt
+
+  @@index([companyId])
+  @@index([assignedToId])
+  @@index([status])
+  @@map("messages")
+}
+
+enum MessageStatus {
+  new
+  read
+  replied
+  assigned
+  closed
+}
+
+// Level 1-2 → green, 3 → blue, 4-5 → red (urgent)
+enum MessageUrgency {
+  green
+  blue
+  red
+}
+
+model CallLog {
+  id        String   @id @default(cuid())
+  callId    String   // Telnyx call_control_id
+  status    String   // initiated, answered, ended, etc.
+  to        String?
+  from      String?
+  duration  Float?
+  metadata  Json?    // full payload if needed
+  createdAt DateTime @default(now())
+
+  @@index([callId])
+  @@index([from])
+  @@index([to])
+  @@map("call_logs")
+}
+
+model CallRecording {
+  id          String   @id @default(cuid())
+  callId      String
+  recordingId String?
+  urls        Json?    // recording_urls from Telnyx
+  createdAt   DateTime @default(now())
+
+  @@index([callId])
+  @@map("call_recordings")
+}
+
+model Notification {
+  id                  String   @id @default(cuid())
+  companyId           String
+  company             Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  type                CommunicationType
+  direction           CommunicationDirection
+  sourceName          String?  // e.g. customer name or "Inbox"
+  sourceIdentifier    String?  // phone, email, threadId
+  messagePreview      String   // short preview for list
+  content             String?  // full body
+  read                Boolean  @default(false)
+  communicationLogId String?
+  messageId           String?  // Message.id (inbox thread)
+  threadId            String?  // Message.threadId for linking to inbox
+  createdAt           DateTime @default(now())
+
+  @@index([companyId])
+  @@index([companyId, createdAt])
+  @@index([read])
+  @@map("notifications")
+}
+
+// ClearSky spec: schedule/calendar events
+model ScheduleEvent {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  startTime   DateTime
+  endTime     DateTime
+  color       String?  // blue | red | pink
+  created     DateTime @default(now())
+  updated     DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([companyId, startTime])
+  @@map("schedule_events")
+}
+
+// ClearSky spec: team (company-wide) and personal shortcuts
+model Shortcut {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId    String?  // null = team shortcut
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  code      String   // e.g. /1, /2, /21
+  message   String
+  created   DateTime @default(now())
+  updated   DateTime @updatedAt
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@index([companyId, userId])
+  @@map("shortcuts")
+}
+
+// ClearSky spec: APNS/FCM device tokens for push notifications and VoIP
+model UserDevice {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceId  String
+  platform  String?  // ios | android | web
+  fcmToken  String?
+  voipToken String?
+  created   DateTime @default(now())
+  updated   DateTime @updatedAt
+
+  @@unique([userId, deviceId])
+  @@index([userId])
+  @@map("user_devices")
+}
+
+model Task {
+  id           String     @id @default(cuid())
+  companyId    String
+  company      Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contactId    String?
+  contact      Contact?   @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  assignedToId String?
+  assignedTo   User?      @relation("UserTasks", fields: [assignedToId], references: [id], onDelete: SetNull)
+  title        String
+  description  String?
+  status       TaskStatus @default(todo)
+  dueDate      DateTime?
+  created      DateTime   @default(now())
+  updated      DateTime   @updatedAt
+
+  @@index([companyId])
+  @@index([contactId])
+  @@index([assignedToId])
+  @@map("tasks")
+}
+
+enum TaskStatus {
+  todo
+  in_progress
+  completed
+  cancelled
+}

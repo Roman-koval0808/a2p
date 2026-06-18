@@ -1,0 +1,29 @@
+# AI Agent Guidelines & Project Rules
+
+You are an AI coding assistant working on this project. This file is read by agents to align with local development standards.
+
+---
+
+## 🚨 Critical Rules for Code Modifications
+
+### 1. Document Every Code Change
+Whenever you add, modify, or delete endpoints, routes, scoring formulas, decay periods, demotion rules, or database models, you **MUST** immediately update the technical documentation in [CDP_SPECIFICATION.md](file:///Users/n3rd/code/profiledb/docs/CDP_SPECIFICATION.md). 
+Ensure all schemas, flow charts, and equations reflect the absolute state of the codebase.
+
+### 2. Swagger Documentation Synchronization
+Every time an API endpoint is modified, updated, or created, you **MUST** update the static OpenAPI 3.0 specification in [swagger.ts](file:///Users/n3rd/code/profiledb/src/config/swagger.ts) to match the Express routing configurations.
+
+### 3. Verify Code Integrity
+After making any codebase modifications, run the integration test suite to verify the changes:
+```bash
+npm run verify
+```
+Do not complete the task unless the test execution finishes successfully with exit code `0`.
+
+---
+
+## 🛠️ Environment Rules
+
+* **Database Connection**: Do not hardcode connection strings. Read from `process.env.DATABASE_URL`.
+* **Testing Port Conflicts**: When writing script entrypoints that import the main application, set `process.env.NODE_ENV = 'test'` first to prevent automatic `app.listen()` port conflicts on the default server.
+* **Environment Hoisting**: Always call `dotenv.config()` as the absolute first execution line in your entrypoints to ensure Prisma Client loads connection URLs correctly.
