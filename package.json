@@ -1,0 +1,12 @@
+{
+  "name": "a2p",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build:lead-grabber": "pnpm --filter clearsky-demo build",
+    "build:profiledb": "pnpm --filter profiledb build",
+    "build": "pnpm --recursive build",
+    "dev:lead-grabber": "pnpm --filter clearsky-demo dev",
+    "dev:profiledb": "pnpm --filter profiledb dev"
+  }
+}
