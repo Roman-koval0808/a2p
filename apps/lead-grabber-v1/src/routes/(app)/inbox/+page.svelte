@@ -95,9 +95,20 @@
 			}
 		};
 
+		const getLatestTime = (msg: any) => {
+			const msgs = msg.messages;
+			if (Array.isArray(msgs) && msgs.length > 0) {
+				const last = msgs[msgs.length - 1];
+				if (last && last.timestamp) {
+					return new Date(last.timestamp).getTime();
+				}
+			}
+			return new Date(msg.updated || msg.created).getTime();
+		};
+
 		filteredMessages = messages
 			.filter(filterFn)
-			.sort((a, b) => new Date(b.updated).getTime() - new Date(a.updated).getTime());
+			.sort((a, b) => getLatestTime(b) - getLatestTime(a));
 	});
 
 	// Add pagination state
@@ -718,7 +729,7 @@
 							</div>
 						{/each}
 					{:else}
-						{#each filteredMessages as msg}
+						{#each filteredMessages as msg (msg.id)}
 							<div
 								class="flex cursor-pointer items-center gap-4 py-4 hover:bg-gray-50"
 								onclick={() => selectMessage(msg)}
