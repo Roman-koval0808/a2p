@@ -839,12 +839,14 @@ export class PipelineSimulator {
   "requested_action": string,
   "detected_keywords": string[],
   "service_requested": string,
-  "sentiment": "positive"|"neutral"|"negative",
+  "sentiment": string,
   "praise_topics": string[],
   "complaint_topics": string[],
   "summary": string,
   "confidence_score": number,
-  "urgency_level": "low"|"medium"|"high"
+  "urgency_level": "low"|"medium"|"high",
+  "customer_name": "string (the name of the customer if explicitly mentioned in message, e.g. 'sam' from 'sam here', otherwise null)",
+  "has_name": boolean
 }`;
           const response = await openai.chat.completions.create({
             model: "gpt-4o-mini",
@@ -892,6 +894,38 @@ export class PipelineSimulator {
           text.includes("emergency") ||
           text.includes("water");
 
+        // Simple helper function to extract name from text in fallback mode
+        const extractNameFromText = (content: string): string | null => {
+          if (!content) return null;
+          const clauses = content.split(/[.,\/#!$%\^&\*;:{}=\-_`~()\n?]/);
+          const patterns = [
+            /(?:I'm|I am)\s+(?:new\s+customer,\s+)?([A-Za-z]+)/i,
+            /this is\s+([a-zA-Z]+(?:\s+[a-zA-Z]+)?)/i,
+            /my name is\s+([a-zA-Z]+(?:\s+[a-zA-Z]+)?)/i,
+            /([a-zA-Z]+(?:\s+[a-zA-Z]+)?)\s+here/i,
+            /([a-zA-Z]+(?:\s+[a-zA-Z]+)?)\s+speaking/i
+          ];
+          const blacklist = ['a', 'the', 'an', 'some', 'someone', 'here', 'speaking', 'there', 'just', 'please', 'we', 'you', 'they', 'our', 'my', 'your', 'about', 'not', 'this', 'is', 'am', 'hello', 'hi', 'good', 'morning', 'afternoon', 'evening'];
+          
+          for (const clause of clauses) {
+            const trimmedClause = clause.trim();
+            for (const pattern of patterns) {
+              const match = trimmedClause.match(pattern);
+              if (match && match[1]) {
+                const candidate = match[1].trim();
+                const words = candidate.split(/\s+/);
+                const validWords = words.filter(w => !blacklist.includes(w.toLowerCase()));
+                if (validWords.length > 0) {
+                  return validWords.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+                }
+              }
+            }
+          }
+          return null;
+        };
+
+        const parsedName = extractNameFromText(payload.comment);
+
         extraction = {
           contains_problem: hasProblem,
           contains_quote_request: hasQuote,
@@ -899,17 +933,17 @@ export class PipelineSimulator {
           contains_emergency_keywords: hasEmergency,
           requested_contact_method: hasCallback ? "phone" : "none",
           requested_action: hasEmergency
-            ? "emergency_response"
+            ? "emergency_dispatch"
             : hasQuote
               ? "send_quote"
               : "info_request",
-          detected_keywords: ["quote", "call"],
-          service_requested: hasQuote ? "New Roof Quote" : "Support",
-          sentiment: hasProblem
+          detected_keywords: hasEmergency ? ["Emergency", "Water"] : ["quote", "call"],
+          service_requested: hasEmergency ? "Plumbing" : (hasQuote ? "New Roof Quote" : "Support"),
+          sentiment: hasEmergency ? "concerned" : (hasProblem
             ? "negative"
             : text.includes("great") || text.includes("incredible")
               ? "positive"
-              : "neutral",
+              : "neutral"),
           praise_topics:
             text.includes("great") || text.includes("incredible")
               ? ["service", "quality"]
@@ -918,6 +952,8 @@ export class PipelineSimulator {
           summary: payload.comment.slice(0, 100),
           confidence_score: 0.95,
           urgency_level: hasEmergency ? "high" : hasQuote ? "medium" : "low",
+          customer_name: parsedName,
+          has_name: parsedName !== null
         };
         log(`[Step 8] Heuristic extraction completed successfully`);
       }
@@ -1481,6 +1517,8 @@ export class PipelineSimulator {
             complaint_topics: "array (concise complaint phrases)",
             summary: "string (one-sentence summary)",
             confidence_score: "number (0 to 1)",
+            customer_name: "string (the name of the customer if explicitly mentioned, otherwise null)",
+            has_name: "boolean (true if customer name is explicitly mentioned, otherwise false)"
           },
           raw_response: extraction,
         },
