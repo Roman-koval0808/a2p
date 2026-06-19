@@ -11,7 +11,7 @@ export default defineConfig({
 	},
 	ssr: {
 		noExternal: ['lucide-svelte'],
-		external: ['firebase-admin', 'clearsky-db-client']
+		external: ['firebase-admin', 'clearsky-db-client', '@telnyx/webrtc']
 	},
 	build: {
 		minify: true,
