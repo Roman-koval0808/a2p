@@ -7,6 +7,7 @@
     "build:profiledb": "pnpm --filter profiledb build",
     "build": "pnpm --recursive build",
     "dev:lead-grabber": "pnpm --filter clearsky-demo dev",
-    "dev:profiledb": "pnpm --filter profiledb dev"
+    "dev:profiledb": "pnpm --filter profiledb dev",
+    "dev:all": "pnpm --recursive dev"
   }
 }

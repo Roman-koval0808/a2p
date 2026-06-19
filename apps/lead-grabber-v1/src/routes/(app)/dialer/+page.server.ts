@@ -9,9 +9,15 @@ export const load: PageServerLoad = async ({ locals }) => {
 		throw redirect(303, '/login');
 	}
 
-	const contacts = await getContactsByCompany(user.company.id);
+	const [contacts, phoneNumbers] = await Promise.all([
+		getContactsByCompany(user.company.id),
+		locals.prisma.companyPhoneNumber.findMany({
+			where: { companyId: user.company.id }
+		})
+	]);
 
 	return {
-		contacts
+		contacts,
+		phoneNumbers
 	};
 };
