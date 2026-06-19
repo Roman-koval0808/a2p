@@ -95,6 +95,31 @@ export const POST: RequestHandler = async ({ request }) => {
 			} else {
 				console.error('❌ Failed to log SMS event to ProfileDB:', res.statusText);
 			}
+
+			// SMS Notification for event alerts
+			try {
+				const parsed = JSON.parse(rawBody);
+				const msgPayload = parsed.data?.payload || parsed;
+				const toNumberRaw = msgPayload.to;
+				const toNumber = Array.isArray(toNumberRaw)
+					? (toNumberRaw[0]?.phone_number || toNumberRaw[0])
+					: (toNumberRaw?.phone_number || toNumberRaw);
+				const companyId = toNumber ? await getCompanyIdByPhoneNumber(prisma, toNumber) : null;
+
+				if (companyId) {
+					const action = pipelineResult.decision?.action_queue?.find(
+						(act: any) => act.action_id === 'ACT-A2P-002' || act.title?.toLowerCase().includes('owner notification')
+					);
+					if (action) {
+						console.log(`[SMS Webhook Pipeline] Owner notification triggered for SMS from ${smsSender}`);
+						const alertMsg = `[Alert] Urgent SMS from ${smsSender}: "${smsText.substring(0, 100)}${smsText.length > 100 ? '...' : ''}"`;
+						const { sendOwnerSmsAlert } = await import('$lib/server/sms-alert');
+						await sendOwnerSmsAlert(companyId, alertMsg);
+					}
+				}
+			} catch (err) {
+				console.error('[SMS Pipeline SMS Alert Error]', err);
+			}
 		}).catch(err => console.error('[SMS Pipeline Error]', err));
 
 		// Forward to A2P backend when configured (replaces local SMS/messages/comm-log handling)

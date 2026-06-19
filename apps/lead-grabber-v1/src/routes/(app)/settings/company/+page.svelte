@@ -36,6 +36,8 @@
 			notifications: {
 				email: boolean;
 				web: boolean;
+				sms: boolean;
+				phone_numbers: string[];
 			};
 		};
 	}
@@ -68,6 +70,7 @@
 		};
 	}>();
 	let company = data.company;
+	let phoneNumbers = $state(company?.settings?.notifications?.phone_numbers || []);
 	let form: any;
 	let loading = $state(false);
 	let previewUrl: string | null = $state(null);
@@ -377,6 +380,56 @@
 											value="true"
 											checked={company.settings.notifications.web}
 										/>
+									</div>
+
+									<div class="flex items-center justify-between">
+										<div class="space-y-0.5">
+											<Label>SMS Notifications</Label>
+											<div class="text-sm text-muted-foreground">
+												Receive SMS alerts on configured phone numbers when owner notification is triggered
+											</div>
+										</div>
+										<Switch
+											name="smsNotifications"
+											value="true"
+											checked={company.settings.notifications.sms}
+										/>
+									</div>
+
+									<div class="space-y-3">
+										<Label>SMS Notification Numbers</Label>
+										{#each phoneNumbers as number, i}
+											<div class="flex items-center gap-2">
+												<Input
+													type="tel"
+													name="notificationPhones"
+													placeholder="+15551234567"
+													bind:value={phoneNumbers[i]}
+													class="flex-1"
+												/>
+												<Button
+													type="button"
+													variant="outline"
+													class="text-red-500 border-red-200 hover:bg-red-50 hover:text-red-700"
+													onclick={() => {
+														phoneNumbers = phoneNumbers.filter((_, idx) => idx !== i);
+													}}
+												>
+													Remove
+												</Button>
+											</div>
+										{/each}
+										<Button
+											type="button"
+											variant="outline"
+											size="sm"
+											class="text-primary border-primary/20 hover:bg-primary/5"
+											onclick={() => {
+												phoneNumbers = [...phoneNumbers, ''];
+											}}
+										>
+											+ Add Phone Number
+										</Button>
 									</div>
 								</div>
 							</div>

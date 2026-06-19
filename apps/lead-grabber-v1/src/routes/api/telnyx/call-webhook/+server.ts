@@ -1370,8 +1370,19 @@ export const POST: RequestHandler = async ({ request }) => {
 
 											// Check if the pipeline decided to dispatch a safety SMS (emergency route)
 											const action = pipelineResult.decision?.action_queue?.[0];
-											if (action && action.action_id === 'ACT-A2P-002') {
-												console.log('🚨 Emergency action detected! Attempting to send safety SMS...');
+											if (action && (action.action_id === 'ACT-A2P-002' || action.title?.toLowerCase().includes('owner notification'))) {
+												console.log('🚨 Emergency action detected! Attempting to send safety SMS & notifying owner...');
+
+												// Send SMS alert to company notification numbers
+												if (numberInfo?.companyId) {
+													try {
+														const alertMsg = `[Alert] Urgent Voicemail/Call from ${contact?.name || contactNumber || 'Unknown'}: "${transcript.substring(0, 100)}${transcript.length > 100 ? '...' : ''}"`;
+														const { sendOwnerSmsAlert } = await import('$lib/server/sms-alert');
+														await sendOwnerSmsAlert(numberInfo.companyId, alertMsg);
+													} catch (err) {
+														console.error('Failed to notify owner via SMS:', err);
+													}
+												}
 												
 												// Get safety SMS text
 												let safetySmsText = '';
