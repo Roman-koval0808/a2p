@@ -53,11 +53,11 @@
 	},
 	"dependencies": {
 		"@prisma/client": "^5.20.0",
-		"clearsky-db-client": "link:./clearsky-db-client",
 		"@sveltejs/adapter-node": "^5.2.10",
 		"@telnyx/webrtc": "^2.27.1",
 		"@types/uuid": "^11.0.0",
 		"bcryptjs": "^2.4.3",
+		"clearsky-db-client": "link:./clearsky-db-client",
 		"firebase-admin": "^13.8.0",
 		"groq-sdk": "^0.37.0",
 		"jose": "^6.1.3",
@@ -67,6 +67,7 @@
 		"svelte-dnd-action": "^0.9.52",
 		"svelte-use-form": "^2.10.0",
 		"uuid": "^14.0.0",
-		"ws": "^8.18.3"
+		"ws": "^8.18.3",
+		"zod": "^4.4.3"
 	}
 }

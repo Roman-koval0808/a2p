@@ -149,6 +149,10 @@ model Company {
   scheduleEvents          ScheduleEvent[]
   shortcuts               Shortcut[]
   tasks                   Task[]
+  pipelineEvents          PipelineEvent[]
+  pipelineCustomerProfiles PipelineCustomerProfile[]
+  pipelineBusinessConfig  PipelineBusinessConfig?
+  pipelineOrchestratorProfile PipelineOrchestratorProfile?
 
   @@map("companies")
 }
@@ -615,4 +619,399 @@ enum TaskStatus {
   in_progress
   completed
   cancelled
+}
+
+// =============================================================================
+// PIPELINE ENGINE MODELS (ported from clearsky-homepage unified pipeline)
+// =============================================================================
+
+model PipelineEvent {
+  id                      String    @id @default(cuid())
+  eventId                 String    @unique            // evt_12345
+  traceId                 String?                      // trc_abc1234
+  provider                String?                      // google_business_profile, telnyx_voice, telnyx_sms
+  providerEventName       String?
+  providerEventId         String?   @unique            // dedup key from provider
+  eventType               String                       // review_received, voicemail_received, sms_received
+  networkCategory         String    @default("Communication")
+  companyId               String?                      // link to existing Company
+  company                 Company?  @relation(fields: [companyId], references: [id])
+  customerProfileId       String?
+  customerProfile         PipelineCustomerProfile? @relation(fields: [customerProfileId], references: [id])
+  authorName              String?
+  reviewRatingNumeric     Int?
+  reviewText              String?
+  occurredAt              DateTime? @default(now())
+  receivedAt              DateTime? @default(now())
+  unstructuredText        String?                      // raw text + pipeline logs
+  isDuplicate             Boolean   @default(false)
+  requiresAiExtraction    Boolean   @default(false)
+  aiExtractionCompleted   Boolean   @default(false)
+  processingStatus        String    @default("received")
+  handoffEligible         Boolean   @default(false)
+  businessReplyExists     Boolean   @default(false)
+  createdAt               DateTime  @default(now())
+
+  // Relations
+  enrichments             PipelineEnrichment[]
+  signals                 PipelineSignal[]
+  decisions               PipelineDecision[]
+  complaintThemeLogs      PipelineComplaintThemeLog[]
+
+  @@index([companyId])
+  @@index([customerProfileId])
+  @@index([providerEventId])
+  @@map("pipeline_events")
+}
+
+model PipelineEnrichment {
+  id                          String   @id @default(cuid())
+  eventId                     String
+  event                       PipelineEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  // AI Deterministic Fact Extraction
+  aiContainsProblem           Boolean? @default(false)
+  aiContainsQuoteRequest      Boolean? @default(false)
+  aiContainsCallbackRequest   Boolean? @default(false)
+  aiContainsEmergencyKeywords Boolean? @default(false)
+  aiRequestedContactMethod    String?                    // phone, email, text, none
+  aiRequestedAction           String?                    // phone_call, send_quote, etc.
+  aiDetectedKeywords          Json?    @default("[]")
+
+  // AI Context Fields
+  aiSentiment                 String?
+  aiSentimentScore            Float?
+  aiPraiseDetected            Boolean? @default(false)
+  aiComplaintDetected         Boolean? @default(false)
+  aiPraiseTopics              Json?    @default("[]")
+  aiComplaintTopics           Json?    @default("[]")
+  aiPrimaryPraiseTopic        String?
+  aiPrimaryComplaintTopic     String?
+  aiServiceMentioned          String?
+  aiCustomerExperienceIssue   String?
+  aiUrgencyLevel              String?
+  aiSummary                   String?
+  aiConfidenceScore           Float?
+  aiCustomerName              String?                    // extracted customer name (not in clearsky)
+  aiHasName                   Boolean? @default(false)   // whether name was found (not in clearsky)
+
+  // Legacy compatibility fields
+  sentiment                   String?
+  summary                     String?
+  urgencyLevel                String?
+  serviceRequested            String?
+  confidenceScore             Float?
+
+  createdAt                   DateTime @default(now())
+
+  @@index([eventId])
+  @@map("pipeline_enrichments")
+}
+
+model PipelineSignal {
+  id             String    @id @default(cuid())
+  eventId        String?
+  event          PipelineEvent? @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  signalRuleId   String?                  // SIG-TRUST-001, SIG-COMM-000, etc.
+  name           String
+  bucket         String                   // Risk, Bottleneck, Opportunity, Momentum, etc.
+  priority       Int       @default(2)
+  confidence     Float     @default(1.0)
+  status         String    @default("candidate") // candidate | valid | suppressed
+  createdAt      DateTime  @default(now())
+
+  @@index([eventId])
+  @@index([signalRuleId])
+  @@map("pipeline_signals")
+}
+
+model PipelineDecision {
+  id                        String    @id @default(cuid())
+  decisionId                String    @unique          // dec_abc123
+  eventId                   String
+  event                     PipelineEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  dominantSignalId          String?
+  supportingSignalIds       Json      @default("[]")
+  selectedActionIds         Json      @default("[]")
+  blockedActionIds          Json      @default("[]")
+  executionMode             String
+  owner                     String
+  priority                  Int
+  reason                    String?
+  businessConfigSnapshot    Json?
+  safetyChecksPassed        Boolean   @default(false)
+  consultantReviewRequired  Boolean   @default(true)
+  consultantId              String?
+  approvalRoute             String?
+  createdAt                 DateTime  @default(now())
+
+  // Relations
+  actionQueue               PipelineActionQueue[]
+
+  @@index([eventId])
+  @@map("pipeline_decisions")
+}
+
+model PipelineActionQueue {
+  id                        String    @id @default(cuid())
+  queueTraceId              String?   @unique          // qtrace_abc123
+  decisionId                String
+  decision                  PipelineDecision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  actionId                  String                     // ACT-REV-001, ACT-A2P-002, etc.
+  executionLane             String                     // automatic, approval_required, blocked, manual
+  parameters                Json      @default("{}")
+  status                    String    @default("pending")
+  dueAt                     DateTime?
+
+  // Consultant context
+  consultantId              String?
+  consultantReviewRequired  Boolean   @default(false)
+  approvalRoute             String?
+
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  // Relations
+  executions                PipelineExecution[]
+
+  @@index([decisionId])
+  @@map("pipeline_action_queue")
+}
+
+model PipelineExecution {
+  id                      String    @id @default(cuid())
+  actionExecutionId       String    @unique            // exec_abc123
+  actionQueueId           String
+  actionQueue             PipelineActionQueue @relation(fields: [actionQueueId], references: [id], onDelete: Cascade)
+  actionId                String
+  executionMode           String
+  executionStatus         String    @default("created_pending_route")
+  generatedOutput         String?
+  approvalStatus          String?
+  approvalOwner           String?
+  requiresHumanApproval   Boolean   @default(false)
+  approvedAt              DateTime?
+  rejectedAt              DateTime?
+  humanEdited             Boolean   @default(false)
+  editedOutput            String?
+  postedExternally        Boolean   @default(false)
+  failureReason           String?
+  retryCount              Int       @default(0)
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  // Relations
+  approvalPackages        PipelineApprovalPackage[]
+  complaintLogs           PipelineComplaintThemeLog[]
+
+  @@index([actionQueueId])
+  @@map("pipeline_executions")
+}
+
+model PipelineApprovalPackage {
+  id                  String    @id @default(cuid())
+  approvalPackageId   String    @unique              // approval_pkg_abc123
+  executionId         String
+  execution           PipelineExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  owner               String
+  status              String    @default("pending_approval")
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([executionId])
+  @@map("pipeline_approval_packages")
+}
+
+model PipelineOutcome {
+  id                      String    @id @default(cuid())
+  outcomeId               String    @unique            // out_abc123
+  eventId                 String
+  decisionId              String
+  actionQueueId           String
+  executionId             String
+  actionId                String
+  outcomeType             String
+  outcomeStatus           String
+  timeToResponseHours     Float?
+  approvalWaitHours       Float?
+  humanEdited             Boolean   @default(false)
+  postedExternally        Boolean   @default(false)
+  doNotCountAsSuccess     Boolean   @default(false)
+  details                 Json?
+  feedbackId              String?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  @@map("pipeline_outcomes")
+}
+
+model PipelineFeedbackRecord {
+  id                        String    @id @default(cuid())
+  feedbackId                String    @unique          // fb_abc123
+  eventId                   String
+  decisionId                String
+  actionQueueId             String
+  executionId               String
+  outcomeId                 String
+  actionId                  String
+  signalValidity            String?                    // likely_valid | invalid | uncertain
+  decisionQuality           String?                    // reasonable_so_far | questionable
+  actionExecutionQuality    String?                    // worked_as_expected | did_not_work
+  outcomeResult             String?                    // completed | partial | failed | blocked
+  humanReviewState          String?                    // waiting | approved | rejected | edited
+  tuningCandidates          Json      @default("[]")
+  productionRulesChanged    Boolean   @default(false)
+  details                   Json?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  @@map("pipeline_feedback_records")
+}
+
+model PipelineComplaintThemeLog {
+  id          String    @id @default(cuid())
+  eventId     String
+  event       PipelineEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  execId      String
+  execution   PipelineExecution @relation(fields: [execId], references: [id], onDelete: Cascade)
+  theme       String
+  createdAt   DateTime  @default(now())
+
+  @@index([eventId])
+  @@map("pipeline_complaint_theme_logs")
+}
+
+// Progressive identity resolution profiles (separate from Contact)
+model PipelineCustomerProfile {
+  id              String    @id @default(cuid())
+  companyId       String
+  company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  externalId      String?                              // CRM reference
+  firstName       String?
+  lastName        String?
+  displayName     String?
+  email           String?
+  phoneNumber     String?
+  tags            Json      @default("[]")
+  metadata        Json      @default("{}")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  events          PipelineEvent[]
+
+  @@unique([companyId, phoneNumber])
+  @@unique([companyId, email])
+  @@index([companyId])
+  @@map("pipeline_customer_profiles")
+}
+
+// Pipeline-specific business configuration
+model PipelineBusinessConfig {
+  id                              String    @id @default(cuid())
+  companyId                       String    @unique
+  company                         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  consultantId                    String?
+  consultantName                  String?
+  consultantReviewRequired        Boolean   @default(true)
+  primaryInternalOwner            String    @default("consultant")
+  approvalRoute                   String    @default("consultant_then_client")
+  autoNotifyConsultant            Boolean   @default(true)
+  autoNotifyBusinessOwner         Boolean   @default(false)
+  reviewReplyPolicy               String    @default("draft_only")
+  publicResponseRequiresApproval  Boolean   @default(true)
+  brandTone                       String    @default("professional")
+  slaResponseHours                Int       @default(24)
+  officeTimezone                  String    @default("UTC")
+  maxRetries                      Int       @default(3)
+  maxReplyLength                  Int       @default(150)
+  active                          Boolean   @default(true)
+  createdAt                       DateTime  @default(now())
+  updatedAt                       DateTime  @updatedAt
+
+  @@map("pipeline_business_configs")
+}
+
+// Client automation preferences
+model PipelineOrchestratorProfile {
+  id                      String    @id @default(cuid())
+  companyId               String    @unique
+  company                 Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  automationLevel         String    @default("standard") // conservative | standard | aggressive
+  disabledSignalIds       Json      @default("[]")
+  domainExecutionModes    Json      @default("{}")       // e.g. {"REV": "approval_required"}
+  domainOwners            Json      @default("{}")       // e.g. {"REV": "business_owner"}
+  preferredReplyLength    String    @default("medium")
+  includeBusinessName     Boolean   @default(true)
+  includeCallToAction     Boolean   @default(true)
+  active                  Boolean   @default(true)
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  @@map("pipeline_orchestrator_profiles")
+}
+
+// Action definitions
+model PipelineActionLibrary {
+  id                      String    @id @default(cuid())
+  actionId                String    @unique              // ACT-REV-001, ACT-A2P-002, etc.
+  name                    String
+  domain                  String                         // REV, TASK
+  isPublicFacing          Boolean   @default(false)
+  callsA2p                Boolean   @default(false)
+  defaultExecutionMode    String    @default("approval_required")
+  defaultOwner            String    @default("system")
+  requiredParams          Json      @default("[]")
+  active                  Boolean   @default(true)
+  createdAt               DateTime  @default(now())
+
+  @@map("pipeline_action_library")
+}
+
+// Signal → Action mappings
+model PipelineSignalActionMapping {
+  id              String    @id @default(cuid())
+  signalRuleId    String                               // SIG-TRUST-001, etc.
+  actionId        String                               // ACT-REV-001, etc.
+  isPrimary       Boolean   @default(false)
+  isSecondary     Boolean   @default(false)
+  companyId       String?                              // null = global
+  active          Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+
+  @@index([signalRuleId])
+  @@map("pipeline_signal_action_mappings")
+}
+
+// Safety compliance rules
+model PipelineSafetyRule {
+  id            String    @id @default(cuid())
+  ruleId        String    @unique                      // SAF-001, SAF-002
+  ruleName      String
+  conditions    Json
+  blockReason   String
+  severity      Int       @default(1)
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+
+  @@map("pipeline_safety_rules")
+}
+
+// Orchestrator routing overrides
+model PipelineOrchestratorRule {
+  id              String    @id @default(cuid())
+  ruleId          String    @unique
+  ruleName        String
+  signalRuleId    String
+  conditions      Json?
+  executionMode   String?
+  owner           String?
+  suppressSignals Json?     @default("[]")
+  scope           String    @default("global")         // global | client
+  companyId       String?
+  isSafetyRule    Boolean   @default(false)
+  active          Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+
+  @@map("pipeline_orchestrator_rules")
 }
