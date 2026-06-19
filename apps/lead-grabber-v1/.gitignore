@@ -28,3 +28,4 @@ uploads/
 
 .pnpm-store/
 voip/
+clearsky-db-client

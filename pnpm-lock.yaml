@@ -25,6 +25,9 @@ importers:
       bcryptjs:
         specifier: ^2.4.3
         version: 2.4.3
+      clearsky-db-client:
+        specifier: link:./clearsky-db-client
+        version: link:clearsky-db-client
       firebase-admin:
         specifier: ^13.8.0
         version: 13.10.0

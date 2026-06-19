@@ -13,7 +13,7 @@
 		"lint": "prettier --check . && eslint .",
 		"test": "vitest run",
 		"test:watch": "vitest",
-		"db:generate": "prisma generate && node -e \"const fs = require('fs'); const p = './node_modules/clearsky-db-client/package.json'; const pkg = JSON.parse(fs.readFileSync(p)); pkg.type = 'commonjs'; fs.writeFileSync(p, JSON.stringify(pkg, null, 2));\"",
+		"db:generate": "prisma generate && node -e \"const fs = require('fs'); const p = './clearsky-db-client/package.json'; const pkg = JSON.parse(fs.readFileSync(p)); pkg.type = 'commonjs'; fs.writeFileSync(p, JSON.stringify(pkg, null, 2));\"",
 		"db:push": "prisma db push",
 		"db:migrate": "prisma migrate dev",
 		"db:studio": "prisma studio"
@@ -53,6 +53,7 @@
 	},
 	"dependencies": {
 		"@prisma/client": "^5.20.0",
+		"clearsky-db-client": "link:./clearsky-db-client",
 		"@sveltejs/adapter-node": "^5.2.10",
 		"@telnyx/webrtc": "^2.27.1",
 		"@types/uuid": "^11.0.0",

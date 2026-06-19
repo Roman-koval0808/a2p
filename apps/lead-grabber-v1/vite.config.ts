@@ -17,6 +17,7 @@ export default defineConfig({
 		minify: true,
 		sourcemap: true,
 		rollupOptions: {
+			external: (id) => id.includes('clearsky-db-client') || id.includes('firebase-admin') || id.includes('@telnyx/webrtc'),
 			output: {
 				manualChunks: {
 					vendor: ['svelte'],
