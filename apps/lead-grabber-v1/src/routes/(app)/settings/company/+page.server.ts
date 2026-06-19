@@ -66,9 +66,19 @@ export const load: PageServerLoad = async ({ locals }) => {
 			} catch {
 				settings = {
 					branding: { primary_color: '#000000' },
-					notifications: { email: true, web: true }
+					notifications: { email: true, web: true, sms: false, phone_numbers: [] }
 				};
 			}
+		}
+
+		// Ensure all properties exist
+		if (settings && typeof settings === 'object') {
+			const s = settings as any;
+			if (!s.notifications) s.notifications = {};
+			if (s.notifications.email === undefined) s.notifications.email = true;
+			if (s.notifications.web === undefined) s.notifications.web = true;
+			if (s.notifications.sms === undefined) s.notifications.sms = false;
+			if (!s.notifications.phone_numbers) s.notifications.phone_numbers = [];
 		}
 
 		// Get pending invites
@@ -92,7 +102,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 				owner: company.ownerId,
 				settings: settings || {
 					branding: { primary_color: '#000000' },
-					notifications: { email: true, web: true }
+					notifications: { email: true, web: true, sms: false, phone_numbers: [] }
 				}
 			},
 			members: members.map((member) => ({
@@ -140,6 +150,8 @@ export const actions: Actions = {
 			const logo = formData.get('logo') as File;
 			const emailNotifications = formData.get('emailNotifications') === 'true';
 			const webNotifications = formData.get('webNotifications') === 'true';
+			const smsNotifications = formData.get('smsNotifications') === 'true';
+			const notificationPhonesRaw = formData.getAll('notificationPhones');
 
 			// Get current company
 			const company = await prisma.company.findUnique({
@@ -168,6 +180,10 @@ export const actions: Actions = {
 				});
 			}
 
+			const notificationPhones = notificationPhonesRaw
+				.map((num) => num.toString().trim())
+				.filter(Boolean);
+
 			const updateData: any = {
 				name,
 				website: website || null,
@@ -175,7 +191,9 @@ export const actions: Actions = {
 					branding: { primary_color: primaryColor },
 					notifications: {
 						email: emailNotifications,
-						web: webNotifications
+						web: webNotifications,
+						sms: smsNotifications,
+						phone_numbers: notificationPhones
 					},
 					webhook_url: `${PUBLIC_BASE_URL}/api/telnyx/webhook`
 				}
