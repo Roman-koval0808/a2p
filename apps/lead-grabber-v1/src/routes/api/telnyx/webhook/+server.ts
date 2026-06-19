@@ -249,7 +249,8 @@ export const POST: RequestHandler = async ({ request }) => {
 						...(companyIdForThread && { companyId: companyIdForThread }),
 						messages: [...prevMessages, newMsg],
 						status: 'new',
-						customerName
+						customerName,
+						updated: new Date()
 					}
 				});
 			} else {
