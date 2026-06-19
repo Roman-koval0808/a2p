@@ -411,9 +411,9 @@ export async function ingestTelemetryEvent(req: Request, res: Response) {
             },
             occurredAt: new Date()
           }
-        }).then((smsEvent) => {
+        }).then((smsEvent: any) => {
           console.log(`[CDP] Saved sms_sent event: ${smsEvent.id}`);
-        }).catch((err) => {
+        }).catch((err: any) => {
           console.error('[CDP] Failed to save sms_sent event:', err.message);
         });
 
@@ -455,9 +455,9 @@ export async function ingestTelemetryEvent(req: Request, res: Response) {
             },
             occurredAt: new Date()
           }
-        }).then((smsEvent) => {
+        }).then((smsEvent: any) => {
           console.log(`[CDP] Saved sms_sent event: ${smsEvent.id}`);
-        }).catch((err) => {
+        }).catch((err: any) => {
           console.error('[CDP] Failed to save sms_sent event:', err.message);
         });
 
@@ -733,12 +733,12 @@ export async function getTenantEvents(req: Request, res: Response) {
 
     // Freshen any expired recording URLs before responding
     const freshPayloads = await Promise.all(
-      events.map((ev) => freshenPayloadRecordingUrls(ev.payload as any))
+      events.map((ev: any) => freshenPayloadRecordingUrls(ev.payload as any))
     );
 
     return res.status(200).json({
       success: true,
-      data: events.map((ev, i) => ({
+      data: events.map((ev: any, i: number) => ({
         id: ev.id,
         eventType: ev.eventType,
         intentBucket: ev.customerProfile.intentBucket,
@@ -759,7 +759,7 @@ export async function getTenantEvents(req: Request, res: Response) {
         pages: Math.ceil(total / limitNum),
       },
       filters: {
-        eventTypes: allEventTypes.map((e) => e.eventType),
+        eventTypes: allEventTypes.map((e: any) => e.eventType),
         buckets: ['emergency', 'active', 'comparison', 'research', 'unclassified'],
       },
     });

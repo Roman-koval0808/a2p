@@ -60,7 +60,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 					between_words_silence_millis: 1000,
 					greeting_duration_millis: 1000,
 					initial_silence_millis: 1000,
-					maximum_number_of_words: 1000,
+					maximum_number_of_words: 50,
 					maximum_word_length_millis: 2000,
 					silence_threshold: 512,
 					greeting_total_analysis_time_millis: 50000,

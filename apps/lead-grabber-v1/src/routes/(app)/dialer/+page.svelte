@@ -5,19 +5,26 @@
 	import { goto } from '$app/navigation';
 	import { normalizePhoneNumber } from '$lib/utils/phone';
 	import { filterContacts } from '$lib/utils/contacts-filter';
+	import { browser } from '$app/environment';
 
 	let { data } = $props();
 
 	let phoneNumber = $state('');
 	let isDialing = $state(false);
 	let isCallActive = $state(false);
-	let callId = $state('');
-	let callStatus = $state('');
+	let callStatus = $state('Initializing...');
 	let activeTab = $state('Phone');
 	let searchQuery = $state('');
 
-	// Optional client ID for tracking purposes
-	let clientId = 'test-client';
+	const phoneNumbers = $derived(data.phoneNumbers || []);
+	let selectedFromNumber = $state('');
+
+	// Set initial selected number when phoneNumbers are loaded
+	$effect(() => {
+		if (phoneNumbers.length > 0 && !selectedFromNumber) {
+			selectedFromNumber = phoneNumbers[0].phoneNumber;
+		}
+	});
 
 	// Read phone number from URL params
 	$effect(() => {
@@ -28,9 +35,104 @@
 		}
 	});
 
+	// Initialize WebRTC client on Mount/Effect (Browser-only)
+	$effect(() => {
+		if (!browser) return;
+
+		let clientInstance: any = null;
+
+		async function initTelnyx() {
+			try {
+				const res = await fetch('/api/sip/credentials');
+				const json = await res.json();
+				if (!json.success || !json.data.webrtcToken) {
+					console.warn('Failed to retrieve WebRTC credentials or token');
+					callStatus = 'Registration failed';
+					toast.error('Calling registration failed: WebRTC credentials not provisioned.');
+					return;
+				}
+
+				const { TelnyxRTC } = await import('@telnyx/webrtc');
+				clientInstance = new TelnyxRTC({
+					login_token: json.data.webrtcToken
+				});
+
+				// Bind target audio element for incoming media streams
+				clientInstance.remoteElement = 'remoteAudio';
+
+				clientInstance.on('telnyx.ready', () => {
+					console.log('Telnyx RTC ready');
+					callStatus = 'Ready';
+				});
+
+				clientInstance.on('telnyx.error', (error: any) => {
+					console.error('Telnyx RTC error:', error);
+					callStatus = 'Registration error';
+				});
+
+				clientInstance.on('telnyx.notification', (notification: any) => {
+					if (notification.type === 'callUpdate') {
+						const call = notification.call;
+						currentCall = call;
+
+						switch (call.state) {
+							case 'ringing':
+								console.log(`Incoming call from ${call.remotePartyNumber}`);
+								callStatus = `Ringing: ${call.remotePartyNumber}`;
+								if (confirm(`Answer incoming call from ${call.remotePartyNumber}?`)) {
+									call.answer();
+									isCallActive = true;
+									callStatus = 'Connected';
+								} else {
+									call.hangup();
+									isCallActive = false;
+									currentCall = null;
+									callStatus = 'Ready';
+								}
+								break;
+							case 'active':
+								console.log('Call is active');
+								isCallActive = true;
+								isDialing = false;
+								callStatus = 'Connected';
+								break;
+							case 'hangup':
+								console.log('Call ended');
+								isCallActive = false;
+								isDialing = false;
+								currentCall = null;
+								callStatus = 'Ready';
+								toast.success('Call ended');
+								break;
+						}
+					}
+				});
+
+				clientInstance.connect();
+				telnyxClient = clientInstance;
+			} catch (err) {
+				console.error('Error initializing WebRTC client:', err);
+				callStatus = 'Initialization error';
+			}
+		}
+
+		initTelnyx();
+
+		return () => {
+			if (clientInstance) {
+				clientInstance.disconnect();
+			}
+		};
+	});
+
 	async function initiateCall() {
 		if (!phoneNumber || phoneNumber.length < 10) {
 			toast.error('Please enter a valid phone number');
+			return;
+		}
+
+		if (!telnyxClient) {
+			toast.error('WebRTC client is not ready');
 			return;
 		}
 
@@ -38,62 +140,39 @@
 		callStatus = 'Dialing...';
 
 		try {
-			const response = await fetch('/api/telnyx/dial', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					to: phoneNumber,
-					clientId: clientId
-				})
-			});
-
-			const result = await response.json();
-
-			if (result.success) {
-				toast.success('Call initiated');
-				callId = result.callId;
-				isCallActive = true;
-				callStatus = 'Connected';
-			} else {
-				toast.error('Failed to place call: ' + result.error);
-				callStatus = 'Failed';
+			// Format target to E.164
+			let target = phoneNumber;
+			if (!target.startsWith('+')) {
+				const digits = target.replace(/\D/g, '');
+				if (digits.length === 10) {
+					target = '+1' + digits;
+				} else {
+					target = '+' + digits;
+				}
 			}
+
+			currentCall = telnyxClient.newCall({
+				destinationNumber: target,
+				callerNumber: selectedFromNumber,
+				audio: true,
+				video: false
+			});
 		} catch (error) {
 			console.error('Call error:', error);
 			toast.error('Error placing call');
 			callStatus = 'Error';
-		} finally {
 			isDialing = false;
 		}
 	}
 
 	function hangup() {
-		if (!callId) return;
-
-		callStatus = 'Hanging up...';
-
-		fetch('/api/telnyx/hangup', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ callId })
-		})
-			.then((response) => response.json())
-			.then((result) => {
-				if (result.success) {
-					toast.success('Call ended');
-				} else {
-					toast.error('Failed to hang up: ' + result.error);
-				}
-			})
-			.catch((error) => {
-				console.error('Hangup error:', error);
-				toast.error('Error hanging up call');
-			})
-			.finally(() => {
-				isCallActive = false;
-				callId = '';
-				callStatus = '';
-			});
+		if (currentCall) {
+			currentCall.hangup();
+		}
+		isCallActive = false;
+		isDialing = false;
+		currentCall = null;
+		callStatus = 'Ready';
 	}
 
 	const contacts = $derived(data.contacts);
@@ -161,6 +240,9 @@
 
 	const filteredContacts = $derived(filterContacts(contacts, searchQuery));
 </script>
+
+<!-- Hidden HTML audio element required for WebRTC audio playback -->
+<audio id="remoteAudio" autoplay></audio>
 
 <div class="min-h-screen bg-[#ECEEF3] p-0">
 	<div class="p-4">
@@ -260,6 +342,26 @@
 
 			<!-- Right Panel: Dial Pad -->
 			<div class="h-[504px] w-1/2 rounded-lg bg-white p-6">
+				<!-- Call Status Display -->
+				{#if callStatus}
+					<div class="text-center text-sm font-semibold mb-2 text-[#577AB7] animate-pulse">
+						{callStatus}
+					</div>
+				{/if}
+
+				<!-- Outbound Caller ID Selector -->
+				<div class="mb-4 flex items-center justify-center gap-2">
+					<span class="text-xs text-gray-500 font-sans">Outbound Number:</span>
+					<select
+						bind:value={selectedFromNumber}
+						class="rounded border border-[#BEBEBE] bg-white px-2 py-1 text-xs font-sans text-gray-700 outline-none"
+					>
+						{#each phoneNumbers as num}
+							<option value={num.phoneNumber}>{num.phoneNumber} {num.connectionLabel ? `(${num.connectionLabel})` : ''}</option>
+						{/each}
+					</select>
+				</div>
+
 				<!-- Input Field -->
 				<div class="mb-6 text-center">
 					<input
@@ -300,14 +402,24 @@
 							+
 						</button>
 
-						<!-- Call Button -->
-						<button
-							class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#24A103] transition hover:bg-[#1f8a02]"
-							onclick={call}
-							type="button"
-						>
-							<Phone class="h-5 w-5 text-white" />
-						</button>
+						<!-- Call/Hangup Button -->
+						{#if isCallActive || isDialing}
+							<button
+								class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-600 transition hover:bg-red-700"
+								onclick={hangup}
+								type="button"
+							>
+								<Phone class="h-5 w-5 text-white rotate-[135deg]" />
+							</button>
+						{:else}
+							<button
+								class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#24A103] transition hover:bg-[#1f8a02]"
+								onclick={call}
+								type="button"
+							>
+								<Phone class="h-5 w-5 text-white" />
+							</button>
+						{/if}
 
 						<!-- Delete Button -->
 						<button
@@ -349,3 +461,4 @@
 		</div>
 	{/if}
 </div>
+

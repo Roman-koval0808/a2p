@@ -52,9 +52,9 @@
 		"vitest": "^2.1.0"
 	},
 	"dependencies": {
-		"clearsky-db-client": "*",
 		"@prisma/client": "^5.20.0",
 		"@sveltejs/adapter-node": "^5.2.10",
+		"@telnyx/webrtc": "^2.27.1",
 		"@types/uuid": "^11.0.0",
 		"bcryptjs": "^2.4.3",
 		"firebase-admin": "^13.8.0",
