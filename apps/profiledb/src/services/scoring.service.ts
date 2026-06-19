@@ -56,13 +56,13 @@ export function getNextBucket(
   } else {
     const hasTwoActiveSignals = (options?.activeSignalsCount ?? 0) >= 2;
     const isConversionEvent = options?.isConversion || eventLower.includes('booking') || eventLower.includes('submit');
-    const hasConversionAndScore = scoreLive >= 50 && isConversionEvent;
+    const hasConversionAndScore = scoreLive >= 45 && isConversionEvent;
 
     if (hasConversionAndScore || hasTwoActiveSignals) {
       targetBucket = 'active';
-    } else if (scoreLive >= 35 || eventLower.includes('pricing')) {
+    } else if (scoreLive >= 25 || eventLower.includes('pricing') || eventLower.includes('review')) {
       targetBucket = 'comparison';
-    } else if (scoreLive >= 9 || eventLower.includes('view') || eventLower.includes('click')) {
+    } else if (scoreLive >= 9 || eventLower.includes('view') || eventLower.includes('click') || eventLower.includes('scroll')) {
       targetBucket = 'research';
     }
   }
@@ -112,10 +112,17 @@ export function evaluateDemotion(
     return { demoted: false, newBucket: intentBucket, scoreLive, decayPct, inGrace };
   }
 
-  const rule = DEMOTION_RULES[intentBucket];
-  if (!rule || scoreLive >= rule.threshold) {
-    return { demoted: false, newBucket: intentBucket, scoreLive, decayPct, inGrace };
+  let currentBucket = intentBucket;
+  let demoted = false;
+
+  while (true) {
+    const rule = DEMOTION_RULES[currentBucket];
+    if (!rule || scoreLive >= rule.threshold) {
+      break;
+    }
+    currentBucket = rule.demotesTo;
+    demoted = true;
   }
 
-  return { demoted: true, newBucket: rule.demotesTo, scoreLive, decayPct, inGrace };
+  return { demoted, newBucket: currentBucket, scoreLive, decayPct, inGrace };
 }

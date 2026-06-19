@@ -43,7 +43,7 @@ describe('ClearSky Scoring & Intent Pipeline - In-Memory Unit Tests', () => {
   // Step 1: Page view pricing (+8)
   const score1 = 8;
   const bucketC1 = getNextBucket('unclassified', score1, 'page_view_pricing');
-  assert.strictEqual(bucketC1, 'research', 'Pricing view should place anonymous visitor in Research (score >= 9 or pricing tag)');
+  assert.strictEqual(bucketC1, 'comparison', 'Pricing view should place visitor in Comparison bucket');
 
   // Step 2: Form submit (+20)
   const score2 = score1 + 20; // 28
