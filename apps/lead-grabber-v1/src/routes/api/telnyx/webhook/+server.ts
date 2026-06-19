@@ -13,6 +13,35 @@ async function handleWebhook(request: Request) {
 	return await POST({ request } as Parameters<typeof POST>[0]);
 }
 
+function extractNameFromSms(content: string): string | null {
+	if (!content) return null;
+	const clauses = content.split(/[.,\/#!$%\^&\*;:{}=\-_`~()\n?]/);
+	const patterns = [
+		/(?:I'm|I am)\s+(?:new\s+customer,\s+)?([A-Za-z]+)/i,
+		/this is\s+([a-zA-Z]+(?:\s+[a-zA-Z]+)?)/i,
+		/my name is\s+([a-zA-Z]+(?:\s+[a-zA-Z]+)?)/i,
+		/([a-zA-Z]+(?:\s+[a-zA-Z]+)?)\s+here/i,
+		/([a-zA-Z]+(?:\s+[a-zA-Z]+)?)\s+speaking/i
+	];
+	const blacklist = ['a', 'the', 'an', 'some', 'someone', 'here', 'speaking', 'there', 'just', 'please', 'we', 'you', 'they', 'our', 'my', 'your', 'about', 'not', 'this', 'is', 'am', 'hello', 'hi', 'good', 'morning', 'afternoon', 'evening'];
+	
+	for (const clause of clauses) {
+		const trimmedClause = clause.trim();
+		for (const pattern of patterns) {
+			const match = trimmedClause.match(pattern);
+			if (match && match[1]) {
+				const candidate = match[1].trim();
+				const words = candidate.split(/\s+/);
+				const validWords = words.filter(w => !blacklist.includes(w.toLowerCase()));
+				if (validWords.length > 0) {
+					return validWords.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+				}
+			}
+		}
+	}
+	return null;
+}
+
 export const POST: RequestHandler = async ({ request }) => {
 	try {
 		const rawBody = await request.text();
@@ -42,58 +71,75 @@ export const POST: RequestHandler = async ({ request }) => {
 			return json({ success: true, message: 'Ignored outbound event' });
 		}
 
-		// RUN SVELTEKIT INTERNAL AI SIGNALS PIPELINE:
-		PipelineSimulator.run({
-			author_name: smsSender,
-			customer_phone: smsSender !== 'Anonymous' ? smsSender : undefined,
-			rating: 0,
-			comment: smsText,
-			mode: 'sms',
-			sessionId: smsId
-		}).then(async (pipelineResult) => {
-			if (!pipelineResult.success) {
-				console.error('❌ SMS Pipeline run failed:', pipelineResult.error);
-				return;
-			}
-
-			// Persist the full pipeline package into ProfileDB
-			const profiledbUrl = process.env.PROFILEDB_URL || 'http://localhost:6277';
-			const res = await fetch(`${profiledbUrl}/api/v1/telemetry/events`, {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					'Authorization': 'Bearer clearsky_pixel_api_key'
-				},
-				body: JSON.stringify({
-					tenantSlug: 'clearsky-demo',
-					fingerprintId: smsId,
-					eventType: 'sms_received',
-					pageUrl: null,
-					scoreDelta: 10,
-					phone: smsSender !== 'Anonymous' ? smsSender : null,
-					name: smsSender !== 'Anonymous' ? smsSender : null,
-					payload: {
-						provider: 'telnyx_sms',
-						event_type: 'sms_received',
-						textContent: smsText,
-						rating: 0,
-						author_name: smsSender,
-						customer_phone: smsSender !== 'Anonymous' ? smsSender : null,
-						pipeline_logs: pipelineResult.logs,
-						signals: pipelineResult.signals,
-						enrichments: pipelineResult.enrichments,
-						decision: pipelineResult.decision,
-						execution: pipelineResult.execution,
-						outcome: pipelineResult.outcome,
-						feedback: pipelineResult.feedback,
-						ai_protocol: pipelineResult.ai_protocol
-					}
-				})
+		// RUN SVELTEKIT INTERNAL AI SIGNALS PIPELINE synchronously:
+		let pipelineResult = null;
+		try {
+			pipelineResult = await PipelineSimulator.run({
+				author_name: smsSender !== 'Anonymous' ? smsSender : 'Anonymous',
+				customer_phone: smsSender !== 'Anonymous' ? smsSender : undefined,
+				rating: 0,
+				comment: smsText,
+				mode: 'sms',
+				sessionId: smsId
 			});
-			if (res.ok) {
-				console.log('📡 Pipeline executed and SMS event logged to ProfileDB successfully');
-			} else {
-				console.error('❌ Failed to log SMS event to ProfileDB:', res.statusText);
+		} catch (err) {
+			console.error('[SMS Pipeline Error]', err);
+		}
+
+		const extractedName = pipelineResult?.ai_protocol?.raw_response?.customer_name || null;
+		const pipelineAuthorName = extractedName || smsSender;
+		
+		const lowerText = smsText.toLowerCase();
+		const emergencyKeywords = ['burst', 'flood', 'leak', 'emergency', 'pipe', 'water', 'immediate', 'urgent'];
+		const bookingKeywords = ['book', 'appointment', 'estimate', 'quote', 'schedule', 'renovate', 'renovation', 'toilet', 'shower', 'fixture'];
+		const hasEmergency = emergencyKeywords.some(kw => lowerText.includes(kw));
+		const scoreDelta = hasEmergency ? 95 : (bookingKeywords.some(kw => lowerText.includes(kw)) ? 20 : 10);
+
+		if (pipelineResult && pipelineResult.success) {
+			// Persist the full pipeline package into ProfileDB
+			try {
+				const profiledbUrl = process.env.PROFILEDB_URL || 'http://localhost:6277';
+				const res = await fetch(`${profiledbUrl}/api/v1/telemetry/events`, {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+						'Authorization': 'Bearer clearsky_pixel_api_key'
+					},
+					body: JSON.stringify({
+						tenantSlug: 'clearsky-demo',
+						fingerprintId: smsId,
+						eventType: 'sms_received',
+						pageUrl: null,
+						scoreDelta: scoreDelta,
+						phone: smsSender !== 'Anonymous' ? smsSender : null,
+						name: extractedName || (smsSender !== 'Anonymous' ? smsSender : null),
+						payload: {
+							provider: 'telnyx_sms',
+							event_type: 'sms_received',
+							textContent: smsText,
+							rating: 0,
+							author_name: extractedName || smsSender,
+							customer_phone: smsSender !== 'Anonymous' ? smsSender : null,
+							contains_emergency_keywords: hasEmergency,
+							urgency_level: hasEmergency ? 'high' : 'medium',
+							pipeline_logs: pipelineResult.logs,
+							signals: pipelineResult.signals,
+							enrichments: pipelineResult.enrichments,
+							decision: pipelineResult.decision,
+							execution: pipelineResult.execution,
+							outcome: pipelineResult.outcome,
+							feedback: pipelineResult.feedback,
+							ai_protocol: pipelineResult.ai_protocol
+						}
+					})
+				});
+				if (res.ok) {
+					console.log('📡 Pipeline executed and SMS event logged to ProfileDB successfully');
+				} else {
+					console.error('❌ Failed to log SMS event to ProfileDB:', res.statusText);
+				}
+			} catch (dbErr) {
+				console.error('❌ ProfileDB logging error:', dbErr);
 			}
 
 			// SMS Notification for event alerts
@@ -112,7 +158,7 @@ export const POST: RequestHandler = async ({ request }) => {
 					);
 					if (action) {
 						console.log(`[SMS Webhook Pipeline] Owner notification triggered for SMS from ${smsSender}`);
-						const alertMsg = `[Alert] Urgent SMS from ${smsSender}: "${smsText.substring(0, 100)}${smsText.length > 100 ? '...' : ''}"`;
+						const alertMsg = `[Alert] Urgent SMS from ${pipelineAuthorName}: "${smsText.substring(0, 100)}${smsText.length > 100 ? '...' : ''}"`;
 						const { sendOwnerSmsAlert } = await import('$lib/server/sms-alert');
 						await sendOwnerSmsAlert(companyId, alertMsg);
 					}
@@ -120,7 +166,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			} catch (err) {
 				console.error('[SMS Pipeline SMS Alert Error]', err);
 			}
-		}).catch(err => console.error('[SMS Pipeline Error]', err));
+		}
 
 		// Forward to A2P backend when configured (replaces local SMS/messages/comm-log handling)
 		if (isA2pEnabled()) {
@@ -185,6 +231,9 @@ export const POST: RequestHandler = async ({ request }) => {
 
 			if (existingMessage) {
 				customerName = existingMessage.customerName ?? 'Unknown Customer';
+				if ((customerName === 'Unknown Customer' || customerName.startsWith('+')) && extractedName) {
+					customerName = extractedName;
+				}
 				const companyIdForThread = companyId ?? existingMessage.companyId;
 				const prevMessages = (existingMessage.messages as Array<Record<string, unknown>>) ?? [];
 				const newMsg = {
@@ -199,7 +248,8 @@ export const POST: RequestHandler = async ({ request }) => {
 					data: {
 						...(companyIdForThread && { companyId: companyIdForThread }),
 						messages: [...prevMessages, newMsg],
-						status: 'new'
+						status: 'new',
+						customerName
 					}
 				});
 			} else {
@@ -207,8 +257,7 @@ export const POST: RequestHandler = async ({ request }) => {
 					console.log('Inbound SMS to unassigned number, skipping thread creation');
 					return json({ success: true });
 				}
-				const nameMatch = content.match(/(?:I'm|I am)\s+(?:new\s+customer,\s+)?([A-Za-z]+)/i);
-				customerName = nameMatch?.[1] ?? 'Unknown Customer';
+				customerName = extractedName ?? 'Unknown Customer';
 
 				await prisma.message.create({
 					data: {
