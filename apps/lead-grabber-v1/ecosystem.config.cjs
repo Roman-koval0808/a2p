@@ -3,6 +3,7 @@ module.exports = {
 		{
 			name: 'lead-grabber-v1',
 			script: './build/index.js',
+			node_args: '--env-file=.env',
 			instances: 1,
 			exec_mode: 'fork',
 			env: {
