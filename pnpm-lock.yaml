@@ -42,7 +42,7 @@ importers:
         version: 6.10.1
       openai:
         specifier: ^6.44.0
-        version: 6.44.0(ws@8.21.0)
+        version: 6.44.0(ws@8.21.0)(zod@4.4.3)
       pg:
         specifier: ^8.13.1
         version: 8.21.0
@@ -58,6 +58,9 @@ importers:
       ws:
         specifier: ^8.18.3
         version: 8.21.0
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@sveltejs/adapter-auto':
         specifier: ^3.0.0
@@ -2971,6 +2974,9 @@ packages:
   zimmerframe@1.1.4:
     resolution: {integrity: sha512-B58NGBEoc8Y9MWWCQGl/gq9xBCe4IiKM0a2x7GZdQKOW5Exr8S1W24J6OgM1njK8xCRGvAJIL/MxXHf6SkmQKQ==}
 
+  zod@4.4.3:
+    resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
+
 snapshots:
 
   '@alloc/quick-lru@5.2.0': {}
@@ -4973,9 +4979,10 @@ snapshots:
       wrappy: 1.0.2
     optional: true
 
-  openai@6.44.0(ws@8.21.0):
+  openai@6.44.0(ws@8.21.0)(zod@4.4.3):
     optionalDependencies:
       ws: 8.21.0
+      zod: 4.4.3
 
   optionator@0.9.4:
     dependencies:
@@ -5828,3 +5835,5 @@ snapshots:
   yocto-queue@0.1.0: {}
 
   zimmerframe@1.1.4: {}
+
+  zod@4.4.3: {}
