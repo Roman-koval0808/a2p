@@ -82,6 +82,14 @@
 		}
 	});
 
+	$effect(() => {
+		if (chatMessages && messagesContainer) {
+			setTimeout(() => {
+				messagesContainer.scrollTop = messagesContainer.scrollHeight;
+			}, 50);
+		}
+	});
+
 	// Add this state variable with the other state declarations
 	let companyMembers = $state<{ id: string; name: string }[]>([]);
 
@@ -234,10 +242,12 @@
 				messages = [...messages, ...newMessages];
 			}
 
-			// Clean up selected message if it was deleted
+			// Clean up selected message if it was deleted, or update its reference to trigger Svelte reactivity
 			if (selectedMessage) {
-				const stillExists = messages.some((m) => m.thread_id === selectedMessage.thread_id);
-				if (!stillExists) {
+				const updatedMsg = messages.find((m) => m.thread_id === selectedMessage.thread_id);
+				if (updatedMsg) {
+					selectedMessage = updatedMsg;
+				} else {
 					selectedMessage = null;
 					chatMessages = [];
 				}
