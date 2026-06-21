@@ -280,20 +280,35 @@ async function syncEmergencyMessages(companyId: string) {
 				}
 			}
 
-			// If customerPhone is a valid phone number, check if a native thread already exists
-			const isPhone = customerPhone && customerPhone.startsWith('+');
-			const existingPhoneMessage = isPhone 
-				? await prisma.message.findFirst({
-						where: {
-							OR: [
-								{ threadId: customerPhone },
-								{ customerPhone: customerPhone }
-							]
-						}
-					})
-				: null;
+			// Robust phone number match: strip all non-digit characters
+			const cleanPhone = customerPhone ? customerPhone.replace(/\D/g, '') : '';
+			const isPhone = cleanPhone.length >= 10;
+			
+			let existingPhoneMessage = null;
+			if (isPhone) {
+				const allMessages = await prisma.message.findMany({
+					where: { companyId }
+				});
+				existingPhoneMessage = allMessages.find((m: any) => {
+					const mPhone = m.customerPhone ? m.customerPhone.replace(/\D/g, '') : '';
+					const mThreadPhone = m.threadId ? m.threadId.replace(/\D/g, '') : '';
+					return (mPhone && mPhone.slice(-10) === cleanPhone.slice(-10)) || 
+					       (mThreadPhone && mThreadPhone.slice(-10) === cleanPhone.slice(-10));
+				}) || null;
+			}
 
 			const targetThreadId = existingPhoneMessage ? existingPhoneMessage.threadId : `emergency-${profileId}`;
+
+			// If we matched a native phone thread, clean up any duplicate emergency- thread that might exist
+			if (existingPhoneMessage) {
+				const duplicateEmergencyThreadId = `emergency-${profileId}`;
+				await prisma.message.deleteMany({
+					where: {
+						companyId,
+						threadId: duplicateEmergencyThreadId
+					}
+				});
+			}
 
 			const existing = existingPhoneMessage || await prisma.message.findUnique({
 				where: { threadId: targetThreadId }
