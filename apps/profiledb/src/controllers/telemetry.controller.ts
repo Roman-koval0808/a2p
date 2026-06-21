@@ -282,7 +282,9 @@ export async function ingestTelemetryEvent(req: Request, res: Response) {
     // CL2 — Event Mining & Scoring Engine
     stageLog('CL2', `Applying event delta — event=${eventType}`);
     const eventConfig = eventRegistry[eventType];
-    const scoreDelta = eventConfig ? eventConfig.delta : clientScoreDelta;
+    const scoreDelta = (clientScoreDelta !== undefined && clientScoreDelta > 0)
+      ? clientScoreDelta
+      : (eventConfig ? eventConfig.delta : 0);
     
     const newScoreRaw = Math.min(Math.max(0, profile.scoreRaw + scoreDelta), 100);
     const newScoreLive = newScoreRaw;
