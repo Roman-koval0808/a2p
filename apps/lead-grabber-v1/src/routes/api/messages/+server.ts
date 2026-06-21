@@ -269,12 +269,32 @@ async function syncEmergencyMessages(companyId: string) {
 
 			let draftResponse = null;
 			for (const ev of history) {
+				// Try correct path: ev.payload.execution array
+				const executions = ev.payload?.execution;
+				if (Array.isArray(executions)) {
+					for (const exec of executions) {
+						const output = exec.generated_output || exec.generatedOutput;
+						if (output) {
+							try {
+								const parsed = typeof output === 'string' ? JSON.parse(output) : output;
+								if (parsed?.draft_reply) {
+									draftResponse = parsed.draft_reply;
+									break;
+								}
+							} catch (e) {}
+						}
+					}
+				}
+				if (draftResponse) break;
+
+				// Fallback to old path
 				const executionOutputRaw = ev.payload?.decision?.action_queue?.[0]?.executions?.[0]?.generated_output;
 				if (executionOutputRaw) {
 					try {
 						const parsed = typeof executionOutputRaw === 'string' ? JSON.parse(executionOutputRaw) : executionOutputRaw;
 						if (parsed?.draft_reply) {
 							draftResponse = parsed.draft_reply;
+							break;
 						}
 					} catch (e) {}
 				}
@@ -384,7 +404,10 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 			const skip = (page - 1) * perPage;
 			const messages = await prisma.message.findMany({
 				where: {
-					companyId: locals.user.company.id
+					companyId: locals.user.company.id,
+					intent: {
+						in: ['emergency', 'active', 'comparison', 'research']
+					}
 				},
 				skip,
 				take: perPage,
@@ -395,7 +418,10 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 
 			const total = await prisma.message.count({
 				where: {
-					companyId: locals.user.company.id
+					companyId: locals.user.company.id,
+					intent: {
+						in: ['emergency', 'active', 'comparison', 'research']
+					}
 				}
 			});
 
