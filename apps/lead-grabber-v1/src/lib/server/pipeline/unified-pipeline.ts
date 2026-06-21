@@ -369,7 +369,9 @@ export class UnifiedPipeline {
 				try {
 					let fingerprintId = payload.sessionId || `unified_${payload.externalId}`;
 					let scoreDelta = 5;
-					if (payload.eventType.includes('voicemail') || payload.eventType.includes('call')) {
+					if (aiResult?.urgency_level === 'high' || aiResult?.contains_emergency_keywords === true) {
+						scoreDelta = 15;
+					} else if (payload.eventType.includes('voicemail') || payload.eventType.includes('call')) {
 						scoreDelta = 15;
 					} else if (payload.eventType.includes('sms')) {
 						scoreDelta = 10;
