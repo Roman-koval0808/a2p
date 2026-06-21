@@ -135,7 +135,8 @@ export const load: PageServerLoad = async ({ params, locals, fetch }) => {
 		});
 
 		let intentLevel = 'Low';
-		if (cdpProfile.scoreLive >= 80) intentLevel = 'Very High';
+		if (cdpProfile.intentBucket === 'emergency') intentLevel = 'Emergency';
+		else if (cdpProfile.scoreLive >= 80) intentLevel = 'Very High';
 		else if (cdpProfile.scoreLive >= 50 || (viewedService && viewedPricing)) intentLevel = 'High';
 		else if (viewedService) intentLevel = 'Medium';
 
@@ -143,7 +144,10 @@ export const load: PageServerLoad = async ({ params, locals, fetch }) => {
 		let recAction = 'Monitor Behavior';
 
 		const isAnonymous = !clearEmail && !clearPhone;
-		if (intentLevel === 'High' && !formSubmitted) {
+		if (cdpProfile.intentBucket === 'emergency') {
+			interpretation = 'Active emergency situation detected. Urgent assistance required. Auto-dispatching technician.';
+			recAction = 'Verify dispatch status';
+		} else if (intentLevel === 'High' && !formSubmitted) {
 			interpretation =
 				"Visitor viewed service pages and pricing, showing strong buying intent but hasn't booked yet. Recommend showing a limited-time promo banner or exit intent discount.";
 			recAction = 'Show 20% Promo Banner';

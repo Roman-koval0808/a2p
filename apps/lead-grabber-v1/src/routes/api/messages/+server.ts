@@ -269,22 +269,34 @@ async function syncEmergencyMessages(companyId: string) {
 
 			let draftResponse = null;
 			for (const ev of history) {
-				// Try correct path: ev.payload.execution array
-				const executions = ev.payload?.execution;
-				if (Array.isArray(executions)) {
-					for (const exec of executions) {
-						const output = exec.generated_output || exec.generatedOutput;
-						if (output) {
-							try {
-								const parsed = typeof output === 'string' ? JSON.parse(output) : output;
-								if (parsed?.draft_reply) {
-									draftResponse = parsed.draft_reply;
-									break;
-								}
-							} catch (e) {}
-						}
+				const payload = ev.payload;
+				if (!payload) continue;
+
+				// Try to extract execution records array from all possible locations:
+				let execRecords: any[] = [];
+				if (Array.isArray(payload.execution)) {
+					execRecords = payload.execution;
+				} else if (payload.execution && typeof payload.execution === 'object') {
+					if (Array.isArray(payload.execution.execution_records)) {
+						execRecords = payload.execution.execution_records;
+					} else if (payload.execution.execution_output_package && Array.isArray(payload.execution.execution_output_package.execution_records)) {
+						execRecords = payload.execution.execution_output_package.execution_records;
 					}
 				}
+
+				for (const exec of execRecords) {
+					const output = exec.generated_output || exec.generatedOutput;
+					if (output) {
+						try {
+							const parsed = typeof output === 'string' ? JSON.parse(output) : output;
+							if (parsed?.draft_reply) {
+								draftResponse = parsed.draft_reply;
+								break;
+							}
+						} catch (e) {}
+					}
+				}
+
 				if (draftResponse) break;
 
 				// Fallback to old path
@@ -298,6 +310,27 @@ async function syncEmergencyMessages(companyId: string) {
 						}
 					} catch (e) {}
 				}
+			}
+
+			// Generate specific emergency advice locally if none exists (or it's a generic Mock reply)
+			if ((!draftResponse || draftResponse === 'Mock reply') && profile.intentBucket === 'emergency') {
+				const lastMessage = mappedMessages[mappedMessages.length - 1]?.content?.toLowerCase() || '';
+				let advice = `Hi ${customerName}, we received your urgent message. A technician has been dispatched and will contact you in 2-3 minutes. Please keep your phone available. — RightFlush Plumbing`;
+				
+				if (lastMessage.includes('leak') || lastMessage.includes('pipe') || lastMessage.includes('water') || lastMessage.includes('flood')) {
+					advice = `Hi ${customerName}, we received your urgent message about the leak. Please TURN OFF your main water supply immediately to prevent further damage! A plumber has been dispatched and will contact you in 2-3 minutes. — RightFlush Plumbing`;
+				} else if (lastMessage.includes('power') || lastMessage.includes('electr') || lastMessage.includes('spark') || lastMessage.includes('wire') || lastMessage.includes('smoke')) {
+					advice = `Hi ${customerName}, we received your urgent message about the electrical issue. Please TURN OFF the main power breaker to the affected area immediately! An electrician has been dispatched and will contact you in 2-3 minutes. — RightFlush Plumbing`;
+				} else if (lastMessage.includes('heat') || lastMessage.includes('furnace') || lastMessage.includes('hvac') || lastMessage.includes('ac') || lastMessage.includes('cold')) {
+					advice = `Hi ${customerName}, we received your urgent message about the heating/cooling failure. A technician has been dispatched and will contact you in 2-3 minutes. Please keep your phone available. — RightFlush Plumbing`;
+				} else if (lastMessage.includes('gas') || lastMessage.includes('smell') || lastMessage.includes('odor') || lastMessage.includes('leakage')) {
+					advice = `Hi ${customerName}, we received your urgent message about a potential gas issue. Please IMMEDIATELY evacuate the building, leave the doors open, and do not touch any electrical switches! A technician has been dispatched and will contact you in 2-3 minutes. — RightFlush Plumbing`;
+				} else if (lastMessage.includes('sewage') || lastMessage.includes('sewer') || lastMessage.includes('drain') || lastMessage.includes('backup') || lastMessage.includes('toilet')) {
+					advice = `Hi ${customerName}, we received your urgent message about a sewage backup. Please avoid flushing toilets or running any water, and keep away from the affected area to prevent contamination! A plumber has been dispatched and will contact you in 2-3 minutes. — RightFlush Plumbing`;
+				} else if (lastMessage.includes('roof') || lastMessage.includes('ceiling') || lastMessage.includes('drip') || lastMessage.includes('attic')) {
+					advice = `Hi ${customerName}, we received your urgent message about a roof or ceiling leak. If safe, please place buckets under the drip and move valuables out of the area! A technician has been dispatched and will contact you in 2-3 minutes. — RightFlush Plumbing`;
+				}
+				draftResponse = advice;
 			}
 
 			// Robust phone number match: strip all non-digit characters
