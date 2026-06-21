@@ -113,12 +113,16 @@ export async function getTenantProfiles(req: Request, res: Response) {
             const ep = (ev.payload as any) || {};
             if (ep.phone && ep.phone !== '—') {
               clearPhone = ep.phone;
+            } else if (ep.customer_phone && ep.customer_phone !== '—') {
+              clearPhone = ep.customer_phone;
             } else if (ep.textContent && clearPhone === '—') {
               const match = ep.textContent.match(/Voice Call from:\s*(\+?[\d\s\-()]+)/);
               if (match) clearPhone = match[1].trim();
             }
             if (ep.email && ep.email !== '—') {
               clearEmail = ep.email;
+            } else if (ep.customer_email && ep.customer_email !== '—') {
+              clearEmail = ep.customer_email;
             }
           }
         }
@@ -236,12 +240,16 @@ export async function getProfileDetails(req: Request, res: Response) {
         const ep = (ev.payload as any) || {};
         if (ep.phone && ep.phone !== '—') {
           clearPhone = ep.phone;
+        } else if (ep.customer_phone && ep.customer_phone !== '—') {
+          clearPhone = ep.customer_phone;
         } else if (ep.textContent && clearPhone === '—') {
           const match = ep.textContent.match(/Voice Call from:\s*(\+?[\d\s\-()]+)/);
           if (match) clearPhone = match[1].trim();
         }
         if (ep.email && ep.email !== '—') {
           clearEmail = ep.email;
+        } else if (ep.customer_email && ep.customer_email !== '—') {
+          clearEmail = ep.customer_email;
         }
       }
     }
