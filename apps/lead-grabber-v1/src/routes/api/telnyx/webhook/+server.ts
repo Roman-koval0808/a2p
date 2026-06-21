@@ -88,7 +88,6 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		const extractedName = pipelineResult?.ai_protocol?.raw_response?.customer_name || null;
 		const pipelineAuthorName = extractedName || smsSender;
-		const skipDirectMessageWrite = !!(pipelineResult && pipelineResult.success);
 		
 		const lowerText = smsText.toLowerCase();
 		const emergencyKeywords = ['burst', 'flood', 'leak', 'emergency', 'pipe', 'water', 'immediate', 'urgent'];
@@ -97,6 +96,52 @@ export const POST: RequestHandler = async ({ request }) => {
 		const scoreDelta = hasEmergency ? 95 : (bookingKeywords.some(kw => lowerText.includes(kw)) ? 20 : 10);
 
 		if (pipelineResult && pipelineResult.success) {
+			// Persist the full pipeline package into ProfileDB
+			try {
+				const profiledbUrl = process.env.PROFILEDB_URL || 'http://localhost:6277';
+				const res = await fetch(`${profiledbUrl}/api/v1/telemetry/events`, {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+						'Authorization': 'Bearer clearsky_pixel_api_key'
+					},
+					body: JSON.stringify({
+						tenantSlug: 'clearsky-demo',
+						fingerprintId: smsId,
+						eventType: 'sms_received',
+						pageUrl: null,
+						scoreDelta: scoreDelta,
+						phone: smsSender !== 'Anonymous' ? smsSender : null,
+						name: extractedName || (smsSender !== 'Anonymous' ? smsSender : null),
+						payload: {
+							provider: 'telnyx_sms',
+							event_type: 'sms_received',
+							textContent: smsText,
+							rating: 0,
+							author_name: extractedName || smsSender,
+							customer_phone: smsSender !== 'Anonymous' ? smsSender : null,
+							contains_emergency_keywords: hasEmergency,
+							urgency_level: hasEmergency ? 'high' : 'medium',
+							pipeline_logs: pipelineResult.logs,
+							signals: pipelineResult.signals,
+							enrichments: pipelineResult.enrichments,
+							decision: pipelineResult.decision,
+							execution: pipelineResult.execution,
+							outcome: pipelineResult.outcome,
+							feedback: pipelineResult.feedback,
+							ai_protocol: pipelineResult.ai_protocol,
+							externalEventId: smsId
+						}
+					})
+				});
+				if (res.ok) {
+					console.log('📡 Pipeline executed and SMS event logged to ProfileDB successfully');
+				} else {
+					console.error('❌ Failed to log SMS event to ProfileDB:', res.statusText);
+				}
+			} catch (dbErr) {
+				console.error('❌ ProfileDB logging error:', dbErr);
+			}
 
 			// SMS Notification for event alerts
 			try {
@@ -199,18 +244,16 @@ export const POST: RequestHandler = async ({ request }) => {
 					...(media.length > 0 && { media })
 				};
 
-				if (!skipDirectMessageWrite) {
-					await prisma.message.update({
-						where: { id: existingMessage.id },
-						data: {
-							...(companyIdForThread && { companyId: companyIdForThread }),
-							messages: [...prevMessages, newMsg],
-							status: 'new',
-							customerName,
-							updated: new Date()
-						}
-					});
-				}
+				await prisma.message.update({
+					where: { id: existingMessage.id },
+					data: {
+						...(companyIdForThread && { companyId: companyIdForThread }),
+						messages: [...prevMessages, newMsg],
+						status: 'new',
+						customerName,
+						updated: new Date()
+					}
+				});
 			} else {
 				if (!companyId) {
 					console.log('Inbound SMS to unassigned number, skipping thread creation');
@@ -218,25 +261,23 @@ export const POST: RequestHandler = async ({ request }) => {
 				}
 				customerName = extractedName ?? 'Unknown Customer';
 
-				if (!skipDirectMessageWrite) {
-					await prisma.message.create({
-						data: {
-							threadId,
-							companyId,
-							customerPhone: phoneNumber,
-							customerName,
-							messages: [
-								{
-									content,
-									timestamp: new Date().toISOString(),
-									is_agent_reply: false,
-									...(media.length > 0 && { media })
-								}
-							],
-							status: 'new'
-						}
-					});
-				}
+				await prisma.message.create({
+					data: {
+						threadId,
+						companyId,
+						customerPhone: phoneNumber,
+						customerName,
+						messages: [
+							{
+								content,
+								timestamp: new Date().toISOString(),
+								is_agent_reply: false,
+								...(media.length > 0 && { media })
+							}
+						],
+						status: 'new'
+					}
+				});
 			}
 
 			const effectiveCompanyId = companyId ?? existingMessage?.companyId ?? null;
