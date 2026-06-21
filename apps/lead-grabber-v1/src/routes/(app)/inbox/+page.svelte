@@ -68,7 +68,12 @@
 
 	$effect(() => {
 		if (selectedMessage) {
-			if (selectedMessage.draftResponse) {
+			const messagesArray = selectedMessage.messages || [];
+			const hasAgentReplies = messagesArray.some((m: any) => m.is_agent_reply);
+			if (hasAgentReplies) {
+				const userName = user?.name || 'our team';
+				draftValue = `${userName} has gotten your message and he will be calling you in two minutes.`;
+			} else if (selectedMessage.draftResponse) {
 				draftValue = selectedMessage.draftResponse;
 			} else {
 				const userName = user?.name || 'our team';
@@ -933,20 +938,27 @@
 				{#if hasUnansweredSms && selectedMessage && (selectedMessage.thread_id.startsWith('emergency-') || selectedMessage.intent === 'emergency' || selectedMessage.urgency === 'red')}
 					<div class="mb-4 rounded-lg border border-sky-200 bg-sky-50/50 p-3 flex flex-col gap-2">
 						<div class="text-[10px] text-sky-600 font-mono uppercase font-bold tracking-wider">Draft Response (Handshake)</div>
-						<textarea
-							bind:value={draftValue}
-							class="w-full h-14 bg-white border border-sky-200 rounded p-1.5 text-slate-800 text-xs resize-none outline-none focus:border-sky-400 transition-colors"
-						></textarea>
-						<div class="flex justify-end">
-							<Button
-								type="button"
-								class="bg-sky-500 hover:bg-sky-600 disabled:opacity-50 text-white border-0 px-3 py-1.5 rounded text-[10px] font-bold cursor-pointer transition-colors"
-								onclick={sendDraftSms}
-								disabled={isSendingSms}
-							>
-								{isSendingSms ? 'Sending...' : 'Send Reply SMS'}
-							</Button>
-						</div>
+						{#if !selectedMessage.draftResponse && !selectedMessage.messages?.some(m => m.is_agent_reply)}
+							<div class="flex items-center gap-2 text-xs text-sky-600 font-medium py-2">
+								<div class="h-4 w-4 animate-spin rounded-full border-2 border-sky-600 border-t-transparent"></div>
+								<span>AI is drafting a helper response...</span>
+							</div>
+						{:else}
+							<textarea
+								bind:value={draftValue}
+								class="w-full h-14 bg-white border border-sky-200 rounded p-1.5 text-slate-800 text-xs resize-none outline-none focus:border-sky-400 transition-colors"
+							></textarea>
+							<div class="flex justify-end">
+								<Button
+									type="button"
+									class="bg-sky-500 hover:bg-sky-600 disabled:opacity-50 text-white border-0 px-3 py-1.5 rounded text-[10px] font-bold cursor-pointer transition-colors"
+									onclick={sendDraftSms}
+									disabled={isSendingSms}
+								>
+									{isSendingSms ? 'Sending...' : 'Send Reply SMS'}
+								</Button>
+							</div>
+						{/if}
 					</div>
 				{/if}
 

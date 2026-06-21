@@ -370,11 +370,35 @@ async function syncEmergencyMessages(companyId: string) {
 			const hasEmergency = history.some((ev: any) => ev.intentBucket === 'emergency');
 			const urgency = hasEmergency ? 'red' : 'blue';
 
+			// Merge mapped messages from CDP with existing local messages to preserve manual agent replies
+			const localMsgs = Array.isArray(existing?.messages)
+				? existing.messages
+				: typeof existing?.messages === 'string'
+					? JSON.parse(existing.messages)
+					: [];
+
+			// Keep local agent replies that are not already present in the mapped messages
+			const localAgentReplies = localMsgs.filter((m: any) => m.is_agent_reply && !m.agent_name?.startsWith('System'));
+			
+			// Combine mappedMessages and localAgentReplies, and sort by timestamp
+			const mergedMessages = [...mappedMessages];
+			for (const localRep of localAgentReplies) {
+				const isAlreadyMapped = mappedMessages.some((m: any) => 
+					m.is_agent_reply && 
+					m.content === localRep.content && 
+					Math.abs(new Date(m.timestamp).getTime() - new Date(localRep.timestamp).getTime()) < 10000
+				);
+				if (!isAlreadyMapped) {
+					mergedMessages.push(localRep);
+				}
+			}
+			mergedMessages.sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
 			if (existing) {
 				await prisma.message.update({
 					where: { id: existing.id },
 					data: {
-						messages: mappedMessages,
+						messages: mergedMessages,
 						updated: new Date(),
 						customerName,
 						customerPhone,
@@ -394,7 +418,7 @@ async function syncEmergencyMessages(companyId: string) {
 						urgency,
 						intent: profile.intentBucket,
 						draftResponse,
-						messages: mappedMessages
+						messages: mergedMessages
 					}
 				});
 			}
