@@ -119,7 +119,8 @@ export async function ingestTelemetryEvent(req: Request, res: Response) {
 
     // Check 2: Permanent duplicate detection using event ID
     const externalEventId = req.body.externalEventId || payload.externalEventId || req.body.payload?.externalEventId ||
-                            payload.review_id || payload.call_control_id || payload.form_submit_id;
+                            payload.review_id || payload.call_control_id || payload.form_submit_id ||
+                            payload.externalId || req.body.payload?.externalId || req.body.payload?.externalEventId;
     if (externalEventId) {
       stageLog('Q1', `Deduplication check — externalEventId=${externalEventId}`);
       const existingEvent = await prisma.telemetryEvent.findFirst({
