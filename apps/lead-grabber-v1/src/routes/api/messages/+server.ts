@@ -196,7 +196,7 @@ async function syncEmergencyMessages(companyId: string) {
 					: typeof msg.messages === 'string'
 						? JSON.parse(msg.messages)
 						: [];
-				const hasAgentReply = messagesArray.some((m: any) => m.is_agent_reply);
+			const hasAgentReply = messagesArray.some((m: any) => m.is_agent_reply && m.agent_id);
 				if (hasAgentReply) {
 					console.log(`ℹ️ Keeping local emergency thread ${msg.threadId} because it has agent replies.`);
 					continue;
@@ -226,7 +226,22 @@ async function syncEmergencyMessages(companyId: string) {
 				: (profile.phone && profile.phone.length < 20 ? profile.phone : `profile-${profileId}`);
 			const customerName = profile.name || 'Emergency Customer';
 
-			const mappedMessages = history.map((ev: any) => {
+			const communicationEventTypes = [
+				'sms_sent', 'message.sent',
+				'call_initiated', 'job_completed',
+				'sms_received', 'message.received'
+			];
+
+			const isCommunicationEvent = (type: string) => {
+				if (!type) return false;
+				if (communicationEventTypes.includes(type)) return true;
+				if (type.includes('voicemail') || type.includes('call_received') || type.includes('voice')) return true;
+				return false;
+			};
+
+			const mappedMessages = history
+				.filter((ev: any) => isCommunicationEvent(ev.eventType))
+				.map((ev: any) => {
 				const isSmsSent = ev.eventType === 'sms_sent' || ev.eventType === 'message.sent';
 				const isOutbound = isSmsSent || ev.eventType === 'call_initiated' || ev.eventType === 'job_completed';
 				
