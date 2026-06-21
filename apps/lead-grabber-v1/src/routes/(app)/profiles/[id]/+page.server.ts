@@ -196,12 +196,16 @@ export const load: PageServerLoad = async ({ params, locals, fetch }) => {
 			}
 
 			let summary = payload.detail || payload.body || payload.text || payload.textContent || payload.voicemail_text || ev.eventType;
-			if (ev.eventType === 'telnyx.voice.voicemail') {
-				summary = `Voicemail: "${payload.voicemail_text || 'Emergency call'}"`;
-			} else if (ev.eventType === 'sms_sent') {
-				summary = `SMS Sent: "${payload.body || payload.text || summary}"`;
-			} else if (ev.eventType === 'sms_received') {
-				summary = `SMS Received: "${payload.body || payload.text || summary}"`;
+			const isSmsSent = ev.eventType === 'sms_sent' || ev.eventType === 'message.sent';
+			const isSmsRecv = ev.eventType === 'sms_received' || ev.eventType === 'message.received';
+			const isVoice = ev.eventType.includes('voicemail') || ev.eventType.includes('call') || ev.eventType.includes('voice');
+
+			if (isVoice) {
+				summary = `Voicemail: "${payload.voicemail_text || payload.textContent || payload.detail || 'Emergency call'}"`;
+			} else if (isSmsSent) {
+				summary = `SMS Sent: "${payload.body || payload.text || payload.detail || summary}"`;
+			} else if (isSmsRecv) {
+				summary = `SMS Received: "${payload.body || payload.text || payload.detail || summary}"`;
 			} else if (ev.eventType === 'call_initiated') {
 				summary = `Outbound Call: "${payload.detail || summary}"`;
 			} else if (ev.eventType === 'job_completed') {
