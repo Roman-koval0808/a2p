@@ -280,10 +280,23 @@ async function syncEmergencyMessages(companyId: string) {
 				}
 			}
 
-			const threadId = `emergency-${profileId}`;
+			// If customerPhone is a valid phone number, check if a native thread already exists
+			const isPhone = customerPhone && customerPhone.startsWith('+');
+			const existingPhoneMessage = isPhone 
+				? await prisma.message.findFirst({
+						where: {
+							OR: [
+								{ threadId: customerPhone },
+								{ customerPhone: customerPhone }
+							]
+						}
+					})
+				: null;
 
-			const existing = await prisma.message.findUnique({
-				where: { threadId }
+			const targetThreadId = existingPhoneMessage ? existingPhoneMessage.threadId : `emergency-${profileId}`;
+
+			const existing = existingPhoneMessage || await prisma.message.findUnique({
+				where: { threadId: targetThreadId }
 			});
 
 			const hasEmergency = history.some((ev: any) => ev.intentBucket === 'emergency');
@@ -305,10 +318,10 @@ async function syncEmergencyMessages(companyId: string) {
 			} else {
 				await prisma.message.create({
 					data: {
-						threadId,
+						threadId: targetThreadId,
 						companyId,
-						customerName,
 						customerPhone,
+						customerName,
 						status: 'new',
 						urgency,
 						intent: profile.intentBucket,

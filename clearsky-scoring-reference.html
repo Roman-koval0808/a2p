@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ClearSky — Scoring Engine Reference</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0c0f14;
+  --bg2: #141820;
+  --bg3: #1a1f2b;
+  --bg4: #222836;
+  --border: #2a3040;
+  --border2: #353d50;
+  --text: #e8eaf0;
+  --text2: #9aa0b0;
+  --text3: #5c6478;
+  --green: #0ec95a;
+  --green2: #0a7c45;
+  --green-bg: rgba(14,201,90,.08);
+  --teal: #0dd6c8;
+  --blue: #4e8fff;
+  --amber: #f0a030;
+  --red: #f04848;
+  --purple: #9b6dff;
+  --mono: 'IBM Plex Mono', monospace;
+  --sans: 'DM Sans', sans-serif;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  padding: 24px;
+  min-height: 100vh;
+  overflow-y: auto;
+  line-height: 1.5;
+}
+
+/* Header & Intro */
+.ref-header {
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 16px;
+}
+.ref-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ref-subtitle {
+  font-size: 13px;
+  color: var(--text2);
+  margin-top: 4px;
+}
+
+/* Tab Container */
+.tabs-container {
+  display: flex;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+  margin-bottom: 20px;
+  gap: 4px;
+}
+.tab-btn {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--text2);
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all .2s cubic-bezier(.4,0,.2,1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: var(--sans);
+}
+.tab-btn:hover {
+  background: var(--bg3);
+  color: var(--text);
+}
+.tab-btn.active {
+  background: var(--bg4);
+  color: var(--green);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+  border: 1px solid var(--border);
+}
+
+/* Tab Panel Content */
+.panel {
+  display: none;
+  animation: fadeIn .3s ease-out;
+}
+.panel.active {
+  display: block;
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Grid & Cards */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+.card:hover {
+  border-color: var(--border2);
+}
+.card-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.card-desc {
+  font-size: 12px;
+  color: var(--text2);
+  line-height: 1.6;
+}
+
+/* Code Snippet block */
+.code-block {
+  background: #080a0e;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 16px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--teal);
+  overflow-x: auto;
+  line-height: 1.5;
+  margin-top: 10px;
+}
+
+/* Pills */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+.pill-emg { background: rgba(240,72,72,.1); color: var(--red); border: 1px solid rgba(240,72,72,.2); }
+.pill-active { background: rgba(240,160,48,.1); color: var(--amber); border: 1px solid rgba(240,160,48,.2); }
+.pill-comp { background: rgba(78,143,255,.1); color: var(--blue); border: 1px solid rgba(78,143,255,.2); }
+.pill-res { background: rgba(14,201,90,.1); color: var(--green); border: 1px solid rgba(14,201,90,.2); }
+
+/* Table styling */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 12px;
+}
+th {
+  background: var(--bg3);
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text3);
+  text-transform: uppercase;
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+td {
+  padding: 10px 14px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text2);
+}
+tr:hover td {
+  background: rgba(255,255,255,0.01);
+}
+
+/* Sequence Visualizer */
+.sequence-flow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 30px;
+  margin-bottom: 20px;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.flow-node {
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  padding: 14px 20px;
+  text-align: center;
+  min-width: 150px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  position: relative;
+}
+.flow-node.active-node {
+  border-color: var(--green);
+  box-shadow: 0 0 12px rgba(14,201,90,0.15);
+}
+.flow-node-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.flow-node-sub {
+  font-size: 10px;
+  color: var(--text3);
+  font-family: var(--mono);
+}
+.flow-arrow {
+  color: var(--text3);
+  font-size: 18px;
+}
+
+/* Interactive Calculator style */
+.calc-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px;
+  margin-top: 10px;
+}
+.calc-left {
+  border-right: 1px solid var(--border);
+  padding-right: 20px;
+}
+.form-group {
+  margin-bottom: 15px;
+}
+.form-label {
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--text2);
+  text-transform: uppercase;
+  margin-bottom: 6px;
+  display: block;
+}
+.calc-select, .calc-input {
+  width: 100%;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  padding: 10px;
+  color: var(--text);
+  outline: none;
+  font-size: 12px;
+}
+.calc-select:focus, .calc-input:focus {
+  border-color: var(--green);
+}
+.calc-right {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+.calc-score-display {
+  font-family: var(--mono);
+  font-size: 48px;
+  font-weight: 700;
+  color: var(--purple);
+  line-height: 1;
+}
+.calc-bucket-display {
+  margin-top: 10px;
+}
+</style>
+</head>
+<body>
+
+  <!-- HEADER -->
+  <div class="ref-header">
+    <div class="ref-title">
+      <span>🔢</span> ClearSky Lead Intelligence & Scoring System
+    </div>
+    <div class="ref-subtitle">Autoritative engine rules, sequence mappings, and calculations ledger.</div>
+  </div>
+
+  <!-- TABS NAV -->
+  <div class="tabs-container">
+    <button class="tab-btn active" onclick="showTab(0)">
+      <span>⛓️</span> Ingestion Sequence
+    </button>
+    <button class="tab-btn" onclick="showTab(1)">
+      <span>🚨</span> Intent Buckets
+    </button>
+    <button class="tab-btn" onclick="showTab(2)">
+      <span>⚡</span> Deltas & Multipliers
+    </button>
+    <button class="tab-btn" onclick="showTab(3)">
+      <span>📉</span> Decay & Demotion
+    </button>
+    <button class="tab-btn" onclick="showTab(4)">
+      <span>🎛️</span> Engine Playground
+    </button>
+  </div>
+
+  <!-- PANEL 0: Ingestion Sequence -->
+  <div class="panel active" id="panel-0">
+    <div class="sequence-flow">
+      <div class="flow-node">
+        <div class="flow-node-title">1. Telemetry Ingested</div>
+        <div class="flow-node-sub">Web Pixel / Webhook</div>
+      </div>
+      <div class="flow-arrow">➔</div>
+      <div class="flow-node">
+        <div class="flow-node-title">2. Score Accumulation</div>
+        <div class="flow-node-sub">Base Delta × Path Mult</div>
+      </div>
+      <div class="flow-arrow">➔</div>
+      <div class="flow-node active-node">
+        <div class="flow-node-title">3. Bucket Assignment</div>
+        <div class="flow-node-sub">Intent Level Promo</div>
+      </div>
+      <div class="flow-arrow">➔</div>
+      <div class="flow-node">
+        <div class="flow-node-title">4. Orchestrator Handoff</div>
+        <div class="flow-node-sub">AI Copilot Outreach</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom: 16px;">
+      <div class="card-title">
+        <span>🔄</span> Unidirectional Progression Flow
+      </div>
+      <div class="card-desc">
+        The ClearSky Lead Intelligence scoring pipeline operates in a strict, unidirectional sequence:
+        <ul style="margin: 12px 0 12px 20px; display: flex; flex-direction: column; gap: 6px;">
+          <li><strong>Score ALWAYS Drives the Bucket:</strong> Points accumulated from page interactions, scrolls, clicks, and incoming calls push the lead's live score higher.</li>
+          <li><strong>Bucket NEVER Changes the Score:</strong> Moving to a higher intent bucket is a result of score increases or specific active signals. Promoted buckets do not retroactively modify the underlying engagement score.</li>
+          <li><strong>Sequence Reveals Intent:</strong> Individual events have a base score, but sequential paths unlock multipliers. It is the sequence itself that reveals deep buyer intent that independent events cannot.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- PANEL 1: Intent Buckets -->
+  <div class="panel" id="panel-1">
+    <div class="card-grid">
+      <div class="card" style="border-top: 3px solid var(--red);">
+        <div class="card-title">
+          <span class="pill pill-emg">Emergency</span>
+        </div>
+        <div class="card-desc">
+          Fires immediately on <strong>any single urgency signal</strong> with no score threshold. Overrides everything and never demotes within the session.
+          <div style="margin-top: 10px; font-family: var(--mono); font-size: 10px; color: var(--red);">
+            Trigger: URL pattern (/burst-pipe), call transcription keywords, or clicking emergency Call CTA.
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="border-top: 3px solid var(--amber);">
+        <div class="card-title">
+          <span class="pill pill-active">Active Project</span>
+        </div>
+        <div class="card-desc">
+          Indicates a customer actively seeking services. Requires:
+          <ul style="margin: 8px 0 0 16px;">
+            <li>Score $\ge 45$ AND at least one conversion event.</li>
+            <li>OR at least <strong>two qualifying active signals</strong> (e.g. Hero CTA click + focusing phone field).</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="card" style="border-top: 3px solid var(--blue);">
+        <div class="card-title">
+          <span class="pill pill-comp">Comparison</span>
+        </div>
+        <div class="card-desc">
+          Indicates a customer comparing options. Requires:
+          <ul style="margin: 8px 0 0 16px;">
+            <li>Score $\ge 25$ OR visiting reviews/pricing pages.</li>
+            <li>OR at least two qualifying comparison signals.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="card" style="border-top: 3px solid var(--green);">
+        <div class="card-title">
+          <span class="pill pill-res">Research</span>
+        </div>
+        <div class="card-desc">
+          Initial browsing behavior. Triggered by **any trackable signal** (score $\ge 9$, page view, scroll, or click).
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PANEL 2: Deltas & Multipliers -->
+  <div class="panel" id="panel-2">
+    <div class="card" style="margin-bottom: 16px;">
+      <div class="card-title"><span>📐</span> Base Points vs. Multipliers (Two-Tier Structure)</div>
+      <div class="card-desc">
+        A single standalone event yields its base points. When executed in sequence, specific multiplier rules apply to reveal true customer focus:
+      </div>
+      
+      <div class="card-grid" style="margin-top: 16px;">
+        <div class="card">
+          <div class="card-title" style="color: var(--teal);">1. Standalone Event</div>
+          <div class="card-desc">
+            A standalone <code>review_read</code> event.
+            <div class="code-block">
+              Base delta = +4 points
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title" style="color: var(--amber);">2. Post-Gallery Review Path</div>
+          <div class="card-desc">
+            Reading reviews after dragging the before/after slider (<code>ba_slider_drag</code>).
+            <div class="code-block">
+              Base +4 × 2.5 Multiplier = +10 points
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title" style="color: var(--purple);">3. Comparison Finalizer Path</div>
+          <div class="card-desc">
+            Completing the third step in the comparison confirmation flow.
+            <div class="code-block">
+              Base +4 × 3.0 Multiplier = +12 points
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PANEL 3: Decay & Demotion -->
+  <div class="panel" id="panel-3">
+    <div class="card-grid">
+      <div class="card">
+        <div class="card-title"><span>⏳</span> Exponential Live Decay</div>
+        <div class="card-desc">
+          Between sessions, <code>score_live</code> decays exponentially after the bucket's grace period expires. However, <code>score_raw</code> represents the lifetime historical engagement and <strong>never decreases</strong>.
+          <div class="code-block" style="color: var(--amber);">
+            Emergency half-life: 2 days (Grace: 1 day)<br>
+            Active half-life: 14 days (Grace: 3 days)<br>
+            Comparison half-life: 30 days (Grace: 7 days)<br>
+            Research half-life: 60 days (Grace: 14 days)
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span>🛑</span> Demotion Rules</div>
+        <div class="card-desc">
+          Demotion is never triggered by idle time alone. For a lead to be demoted to a lower bucket, **both of the following conditions must be true simultaneously**:
+          <ol style="margin: 10px 0 0 20px; display: flex; flex-direction: column; gap: 4px;">
+            <li>The bucket-specific grace period has expired.</li>
+            <li>The live decayed score (<code>score_live</code>) falls below the threshold:
+              <ul style="margin: 4px 0 0 16px; font-family: var(--mono); font-size: 10px;">
+                <li>Active demotes to Comparison if score < 35</li>
+                <li>Comparison demotes to Research if score < 20</li>
+                <li>Research demotes to Unclassified if score < 8</li>
+              </ul>
+            </li>
+          </ol>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PANEL 4: Engine Playground -->
+  <div class="panel" id="panel-4">
+    <div class="ref-title" style="font-size: 15px; margin-bottom: 10px;">📊 Interactive Score & Bucket Simulator</div>
+    <div class="calc-container">
+      <div class="calc-left">
+        <div class="form-group">
+          <label class="form-label">Historical Event Path</label>
+          <select id="calcEventPath" onchange="runSimulation()" class="calc-select">
+            <option value="none">Standalone Page Load (+0)</option>
+            <option value="call_silent">Inbound Call (Silent) (+15)</option>
+            <option value="call_standard">Voicemail - Opening Hours (+15)</option>
+            <option value="call_emergency">Voicemail - Burst Pipe Emergency (+15 / Urgent)</option>
+            <option value="pixel_active_dual">CTA Click + Phone Focus (2 Active Signals) (+22)</option>
+            <option value="pixel_gallery_review">Before/After Slider + Review Dwell (Post-Gallery Multiplier) (+10)</option>
+            <option value="full_booking_conversion">Ad Click + Slider + Form Submit (Conversion) (+67)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Days Elapsed (Session Interval)</label>
+          <input id="calcDays" type="number" min="0" max="90" value="0" oninput="runSimulation()" class="calc-input" />
+        </div>
+      </div>
+
+      <div class="calc-right">
+        <div class="form-label">Live Decayed Score</div>
+        <div class="calc-score-display" id="outScore">0</div>
+        
+        <div class="form-label" style="margin-top: 15px;">Intent Bucket Classification</div>
+        <div class="calc-bucket-display" id="outBucket">
+          <span class="pill pill-res">Research</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  function showTab(idx) {
+    document.querySelectorAll('.tab-btn').forEach((btn, i) => {
+      btn.classList.toggle('active', i === idx);
+    });
+    document.querySelectorAll('.panel').forEach((panel, i) => {
+      panel.classList.toggle('active', i === idx);
+    });
+  }
+
+  function runSimulation() {
+    const path = document.getElementById('calcEventPath').value;
+    const days = parseFloat(document.getElementById('calcDays').value) || 0;
+
+    let baseScore = 0;
+    let baseBucket = 'unclassified';
+    let isUrgent = false;
+    let signalsCount = 0;
+    let hasConversion = false;
+
+    if (path === 'call_silent') {
+      baseScore = 15;
+      baseBucket = 'research';
+      signalsCount = 1;
+    } else if (path === 'call_standard') {
+      baseScore = 15;
+      baseBucket = 'research';
+      signalsCount = 1;
+    } else if (path === 'call_emergency') {
+      baseScore = 15;
+      baseBucket = 'emergency';
+      isUrgent = true;
+      signalsCount = 1;
+    } else if (path === 'pixel_active_dual') {
+      baseScore = 22;
+      baseBucket = 'active'; // 2 active signals
+      signalsCount = 2;
+    } else if (path === 'pixel_gallery_review') {
+      baseScore = 10; // multiplier applied
+      baseBucket = 'research';
+      signalsCount = 1;
+    } else if (path === 'full_booking_conversion') {
+      baseScore = 67;
+      baseBucket = 'active';
+      hasConversion = true;
+      signalsCount = 3;
+    }
+
+    // Apply time-based decay
+    const halfLives = { emergency: 2, active: 14, comparison: 30, research: 60, unclassified: 365 };
+    const gracePeriods = { emergency: 1, active: 3, comparison: 7, research: 14, unclassified: 0 };
+    
+    let decayedScore = baseScore;
+    let currentBucket = baseBucket;
+
+    const hl = halfLives[currentBucket] || 60;
+    const gp = gracePeriods[currentBucket] || 14;
+
+    if (days > gp) {
+      decayedScore = Math.max(0, Math.round(baseScore * Math.pow(0.5, (days - gp) / hl)));
+    }
+
+    // Evaluate demotions if elapsed time exceeds grace
+    if (days > gp && !isUrgent) {
+      if (currentBucket === 'active' && decayedScore < 35) {
+        currentBucket = 'comparison';
+      }
+      const hlComp = halfLives.comparison;
+      const gpComp = gracePeriods.comparison;
+      if (currentBucket === 'comparison' && decayedScore < 20) {
+        currentBucket = 'research';
+      }
+      if (currentBucket === 'research' && decayedScore < 8) {
+        currentBucket = 'unclassified';
+      }
+    }
+
+    // Render results
+    document.getElementById('outScore').textContent = decayedScore;
+    
+    const bLabels = {
+      unclassified: '<span class="pill" style="background:var(--border);color:var(--text2)">Unclassified</span>',
+      research: '<span class="pill pill-res">Research</span>',
+      comparison: '<span class="pill pill-comp">Comparison</span>',
+      active: '<span class="pill pill-active">Active Project</span>',
+      emergency: '<span class="pill pill-emg">Emergency</span>'
+    };
+
+    document.getElementById('outBucket').innerHTML = bLabels[currentBucket] || bLabels.unclassified;
+  }
+
+  // Run initial simulation
+  runSimulation();
+  </script>
+
+</body>
+</html>
