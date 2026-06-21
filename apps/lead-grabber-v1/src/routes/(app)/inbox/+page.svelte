@@ -120,6 +120,31 @@
 		try {
 			await loadMessages();
 			await loadCompanyMembers();
+
+			// Auto-select threadId from URL search params
+			const urlParams = new URLSearchParams(window.location.search);
+			const urlThreadId = urlParams.get('threadId');
+			if (urlThreadId) {
+				const foundMsg = messages.find((m) => m.thread_id === urlThreadId);
+				if (foundMsg) {
+					await selectMessage(foundMsg);
+				} else {
+					// Fetch and add to messages list if not found
+					try {
+						const response = await fetch(`/api/messages?threadId=${encodeURIComponent(urlThreadId)}`);
+						if (response.ok) {
+							const resJson = await response.json();
+							if (resJson.data) {
+								const formatted = formatMessage(resJson.data);
+								messages = [formatted, ...messages];
+								await selectMessage(formatted);
+							}
+						}
+					} catch (err) {
+						console.error('Error fetching specific thread from URL param:', err);
+					}
+				}
+			}
 		} catch (err) {
 			console.error('Error in onMount:', err);
 		}

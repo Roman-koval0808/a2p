@@ -354,6 +354,7 @@
 		summary={selectedComm.summary}
 		tasks={meta.actionItems ?? meta.tasks ?? []}
 		{recordingUrl}
+		estimatedPrice={meta.estimatedPrice ?? null}
 	/>
 {/if}
 

@@ -76,6 +76,7 @@ vi.mock('$lib/utils/callStore', () => ({
 // Must mock global fetch before importing the handler (handler uses fetch at top-level for Telnyx)
 beforeEach(() => {
 	vi.stubGlobal('fetch', mockFetch);
+	mockFetch.mockClear();
 	mockFetch.mockResolvedValue({ ok: true, json: async () => ({}) });
 	mockPbCreate.mockResolvedValue({});
 	mockAddPendingCall.mockImplementation(() => {});
@@ -681,6 +682,246 @@ describe('IVR webhook simulation', () => {
 			expect(res.status).toBe(200);
 			// Would try to load flow f1 / rule r1 and then transfer or fail
 			expect(mockPrismaCallFlowFindUnique).toHaveBeenCalled();
+		});
+	});
+
+	describe('Answering Machine Detection (AMD)', () => {
+		it('handles standard machine detection - machine case: speaks message', async () => {
+			const { POST } = await import('../src/routes/api/telnyx/call-webhook/+server');
+			const res = await POST({
+				request: new Request('http://localhost/api/telnyx/call-webhook', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						data: {
+							event_type: 'call.machine.detection.ended',
+							payload: {
+								call_control_id: 'call-ctrl-amd-machine',
+								result: 'machine'
+							}
+						}
+					})
+				})
+			} as any);
+
+			expect(res.status).toBe(200);
+			const speakCalls = mockFetch.mock.calls.filter(
+				(c: any) =>
+					c[0] === 'https://api.telnyx.com/v2/calls/call-ctrl-amd-machine/actions/speak'
+			);
+			expect(speakCalls.length).toBe(1);
+			const body = JSON.parse(speakCalls[0][1]?.body ?? '{}');
+			expect(body.payload).toContain('automated message from Clearsky');
+		});
+
+		it('handles premium machine detection - human case: logs event', async () => {
+			const { POST } = await import('../src/routes/api/telnyx/call-webhook/+server');
+			const res = await POST({
+				request: new Request('http://localhost/api/telnyx/call-webhook', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						data: {
+							event_type: 'call.machine.premium.detection.ended',
+							payload: {
+								call_control_id: 'call-ctrl-amd-human',
+								result: 'human'
+							}
+						}
+					})
+				})
+			} as any);
+
+			expect(res.status).toBe(200);
+			const speakCalls = mockFetch.mock.calls.filter(
+				(c: any) =>
+					c[0] === 'https://api.telnyx.com/v2/calls/call-ctrl-amd-human/actions/speak'
+			);
+			expect(speakCalls.length).toBe(0);
+			expect(mockPrismaCallLogCreate).toHaveBeenCalledWith(
+				expect.objectContaining({
+					data: expect.objectContaining({
+						callId: 'call-ctrl-amd-human',
+						status: 'premium-machine-detection-human'
+					})
+				})
+			);
+		});
+	});
+
+	describe('Emergency IVR priority trigger', () => {
+		const flowId = 'flow-1';
+		const ruleId = 'rule-1';
+		const clientState = Buffer.from(
+			JSON.stringify({ ivrFlowId: flowId, ivrRuleId: ruleId })
+		).toString('base64');
+
+		beforeEach(() => {
+			mockPrismaCallFlowFindUnique.mockResolvedValue({
+				id: flowId,
+				title: 'Main',
+				greetingAudioUrl: '/g.mp3',
+				companyId: 'company-1',
+				rules: [
+					{
+						id: ruleId,
+						callFlowId: flowId,
+						ruleTitle: 'Test',
+						promptsAudioUrl: '/p.mp3',
+						keyPrompts: [
+							{ key: '3', name: 'Emergency Rep', extension: '+15551111111' }
+						]
+					}
+				]
+			});
+		});
+
+		it('flags callPriority as emergency when key 3 is pressed', async () => {
+			const { POST } = await import('../src/routes/api/telnyx/call-webhook/+server');
+			await POST({
+				request: new Request('http://localhost/api/telnyx/call-webhook', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						data: {
+							event_type: 'call.gather.ended',
+							payload: {
+								call_control_id: 'call-ctrl-emg',
+								digits: '3',
+								status: 'valid',
+								client_state: clientState
+							}
+						}
+					})
+				})
+			} as any);
+
+			const transferCalls = mockFetch.mock.calls.filter(
+				(c: any) =>
+					c[0] === 'https://api.telnyx.com/v2/calls/call-ctrl-emg/actions/transfer'
+			);
+			expect(transferCalls.length).toBe(1);
+			const body = JSON.parse(transferCalls[0][1]?.body ?? '{}');
+			expect(body.to).toBe('+15551111111');
+			const decodedState = JSON.parse(Buffer.from(body.client_state, 'base64').toString('utf8'));
+			expect(decodedState.callPriority).toBe('emergency');
+		});
+	});
+
+	describe('call.recording.saved with Emergency Priority', () => {
+		it('assigns emergency classification score delta 95 if callPriority is emergency in client_state', async () => {
+			mockPrismaCallLogFindFirst.mockResolvedValue({
+				to: '+17059986143',
+				from: '+15551234567',
+				metadata: { direction: 'incoming' }
+			});
+			mockPrismaCompanyPhoneNumberFindUnique.mockResolvedValue({ companyId: 'company-1', callFlowId: 'flow-1' });
+			mockPrismaContactFindFirst.mockResolvedValue({ id: 'contact-1' });
+
+			vi.mock('$lib/server/openai', () => ({
+				transcribeAudio: async () => 'hello, please call me back',
+				analyzeCallLog: async () => ({
+					summary: 'nothing urgent',
+					intent: 'General',
+					urgency: 'low',
+					sentiment: 'Neutral',
+					actionItems: [],
+					callerName: 'Jane',
+					buyingSignals: [],
+					estimatedPrice: 100
+				})
+			}));
+
+			const clientState = Buffer.from(
+				JSON.stringify({ ivrFlowId: 'f1', ivrRuleId: 'r1', callPriority: 'emergency' })
+			).toString('base64');
+
+			const { POST } = await import('../src/routes/api/telnyx/call-webhook/+server');
+			await POST({
+				request: new Request('http://localhost/api/telnyx/call-webhook', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						data: {
+							event_type: 'call.recording.saved',
+							payload: {
+								call_control_id: 'call-ctrl-rec-emg',
+								recording_id: 'rec-emg',
+								recording_urls: { mp3: 'https://telnyx-audio/rec.mp3' },
+								duration: 15,
+								client_state: clientState
+							}
+						}
+					})
+				})
+			} as any);
+
+			const telemetryCalls = mockFetch.mock.calls.filter(
+				(c: any) => c[0].includes('/api/v1/telemetry/events')
+			);
+			expect(telemetryCalls.length).toBe(1);
+			const telemetryBody = JSON.parse(telemetryCalls[0][1]?.body ?? '{}');
+			expect(telemetryBody.scoreDelta).toBe(95);
+		});
+	});
+
+	describe('Timeout retry/failover logic', () => {
+		const flowId = 'flow-1';
+		const ruleId = 'rule-1';
+		
+		beforeEach(() => {
+			mockPrismaCallFlowFindUnique.mockResolvedValue({
+				id: flowId,
+				title: 'Main',
+				greetingAudioUrl: '/g.mp3',
+				companyId: 'company-1',
+				rules: [
+					{
+						id: ruleId,
+						callFlowId: flowId,
+						ruleTitle: 'Test',
+						promptsAudioUrl: '/p.mp3',
+						keyPrompts: [],
+						failoverCount: 2,
+						failoverDelayMinutes: 2,
+						failoverAudioUrl: '/f.mp3',
+						hangupAudioUrl: '/h.mp3'
+					}
+				]
+			});
+		});
+
+		it('hangs up call when retry count is exhausted', async () => {
+			const clientStateExhausted = Buffer.from(
+				JSON.stringify({ ivrFlowId: flowId, ivrRuleId: ruleId, ivrRetry: 2 })
+			).toString('base64');
+
+			const { POST } = await import('../src/routes/api/telnyx/call-webhook/+server');
+			await POST({
+				request: new Request('http://localhost/api/telnyx/call-webhook', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						data: {
+							event_type: 'call.gather.ended',
+							payload: {
+								call_control_id: 'call-ctrl-retry-exhausted',
+								digits: '',
+								status: 'timeout',
+								client_state: clientStateExhausted
+							}
+						}
+					})
+				})
+			} as any);
+
+			const playbackCalls = mockFetch.mock.calls.filter(
+				(c: any) =>
+					c[0] === 'https://api.telnyx.com/v2/calls/call-ctrl-retry-exhausted/actions/playback_start'
+			);
+			expect(playbackCalls.length).toBe(1);
+			const body = JSON.parse(playbackCalls[0][1]?.body ?? '{}');
+			expect(body.audio_url).toContain('h.mp3');
 		});
 	});
 });

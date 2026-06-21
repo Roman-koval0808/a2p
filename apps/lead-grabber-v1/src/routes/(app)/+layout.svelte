@@ -72,12 +72,15 @@
 			const data = JSON.parse(e.data);
 			unreadCount++;
 			
+			const threadId = data.notification?.threadId;
+			const targetUrl = threadId ? `/inbox?threadId=${encodeURIComponent(threadId)}` : '/inbox';
+			
 			// Show toast and desktop notification
 			toast.info(data.notification.messagePreview || 'New notification received', {
 				description: data.notification.sourceName,
 				action: {
 					label: 'View',
-					onClick: () => goto('/inbox')
+					onClick: () => goto(targetUrl)
 				}
 			});
 
@@ -92,11 +95,14 @@
 
 		eventSource.addEventListener('new_sms', (e) => {
 			const data = JSON.parse(e.data);
+			const threadId = data.notification?.threadId;
+			const targetUrl = threadId ? `/inbox?threadId=${encodeURIComponent(threadId)}` : '/inbox';
+			
 			toast.success(`New SMS from ${data.notification.sourceName}`, {
 				description: data.notification.messagePreview,
 				action: {
 					label: 'Reply',
-					onClick: () => goto('/inbox')
+					onClick: () => goto(targetUrl)
 				}
 			});
 
