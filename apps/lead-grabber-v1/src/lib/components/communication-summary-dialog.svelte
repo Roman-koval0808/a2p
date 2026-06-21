@@ -17,6 +17,7 @@
 		sourceLabel?: string;
 		/** For voice: call recording playback URL (mp3/m4a from metadata.recording_urls) */
 		recordingUrl?: string | null;
+		estimatedPrice?: number | null;
 	}
 
 	let {
@@ -32,7 +33,8 @@
 		summary = 'Sarah wants an appointment to test drive the Ford 150 2026. between 2:00 and 3:30 on Friday Dec 12th.',
 		tasks = [],
 		sourceLabel = 'Email Address',
-		recordingUrl = null
+		recordingUrl = null,
+		estimatedPrice = null
 	}: Props = $props();
 </script>
 
@@ -94,6 +96,20 @@
 								{email}
 							</span>
 						</div>
+						{#if estimatedPrice !== undefined && estimatedPrice !== null}
+							<div class="flex items-start gap-4">
+								<span
+									class="flex-shrink-0 whitespace-nowrap font-sans text-[15px] font-normal leading-[141%] text-[rgba(86,86,86,0.78)]"
+								>
+									Estimated Value:
+								</span>
+								<span
+									class="min-w-0 break-words font-sans text-[15px] font-semibold leading-[141%] text-emerald-600"
+								>
+									${estimatedPrice}
+								</span>
+							</div>
+						{/if}
 						{#if recordingUrl}
 							<div class="flex flex-col gap-1">
 								<span

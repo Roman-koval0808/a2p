@@ -56,6 +56,7 @@ export async function analyzeCallLog(transcript: string): Promise<{
 	sentiment: string;
 	callerName: string | null;
 	buyingSignals: string[];
+	estimatedPrice: number | null;
 }> {
 	try {
 		const prompt = `
@@ -76,6 +77,7 @@ export async function analyzeCallLog(transcript: string): Promise<{
       - Asking about pricing or availability → "pricing_inquiry"
       - Mentioning a competitor or comparison → "comparison_shopping"
       Return an empty array if no buying signals are detected.
+    - "estimatedPrice": A number representing the estimated dollar value or price for the job if discussed or can be reasonably estimated based on the type of work described (e.g., water heater replacement: 1500, repair burst pipe: 500, simple leak: 200, faucet install: 150, standard inspection: 99). If the caller mentions a specific budget, price, or quote amount, use that value. If no specific service is described to estimate a price, return null.
 
     Transcript:
     "${transcript}"
@@ -126,7 +128,8 @@ export async function analyzeCallLog(transcript: string): Promise<{
 			actionItems: result.actionItems || [],
 			sentiment: result.sentiment || 'Neutral',
 			callerName: result.callerName || null,
-			buyingSignals: result.buyingSignals || []
+			buyingSignals: result.buyingSignals || [],
+			estimatedPrice: typeof result.estimatedPrice === 'number' ? result.estimatedPrice : null
 		};
 	} catch (error) {
 		console.error('Error in analyzeCallLog:', error);
@@ -137,7 +140,8 @@ export async function analyzeCallLog(transcript: string): Promise<{
 			actionItems: [],
 			sentiment: 'Unknown',
 			callerName: null,
-			buyingSignals: []
+			buyingSignals: [],
+			estimatedPrice: null
 		};
 	}
 }

@@ -12,6 +12,8 @@ import { notifyIncomingCallViaPush } from '$lib/server/push/incoming-call';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
+import { isA2pEnabled, forwardVoiceWebhook } from '$lib/server/a2p-client';
+import { createNotification } from '$lib/utils/notifications';
 
 const TELNYX_PUBLIC_KEY = process.env.TELNYX_PUBLIC_KEY;
 
@@ -39,6 +41,26 @@ const intentToTransfer = new Map<
 >();
 
 const defaultBeepAudio = 'https://codeskulptor-demos.commondatastorage.googleapis.com/descent/gotitem.mp3';
+
+/**
+ * Decodes a client state payload safely.
+ */
+function safeDecodeClientState(clientState: any): any {
+	if (!clientState) return null;
+	if (typeof clientState === 'object') {
+		return clientState;
+	}
+	if (typeof clientState === 'string') {
+		try {
+			return JSON.parse(clientState);
+		} catch (_) {}
+		try {
+			const decodedStr = Buffer.from(clientState, 'base64').toString('utf8');
+			return JSON.parse(decodedStr);
+		} catch (_) {}
+	}
+	return null;
+}
 
 /**
  * Tracks call control IDs that have transitioned to voicemail.
@@ -113,6 +135,16 @@ export const POST: RequestHandler = async ({ request }) => {
 		}
 		if (TELNYX_PUBLIC_KEY && !verifyTelnyxSignature(rawBody, timestamp, signature)) {
 			return json({ error: 'Invalid webhook signature' }, { status: 401 });
+		}
+
+		// Forward to A2P backend when configured
+		if (isA2pEnabled()) {
+			try {
+				const { ok, status, body: a2pBody } = await forwardVoiceWebhook(rawBody);
+				return json(a2pBody ?? { ok }, { status: status >= 200 && status < 300 ? 200 : status });
+			} catch (a2pError) {
+				console.error('[A2P Forwarding Failed - falling back to local handling]:', a2pError);
+			}
 		}
 
 		// IVR, recording, and comm-log creation always run locally. A2P is used only for
@@ -330,8 +362,16 @@ export const POST: RequestHandler = async ({ request }) => {
 					const parentId = payload?.parent_call_control_id as string | undefined;
 					const intentKey = `${fromNumber}|${toRaw}`;
 					const intent = intentToTransfer.get(intentKey);
+					const decodedState = safeDecodeClientState(payload?.client_state);
 					
-					if (parentId) {
+					if (decodedState?.originalCallControlId) {
+						console.log('🔗 Linking outbound leg via client_state originalCallControlId:', decodedState.originalCallControlId);
+						pendingTransfers.set(callControlId, {
+							originalCallControlId: decodedState.originalCallControlId,
+							ivrFlowId: decodedState.ivrFlowId || intent?.ivrFlowId,
+							ivrRuleId: decodedState.ivrRuleId || intent?.ivrRuleId
+						});
+					} else if (parentId) {
 						// Best case: Telnyx gave us the parent ID
 						console.log('🔗 Linking outbound leg to parent via parent_call_control_id:', parentId);
 						// We still need ivrFlowId/ivrRuleId. If it's a transfer we initiated, we might have it in intent.
@@ -365,20 +405,25 @@ export const POST: RequestHandler = async ({ request }) => {
 			case 'call.answered': {
 				console.log('✅ Call answered:', callControlId);
 				await logCallEvent(callControlId, 'answered', payload);
+
+				// Bypass IVR logic for outbound calls (e.g. transfer legs to reps)
+				if (payload?.direction === 'outbound') {
+					console.log('📞 Outbound transfer leg answered, bypassing IVR logic for control ID:', callControlId);
+					break;
+				}
+
 				let ivrFlowId: string | null = null;
 				let ivrRuleId: string | null = null;
 				let isUnavailable = false;
 				let allUnavailableAudioUrl: string | null = null;
 				if (payload?.client_state) {
-					try {
-						const decoded = JSON.parse(
-							Buffer.from(payload.client_state as string, 'base64').toString('utf8')
-						);
+					const decoded = safeDecodeClientState(payload.client_state);
+					if (decoded) {
 						ivrFlowId = decoded.ivrFlowId ?? null;
 						ivrRuleId = decoded.ivrRuleId ?? null;
 						isUnavailable = decoded.isUnavailable ?? false;
 						allUnavailableAudioUrl = decoded.allUnavailableAudioUrl ?? null;
-					} catch (_) {}
+					}
 				}
 				if (isUnavailable && callControlId) {
 					const baseUrl = PUBLIC_BASE_URL || 'https://example.com';
@@ -490,14 +535,12 @@ export const POST: RequestHandler = async ({ request }) => {
 				let ivrRuleId: string | null = null;
 				let ivrRetry = 0;
 				if (payload?.client_state) {
-					try {
-						const decoded = JSON.parse(
-							Buffer.from(payload.client_state as string, 'base64').toString('utf8')
-						);
+					const decoded = safeDecodeClientState(payload.client_state);
+					if (decoded) {
 						ivrFlowId = decoded.ivrFlowId ?? null;
 						ivrRuleId = decoded.ivrRuleId ?? null;
 						ivrRetry = Number(decoded.ivrRetry) || 0;
-					} catch (_) {}
+					}
 				}
 				if (!callControlId || !ivrFlowId || !ivrRuleId) {
 					console.log('📞 gather.ended missing callControlId or IVR state, ignoring');
@@ -528,7 +571,8 @@ export const POST: RequestHandler = async ({ request }) => {
 				const promptsUrl = resolveAudioUrl(rule.promptsAudioUrl, baseUrl);
 
 				const encodeClientState = (extra: Record<string, unknown>) => {
-					let ivrPath = (payload?.client_state ? JSON.parse(Buffer.from(payload.client_state as string, 'base64').toString('utf8')).ivrPath : '') || '';
+					const decoded = safeDecodeClientState(payload?.client_state);
+					let ivrPath = decoded?.ivrPath || '';
 					return Buffer.from(JSON.stringify({ ivrFlowId, ivrRuleId, ivrPath, ...extra })).toString('base64');
 				};
 
@@ -650,7 +694,8 @@ export const POST: RequestHandler = async ({ request }) => {
 						: null;
 					
 					// Update path in client state
-					const currentPath = (payload?.client_state ? JSON.parse(Buffer.from(payload.client_state as string, 'base64').toString('utf8')).ivrPath : '') || '';
+					const decoded = safeDecodeClientState(payload?.client_state);
+					const currentPath = decoded?.ivrPath || '';
 					const newPath = currentPath ? `${currentPath} > ${match.name || digit}` : (match.name || digit);
 
 					if (transferAudioUrl) {
@@ -668,7 +713,7 @@ export const POST: RequestHandler = async ({ request }) => {
 						await telnyxPlayback(callControlId, transferAudioUrl, transferState);
 						console.log('▶️ IVR playing transfer audio for', match.name ?? digit, isEmergency ? '(EMERGENCY)' : '');
 					} else {
-						const transferLegId = await telnyxTransfer(callControlId, to, ivrFlowId, ivrRuleId);
+						const transferLegId = await telnyxTransfer(callControlId, to, ivrFlowId, ivrRuleId, newPath, callPriority);
 						if (transferLegId) {
 							pendingTransfers.set(transferLegId, {
 								originalCallControlId: callControlId,
@@ -726,17 +771,22 @@ export const POST: RequestHandler = async ({ request }) => {
 
 			case 'call.playback.ended': {
 				if (!callControlId || !payload?.client_state) break;
-				try {
-					const decoded = JSON.parse(
-						Buffer.from(payload.client_state as string, 'base64').toString('utf8')
-					);
+				const decoded = safeDecodeClientState(payload.client_state);
+				if (decoded) {
 					if (decoded.afterPlaybackHangup) {
 						await telnyxHangup(callControlId);
 						console.log('📞 IVR playback (hangup) ended, hanging up');
 						break;
 					}
 					if (decoded.afterPlaybackTransfer && decoded.transferTo) {
-						const transferLegId = await telnyxTransfer(callControlId, decoded.transferTo, decoded.ivrFlowId, decoded.ivrRuleId);
+						const transferLegId = await telnyxTransfer(
+							callControlId,
+							decoded.transferTo,
+							decoded.ivrFlowId,
+							decoded.ivrRuleId,
+							decoded.ivrPath,
+							decoded.callPriority
+						);
 						if (transferLegId && decoded.ivrFlowId && decoded.ivrRuleId) {
 							pendingTransfers.set(transferLegId, {
 								originalCallControlId: callControlId,
@@ -833,7 +883,7 @@ export const POST: RequestHandler = async ({ request }) => {
 							console.log('▶️ IVR gather started after playback/greeting');
 						}
 					}
-				} catch (_) {}
+				}
 				break;
 			}
 
@@ -935,7 +985,7 @@ export const POST: RequestHandler = async ({ request }) => {
 									select: { callTrackingCategoryId: true }
 								})
 							: null;
-						await prisma.communicationLog.create({
+						const createdLog = await prisma.communicationLog.create({
 							data: {
 								type: 'voice',
 								direction: direction as 'inbound' | 'outbound',
@@ -957,6 +1007,23 @@ export const POST: RequestHandler = async ({ request }) => {
 							'📝 Created CommunicationLog on hangup (duration, recording link added when saved)',
 							callControlId
 						);
+
+						// Create real-time notification
+						await createNotification({
+							company_id: numberInfo.companyId,
+							type: 'voice',
+							direction: direction as 'inbound' | 'outbound',
+							source_name: contact?.name || contactNumber,
+							source_identifier: contactNumber,
+							message_preview: hangupDuration != null
+								? `Call completed (${Math.round(hangupDuration)}s)`
+								: 'Call completed',
+							content: hangupDuration != null
+								? `Call completed (${Math.round(hangupDuration)}s)`
+								: 'Call completed',
+							communication_log_id: createdLog.id,
+							thread_id: contactNumber
+						});
 					}
 				}
 				break;
@@ -1029,9 +1096,8 @@ export const POST: RequestHandler = async ({ request }) => {
 				const dtmfDigit = (payload?.digit as string) ?? '';
 				if (payload?.client_state) {
 					try {
-						const decoded = JSON.parse(
-							Buffer.from(payload.client_state as string, 'base64').toString('utf8')
-						);
+						const decoded = safeDecodeClientState(payload.client_state);
+						if (decoded) {
 						// If we're in a transfer playback, check if pressed digit is this rule's back digit
 						if (decoded.afterPlaybackTransfer && decoded.ivrFlowId && decoded.ivrRuleId) {
 							const flow = await prisma.callFlow.findUnique({
@@ -1078,6 +1144,7 @@ export const POST: RequestHandler = async ({ request }) => {
 								console.log('📞 IVR back digit pressed during transfer, returning to menu');
 							}
 						}
+					}
 					} catch (_) {}
 				}
 				break;
@@ -1205,13 +1272,12 @@ export const POST: RequestHandler = async ({ request }) => {
 							let urgency = 'medium';
 							let sentiment = '';
 							let actionItems: string[] = [];
+							let estimatedPrice: number | null = null;
 
 							let decoded: any = null;
 							if (payload?.client_state) {
 								try {
-									decoded = JSON.parse(
-										Buffer.from(payload.client_state as string, 'base64').toString('utf8')
-									);
+									decoded = safeDecodeClientState(payload.client_state);
 								} catch (e) {}
 							}
 
@@ -1242,6 +1308,7 @@ export const POST: RequestHandler = async ({ request }) => {
 										urgency = analysis.urgency;
 										sentiment = analysis.sentiment;
 										actionItems = analysis.actionItems;
+										estimatedPrice = analysis.estimatedPrice;
 										const callerName = analysis.callerName;
 										const buyingSignals = analysis.buyingSignals;
 
@@ -1260,13 +1327,21 @@ export const POST: RequestHandler = async ({ request }) => {
 											}
 										}
 
+										// Resolve final path and priority from client state
+										let finalIvrPath = 'Direct Call';
+										let finalPriority = 'standard';
+										if (decoded) {
+											finalIvrPath = decoded.ivrPath || finalIvrPath;
+											finalPriority = decoded.callPriority || finalPriority;
+										}
+
 										let scoreDelta = 5;
 										let bucketSignal = 'research';
 										const lowerTranscript = transcript.toLowerCase();
 										const emergencyKeywords = ['burst', 'flood', 'leak', 'emergency', 'pipe', 'water', 'immediate', 'urgent'];
 										const bookingKeywords = ['book', 'appointment', 'estimate', 'quote', 'schedule', 'renovate', 'renovation', 'toilet', 'shower', 'fixture'];
 
-										if (urgency === 'high' || emergencyKeywords.some(kw => lowerTranscript.includes(kw))) {
+										if (finalPriority === 'emergency' || urgency === 'high' || emergencyKeywords.some(kw => lowerTranscript.includes(kw))) {
 											scoreDelta = 95;
 											bucketSignal = 'emergency';
 										} else if (intent === 'Booking' || bookingKeywords.some(kw => lowerTranscript.includes(kw))) {
@@ -1275,14 +1350,6 @@ export const POST: RequestHandler = async ({ request }) => {
 										} else if (sentiment === 'Angry' || sentiment === 'Negative') {
 											scoreDelta = -10;
 											bucketSignal = 'friction';
-										}
-
-										// Resolve final path and priority from client state
-										let finalIvrPath = 'Direct Call';
-										let finalPriority = 'standard';
-										if (decoded) {
-											finalIvrPath = decoded.ivrPath || finalIvrPath;
-											finalPriority = decoded.callPriority || finalPriority;
 										}
 
 										let companyNumberLabel = 'Unknown Number';
@@ -1316,7 +1383,7 @@ export const POST: RequestHandler = async ({ request }) => {
 											const emergencyKeywords = ['burst', 'flood', 'leak', 'emergency', 'pipe', 'water', 'immediate', 'urgent'];
 											const bookingKeywords = ['book', 'appointment', 'estimate', 'quote', 'schedule', 'renovate', 'renovation', 'toilet', 'shower', 'fixture'];
 
-											if (urgency === 'high' || emergencyKeywords.some(kw => lowerTranscript.includes(kw))) {
+											if (finalPriority === 'emergency' || urgency === 'high' || emergencyKeywords.some(kw => lowerTranscript.includes(kw))) {
 												scoreDelta = 95;
 												bucketSignal = 'emergency';
 											} else if (intent === 'Booking' || bookingKeywords.some(kw => lowerTranscript.includes(kw))) {
@@ -1357,7 +1424,8 @@ export const POST: RequestHandler = async ({ request }) => {
 														execution: pipelineResult.execution,
 														outcome: pipelineResult.outcome,
 														feedback: pipelineResult.feedback,
-														ai_protocol: pipelineResult.ai_protocol
+														ai_protocol: pipelineResult.ai_protocol,
+														estimatedPrice: estimatedPrice
 													}
 												})
 											});
@@ -1454,11 +1522,12 @@ export const POST: RequestHandler = async ({ request }) => {
 								sentiment,
 								intent: intent || undefined,
 								actionItems,
-								origin: direction
+								origin: direction,
+								estimatedPrice
 							};
 
 							if (existingLog) {
-								await prisma.communicationLog.update({
+								const updatedLog = await prisma.communicationLog.update({
 									where: { id: existingLog.id },
 									data: {
 										duration: recDurationSeconds > 0 ? recDurationSeconds : existingLog.duration,
@@ -1471,8 +1540,21 @@ export const POST: RequestHandler = async ({ request }) => {
 									}
 								});
 								console.log('📝 Updated CommunicationLog with recording link', callControlId);
+
+								// Create notification for updated call log with recording/voicemail
+								await createNotification({
+									company_id: numberInfo.companyId,
+									type: 'voice',
+									direction: direction === 'incoming' ? 'inbound' : 'outbound',
+									source_name: contact?.name || contactNumber,
+									source_identifier: contactNumber,
+									message_preview: summary || transcript || `Call recording available (${recDurationSeconds}s)`,
+									content: transcript || `Call recording available (${recDurationSeconds}s)`,
+									communication_log_id: updatedLog.id,
+									thread_id: contactNumber
+								});
 							} else {
-								await prisma.communicationLog.create({
+								const createdLog = await prisma.communicationLog.create({
 									data: {
 										type: 'voice',
 										direction: direction === 'incoming' ? 'inbound' : 'outbound',
@@ -1492,6 +1574,19 @@ export const POST: RequestHandler = async ({ request }) => {
 									'📝 Created CommunicationLog for call (no hangup log found)',
 									callControlId
 								);
+
+								// Create notification for new call log with recording/voicemail
+								await createNotification({
+									company_id: numberInfo.companyId,
+									type: 'voice',
+									direction: direction === 'incoming' ? 'inbound' : 'outbound',
+									source_name: contact?.name || contactNumber,
+									source_identifier: contactNumber,
+									message_preview: summary || transcript || `Call recording available (${recDurationSeconds}s)`,
+									content: transcript || `Call recording available (${recDurationSeconds}s)`,
+									communication_log_id: createdLog.id,
+									thread_id: contactNumber
+								});
 							}
 						}
 					} else {
@@ -1573,7 +1668,9 @@ async function telnyxTransfer(
 	callControlId: string,
 	to: string,
 	ivrFlowId?: string,
-	ivrRuleId?: string
+	ivrRuleId?: string,
+	ivrPath?: string,
+	callPriority?: string
 ): Promise<string | null> {
 	// Find the number this call was made TO (which will be the FROM of the outbound transfer)
 	// We can try to find it in the initiated logs
@@ -1610,6 +1707,15 @@ async function telnyxTransfer(
 		} catch (e) {}
 	}
 
+	const clientStateObj = {
+		ivrFlowId,
+		ivrRuleId,
+		ivrPath,
+		callPriority,
+		originalCallControlId: callControlId
+	};
+	const clientState = Buffer.from(JSON.stringify(clientStateObj)).toString('base64');
+
 	console.log(`📡 Sending Telnyx transfer request for ${callControlId} to ${to} (timeout: ${timeoutSecs}s)...`);
 	const res = await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/transfer`, {
 		method: 'POST',
@@ -1617,7 +1723,8 @@ async function telnyxTransfer(
 		body: JSON.stringify({
 			to,
 			timeout_secs: timeoutSecs,
-			ringback_tone: defaultRingbackAudio
+			ringback_tone: defaultRingbackAudio,
+			client_state: clientState
 		})
 	});
 
