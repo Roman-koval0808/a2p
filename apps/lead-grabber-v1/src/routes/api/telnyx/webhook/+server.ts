@@ -93,7 +93,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		const emergencyKeywords = ['burst', 'flood', 'leak', 'emergency', 'pipe', 'water', 'immediate', 'urgent'];
 		const bookingKeywords = ['book', 'appointment', 'estimate', 'quote', 'schedule', 'renovate', 'renovation', 'toilet', 'shower', 'fixture'];
 		const hasEmergency = emergencyKeywords.some(kw => lowerText.includes(kw));
-		const scoreDelta = hasEmergency ? 95 : (bookingKeywords.some(kw => lowerText.includes(kw)) ? 20 : 10);
+		const scoreDelta = hasEmergency ? 15 : (bookingKeywords.some(kw => lowerText.includes(kw)) ? 20 : 10);
 
 		if (pipelineResult && pipelineResult.success) {
 			// Persist the full pipeline package into ProfileDB
