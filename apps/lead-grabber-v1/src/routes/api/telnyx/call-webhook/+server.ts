@@ -1628,6 +1628,52 @@ export const POST: RequestHandler = async ({ request }) => {
 									thread_id: contactNumber
 								});
 							}
+
+							// Retroactively update the call_summary in the message thread with the AI analysis
+							if (contactNumber) {
+								try {
+									const matchingThread = await prisma.message.findFirst({
+										where: {
+											companyId: numberInfo.companyId,
+											customerPhone: contactNumber
+										},
+										orderBy: { updated: 'desc' }
+									});
+									if (matchingThread && matchingThread.messages) {
+										const existingMsgs = Array.isArray(matchingThread.messages)
+											? matchingThread.messages
+											: typeof matchingThread.messages === 'string'
+												? JSON.parse(matchingThread.messages as string)
+												: [];
+										
+										let modified = false;
+										for (let i = existingMsgs.length - 1; i >= 0; i--) {
+											const msg = existingMsgs[i];
+											if (msg.type === 'call_summary' && msg.call_data?.call_control_id === callControlId) {
+												if (estimatedPrice != null) {
+													msg.call_data.estimated_price = estimatedPrice;
+												}
+												if (summary || transcript) {
+													const text = summary || transcript;
+													msg.call_data.summary = `Agent said: "${text.substring(0, 150)}${text.length > 150 ? '...' : ''}"`;
+												}
+												modified = true;
+												break;
+											}
+										}
+										
+										if (modified) {
+											await prisma.message.update({
+												where: { id: matchingThread.id },
+												data: { messages: existingMsgs }
+											});
+											console.log(`📎 Updated call_summary in thread ${matchingThread.threadId} with estimated price and summary`);
+										}
+									}
+								} catch (attachErr) {
+									console.error('⚠️ Failed to update call_summary with AI data:', attachErr);
+								}
+							}
 						}
 					} else {
 						console.log('⚠️ No initiated call log found for', callControlId);
