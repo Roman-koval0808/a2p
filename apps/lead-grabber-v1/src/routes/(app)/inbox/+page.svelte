@@ -196,6 +196,23 @@
 		};
 	});
 
+	// React to URL changes for the banner clicking
+	$effect(() => {
+		const urlThreadId = page.url.searchParams.get('threadId');
+		if (urlThreadId && messages.length > 0 && selectedMessage?.thread_id !== urlThreadId) {
+			const foundMsg = messages.find((m) => m.thread_id === urlThreadId);
+			if (foundMsg) {
+				selectMessage(foundMsg);
+			} else {
+				// Wait, if it's not found in local messages, we might need to fetch it
+				// But we just fetched all in loadMessages, if it's new, the SSE should have triggered loadMessages
+				// Or we just call loadMessages if missing
+				// fetch(`/api/messages?threadId=${encodeURIComponent(urlThreadId)}`).then(...)
+				// For now, if found we select
+			}
+		}
+	});
+
 	async function handleRealtimeUpdate(e: Event) {
 		const customEvent = e as CustomEvent;
 		const detail = customEvent.detail;
