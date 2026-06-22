@@ -1028,10 +1028,11 @@ export const POST: RequestHandler = async ({ request }) => {
 						// Attach call summary to the matching message thread (keeps thread open for follow-up)
 						if (contactNumber && hangupDuration != null && hangupDuration > 0) {
 							try {
+								const contactE164 = toE164(contactNumber);
 								const matchingThread = await prisma.message.findFirst({
 									where: {
 										companyId: numberInfo.companyId,
-										customerPhone: contactNumber,
+										customerPhone: { in: [contactNumber, contactE164] },
 										status: { in: ['new', 'replied', 'assigned', 'read'] }
 									},
 									orderBy: { updated: 'desc' }
@@ -1632,10 +1633,11 @@ export const POST: RequestHandler = async ({ request }) => {
 							// Retroactively update the call_summary in the message thread with the AI analysis
 							if (contactNumber) {
 								try {
+									const contactE164 = toE164(contactNumber);
 									const matchingThread = await prisma.message.findFirst({
 										where: {
 											companyId: numberInfo.companyId,
-											customerPhone: contactNumber
+											customerPhone: { in: [contactNumber, contactE164] }
 										},
 										orderBy: { updated: 'desc' }
 									});

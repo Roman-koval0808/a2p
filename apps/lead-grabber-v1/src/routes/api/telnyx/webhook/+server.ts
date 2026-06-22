@@ -251,7 +251,8 @@ export const POST: RequestHandler = async ({ request }) => {
 						messages: [...prevMessages, newMsg],
 						status: 'new',
 						customerName,
-						updated: new Date()
+						updated: new Date(),
+						...(hasEmergency && { urgency: 'red', intent: 'emergency' })
 					}
 				});
 			} else {
@@ -275,7 +276,8 @@ export const POST: RequestHandler = async ({ request }) => {
 								...(media.length > 0 && { media })
 							}
 						],
-						status: 'new'
+						status: 'new',
+						...(hasEmergency && { urgency: 'red', intent: 'emergency' })
 					}
 				});
 			}

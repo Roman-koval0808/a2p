@@ -68,17 +68,21 @@
 		[...chatMessages].reverse().find((m) => m.type !== 'call_summary') ?? null
 	);
 	const hasCallSummary = $derived(chatMessages.some((m) => m.type === 'call_summary'));
+	const hasAgentReply = $derived(chatMessages.some((m) => m.isYou));
 	const hasUnansweredSms = $derived(
 		selectedMessage &&
 		lastRealMessage !== null &&
 		!lastRealMessage.isYou &&
-		!hasCallSummary
+		!hasCallSummary &&
+		!hasAgentReply
 	);
 
 	$effect(() => {
 		if (selectedMessage) {
 			// Don't reset the draft if a call has already been made for this thread
 			if (hasCallSummary) return;
+			// Don't reset the draft if the agent already replied (handshake was sent)
+			if (hasAgentReply) return;
 			if (selectedMessage.draftResponse) {
 				draftValue = selectedMessage.draftResponse;
 			} else {
@@ -803,7 +807,10 @@
 			<HeaderTag />
 			<HeaderShuffle {selectedMessage} {companyMembers} onTransfer={handleTransferMessage} />
 			<HeaderReminder />
-			<HeaderClose />
+			<HeaderClose {selectedMessage} onClose={() => {
+				selectedMessage = null;
+				loadMessages(true);
+			}} />
 		</div>
 	</div>
 
