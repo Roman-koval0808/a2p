@@ -1657,6 +1657,12 @@ export const POST: RequestHandler = async ({ request }) => {
 													const text = summary || transcript;
 													msg.call_data.summary = `Agent said: "${text.substring(0, 150)}${text.length > 150 ? '...' : ''}"`;
 												}
+												// Store the recording URL so the UI can play it
+												if (recUrls && (recUrls as any).mp3) {
+													msg.call_data.recording_url = (recUrls as any).mp3;
+												} else if (audioUrl) {
+													msg.call_data.recording_url = audioUrl;
+												}
 												modified = true;
 												break;
 											}
