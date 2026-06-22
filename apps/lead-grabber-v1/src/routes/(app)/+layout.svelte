@@ -20,6 +20,8 @@
 	let incomingCallOpen = $state(false);
 	let currentCaller = $state({ name: '', phone: '', callId: '' });
 	let eventSource: EventSource | null = null;
+	
+	let activeBanner = $state<{ title: string; message: string; url: string; id: string } | null>(null);
 
 	const isCommunicationLog = $derived(page.url.pathname === '/communication-log' || page.url.pathname === '/inbox');
 
@@ -83,6 +85,13 @@
 					onClick: () => goto(targetUrl)
 				}
 			});
+			
+			activeBanner = {
+				title: data.notification.sourceName || 'New Notification',
+				message: data.notification.messagePreview || 'You have a new message.',
+				url: targetUrl,
+				id: threadId || Date.now().toString()
+			};
 
 			showDesktopNotification(data.notification.sourceName || 'New Notification', {
 				body: data.notification.messagePreview
@@ -105,6 +114,13 @@
 					onClick: () => goto(targetUrl)
 				}
 			});
+			
+			activeBanner = {
+				title: `New SMS from ${data.notification.sourceName}`,
+				message: data.notification.messagePreview,
+				url: targetUrl,
+				id: threadId || Date.now().toString()
+			};
 
 			if (typeof window !== 'undefined') {
 				window.dispatchEvent(new CustomEvent('sse-new-sms', { detail: data }));
@@ -183,10 +199,35 @@
 		{/if}
 	{/await}
 
-	<Sidebar.Inset class="flex !h-full !min-h-0 min-w-0 flex-col overflow-hidden">
+	<Sidebar.Inset class="flex !h-full !min-h-0 min-w-0 flex-col overflow-hidden relative">
 		<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-auto bg-background px-4">
-			<div class="mb-4 flex flex-shrink-0 items-center gap-4 pt-4">
+			<div class="mb-4 flex flex-shrink-0 items-center justify-between pt-4">
 				<Sidebar.Trigger />
+				{#if activeBanner}
+					<div class="flex items-center gap-3 rounded-full bg-white px-4 py-2 shadow-md border border-gray-100 animate-in slide-in-from-top-2">
+						<div class="relative flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-blue-600">
+							<Bell class="h-4 w-4" />
+							<span class="absolute -right-0.5 -top-0.5 flex h-2.5 w-2.5 rounded-full bg-red-500"></span>
+						</div>
+						<div class="flex flex-col">
+							<span class="text-sm font-semibold">{activeBanner.title}</span>
+							<span class="text-xs text-gray-500 max-w-[200px] truncate">{activeBanner.message}</span>
+						</div>
+						<Button 
+							size="sm" 
+							class="ml-2 h-7 rounded-full px-3 text-xs"
+							onclick={() => {
+								goto(activeBanner?.url || '/inbox');
+								activeBanner = null;
+							}}
+						>
+							Reply Now
+						</Button>
+						<button class="ml-1 text-gray-400 hover:text-gray-600" onclick={() => activeBanner = null}>
+							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+						</button>
+					</div>
+				{/if}
 			</div>
 			{#if !isCommunicationLog}
 				<div class="flex w-full flex-shrink-0 justify-between bg-white px-9 py-5">
