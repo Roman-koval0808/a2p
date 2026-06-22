@@ -203,7 +203,7 @@ async function syncEmergencyMessages(companyId: string) {
 				}
 
 				console.log(`🗑️ Deleting local emergency thread ${msg.threadId} as it is not present in CDP`);
-				await prisma.message.delete({
+				await prisma.message.deleteMany({
 					where: { id: msg.id }
 				});
 			}
@@ -312,8 +312,12 @@ async function syncEmergencyMessages(companyId: string) {
 				}
 			}
 
-			// Generate specific emergency advice locally if none exists (or it's a generic Mock reply)
-			if ((!draftResponse || draftResponse === 'Mock reply') && profile.intentBucket === 'emergency') {
+			if (draftResponse === 'Mock reply') {
+				draftResponse = null;
+			}
+
+			// Generate specific emergency advice locally if none exists
+			if (!draftResponse && profile.intentBucket === 'emergency') {
 				const lastMessage = mappedMessages[mappedMessages.length - 1]?.content?.toLowerCase() || '';
 				let advice = `Hi ${customerName}, we received your urgent message. A technician has been dispatched and will contact you in 2-3 minutes. Please keep your phone available. — RightFlush Plumbing`;
 				
@@ -397,7 +401,7 @@ async function syncEmergencyMessages(companyId: string) {
 			mergedMessages.sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
 			if (existing) {
-				await prisma.message.update({
+				await prisma.message.updateMany({
 					where: { id: existing.id },
 					data: {
 						messages: mergedMessages,
