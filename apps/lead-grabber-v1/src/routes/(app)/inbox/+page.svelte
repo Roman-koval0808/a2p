@@ -51,6 +51,8 @@
 			time: string;
 			isYou: boolean;
 			timestamp: string;
+			type?: string;
+			call_data?: { direction: string; duration: number; estimated_price?: number; summary?: string; call_control_id?: string };
 		}[]
 	>([]);
 
@@ -301,7 +303,9 @@
 						minute: '2-digit'
 					}),
 					isYou: msg.is_agent_reply,
-					timestamp: msg.timestamp
+					timestamp: msg.timestamp,
+					type: msg.type,
+					call_data: msg.call_data
 				}))
 				.sort(sortByTimestamp);
 		} catch (err) {
@@ -712,6 +716,35 @@
 			loadMessages();
 		}
 	}
+
+	// Test helper: inject a fake call summary into the selected thread
+	let isSimulatingCall = $state(false);
+	async function simulateCallResult() {
+		if (!selectedMessage) return;
+		isSimulatingCall = true;
+		try {
+			const res = await fetch('/api/telnyx/test-call-summary', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					threadId: selectedMessage.thread_id,
+					duration: 127,
+					estimated_price: 100,
+					summary: 'Agent said: "I will be there soon, price is $100"'
+				})
+			});
+			if (res.ok) {
+				toast.success('Call result simulated');
+				await loadChatMessages(selectedMessage.thread_id);
+			} else {
+				toast.error('Simulation failed');
+			}
+		} catch (err) {
+			toast.error('Simulation error');
+		} finally {
+			isSimulatingCall = false;
+		}
+	}
 </script>
 
 <div class="flex h-[90vh] flex-col gap-3 bg-gray-100 p-4">
@@ -880,66 +913,98 @@
 						</div>
 					{:else}
 						<div class="flex-1 space-y-4 overflow-y-auto p-4">
-							{#if isLoadingChat}
-								<div class="flex justify-center">
-									<div class="h-8 w-8 animate-spin rounded-full border-b-2 border-primary"></div>
-								</div>
-							{:else}
-								{#each chatMessages as message, i}
-									{#if i === 0}
-										<!-- Initial message with all details -->
-										<div class="mb-6 rounded-lg bg-gray-50 p-4">
-											<h3 class="mb-2 text-sm font-medium">Initial Message</h3>
-											<div class="space-y-2 text-sm">
-												<div><span class="text-gray-500">From:</span> {message.sender}</div>
-												{#if message.phone}
-													<div class="flex items-center gap-2">
-														<span class="text-gray-500">Phone:</span>
-														<span>{message.phone}</span>
-														<a
-															href="/dialer?phone={encodeURIComponent(message.phone)}&call=true"
-															class="inline-flex items-center justify-center p-1 rounded-full bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white transition-all duration-200"
-															title="Call Customer"
-														>
-															<Phone class="h-3.5 w-3.5" />
-														</a>
+							{#each chatMessages as message, i}
+								{#if i === 0}
+									<!-- Initial message with all details -->
+									<div class="mb-6 rounded-lg bg-gray-50 p-4">
+										<h3 class="mb-2 text-sm font-medium">Initial Message</h3>
+										<div class="space-y-2 text-sm">
+											<div><span class="text-gray-500">From:</span> {message.sender}</div>
+											{#if message.phone}
+												<div class="flex items-center gap-2">
+													<span class="text-gray-500">Phone:</span>
+													<span>{message.phone}</span>
+													<a
+														href="/dialer?phone={encodeURIComponent(message.phone)}&call=true"
+														class="inline-flex items-center justify-center p-1 rounded-full bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white transition-all duration-200"
+														title="Call Customer"
+													>
+														<Phone class="h-3.5 w-3.5" />
+													</a>
+												</div>
+											{/if}
+											{#if message.email}<div>
+													<span class="text-gray-500">Email:</span>
+													{message.email}
+												</div>{/if}
+											<div class="mt-3 rounded bg-white p-3">
+												<span class="text-gray-500">Message:</span>
+												<div class="mt-1">{message.message}</div>
+											</div>
+											<div class="mt-2 text-xs text-gray-500">{message.time}</div>
+										</div>
+									</div>
+								{:else if message.type === 'call_summary'}
+									<!-- Call summary card -->
+									<div class="flex justify-center my-2">
+										<div class="w-full max-w-[85%] rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 shadow-sm">
+											<div class="flex items-center gap-2 mb-2">
+												<div class="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500">
+													<Phone class="h-3 w-3 text-white" />
+												</div>
+												<span class="text-xs font-semibold text-emerald-700 uppercase tracking-wider">Call Completed</span>
+												<span class="ml-auto text-[10px] text-emerald-600 font-mono">{message.time}</span>
+											</div>
+											<div class="flex flex-wrap gap-3">
+												{#if message.call_data?.duration}
+													<div class="flex flex-col">
+														<span class="text-[10px] text-emerald-600 uppercase font-semibold">Duration</span>
+														<span class="text-sm font-bold text-emerald-800">
+															{Math.floor(message.call_data.duration / 60)}:{String(message.call_data.duration % 60).padStart(2, '0')} min
+														</span>
 													</div>
 												{/if}
-												{#if message.email}<div>
-														<span class="text-gray-500">Email:</span>
-														{message.email}
-													</div>{/if}
-												<div class="mt-3 rounded bg-white p-3">
-													<span class="text-gray-500">Message:</span>
-													<div class="mt-1">{message.message}</div>
-												</div>
-												<div class="mt-2 text-xs text-gray-500">{message.time}</div>
+												{#if message.call_data?.estimated_price}
+													<div class="flex flex-col">
+														<span class="text-[10px] text-emerald-600 uppercase font-semibold">Quoted Price</span>
+														<span class="text-sm font-bold text-emerald-800">${message.call_data.estimated_price}</span>
+													</div>
+												{/if}
+												{#if message.call_data?.direction}
+													<div class="flex flex-col">
+														<span class="text-[10px] text-emerald-600 uppercase font-semibold">Direction</span>
+														<span class="text-sm font-bold text-emerald-800 capitalize">{message.call_data.direction}</span>
+													</div>
+												{/if}
 											</div>
+											{#if message.call_data?.summary}
+												<p class="mt-2 text-xs text-emerald-700 italic border-t border-emerald-200 pt-2">{message.call_data.summary}</p>
+											{/if}
 										</div>
-									{:else}
-										<!-- Regular chat message -->
-										<div class="flex {message.isYou ? 'justify-end' : 'justify-start'}">
+									</div>
+								{:else}
+									<!-- Regular chat message -->
+									<div class="flex {message.isYou ? 'justify-end' : 'justify-start'}">
+										<div
+											class="max-w-[70%] {message.isYou
+												? 'bg-primary text-white'
+												: 'bg-gray-100'} rounded-lg p-3"
+										>
 											<div
-												class="max-w-[70%] {message.isYou
-													? 'bg-primary text-white'
-													: 'bg-gray-100'} rounded-lg p-3"
+												class="text-xs {message.isYou ? 'text-blue-100' : 'text-gray-500'} mb-1"
 											>
-												<div
-													class="text-xs {message.isYou ? 'text-blue-100' : 'text-gray-500'} mb-1"
-												>
-													{message.sender}
-												</div>
-												<div class="text-sm">{message.message}</div>
-												<div
-													class="text-xs {message.isYou ? 'text-blue-100' : 'text-gray-500'} mt-1"
-												>
-													{message.time}
-												</div>
+												{message.sender}
+											</div>
+											<div class="text-sm">{message.message}</div>
+											<div
+												class="text-xs {message.isYou ? 'text-blue-100' : 'text-gray-500'} mt-1"
+											>
+												{message.time}
 											</div>
 										</div>
-									{/if}
-								{/each}
-							{/if}
+									</div>
+								{/if}
+							{/each}
 						</div>
 					{/if}
 				{:else}
@@ -961,9 +1026,23 @@
 					sendMessage(e);
 				}}
 			>
-				<div class="mb-4 flex gap-4">
-					<button class="border-b-2 border-primary pb-2 text-primary">Message</button>
-					<button class="pb-2">Note</button>
+				<div class="mb-4 flex items-center justify-between gap-4">
+					<div class="flex gap-4">
+						<button class="border-b-2 border-primary pb-2 text-primary">Message</button>
+						<button class="pb-2">Note</button>
+					</div>
+					{#if selectedMessage}
+						<button
+							type="button"
+							onclick={simulateCallResult}
+							disabled={isSimulatingCall}
+							title="Inject a fake call result card for testing"
+							class="flex items-center gap-1.5 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 transition-colors"
+						>
+							<Phone class="h-3 w-3" />
+							{isSimulatingCall ? 'Simulating…' : 'Sim Call'}
+						</button>
+					{/if}
 				</div>
 
 				{#if hasUnansweredSms && selectedMessage && (selectedMessage.thread_id.startsWith('emergency-') || selectedMessage.intent === 'emergency' || selectedMessage.urgency === 'red')}

@@ -1025,28 +1025,43 @@ export const POST: RequestHandler = async ({ request }) => {
 							thread_id: contactNumber
 						});
 
-						// Auto-resolve message threads when an outbound call completes with the customer
-						// This closes the loop: customer SMS → agent sends handshake reply → agent calls → thread closed
-						if (direction === 'outbound' && contactNumber && hangupDuration != null && hangupDuration > 5) {
+						// Attach call summary to the matching message thread (keeps thread open for follow-up)
+						if (contactNumber && hangupDuration != null && hangupDuration > 5) {
 							try {
-								const openThreads = await prisma.message.findMany({
+								const matchingThread = await prisma.message.findFirst({
 									where: {
 										companyId: numberInfo.companyId,
 										customerPhone: contactNumber,
-										status: { in: ['new', 'replied', 'assigned'] }
-									}
+										status: { in: ['new', 'replied', 'assigned', 'read'] }
+									},
+									orderBy: { updated: 'desc' }
 								});
-								if (openThreads.length > 0) {
-									await prisma.message.updateMany({
-										where: {
-											id: { in: openThreads.map(t => t.id) }
-										},
-										data: { status: 'closed' }
+								if (matchingThread) {
+									const existingMsgs = Array.isArray(matchingThread.messages)
+										? matchingThread.messages
+										: typeof matchingThread.messages === 'string'
+											? JSON.parse(matchingThread.messages as string)
+											: [];
+									const callSummaryEntry = {
+										type: 'call_summary',
+										content: `Call completed (${Math.round(hangupDuration)}s)`,
+										timestamp: new Date().toISOString(),
+										is_agent_reply: false,
+										is_system: true,
+										call_data: {
+											direction,
+											duration: Math.round(hangupDuration),
+											call_control_id: callControlId
+										}
+									};
+									await prisma.message.update({
+										where: { id: matchingThread.id },
+										data: { messages: [...existingMsgs, callSummaryEntry] }
 									});
-									console.log(`✅ Auto-closed ${openThreads.length} message thread(s) for ${contactNumber} after outbound call (${hangupDuration}s)`);
+									console.log(`📎 Attached call summary to thread ${matchingThread.threadId} (${Math.round(hangupDuration)}s)`);
 								}
-							} catch (resolveErr) {
-								console.error('⚠️ Failed to auto-close message threads:', resolveErr);
+							} catch (attachErr) {
+								console.error('⚠️ Failed to attach call summary to thread:', attachErr);
 							}
 						}
 					}
