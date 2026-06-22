@@ -10,6 +10,7 @@
 		CheckCircle2,
 		Images,
 		MessageSquareText,
+		Phone,
 		Plus,
 		Shuffle,
 		Smile,
@@ -787,6 +788,18 @@
 								<div class="flex-grow">
 									<div class="flex items-center gap-2">
 										<h4 class="text-lg font-medium">{(msg as any).name}</h4>
+										{#if msg.customer_phone}
+											<button
+												class="inline-flex items-center justify-center p-1 rounded-full bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white transition-all duration-200"
+												title="Call Customer"
+												onclick={(e) => {
+													e.stopPropagation();
+													goto(`/dialer?phone=${encodeURIComponent(msg.customer_phone)}&call=true`);
+												}}
+											>
+												<Phone class="h-3.5 w-3.5" />
+											</button>
+										{/if}
 										{#if msg.intent}
 											{#if msg.intent === 'emergency'}
 												<span class="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 uppercase tracking-wider">Emergency</span>
@@ -879,10 +892,19 @@
 											<h3 class="mb-2 text-sm font-medium">Initial Message</h3>
 											<div class="space-y-2 text-sm">
 												<div><span class="text-gray-500">From:</span> {message.sender}</div>
-												{#if message.phone}<div>
+												{#if message.phone}
+													<div class="flex items-center gap-2">
 														<span class="text-gray-500">Phone:</span>
-														{message.phone}
-													</div>{/if}
+														<span>{message.phone}</span>
+														<a
+															href="/dialer?phone={encodeURIComponent(message.phone)}&call=true"
+															class="inline-flex items-center justify-center p-1 rounded-full bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white transition-all duration-200"
+															title="Call Customer"
+														>
+															<Phone class="h-3.5 w-3.5" />
+														</a>
+													</div>
+												{/if}
 												{#if message.email}<div>
 														<span class="text-gray-500">Email:</span>
 														{message.email}

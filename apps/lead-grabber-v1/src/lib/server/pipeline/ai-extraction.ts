@@ -25,7 +25,7 @@ export type ExtractionResult = z.infer<typeof ExtractionResultSchema>;
 
 let _openai: OpenAI | null = null;
 function getOpenAIClient(): OpenAI {
-	const apiKey = env.OPENAI_API_KEY;
+	const apiKey = env.OPENAI_API_KEY || env.OPEN_AI_KEY || (typeof process !== 'undefined' ? (process.env.OPENAI_API_KEY || process.env.OPEN_AI_KEY) : undefined);
 	if (!apiKey) throw new Error('Missing OPENAI_API_KEY');
 	if (_openai) return _openai;
 	_openai = new OpenAI({ apiKey, timeout: 12000, maxRetries: 0 });
