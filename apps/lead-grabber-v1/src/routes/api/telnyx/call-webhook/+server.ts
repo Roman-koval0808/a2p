@@ -1026,7 +1026,7 @@ export const POST: RequestHandler = async ({ request }) => {
 						});
 
 						// Attach call summary to the matching message thread (keeps thread open for follow-up)
-						if (contactNumber && hangupDuration != null && hangupDuration > 5) {
+						if (contactNumber && hangupDuration != null && hangupDuration > 0) {
 							try {
 								const matchingThread = await prisma.message.findFirst({
 									where: {
