@@ -50,6 +50,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				to: formattedPhone,
 				from,
 				send_silence_when_idle: false, // Ensures continuous audio
+				record: 'record-from-answer',
 				client_state: clientId ? btoa(JSON.stringify({ clientId })) : undefined,
 				webhook_url: `${request.headers.get('origin')}/api/telnyx/call-webhook`, // Ensure webhooks are properly routed
 				// Optional: Enable answering machine detection if needed
