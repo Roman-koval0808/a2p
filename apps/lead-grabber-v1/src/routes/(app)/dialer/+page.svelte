@@ -123,12 +123,23 @@
 		}
 	});
 
-	// Read phone number from URL params
+	let lastAutoCalledNumber = '';
+	// Read phone number and auto-call from URL params
 	$effect(() => {
 		const phoneParam = page.url.searchParams.get('phone');
+		const callParam = page.url.searchParams.get('call');
 		if (phoneParam) {
 			dialInput = phoneParam;
 			phoneNumber = phoneParam;
+			if (callParam === 'true' && lastAutoCalledNumber !== phoneParam) {
+				lastAutoCalledNumber = phoneParam;
+				setTimeout(() => {
+					if (!selectedFromNumber && phoneNumbers.length > 0) {
+						selectedFromNumber = phoneNumbers[0].phoneNumber;
+					}
+					initiateCall();
+				}, 1000);
+			}
 		}
 	});
 

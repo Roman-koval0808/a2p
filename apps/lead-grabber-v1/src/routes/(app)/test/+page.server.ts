@@ -179,7 +179,7 @@ export const actions: Actions = {
 			});
 
 			// 4. Create Voice Communication Log
-			await prisma.communicationLog.create({
+			const createdComm = await prisma.communicationLog.create({
 				data: {
 					type: 'voice',
 					direction: 'inbound',
@@ -193,6 +193,47 @@ export const actions: Actions = {
 					metadata: { call_control_id: callId }
 				}
 			});
+
+			let analysis = null;
+			try {
+				const { analyzeCallLog } = await import('$lib/server/openai');
+				analysis = await analyzeCallLog(comment);
+			} catch (err) {
+				console.error('Failed to run AI analysis for simulated call:', err);
+			}
+
+			if (analysis?.callerName && contact && contact.name === 'Unknown Caller') {
+				try {
+					await prisma.contact.update({
+						where: { id: contact.id },
+						data: { name: analysis.callerName }
+					});
+					contact.name = analysis.callerName;
+				} catch (nameErr) {
+					console.error('Failed to update contact name in simulation:', nameErr);
+				}
+			}
+
+			if (analysis) {
+				try {
+					await prisma.communicationLog.update({
+						where: { id: createdComm.id },
+						data: {
+							summary: analysis.summary || createdComm.summary,
+							metadata: {
+								call_control_id: callId,
+								urgency: analysis.urgency,
+								sentiment: analysis.sentiment,
+								intent: analysis.intent,
+								actionItems: analysis.actionItems,
+								estimatedPrice: analysis.estimatedPrice
+							}
+						}
+					});
+				} catch (updateErr) {
+					console.error('Failed to update communication log metadata in simulation:', updateErr);
+				}
+			}
 
 			// 5. Run the actual AI signals pipeline simulator (which delegates to UnifiedPipeline)
 			const pipelineResult = await PipelineSimulator.run({
