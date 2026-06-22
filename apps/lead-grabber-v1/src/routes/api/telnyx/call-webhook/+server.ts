@@ -1024,6 +1024,31 @@ export const POST: RequestHandler = async ({ request }) => {
 							communication_log_id: createdLog.id,
 							thread_id: contactNumber
 						});
+
+						// Auto-resolve message threads when an outbound call completes with the customer
+						// This closes the loop: customer SMS → agent sends handshake reply → agent calls → thread closed
+						if (direction === 'outbound' && contactNumber && hangupDuration != null && hangupDuration > 5) {
+							try {
+								const openThreads = await prisma.message.findMany({
+									where: {
+										companyId: numberInfo.companyId,
+										customerPhone: contactNumber,
+										status: { in: ['new', 'replied', 'assigned'] }
+									}
+								});
+								if (openThreads.length > 0) {
+									await prisma.message.updateMany({
+										where: {
+											id: { in: openThreads.map(t => t.id) }
+										},
+										data: { status: 'closed' }
+									});
+									console.log(`✅ Auto-closed ${openThreads.length} message thread(s) for ${contactNumber} after outbound call (${hangupDuration}s)`);
+								}
+							} catch (resolveErr) {
+								console.error('⚠️ Failed to auto-close message threads:', resolveErr);
+							}
+						}
 					}
 				}
 				break;
