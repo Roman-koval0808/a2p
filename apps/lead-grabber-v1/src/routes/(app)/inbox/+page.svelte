@@ -68,8 +68,7 @@
 
 	$effect(() => {
 		if (selectedMessage) {
-			const messagesArray = selectedMessage.messages || [];
-			const hasAgentReplies = messagesArray.some((m: any) => m.is_agent_reply);
+			const hasAgentReplies = chatMessages.some((m: any) => m.isYou);
 			if (hasAgentReplies) {
 				const userName = user?.name || 'our team';
 				draftValue = `${userName} has gotten your message and he will be calling you in two minutes.`;
@@ -948,7 +947,7 @@
 				{#if hasUnansweredSms && selectedMessage && (selectedMessage.thread_id.startsWith('emergency-') || selectedMessage.intent === 'emergency' || selectedMessage.urgency === 'red')}
 					<div class="mb-4 rounded-lg border border-sky-200 bg-sky-50/50 p-3 flex flex-col gap-2">
 						<div class="text-[10px] text-sky-600 font-mono uppercase font-bold tracking-wider">Draft Response (Handshake)</div>
-						{#if !selectedMessage.draftResponse && !selectedMessage.messages?.some(m => m.is_agent_reply)}
+						{#if !selectedMessage.draftResponse && !chatMessages.some(m => m.isYou)}
 							<div class="flex items-center gap-2 text-xs text-sky-600 font-medium py-2">
 								<div class="h-4 w-4 animate-spin rounded-full border-2 border-sky-600 border-t-transparent"></div>
 								<span>AI is drafting a helper response...</span>
