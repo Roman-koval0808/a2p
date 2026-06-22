@@ -63,19 +63,23 @@
 	let draftValue = $state(`${user?.name || 'our team'} has gotten your message and he will be calling you in two minutes.`);
 	let isSendingSms = $state(false);
 
+	// Ignore call_summary system entries when deciding if SMS is unanswered
+	const lastRealMessage = $derived(
+		[...chatMessages].reverse().find((m) => m.type !== 'call_summary') ?? null
+	);
+	const hasCallSummary = $derived(chatMessages.some((m) => m.type === 'call_summary'));
 	const hasUnansweredSms = $derived(
 		selectedMessage &&
-		chatMessages.length > 0 &&
-		!chatMessages[chatMessages.length - 1].isYou
+		lastRealMessage !== null &&
+		!lastRealMessage.isYou &&
+		!hasCallSummary
 	);
 
 	$effect(() => {
 		if (selectedMessage) {
-			const hasAgentReplies = chatMessages.some((m: any) => m.isYou);
-			if (hasAgentReplies) {
-				const userName = user?.name || 'our team';
-				draftValue = `${userName} has gotten your message and he will be calling you in two minutes.`;
-			} else if (selectedMessage.draftResponse) {
+			// Don't reset the draft if a call has already been made for this thread
+			if (hasCallSummary) return;
+			if (selectedMessage.draftResponse) {
 				draftValue = selectedMessage.draftResponse;
 			} else {
 				const userName = user?.name || 'our team';
