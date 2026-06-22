@@ -21,6 +21,7 @@
 
 	import { toast } from 'svelte-sonner';
 	import { goto } from '$app/navigation';
+	import { page as pageStore } from '$app/stores';
 	import type { Message } from '$lib/types/message';
 
 	let { data } = $props();
@@ -73,8 +74,7 @@
 		selectedMessage &&
 		lastRealMessage !== null &&
 		!lastRealMessage.isYou &&
-		!hasCallSummary &&
-		!hasAgentReply
+		!hasCallSummary
 	);
 
 	$effect(() => {
@@ -202,7 +202,7 @@
 
 	// React to URL changes for the banner clicking
 	$effect(() => {
-		const urlThreadId = page.url.searchParams.get('threadId');
+		const urlThreadId = $pageStore.url.searchParams.get('threadId');
 		if (urlThreadId && messages.length > 0 && selectedMessage?.thread_id !== urlThreadId) {
 			const foundMsg = messages.find((m) => m.thread_id === urlThreadId);
 			if (foundMsg) {
@@ -577,6 +577,7 @@
 			});
 
 			toast.success('Draft SMS sent successfully!');
+			draftValue = '';
 			await loadMessages(true);
 			
 			// Only load chat messages if the thread is still selected
