@@ -52,7 +52,7 @@
 			isYou: boolean;
 			timestamp: string;
 			type?: string;
-			call_data?: { direction: string; duration: number; estimated_price?: number; summary?: string; call_control_id?: string };
+			call_data?: { direction: string; duration: number; estimated_price?: number; summary?: string; call_control_id?: string; recording_url?: string };
 		}[]
 	>([]);
 
@@ -983,6 +983,12 @@
 											</div>
 											{#if message.call_data?.summary}
 												<p class="mt-2 text-xs text-emerald-700 italic border-t border-emerald-200 pt-2">{message.call_data.summary}</p>
+											{/if}
+											{#if message.call_data?.recording_url}
+												<div class="mt-3 border-t border-emerald-200 pt-3">
+													<span class="text-[10px] text-emerald-600 uppercase font-semibold mb-1.5 block tracking-wider">Recording</span>
+													<audio controls src={message.call_data.recording_url} class="h-8 w-full max-w-sm outline-none rounded-full bg-emerald-100"></audio>
+												</div>
 											{/if}
 										</div>
 									</div>

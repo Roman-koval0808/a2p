@@ -42,6 +42,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				duration,
 				...(estimated_price != null && { estimated_price }),
 				...(summary && { summary }),
+				recording_url: 'https://cdn.pixabay.com/download/audio/2022/03/15/audio_248f2b2c1d.mp3?filename=water-drop-sound-effect-103131.mp3',
 				call_control_id: `sim_${Date.now()}`
 			}
 		};
