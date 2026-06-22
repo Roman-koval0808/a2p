@@ -359,12 +359,19 @@ async function syncEmergencyMessages(companyId: string) {
 			// If we matched a native phone thread, clean up any duplicate emergency- thread that might exist
 			if (existingPhoneMessage) {
 				const duplicateEmergencyThreadId = `emergency-${profileId}`;
-				await prisma.message.deleteMany({
-					where: {
-						companyId,
-						threadId: duplicateEmergencyThreadId
+				// Only delete if it's actually a different thread
+				if (existingPhoneMessage.threadId !== duplicateEmergencyThreadId) {
+					try {
+						await prisma.message.deleteMany({
+							where: {
+								companyId,
+								threadId: duplicateEmergencyThreadId
+							}
+						});
+					} catch (delErr) {
+						// Race condition — another sync already cleaned it up
 					}
-				});
+				}
 			}
 
 			const existing = existingPhoneMessage || await prisma.message.findUnique({
@@ -400,33 +407,40 @@ async function syncEmergencyMessages(companyId: string) {
 			}
 			mergedMessages.sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-			if (existing) {
-				await prisma.message.updateMany({
-					where: { id: existing.id },
-					data: {
+			// Don't overwrite existing draftResponse/urgency/intent if sync data is weaker
+			const effectiveDraft = draftResponse ?? existing?.draftResponse ?? null;
+			const effectiveUrgency = urgency === 'red' ? 'red' : (existing?.urgency || urgency);
+			const effectiveIntent = profile.intentBucket || existing?.intent || null;
+
+			try {
+				await prisma.message.upsert({
+					where: { threadId: targetThreadId },
+					update: {
 						messages: mergedMessages,
 						updated: new Date(),
 						customerName,
 						customerPhone,
-						urgency,
-						intent: profile.intentBucket,
-						draftResponse
-					}
-				});
-			} else {
-				await prisma.message.create({
-					data: {
+						urgency: effectiveUrgency,
+						intent: effectiveIntent,
+						...(effectiveDraft && { draftResponse: effectiveDraft })
+					},
+					create: {
 						threadId: targetThreadId,
 						companyId,
 						customerPhone,
 						customerName,
 						status: 'new',
-						urgency,
-						intent: profile.intentBucket,
-						draftResponse,
+						urgency: effectiveUrgency,
+						intent: effectiveIntent,
+						draftResponse: effectiveDraft,
 						messages: mergedMessages
 					}
 				});
+			} catch (upsertErr: any) {
+				// Handle race conditions gracefully
+				if (upsertErr.code !== 'P2002') {
+					console.warn(`[syncEmergencyMessages] upsert failed for ${targetThreadId}:`, upsertErr.message);
+				}
 			}
 		}
 	} catch (err) {

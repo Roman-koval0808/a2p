@@ -1382,8 +1382,8 @@ export const POST: RequestHandler = async ({ request }) => {
 										const emergencyKeywords = ['burst', 'flood', 'leak', 'emergency', 'pipe', 'water', 'immediate', 'urgent'];
 										const bookingKeywords = ['book', 'appointment', 'estimate', 'quote', 'schedule', 'renovate', 'renovation', 'toilet', 'shower', 'fixture'];
 
-										if (finalPriority === 'emergency' || urgency === 'high' || emergencyKeywords.some(kw => lowerTranscript.includes(kw))) {
-											scoreDelta = 95;
+										if (finalPriority === 'emergency' || emergencyKeywords.some(kw => lowerTranscript.includes(kw))) {
+											scoreDelta = 15;
 											bucketSignal = 'emergency';
 										} else if (intent === 'Booking' || bookingKeywords.some(kw => lowerTranscript.includes(kw))) {
 											scoreDelta = 20;
@@ -1424,8 +1424,8 @@ export const POST: RequestHandler = async ({ request }) => {
 											const emergencyKeywords = ['burst', 'flood', 'leak', 'emergency', 'pipe', 'water', 'immediate', 'urgent'];
 											const bookingKeywords = ['book', 'appointment', 'estimate', 'quote', 'schedule', 'renovate', 'renovation', 'toilet', 'shower', 'fixture'];
 
-											if (finalPriority === 'emergency' || urgency === 'high' || emergencyKeywords.some(kw => lowerTranscript.includes(kw))) {
-												scoreDelta = 95;
+											if (finalPriority === 'emergency' || emergencyKeywords.some(kw => lowerTranscript.includes(kw))) {
+												scoreDelta = 15;
 												bucketSignal = 'emergency';
 											} else if (intent === 'Booking' || bookingKeywords.some(kw => lowerTranscript.includes(kw))) {
 												scoreDelta = 20;
@@ -1506,7 +1506,7 @@ export const POST: RequestHandler = async ({ request }) => {
 												}
 
 												if (!safetySmsText) {
-													safetySmsText = `Hi ${contact?.name || 'Marie'}, we received your urgent message about the burst pipe/leak and are calling you right back to help!`;
+													safetySmsText = `Hi, we received your urgent message about the burst pipe/leak and are calling you right back to help!`;
 												}
 
 												if (companyNumber && contactNumber) {
