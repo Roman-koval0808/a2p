@@ -377,9 +377,11 @@ async function syncEmergencyMessages(companyId: string) {
 					? JSON.parse(existing.messages)
 					: [];
 
-			// Keep local agent replies that are not already present in the mapped messages
-			const localAgentReplies = localMsgs.filter((m: any) => m.is_agent_reply && !m.agent_name?.startsWith('System'));
-			
+			// Keep local agent replies and call summaries that are not already present in the mapped messages
+			const localAgentReplies = localMsgs.filter((m: any) => 
+				(m.is_agent_reply && !m.agent_name?.startsWith('System')) || 
+				m.type === 'call_summary'
+			);
 			// Combine mappedMessages and localAgentReplies, and sort by timestamp
 			const mergedMessages = [...mappedMessages];
 			for (const localRep of localAgentReplies) {
