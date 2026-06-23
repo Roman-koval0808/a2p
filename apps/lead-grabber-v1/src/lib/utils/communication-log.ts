@@ -60,7 +60,20 @@ export async function logCommunication(entry: CommunicationLogEntry) {
 		// Handle thread linking or creation
 		let threadId = entry.thread_id || (entry.metadata as { commId?: string })?.commId || (entry.metadata as { thread_id?: string })?.thread_id;
 		
-		if (!threadId && entry.company_id) {
+		if (threadId && entry.company_id) {
+			// Ensure thread exists if an ID was passed in
+			await prisma.communicationThread.upsert({
+				where: { id: threadId },
+				create: {
+					id: threadId,
+					companyId: entry.company_id,
+					contactId: entry.customer_id || null,
+					status: 'open',
+					summary: entry.summary || null
+				},
+				update: {}
+			});
+		} else if (!threadId && entry.company_id) {
 			const newThread = await prisma.communicationThread.create({
 				data: {
 					companyId: entry.company_id,
@@ -74,8 +87,6 @@ export async function logCommunication(entry: CommunicationLogEntry) {
 
 		if (threadId) {
 			data.communicationThreadId = threadId;
-			// Also ensure thread is created if it was passed manually but doesn't exist? 
-			// We assume passed threadId already exists, or we could upsert it.
 		}
 
 		const record = await prisma.communicationLog.create({
