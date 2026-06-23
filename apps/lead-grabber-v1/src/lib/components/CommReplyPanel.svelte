@@ -73,8 +73,7 @@
 	// Set default draft
 	$effect(() => {
 		if (open && comm && customerPhone) {
-			const userName = user?.name || 'our team';
-			draftValue = comm?.draftResponse || comm?.raw?.draftResponse || comm?.raw?.metadata?.draftResponse || `${userName} has gotten your message and will be calling you shortly.`;
+			draftValue = comm?.draftResponse || comm?.raw?.draftResponse || comm?.raw?.metadata?.draftResponse || '';
 		}
 	});
 
