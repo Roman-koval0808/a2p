@@ -1517,39 +1517,31 @@ export const POST: RequestHandler = async ({ request }) => {
 													const formattedFrom = toE164(companyNumber);
 													const formattedTo = toE164(contactNumber);
 													
-													console.log(`📤 Sending safety SMS from ${formattedFrom} to ${formattedTo}: "${safetySmsText}"`);
+													console.log(`📤 Logging safety SMS draft from ${formattedFrom} to ${formattedTo}: "${safetySmsText}"`);
 													try {
-														const smsRes = await fetch('https://api.telnyx.com/v2/messages', {
-															method: 'POST',
-															headers: {
-																'Content-Type': 'application/json',
-																Authorization: `Bearer ${TELNYX_API_KEY}`
-															},
-															body: JSON.stringify({
-																from: formattedFrom,
-																to: formattedTo,
-																text: safetySmsText,
-																messaging_profile_id: TELNYX_MESSAGING_PROFILE_ID,
-																webhook_url: `${PUBLIC_BASE_URL.replace(/\/$/, '')}/api/telnyx/webhook`,
-																webhook_failover_url: `${PUBLIC_BASE_URL.replace(/\/$/, '')}/api/telnyx/webhook-backup`,
-																use_profile_webhooks: false,
-																type: 'SMS'
-															})
+														await logCommunication({
+															type: 'sms',
+															direction: 'outbound',
+															status: 'pending_approval',
+															source: formattedFrom,
+															destination: formattedTo,
+															company_id: numberInfo?.companyId ?? undefined,
+															customer_id: contact?.id ?? undefined,
+															summary: safetySmsText.substring(0, 50) + '...',
+															content: safetySmsText,
+															metadata: {
+																thread_id: formattedTo,
+																is_draft: true,
+																is_safety_draft: true,
+																is_emergency: true
+															}
 														});
-														
-														const responseText = await smsRes.text();
-														console.log('Telnyx Safety SMS send response:', responseText);
-														
-														if (!smsRes.ok) {
-															console.error('❌ Failed to send safety SMS via Telnyx:', responseText);
-														} else {
-															console.log('✅ Safety SMS successfully dispatched via Telnyx');
-														}
-													} catch (smsErr) {
-														console.error('❌ Error sending safety SMS via Telnyx:', smsErr);
+														console.log('📡 Voicemail safety SMS draft logged as pending_approval');
+													} catch (draftErr) {
+														console.error('❌ Error logging safety SMS draft:', draftErr);
 													}
 												} else {
-													console.warn('⚠️ Missing companyNumber or contactNumber, cannot send safety SMS');
+													console.warn('⚠️ Missing companyNumber or contactNumber, cannot log safety SMS draft');
 												}
 											}
 										}).catch(err => console.error('[Voice Pipeline Error]', err));
