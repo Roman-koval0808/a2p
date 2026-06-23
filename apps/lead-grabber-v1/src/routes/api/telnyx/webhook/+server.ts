@@ -138,7 +138,8 @@ export const POST: RequestHandler = async ({ request }) => {
 						rating: 0,
 						comment: smsText,
 						mode: 'sms',
-						sessionId: smsId
+						sessionId: smsId,
+						companyId: companyId || undefined
 					});
 				} catch (err) {
 					console.error('[SMS Pipeline Error]', err);
