@@ -179,7 +179,10 @@
 		<table class="w-full min-w-[900px] border-collapse">
 			<thead>
 				<tr class="bg-gray-100">
-					<th class="w-8 px-3 py-3 text-left"></th>
+					<th class="w-8 px-3 py-3 text-left">
+						<!-- Info icon -->
+						<div class="flex h-5 w-5 items-center justify-center rounded-full bg-gray-500 text-white font-serif text-[10px] font-bold">i</div>
+					</th>
 					<th
 						class="w-24 whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600"
 					>
@@ -205,11 +208,14 @@
 					>
 						Purpose
 					</th>
+					<!-- Score column hidden to match mockup -->
+					<!--
 					<th
 						class="w-20 whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600"
 					>
 						Score
 					</th>
+					-->
 					<th
 						class="min-w-[180px] whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600"
 					>
@@ -220,11 +226,14 @@
 					>
 						Comm ID
 					</th>
+					<!-- Pipeline column hidden to match mockup -->
+					<!--
 					<th
 						class="w-24 whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600"
 					>
 						Pipeline
 					</th>
+					-->
 					<th
 						class="w-14 px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-gray-600"
 					>
@@ -235,7 +244,7 @@
 			<tbody>
 				{#if filteredCommunications.length === 0}
 					<tr>
-						<td colspan="11" class="px-3 py-8 text-center text-sm text-gray-500">
+						<td colspan="9" class="px-3 py-8 text-center text-sm text-gray-500">
 							No communications found
 						</td>
 					</tr>
@@ -251,13 +260,13 @@
 								></div>
 							</td>
 							<td class="whitespace-nowrap px-3 py-2.5 text-sm text-gray-700">
-								<div class="font-medium">{comm.date}</div>
-								<div class="text-xs text-gray-500">{comm.time}</div>
+								<div class="font-semibold text-gray-900">{comm.date}</div>
+								<div class="text-xs text-gray-500 mt-0.5">{comm.time}</div>
 							</td>
 							<td class="whitespace-nowrap px-3 py-2.5">
 								<div class="flex items-center gap-1.5 text-sm text-gray-700">
-									<IconComponent class="h-4 w-4 shrink-0 text-gray-600" />
-									<span class="font-medium">{comm.direction}</span>
+									<IconComponent class="h-4 w-4 shrink-0 text-gray-500" />
+									<span class="font-medium">{comm.direction === 'Out' ? 'out' : 'In'}</span>
 								</div>
 							</td>
 							<td
@@ -285,11 +294,12 @@
 							<td class="max-w-[140px] truncate px-3 py-2.5 text-sm text-gray-700">
 								{#if comm.purpose}
 									{#if comm.purpose === 'Confirm'}
-										<span
-											class="inline-block rounded bg-[#577AB7] px-2 py-0.5 text-xs font-medium text-white"
+										<button
+											onclick={() => onReplyClick?.(comm)}
+											class="inline-block rounded bg-[#4A72B2] hover:bg-[#3b5d95] px-3.5 py-1 text-xs font-semibold text-white transition-colors"
 										>
 											Confirm
-										</span>
+										</button>
 									{:else}
 										{comm.purpose}
 									{/if}
@@ -297,6 +307,8 @@
 									—
 								{/if}
 							</td>
+							<!-- Score hidden -->
+							<!--
 							<td class="whitespace-nowrap px-3 py-2.5 text-sm">
 								{#if comm.raw?.metadata?.score !== undefined}
 									<span class="font-semibold text-slate-800">{comm.raw.metadata.score}</span>
@@ -307,26 +319,28 @@
 									<span class="text-gray-400">—</span>
 								{/if}
 							</td>
+							-->
 							<td class="max-w-[240px] px-3 py-2.5 text-sm">
 								{#if comm.summary}
 									<button
 										type="button"
-										class="line-clamp-2 text-left text-blue-600 underline hover:no-underline"
+										class="text-blue-600 underline hover:no-underline font-semibold"
 										onclick={() => handleSummaryClick(comm)}
-										title={comm.summary}
 									>
-										{comm.summary}
+										Summary
 									</button>
 								{:else}
 									<span class="text-gray-400">—</span>
 								{/if}
 							</td>
 							<td
-								class="max-w-[120px] truncate px-3 py-2.5 font-mono text-xs text-gray-500"
+								class="max-w-[120px] truncate px-3 py-2.5 text-gray-700 text-sm"
 								title={comm.commId ?? ''}
 							>
-								{comm.commId ? comm.commId.slice(0, 8) + '…' : '—'}
+								{comm.commId ? 'COM-' + comm.commId.slice(-5).toUpperCase() : '—'}
 							</td>
+							<!-- Pipeline hidden -->
+							<!--
 							<td class="whitespace-nowrap px-3 py-2.5">
 								<div class="flex items-center gap-1.5">
 									<button
@@ -347,7 +361,8 @@
 									{/if}
 								</div>
 							</td>
-							<td class="px-3 py-2.5 text-right align-top">
+							-->
+							<td class="px-3 py-2.5 text-right align-middle">
 								<div class="relative inline-block">
 									<button
 										type="button"
