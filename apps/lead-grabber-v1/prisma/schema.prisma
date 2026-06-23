@@ -261,6 +261,7 @@ model CompanyMember {
   company     Company           @relation(fields: [companyId], references: [id])
   role        CompanyMemberRole
   permissions Json?
+  profileData Json?
   status      CompanyMemberStatus
   joinedAt    DateTime?
   created     DateTime          @default(now())

@@ -85,8 +85,8 @@
 
 	// Define roles
 	const roles = [
-		{ value: 'admin', label: 'Admin' },
-		{ value: 'member', label: 'Member' }
+		{ value: 'admin', label: 'Super Admin' },
+		{ value: 'member', label: 'Representative' }
 	];
 
 	// Derived store for trigger content

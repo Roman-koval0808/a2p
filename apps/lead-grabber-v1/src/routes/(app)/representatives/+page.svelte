@@ -4,111 +4,22 @@
 	import { slide } from 'svelte/transition';
 	import { quintOut } from 'svelte/easing';
 
-	// Mock data for representatives
-	const representatives = [
-		{
-			id: '1',
-			name: 'Sarah Lee',
-			phone: '705-4123-6346',
-			email: 'sarahlee@gmail.com',
-			location: 'Thunder Bay Branch',
-			schedule: {
-				monday: '8:00AM - 5:00PM',
-				tuesday: '8:00AM - 5:00PM',
-				wednesday: '8:00AM - 5:00PM',
-				thursday: '8:00AM - 5:00PM',
-				friday: '8:00AM - 5:00PM',
-				saturday: '9:00AM - 3:00PM',
-				sunday: 'Closed'
-			},
-			rooms: ['Test 2', 'Test 3']
-		},
-		{
-			id: '2',
-			name: 'Peter Griffin',
-			phone: '705-6433-2564',
-			email: 'petergriffin@gmail.com',
-			location: 'Thunder Bay Branch',
-			schedule: {
-				monday: '8:00AM - 5:00PM',
-				tuesday: '8:00AM - 5:00PM',
-				wednesday: '8:00AM - 5:00PM',
-				thursday: '8:00AM - 5:00PM',
-				friday: '8:00AM - 5:00PM',
-				saturday: '9:00AM - 3:00PM',
-				sunday: 'Closed'
-			},
-			rooms: []
-		},
-		{
-			id: '3',
-			name: 'Michael Scofield',
-			phone: '705-9755-1953',
-			email: 'michaelscofield@gmail.com',
-			location: 'Thunder Bay Branch',
-			schedule: {
-				monday: '8:00AM - 5:00PM',
-				tuesday: '8:00AM - 5:00PM',
-				wednesday: '8:00AM - 5:00PM',
-				thursday: '8:00AM - 5:00PM',
-				friday: '8:00AM - 5:00PM',
-				saturday: '9:00AM - 3:00PM',
-				sunday: 'Closed'
-			},
-			rooms: []
-		},
-		{
-			id: '4',
-			name: 'Joe Swanson',
-			phone: '705-9012-0124',
-			email: 'joeswanson@gmail.com',
-			location: 'Thunder Bay Branch',
-			schedule: {
-				monday: '8:00AM - 5:00PM',
-				tuesday: '8:00AM - 5:00PM',
-				wednesday: '8:00AM - 5:00PM',
-				thursday: '8:00AM - 5:00PM',
-				friday: '8:00AM - 5:00PM',
-				saturday: '9:00AM - 3:00PM',
-				sunday: 'Closed'
-			},
-			rooms: []
-		},
-		{
-			id: '5',
-			name: 'Adam West',
-			phone: '705-7812-3321',
-			email: 'adamwest@gmail.com',
-			location: 'Thunder Bay Branch',
-			schedule: {
-				monday: '8:00AM - 5:00PM',
-				tuesday: '8:00AM - 5:00PM',
-				wednesday: '8:00AM - 5:00PM',
-				thursday: '8:00AM - 5:00PM',
-				friday: '8:00AM - 5:00PM',
-				saturday: '9:00AM - 3:00PM',
-				sunday: 'Closed'
-			},
-			rooms: []
-		},
-		{
-			id: '6',
-			name: 'Cleveland Brown',
-			phone: '705-0091-7542',
-			email: 'clevelandbrown@gmail.com',
-			location: 'Thunder Bay Branch',
-			schedule: {
-				monday: '8:00AM - 5:00PM',
-				tuesday: '8:00AM - 5:00PM',
-				wednesday: '8:00AM - 5:00PM',
-				thursday: '8:00AM - 5:00PM',
-				friday: '8:00AM - 5:00PM',
-				saturday: '9:00AM - 3:00PM',
-				sunday: 'Closed'
-			},
-			rooms: []
-		}
-	];
+	let { data } = $props<{
+		data: {
+			representatives: Array<{
+				id: string;
+				name: string;
+				email: string;
+				phone: string;
+				location: string;
+				avatar?: string;
+				schedule: Record<string, { start: string; end: string }>;
+				rooms: string[];
+			}>;
+		};
+	}>();
+
+	const representatives = $derived(data.representatives);
 
 	let expandedRep: string | null = $state(null);
 
@@ -218,13 +129,13 @@
 											<div>Sunday</div>
 										</div>
 										<div class="space-y-[10px] text-[#808080]">
-											<div>{rep.schedule.monday}</div>
-											<div>{rep.schedule.tuesday}</div>
-											<div>{rep.schedule.wednesday}</div>
-											<div>{rep.schedule.thursday}</div>
-											<div>{rep.schedule.friday}</div>
-											<div>{rep.schedule.saturday}</div>
-											<div>{rep.schedule.sunday}</div>
+											<div>{rep.schedule?.Monday?.start ? `${rep.schedule.Monday.start} - ${rep.schedule.Monday.end}` : 'Closed'}</div>
+											<div>{rep.schedule?.Tuesday?.start ? `${rep.schedule.Tuesday.start} - ${rep.schedule.Tuesday.end}` : 'Closed'}</div>
+											<div>{rep.schedule?.Wednesday?.start ? `${rep.schedule.Wednesday.start} - ${rep.schedule.Wednesday.end}` : 'Closed'}</div>
+											<div>{rep.schedule?.Thursday?.start ? `${rep.schedule.Thursday.start} - ${rep.schedule.Thursday.end}` : 'Closed'}</div>
+											<div>{rep.schedule?.Friday?.start ? `${rep.schedule.Friday.start} - ${rep.schedule.Friday.end}` : 'Closed'}</div>
+											<div>{rep.schedule?.Saturday?.start ? `${rep.schedule.Saturday.start} - ${rep.schedule.Saturday.end}` : 'Closed'}</div>
+											<div>{rep.schedule?.Sunday?.start ? `${rep.schedule.Sunday.start} - ${rep.schedule.Sunday.end}` : 'Closed'}</div>
 										</div>
 									</div>
 								</div>
