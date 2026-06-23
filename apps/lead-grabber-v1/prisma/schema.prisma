@@ -2,8 +2,8 @@
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-  provider     = "prisma-client-js"
-  output       = "../clearsky-db-client"
+  provider = "prisma-client-js"
+  output   = "../clearsky-db-client"
 }
 
 datasource db {
@@ -13,33 +13,33 @@ datasource db {
 
 // Auth collections (converted from PocketBase auth type)
 model User {
-  id              String   @id @default(cuid())
-  email           String   @unique
-  password        String   // Hashed password
-  tokenKey        String   @unique @default(cuid())
-  emailVisibility Boolean  @default(false)
-  verified        Boolean  @default(false)
+  id              String    @id @default(cuid())
+  email           String    @unique
+  password        String // Hashed password
+  tokenKey        String    @unique @default(cuid())
+  emailVisibility Boolean   @default(false)
+  verified        Boolean   @default(false)
   name            String?
-  avatar          String?  // File path/URL
+  avatar          String? // File path/URL
   role            UserRole?
   companyId       String?
-  company         Company? @relation(fields: [companyId], references: [id])
+  company         Company?  @relation(fields: [companyId], references: [id])
   created         DateTime  @default(now())
   updated         DateTime  @updatedAt
 
   // Relations
-  ownedCompanies                    Company[]                            @relation("CompanyOwner")
-  teamMemberships                   CompanyMember[]
-  communicationLogs                 CommunicationLog[]
-  assignedCommunicationLogs         CommunicationLogAssignedMember[]
-  assignedMessages                  Message[]
-  ownedLeadboxes                    Leadbox[]
-  ownedLeadforms                    Leadform[]
-  sentInvites                       Invite[]                             @relation("InvitedBy")
-  receivedInvites                   Invite[]                             @relation("InvitedUser")
-  personalShortcuts                 Shortcut[]
-  devices                           UserDevice[]
-  assignedTasks                     Task[]                               @relation("UserTasks")
+  ownedCompanies            Company[]                        @relation("CompanyOwner")
+  teamMemberships           CompanyMember[]
+  communicationLogs         CommunicationLog[]
+  assignedCommunicationLogs CommunicationLogAssignedMember[]
+  assignedMessages          Message[]
+  ownedLeadboxes            Leadbox[]
+  ownedLeadforms            Leadform[]
+  sentInvites               Invite[]                         @relation("InvitedBy")
+  receivedInvites           Invite[]                         @relation("InvitedUser")
+  personalShortcuts         Shortcut[]
+  devices                   UserDevice[]
+  assignedTasks             Task[]                           @relation("UserTasks")
 
   @@index([email])
   @@index([tokenKey])
@@ -56,12 +56,12 @@ enum UserRole {
 model SuperUser {
   id              String   @id @default(cuid())
   email           String   @unique
-  password        String   // Hashed password
+  password        String // Hashed password
   tokenKey        String   @unique @default(cuid())
   emailVisibility Boolean  @default(false)
   verified        Boolean  @default(false)
-  created         DateTime  @default(now())
-  updated         DateTime  @updatedAt
+  created         DateTime @default(now())
+  updated         DateTime @updatedAt
 
   @@index([email])
   @@index([tokenKey])
@@ -70,25 +70,25 @@ model SuperUser {
 
 // System auth tables
 model AuthOrigin {
-  id           String   @id @default(cuid())
+  id            String   @id @default(cuid())
   collectionRef String
-  recordRef    String
-  fingerprint  String
-  created      DateTime  @default(now())
-  updated      DateTime  @updatedAt
+  recordRef     String
+  fingerprint   String
+  created       DateTime @default(now())
+  updated       DateTime @updatedAt
 
   @@unique([collectionRef, recordRef, fingerprint])
   @@map("_authOrigins")
 }
 
 model ExternalAuth {
-  id          String   @id @default(cuid())
+  id            String   @id @default(cuid())
   collectionRef String
-  recordRef   String
-  provider    String
-  providerId  String
-  created     DateTime  @default(now())
-  updated     DateTime  @updatedAt
+  recordRef     String
+  provider      String
+  providerId    String
+  created       DateTime @default(now())
+  updated       DateTime @updatedAt
 
   @@unique([collectionRef, recordRef, provider])
   @@unique([collectionRef, provider, providerId])
@@ -96,26 +96,26 @@ model ExternalAuth {
 }
 
 model Mfa {
-  id           String   @id @default(cuid())
+  id            String   @id @default(cuid())
   collectionRef String
-  recordRef    String
-  method       String
-  created      DateTime  @default(now())
-  updated      DateTime  @updatedAt
+  recordRef     String
+  method        String
+  created       DateTime @default(now())
+  updated       DateTime @updatedAt
 
   @@index([collectionRef, recordRef])
   @@map("_mfas")
 }
 
 model Otp {
-  id             String   @id @default(cuid())
-  collectionRef  String
-  recordRef      String
-  password       String   // Hashed OTP
-  sentTo         String?
-  signupPayload  Json?    // For signup: { name, passwordHash }
-  created        DateTime @default(now())
-  updated        DateTime @updatedAt
+  id            String   @id @default(cuid())
+  collectionRef String
+  recordRef     String
+  password      String // Hashed OTP
+  sentTo        String?
+  signupPayload Json? // For signup: { name, passwordHash }
+  created       DateTime @default(now())
+  updated       DateTime @updatedAt
 
   @@index([collectionRef, recordRef])
   @@map("_otps")
@@ -123,35 +123,36 @@ model Otp {
 
 // Main application models
 model Company {
-  id          String   @id @default(cuid())
-  name        String?
-  website     String?
-  ownerId     String
-  owner       User     @relation("CompanyOwner", fields: [ownerId], references: [id])
-  settings    Json?
-  logo        String?  // File path/URL
-  emailSlug   String?  @unique
-  created     DateTime  @default(now())
-  updated     DateTime  @updatedAt
+  id        String   @id @default(cuid())
+  name      String?
+  website   String?
+  ownerId   String
+  owner     User     @relation("CompanyOwner", fields: [ownerId], references: [id])
+  settings  Json?
+  logo      String? // File path/URL
+  emailSlug String?  @unique
+  created   DateTime @default(now())
+  updated   DateTime @updatedAt
 
   // Relations
-  users                   User[]
-  teamMembers             CompanyMember[]
-  contacts                Contact[]
-  communicationLogs      CommunicationLog[]
-  messages                Message[]
-  invites                 Invite[]
-  locations               Location[]
-  notifications           Notification[]
-  callFlows               CallFlow[]
-  phoneNumbers            CompanyPhoneNumber[]
-  callTrackingCategories  CallTrackingCategory[]
-  scheduleEvents          ScheduleEvent[]
-  shortcuts               Shortcut[]
-  tasks                   Task[]
-  pipelineEvents          PipelineEvent[]
-  pipelineCustomerProfiles PipelineCustomerProfile[]
-  pipelineBusinessConfig  PipelineBusinessConfig?
+  users                       User[]
+  teamMembers                 CompanyMember[]
+  contacts                    Contact[]
+  communicationLogs           CommunicationLog[]
+  messages                    Message[]
+  invites                     Invite[]
+  locations                   Location[]
+  notifications               Notification[]
+  callFlows                   CallFlow[]
+  phoneNumbers                CompanyPhoneNumber[]
+  callTrackingCategories      CallTrackingCategory[]
+  scheduleEvents              ScheduleEvent[]
+  shortcuts                   Shortcut[]
+  tasks                       Task[]
+  communicationThreads        CommunicationThread[]
+  pipelineEvents              PipelineEvent[]
+  pipelineCustomerProfiles    PipelineCustomerProfile[]
+  pipelineBusinessConfig      PipelineBusinessConfig?
   pipelineOrchestratorProfile PipelineOrchestratorProfile?
 
   @@map("companies")
@@ -159,15 +160,15 @@ model Company {
 
 // Call tracking: company-defined categories (e.g. "Facebook", "Customer Care") for numbers
 model CallTrackingCategory {
-  id                   String   @id @default(cuid())
-  companyId            String
-  company              Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  name                 String   // e.g. "Facebook", "Customer Care"
-  sortOrder            Int      @default(0)
-  created              DateTime @default(now())
-  updated              DateTime @updatedAt
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String // e.g. "Facebook", "Customer Care"
+  sortOrder Int      @default(0)
+  created   DateTime @default(now())
+  updated   DateTime @updatedAt
 
-  companyPhoneNumbers  CompanyPhoneNumber[]
+  companyPhoneNumbers CompanyPhoneNumber[]
   communicationLogs   CommunicationLog[]
 
   @@unique([companyId, name])
@@ -177,18 +178,18 @@ model CallTrackingCategory {
 
 // Numbers bought via Telnyx and assigned to a company for dialing, IVR, SMS
 model CompanyPhoneNumber {
-  id                      String                 @id @default(cuid())
-  companyId               String
-  company                 Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  phoneNumber             String                 // E.164 e.g. +17051234567
-  telnyxPhoneNumberId     String?                // Telnyx phone_number id if needed
-  connectionLabel         String?                // UI label for connection/application
-  callFlowId              String?                // When set, this number uses this IVR flow; when null, no IVR (pending call)
-  callFlow                CallFlow?              @relation(fields: [callFlowId], references: [id], onDelete: SetNull)
-  callTrackingCategoryId  String?                // For call tracking analytics (e.g. "Facebook", "Customer Care")
-  callTrackingCategory    CallTrackingCategory?  @relation(fields: [callTrackingCategoryId], references: [id], onDelete: SetNull)
-  created                 DateTime               @default(now())
-  updated                 DateTime               @updatedAt
+  id                     String                @id @default(cuid())
+  companyId              String
+  company                Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  phoneNumber            String // E.164 e.g. +17051234567
+  telnyxPhoneNumberId    String? // Telnyx phone_number id if needed
+  connectionLabel        String? // UI label for connection/application
+  callFlowId             String? // When set, this number uses this IVR flow; when null, no IVR (pending call)
+  callFlow               CallFlow?             @relation(fields: [callFlowId], references: [id], onDelete: SetNull)
+  callTrackingCategoryId String? // For call tracking analytics (e.g. "Facebook", "Customer Care")
+  callTrackingCategory   CallTrackingCategory? @relation(fields: [callTrackingCategoryId], references: [id], onDelete: SetNull)
+  created                DateTime              @default(now())
+  updated                DateTime              @updatedAt
 
   @@unique([phoneNumber])
   @@index([companyId])
@@ -198,17 +199,17 @@ model CompanyPhoneNumber {
 }
 
 model CallFlow {
-  id                     String                 @id @default(cuid())
+  id                     String               @id @default(cuid())
   companyId              String
-  company                Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company                Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
   title                  String
   greetingAudioUrl       String?
-  queueHoldAudioUrl      String?   // hold music when all reps on call
-  allUnavailableAudioUrl String?   // when offline/no forwarding
-  backupCellAudioUrl     String?   // after attempt 5 rings, no answer
-  failoverConfig         Json?     // [{ key, name, durationSec, audioUrl }] for Add Failover keys 4-9
-  created                DateTime               @default(now())
-  updated                DateTime               @updatedAt
+  queueHoldAudioUrl      String? // hold music when all reps on call
+  allUnavailableAudioUrl String? // when offline/no forwarding
+  backupCellAudioUrl     String? // after attempt 5 rings, no answer
+  failoverConfig         Json? // [{ key, name, durationSec, audioUrl }] for Add Failover keys 4-9
+  created                DateTime             @default(now())
+  updated                DateTime             @updatedAt
   rules                  CallFlowRule[]
   companyPhoneNumbers    CompanyPhoneNumber[]
 
@@ -217,21 +218,21 @@ model CallFlow {
 }
 
 model CallFlowRule {
-  id                   String    @id @default(cuid())
+  id                   String   @id @default(cuid())
   callFlowId           String
-  callFlow             CallFlow  @relation(fields: [callFlowId], references: [id], onDelete: Cascade)
+  callFlow             CallFlow @relation(fields: [callFlowId], references: [id], onDelete: Cascade)
   ruleTitle            String
-  schedule             Json      // { Mon: { start, end }, Tue: ..., Sun: null } or "closed"
+  schedule             Json // { Mon: { start, end }, Tue: ..., Sun: null } or "closed"
   promptsAudioUrl      String?
-  keyPrompts           Json      // [{ key, name, extension }]
-  failoverCount        Int       @default(2)
-  failoverDelayMinutes Int       @default(2)
+  keyPrompts           Json // [{ key, name, extension }]
+  failoverCount        Int      @default(2)
+  failoverDelayMinutes Int      @default(2)
   failoverAudioUrl     String?
   hangupAudioUrl       String?
-  leaveMessageOnHash   Boolean   @default(true)
-  backDigit            String?   // e.g. * or 0 — replay prompts when pressed; null = disabled
-  created              DateTime  @default(now())
-  updated              DateTime  @updatedAt
+  leaveMessageOnHash   Boolean  @default(true)
+  backDigit            String? // e.g. * or 0 — replay prompts when pressed; null = disabled
+  created              DateTime @default(now())
+  updated              DateTime @updatedAt
 
   @@index([callFlowId])
   @@map("call_flow_rules")
@@ -245,7 +246,7 @@ model Location {
   address   String?
   city      String?
   phone     String?
-  hours     Json?    // { Mon: string, Tue: string, ... }
+  hours     Json? // { Mon: string, Tue: string, ... }
   created   DateTime @default(now())
   updated   DateTime @updatedAt
 
@@ -254,18 +255,18 @@ model Location {
 }
 
 model CompanyMember {
-  id          String            @id @default(cuid())
+  id          String              @id @default(cuid())
   userId      String
-  user        User              @relation(fields: [userId], references: [id])
+  user        User                @relation(fields: [userId], references: [id])
   companyId   String
-  company     Company           @relation(fields: [companyId], references: [id])
+  company     Company             @relation(fields: [companyId], references: [id])
   role        CompanyMemberRole
   permissions Json?
   profileData Json?
   status      CompanyMemberStatus
   joinedAt    DateTime?
-  created     DateTime          @default(now())
-  updated     DateTime          @updatedAt
+  created     DateTime            @default(now())
+  updated     DateTime            @updatedAt
 
   @@unique([userId, companyId])
   @@map("company_members")
@@ -297,48 +298,73 @@ model Contact {
   pastNames     Json?
   contactType   String?  @default("phone") // phone | email | sms | facebook (ClearSky spec)
   notes         String?
-  companyName   String?  // Display name e.g. "Dredhart Inc." (ClearSky spec)
-  avatarUrl     String?  // URL to the uploaded avatar
-  created       DateTime  @default(now())
-  updated       DateTime  @updatedAt
+  companyName   String? // Display name e.g. "Dredhart Inc." (ClearSky spec)
+  avatarUrl     String? // URL to the uploaded avatar
+  created       DateTime @default(now())
+  updated       DateTime @updatedAt
 
   // Relations
-  communicationLogs CommunicationLog[]
-  tasks             Task[]
+  communicationLogs    CommunicationLog[]
+  communicationThreads CommunicationThread[]
+  tasks                Task[]
 
   @@index([companyId])
   @@map("contacts")
 }
 
 model CommunicationLog {
-  id                     String                    @id @default(cuid())
+  id                     String                           @id @default(cuid())
   type                   CommunicationType
   direction              CommunicationDirection
   status                 CommunicationStatus
   source                 String?
   destination            String?
   customerId             String?
-  customer               Contact?                 @relation(fields: [customerId], references: [id])
+  customer               Contact?                         @relation(fields: [customerId], references: [id])
   companyId              String
-  company                Company                  @relation(fields: [companyId], references: [id])
+  company                Company                          @relation(fields: [companyId], references: [id])
   userId                 String?
-  user                   User?                    @relation(fields: [userId], references: [id])
-  callTrackingCategoryId String?                  // Set from number's category when call is logged
-  callTrackingCategory   CallTrackingCategory?   @relation(fields: [callTrackingCategoryId], references: [id], onDelete: SetNull)
+  user                   User?                            @relation(fields: [userId], references: [id])
+  callTrackingCategoryId String? // Set from number's category when call is logged
+  callTrackingCategory   CallTrackingCategory?            @relation(fields: [callTrackingCategoryId], references: [id], onDelete: SetNull)
   assignedMembers        CommunicationLogAssignedMember[]
   summary                String?
   content                String?
   duration               Float?
   metadata               Json?
-  created                DateTime                 @default(now())
-  updated                DateTime                 @updatedAt
+  communicationThreadId  String?
+  communicationThread    CommunicationThread?             @relation(fields: [communicationThreadId], references: [id], onDelete: SetNull)
+  created                DateTime                         @default(now())
+  updated                DateTime                         @updatedAt
 
   @@index([companyId])
   @@index([customerId])
   @@index([userId])
   @@index([callTrackingCategoryId])
+  @@index([communicationThreadId])
   @@index([companyId, type, created])
   @@map("communication_logs")
+}
+
+model CommunicationThread {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id])
+  status    String   @default("open")
+  urgency   String?
+  summary   String?
+  created   DateTime @default(now())
+  updated   DateTime @updatedAt
+
+  logs          CommunicationLog[]
+  tasks         Task[]
+  notifications Notification[]
+
+  @@index([companyId])
+  @@index([contactId])
+  @@map("communication_threads")
 }
 
 // Join table for many-to-many relationship between CommunicationLog and User (assigned members)
@@ -372,27 +398,28 @@ enum CommunicationStatus {
   success
   failed
   pending
+  pending_approval
   missed
   completed
 }
 
 model Invite {
-  id         String        @id @default(cuid())
-  email      String?
-  companyId  String?
-  company    Company?      @relation(fields: [companyId], references: [id])
+  id          String       @id @default(cuid())
+  email       String?
+  companyId   String?
+  company     Company?     @relation(fields: [companyId], references: [id])
   invitedById String?
-  invitedBy  User?        @relation("InvitedBy", fields: [invitedById], references: [id])
-  userId     String?
-  user       User?        @relation("InvitedUser", fields: [userId], references: [id])
-  role       InviteRole?
-  status     InviteStatus
-  metadata   Json?
-  expiresAt  DateTime?
-  acceptedAt DateTime?
-  declinedAt DateTime?
-  created    DateTime      @default(now())
-  updated    DateTime      @updatedAt
+  invitedBy   User?        @relation("InvitedBy", fields: [invitedById], references: [id])
+  userId      String?
+  user        User?        @relation("InvitedUser", fields: [userId], references: [id])
+  role        InviteRole?
+  status      InviteStatus
+  metadata    Json?
+  expiresAt   DateTime?
+  acceptedAt  DateTime?
+  declinedAt  DateTime?
+  created     DateTime     @default(now())
+  updated     DateTime     @updatedAt
 
   @@index([companyId])
   @@index([email])
@@ -430,21 +457,21 @@ enum LeadboxStatus {
 }
 
 model Leadform {
-  id        String   @id @default(cuid())
-  ownerId   String
-  owner     User     @relation(fields: [ownerId], references: [id])
-  name      String
-  formData  Json?
-  created   DateTime @default(now())
-  updated   DateTime @updatedAt
+  id       String   @id @default(cuid())
+  ownerId  String
+  owner    User     @relation(fields: [ownerId], references: [id])
+  name     String
+  formData Json?
+  created  DateTime @default(now())
+  updated  DateTime @updatedAt
 
   @@index([ownerId])
   @@map("leadforms")
 }
 
 model Logo {
-  id    String   @id @default(cuid())
-  logo  String?  // File path/URL
+  id      String   @id @default(cuid())
+  logo    String? // File path/URL
   created DateTime @default(now())
   updated DateTime @updatedAt
 
@@ -452,15 +479,15 @@ model Logo {
 }
 
 model Message {
-  id            String        @id @default(cuid())
-  threadId      String        @unique
+  id            String          @id @default(cuid())
+  threadId      String          @unique
   companyId     String
-  company       Company       @relation(fields: [companyId], references: [id])
+  company       Company         @relation(fields: [companyId], references: [id])
   customerName  String?
   customerEmail String?
   customerPhone String?
   assignedToId  String?
-  assignedTo    User?        @relation(fields: [assignedToId], references: [id])
+  assignedTo    User?           @relation(fields: [assignedToId], references: [id])
   status        MessageStatus
   urgency       MessageUrgency?
   urgencyScore  Int?
@@ -468,9 +495,9 @@ model Message {
   intent        String?
   draftResponse String?
   aiSummary     String?
-  messages      Json?         // Array of message objects
-  created       DateTime      @default(now())
-  updated       DateTime      @updatedAt
+  messages      Json? // Array of message objects
+  created       DateTime        @default(now())
+  updated       DateTime        @updatedAt
 
   @@index([companyId])
   @@index([assignedToId])
@@ -495,12 +522,12 @@ enum MessageUrgency {
 
 model CallLog {
   id        String   @id @default(cuid())
-  callId    String   // Telnyx call_control_id
-  status    String   // initiated, answered, ended, etc.
+  callId    String // Telnyx call_control_id
+  status    String // initiated, answered, ended, etc.
   to        String?
   from      String?
   duration  Float?
-  metadata  Json?    // full payload if needed
+  metadata  Json? // full payload if needed
   createdAt DateTime @default(now())
 
   @@index([callId])
@@ -513,7 +540,7 @@ model CallRecording {
   id          String   @id @default(cuid())
   callId      String
   recordingId String?
-  urls        Json?    // recording_urls from Telnyx
+  urls        Json? // recording_urls from Telnyx
   createdAt   DateTime @default(now())
 
   @@index([callId])
@@ -521,24 +548,27 @@ model CallRecording {
 }
 
 model Notification {
-  id                  String   @id @default(cuid())
-  companyId           String
-  company             Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  type                CommunicationType
-  direction           CommunicationDirection
-  sourceName          String?  // e.g. customer name or "Inbox"
-  sourceIdentifier    String?  // phone, email, threadId
-  messagePreview      String   // short preview for list
-  content             String?  // full body
-  read                Boolean  @default(false)
-  communicationLogId String?
-  messageId           String?  // Message.id (inbox thread)
-  threadId            String?  // Message.threadId for linking to inbox
-  createdAt           DateTime @default(now())
+  id                    String                 @id @default(cuid())
+  companyId             String
+  company               Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  type                  CommunicationType
+  direction             CommunicationDirection
+  sourceName            String? // e.g. customer name or "Inbox"
+  sourceIdentifier      String? // phone, email, threadId
+  messagePreview        String // short preview for list
+  content               String? // full body
+  read                  Boolean                @default(false)
+  communicationLogId    String?
+  communicationThreadId String?
+  communicationThread   CommunicationThread?   @relation(fields: [communicationThreadId], references: [id], onDelete: SetNull)
+  messageId             String? // Message.id (inbox thread)
+  threadId              String? // Message.threadId for linking to inbox
+  createdAt             DateTime               @default(now())
 
   @@index([companyId])
   @@index([companyId, createdAt])
   @@index([read])
+  @@index([communicationThreadId])
   @@map("notifications")
 }
 
@@ -551,7 +581,7 @@ model ScheduleEvent {
   description String?
   startTime   DateTime
   endTime     DateTime
-  color       String?  // blue | red | pink
+  color       String? // blue | red | pink
   created     DateTime @default(now())
   updated     DateTime @updatedAt
 
@@ -565,9 +595,9 @@ model Shortcut {
   id        String   @id @default(cuid())
   companyId String
   company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  userId    String?  // null = team shortcut
+  userId    String? // null = team shortcut
   user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  code      String   // e.g. /1, /2, /21
+  code      String // e.g. /1, /2, /21
   message   String
   created   DateTime @default(now())
   updated   DateTime @updatedAt
@@ -584,7 +614,7 @@ model UserDevice {
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   deviceId  String
-  platform  String?  // ios | android | web
+  platform  String? // ios | android | web
   fcmToken  String?
   voipToken String?
   created   DateTime @default(now())
@@ -596,23 +626,26 @@ model UserDevice {
 }
 
 model Task {
-  id           String     @id @default(cuid())
-  companyId    String
-  company      Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  contactId    String?
-  contact      Contact?   @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  assignedToId String?
-  assignedTo   User?      @relation("UserTasks", fields: [assignedToId], references: [id], onDelete: SetNull)
-  title        String
-  description  String?
-  status       TaskStatus @default(todo)
-  dueDate      DateTime?
-  created      DateTime   @default(now())
-  updated      DateTime   @updatedAt
+  id                    String               @id @default(cuid())
+  companyId             String
+  company               Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contactId             String?
+  contact               Contact?             @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  assignedToId          String?
+  assignedTo            User?                @relation("UserTasks", fields: [assignedToId], references: [id], onDelete: SetNull)
+  title                 String
+  description           String?
+  status                TaskStatus           @default(todo)
+  dueDate               DateTime?
+  communicationThreadId String?
+  communicationThread   CommunicationThread? @relation(fields: [communicationThreadId], references: [id], onDelete: SetNull)
+  created               DateTime             @default(now())
+  updated               DateTime             @updatedAt
 
   @@index([companyId])
   @@index([contactId])
   @@index([assignedToId])
+  @@index([communicationThreadId])
   @@map("tasks")
 }
 
@@ -628,37 +661,37 @@ enum TaskStatus {
 // =============================================================================
 
 model PipelineEvent {
-  id                      String    @id @default(cuid())
-  eventId                 String    @unique            // evt_12345
-  traceId                 String?                      // trc_abc1234
-  provider                String?                      // google_business_profile, telnyx_voice, telnyx_sms
-  providerEventName       String?
-  providerEventId         String?   @unique            // dedup key from provider
-  eventType               String                       // review_received, voicemail_received, sms_received
-  networkCategory         String    @default("Communication")
-  companyId               String?                      // link to existing Company
-  company                 Company?  @relation(fields: [companyId], references: [id])
-  customerProfileId       String?
-  customerProfile         PipelineCustomerProfile? @relation(fields: [customerProfileId], references: [id])
-  authorName              String?
-  reviewRatingNumeric     Int?
-  reviewText              String?
-  occurredAt              DateTime? @default(now())
-  receivedAt              DateTime? @default(now())
-  unstructuredText        String?                      // raw text + pipeline logs
-  isDuplicate             Boolean   @default(false)
-  requiresAiExtraction    Boolean   @default(false)
-  aiExtractionCompleted   Boolean   @default(false)
-  processingStatus        String    @default("received")
-  handoffEligible         Boolean   @default(false)
-  businessReplyExists     Boolean   @default(false)
-  createdAt               DateTime  @default(now())
+  id                    String                   @id @default(cuid())
+  eventId               String                   @unique // evt_12345
+  traceId               String? // trc_abc1234
+  provider              String? // google_business_profile, telnyx_voice, telnyx_sms
+  providerEventName     String?
+  providerEventId       String?                  @unique // dedup key from provider
+  eventType             String // review_received, voicemail_received, sms_received
+  networkCategory       String                   @default("Communication")
+  companyId             String? // link to existing Company
+  company               Company?                 @relation(fields: [companyId], references: [id])
+  customerProfileId     String?
+  customerProfile       PipelineCustomerProfile? @relation(fields: [customerProfileId], references: [id])
+  authorName            String?
+  reviewRatingNumeric   Int?
+  reviewText            String?
+  occurredAt            DateTime?                @default(now())
+  receivedAt            DateTime?                @default(now())
+  unstructuredText      String? // raw text + pipeline logs
+  isDuplicate           Boolean                  @default(false)
+  requiresAiExtraction  Boolean                  @default(false)
+  aiExtractionCompleted Boolean                  @default(false)
+  processingStatus      String                   @default("received")
+  handoffEligible       Boolean                  @default(false)
+  businessReplyExists   Boolean                  @default(false)
+  createdAt             DateTime                 @default(now())
 
   // Relations
-  enrichments             PipelineEnrichment[]
-  signals                 PipelineSignal[]
-  decisions               PipelineDecision[]
-  complaintThemeLogs      PipelineComplaintThemeLog[]
+  enrichments        PipelineEnrichment[]
+  signals            PipelineSignal[]
+  decisions          PipelineDecision[]
+  complaintThemeLogs PipelineComplaintThemeLog[]
 
   @@index([companyId])
   @@index([customerProfileId])
@@ -667,60 +700,60 @@ model PipelineEvent {
 }
 
 model PipelineEnrichment {
-  id                          String   @id @default(cuid())
-  eventId                     String
-  event                       PipelineEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  id      String        @id @default(cuid())
+  eventId String
+  event   PipelineEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   // AI Deterministic Fact Extraction
   aiContainsProblem           Boolean? @default(false)
   aiContainsQuoteRequest      Boolean? @default(false)
   aiContainsCallbackRequest   Boolean? @default(false)
   aiContainsEmergencyKeywords Boolean? @default(false)
-  aiRequestedContactMethod    String?                    // phone, email, text, none
-  aiRequestedAction           String?                    // phone_call, send_quote, etc.
+  aiRequestedContactMethod    String? // phone, email, text, none
+  aiRequestedAction           String? // phone_call, send_quote, etc.
   aiDetectedKeywords          Json?    @default("[]")
 
   // AI Context Fields
-  aiSentiment                 String?
-  aiSentimentScore            Float?
-  aiPraiseDetected            Boolean? @default(false)
-  aiComplaintDetected         Boolean? @default(false)
-  aiPraiseTopics              Json?    @default("[]")
-  aiComplaintTopics           Json?    @default("[]")
-  aiPrimaryPraiseTopic        String?
-  aiPrimaryComplaintTopic     String?
-  aiServiceMentioned          String?
-  aiCustomerExperienceIssue   String?
-  aiUrgencyLevel              String?
-  aiSummary                   String?
-  aiConfidenceScore           Float?
-  aiCustomerName              String?                    // extracted customer name (not in clearsky)
-  aiHasName                   Boolean? @default(false)   // whether name was found (not in clearsky)
+  aiSentiment               String?
+  aiSentimentScore          Float?
+  aiPraiseDetected          Boolean? @default(false)
+  aiComplaintDetected       Boolean? @default(false)
+  aiPraiseTopics            Json?    @default("[]")
+  aiComplaintTopics         Json?    @default("[]")
+  aiPrimaryPraiseTopic      String?
+  aiPrimaryComplaintTopic   String?
+  aiServiceMentioned        String?
+  aiCustomerExperienceIssue String?
+  aiUrgencyLevel            String?
+  aiSummary                 String?
+  aiConfidenceScore         Float?
+  aiCustomerName            String? // extracted customer name (not in clearsky)
+  aiHasName                 Boolean? @default(false) // whether name was found (not in clearsky)
 
   // Legacy compatibility fields
-  sentiment                   String?
-  summary                     String?
-  urgencyLevel                String?
-  serviceRequested            String?
-  confidenceScore             Float?
+  sentiment        String?
+  summary          String?
+  urgencyLevel     String?
+  serviceRequested String?
+  confidenceScore  Float?
 
-  createdAt                   DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([eventId])
   @@map("pipeline_enrichments")
 }
 
 model PipelineSignal {
-  id             String    @id @default(cuid())
-  eventId        String?
-  event          PipelineEvent? @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  signalRuleId   String?                  // SIG-TRUST-001, SIG-COMM-000, etc.
-  name           String
-  bucket         String                   // Risk, Bottleneck, Opportunity, Momentum, etc.
-  priority       Int       @default(2)
-  confidence     Float     @default(1.0)
-  status         String    @default("candidate") // candidate | valid | suppressed
-  createdAt      DateTime  @default(now())
+  id           String         @id @default(cuid())
+  eventId      String?
+  event        PipelineEvent? @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  signalRuleId String? // SIG-TRUST-001, SIG-COMM-000, etc.
+  name         String
+  bucket       String // Risk, Bottleneck, Opportunity, Momentum, etc.
+  priority     Int            @default(2)
+  confidence   Float          @default(1.0)
+  status       String         @default("candidate") // candidate | valid | suppressed
+  createdAt    DateTime       @default(now())
 
   @@index([eventId])
   @@index([signalRuleId])
@@ -728,156 +761,156 @@ model PipelineSignal {
 }
 
 model PipelineDecision {
-  id                        String    @id @default(cuid())
-  decisionId                String    @unique          // dec_abc123
-  eventId                   String
-  event                     PipelineEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  dominantSignalId          String?
-  supportingSignalIds       Json      @default("[]")
-  selectedActionIds         Json      @default("[]")
-  blockedActionIds          Json      @default("[]")
-  executionMode             String
-  owner                     String
-  priority                  Int
-  reason                    String?
-  businessConfigSnapshot    Json?
-  safetyChecksPassed        Boolean   @default(false)
-  consultantReviewRequired  Boolean   @default(true)
-  consultantId              String?
-  approvalRoute             String?
-  createdAt                 DateTime  @default(now())
+  id                       String        @id @default(cuid())
+  decisionId               String        @unique // dec_abc123
+  eventId                  String
+  event                    PipelineEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  dominantSignalId         String?
+  supportingSignalIds      Json          @default("[]")
+  selectedActionIds        Json          @default("[]")
+  blockedActionIds         Json          @default("[]")
+  executionMode            String
+  owner                    String
+  priority                 Int
+  reason                   String?
+  businessConfigSnapshot   Json?
+  safetyChecksPassed       Boolean       @default(false)
+  consultantReviewRequired Boolean       @default(true)
+  consultantId             String?
+  approvalRoute            String?
+  createdAt                DateTime      @default(now())
 
   // Relations
-  actionQueue               PipelineActionQueue[]
+  actionQueue PipelineActionQueue[]
 
   @@index([eventId])
   @@map("pipeline_decisions")
 }
 
 model PipelineActionQueue {
-  id                        String    @id @default(cuid())
-  queueTraceId              String?   @unique          // qtrace_abc123
-  decisionId                String
-  decision                  PipelineDecision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
-  actionId                  String                     // ACT-REV-001, ACT-A2P-002, etc.
-  executionLane             String                     // automatic, approval_required, blocked, manual
-  parameters                Json      @default("{}")
-  status                    String    @default("pending")
-  dueAt                     DateTime?
+  id            String           @id @default(cuid())
+  queueTraceId  String?          @unique // qtrace_abc123
+  decisionId    String
+  decision      PipelineDecision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  actionId      String // ACT-REV-001, ACT-A2P-002, etc.
+  executionLane String // automatic, approval_required, blocked, manual
+  parameters    Json             @default("{}")
+  status        String           @default("pending")
+  dueAt         DateTime?
 
   // Consultant context
-  consultantId              String?
-  consultantReviewRequired  Boolean   @default(false)
-  approvalRoute             String?
+  consultantId             String?
+  consultantReviewRequired Boolean @default(false)
+  approvalRoute            String?
 
-  createdAt                 DateTime  @default(now())
-  updatedAt                 DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  executions                PipelineExecution[]
+  executions PipelineExecution[]
 
   @@index([decisionId])
   @@map("pipeline_action_queue")
 }
 
 model PipelineExecution {
-  id                      String    @id @default(cuid())
-  actionExecutionId       String    @unique            // exec_abc123
-  actionQueueId           String
-  actionQueue             PipelineActionQueue @relation(fields: [actionQueueId], references: [id], onDelete: Cascade)
-  actionId                String
-  executionMode           String
-  executionStatus         String    @default("created_pending_route")
-  generatedOutput         String?
-  approvalStatus          String?
-  approvalOwner           String?
-  requiresHumanApproval   Boolean   @default(false)
-  approvedAt              DateTime?
-  rejectedAt              DateTime?
-  humanEdited             Boolean   @default(false)
-  editedOutput            String?
-  postedExternally        Boolean   @default(false)
-  failureReason           String?
-  retryCount              Int       @default(0)
-  createdAt               DateTime  @default(now())
-  updatedAt               DateTime  @updatedAt
+  id                    String              @id @default(cuid())
+  actionExecutionId     String              @unique // exec_abc123
+  actionQueueId         String
+  actionQueue           PipelineActionQueue @relation(fields: [actionQueueId], references: [id], onDelete: Cascade)
+  actionId              String
+  executionMode         String
+  executionStatus       String              @default("created_pending_route")
+  generatedOutput       String?
+  approvalStatus        String?
+  approvalOwner         String?
+  requiresHumanApproval Boolean             @default(false)
+  approvedAt            DateTime?
+  rejectedAt            DateTime?
+  humanEdited           Boolean             @default(false)
+  editedOutput          String?
+  postedExternally      Boolean             @default(false)
+  failureReason         String?
+  retryCount            Int                 @default(0)
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
 
   // Relations
-  approvalPackages        PipelineApprovalPackage[]
-  complaintLogs           PipelineComplaintThemeLog[]
+  approvalPackages PipelineApprovalPackage[]
+  complaintLogs    PipelineComplaintThemeLog[]
 
   @@index([actionQueueId])
   @@map("pipeline_executions")
 }
 
 model PipelineApprovalPackage {
-  id                  String    @id @default(cuid())
-  approvalPackageId   String    @unique              // approval_pkg_abc123
-  executionId         String
-  execution           PipelineExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
-  owner               String
-  status              String    @default("pending_approval")
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  id                String            @id @default(cuid())
+  approvalPackageId String            @unique // approval_pkg_abc123
+  executionId       String
+  execution         PipelineExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  owner             String
+  status            String            @default("pending_approval")
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
   @@index([executionId])
   @@map("pipeline_approval_packages")
 }
 
 model PipelineOutcome {
-  id                      String    @id @default(cuid())
-  outcomeId               String    @unique            // out_abc123
-  eventId                 String
-  decisionId              String
-  actionQueueId           String
-  executionId             String
-  actionId                String
-  outcomeType             String
-  outcomeStatus           String
-  timeToResponseHours     Float?
-  approvalWaitHours       Float?
-  humanEdited             Boolean   @default(false)
-  postedExternally        Boolean   @default(false)
-  doNotCountAsSuccess     Boolean   @default(false)
-  details                 Json?
-  feedbackId              String?
-  createdAt               DateTime  @default(now())
-  updatedAt               DateTime  @updatedAt
+  id                  String   @id @default(cuid())
+  outcomeId           String   @unique // out_abc123
+  eventId             String
+  decisionId          String
+  actionQueueId       String
+  executionId         String
+  actionId            String
+  outcomeType         String
+  outcomeStatus       String
+  timeToResponseHours Float?
+  approvalWaitHours   Float?
+  humanEdited         Boolean  @default(false)
+  postedExternally    Boolean  @default(false)
+  doNotCountAsSuccess Boolean  @default(false)
+  details             Json?
+  feedbackId          String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   @@map("pipeline_outcomes")
 }
 
 model PipelineFeedbackRecord {
-  id                        String    @id @default(cuid())
-  feedbackId                String    @unique          // fb_abc123
-  eventId                   String
-  decisionId                String
-  actionQueueId             String
-  executionId               String
-  outcomeId                 String
-  actionId                  String
-  signalValidity            String?                    // likely_valid | invalid | uncertain
-  decisionQuality           String?                    // reasonable_so_far | questionable
-  actionExecutionQuality    String?                    // worked_as_expected | did_not_work
-  outcomeResult             String?                    // completed | partial | failed | blocked
-  humanReviewState          String?                    // waiting | approved | rejected | edited
-  tuningCandidates          Json      @default("[]")
-  productionRulesChanged    Boolean   @default(false)
-  details                   Json?
-  createdAt                 DateTime  @default(now())
-  updatedAt                 DateTime  @updatedAt
+  id                     String   @id @default(cuid())
+  feedbackId             String   @unique // fb_abc123
+  eventId                String
+  decisionId             String
+  actionQueueId          String
+  executionId            String
+  outcomeId              String
+  actionId               String
+  signalValidity         String? // likely_valid | invalid | uncertain
+  decisionQuality        String? // reasonable_so_far | questionable
+  actionExecutionQuality String? // worked_as_expected | did_not_work
+  outcomeResult          String? // completed | partial | failed | blocked
+  humanReviewState       String? // waiting | approved | rejected | edited
+  tuningCandidates       Json     @default("[]")
+  productionRulesChanged Boolean  @default(false)
+  details                Json?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 
   @@map("pipeline_feedback_records")
 }
 
 model PipelineComplaintThemeLog {
-  id          String    @id @default(cuid())
-  eventId     String
-  event       PipelineEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  execId      String
-  execution   PipelineExecution @relation(fields: [execId], references: [id], onDelete: Cascade)
-  theme       String
-  createdAt   DateTime  @default(now())
+  id        String            @id @default(cuid())
+  eventId   String
+  event     PipelineEvent     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  execId    String
+  execution PipelineExecution @relation(fields: [execId], references: [id], onDelete: Cascade)
+  theme     String
+  createdAt DateTime          @default(now())
 
   @@index([eventId])
   @@map("pipeline_complaint_theme_logs")
@@ -885,22 +918,22 @@ model PipelineComplaintThemeLog {
 
 // Progressive identity resolution profiles (separate from Contact)
 model PipelineCustomerProfile {
-  id              String    @id @default(cuid())
-  companyId       String
-  company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  externalId      String?                              // CRM reference
-  firstName       String?
-  lastName        String?
-  displayName     String?
-  email           String?
-  phoneNumber     String?
-  tags            Json      @default("[]")
-  metadata        Json      @default("{}")
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  externalId  String? // CRM reference
+  firstName   String?
+  lastName    String?
+  displayName String?
+  email       String?
+  phoneNumber String?
+  tags        Json     @default("[]")
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   // Relations
-  events          PipelineEvent[]
+  events PipelineEvent[]
 
   @@unique([companyId, phoneNumber])
   @@unique([companyId, email])
@@ -910,76 +943,76 @@ model PipelineCustomerProfile {
 
 // Pipeline-specific business configuration
 model PipelineBusinessConfig {
-  id                              String    @id @default(cuid())
-  companyId                       String    @unique
-  company                         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  consultantId                    String?
-  consultantName                  String?
-  consultantReviewRequired        Boolean   @default(true)
-  primaryInternalOwner            String    @default("consultant")
-  approvalRoute                   String    @default("consultant_then_client")
-  autoNotifyConsultant            Boolean   @default(true)
-  autoNotifyBusinessOwner         Boolean   @default(false)
-  reviewReplyPolicy               String    @default("draft_only")
-  publicResponseRequiresApproval  Boolean   @default(true)
-  brandTone                       String    @default("professional")
-  slaResponseHours                Int       @default(24)
-  officeTimezone                  String    @default("UTC")
-  maxRetries                      Int       @default(3)
-  maxReplyLength                  Int       @default(150)
-  active                          Boolean   @default(true)
-  createdAt                       DateTime  @default(now())
-  updatedAt                       DateTime  @updatedAt
+  id                             String   @id @default(cuid())
+  companyId                      String   @unique
+  company                        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  consultantId                   String?
+  consultantName                 String?
+  consultantReviewRequired       Boolean  @default(true)
+  primaryInternalOwner           String   @default("consultant")
+  approvalRoute                  String   @default("consultant_then_client")
+  autoNotifyConsultant           Boolean  @default(true)
+  autoNotifyBusinessOwner        Boolean  @default(false)
+  reviewReplyPolicy              String   @default("draft_only")
+  publicResponseRequiresApproval Boolean  @default(true)
+  brandTone                      String   @default("professional")
+  slaResponseHours               Int      @default(24)
+  officeTimezone                 String   @default("UTC")
+  maxRetries                     Int      @default(3)
+  maxReplyLength                 Int      @default(150)
+  active                         Boolean  @default(true)
+  createdAt                      DateTime @default(now())
+  updatedAt                      DateTime @updatedAt
 
   @@map("pipeline_business_configs")
 }
 
 // Client automation preferences
 model PipelineOrchestratorProfile {
-  id                      String    @id @default(cuid())
-  companyId               String    @unique
-  company                 Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  automationLevel         String    @default("standard") // conservative | standard | aggressive
-  disabledSignalIds       Json      @default("[]")
-  domainExecutionModes    Json      @default("{}")       // e.g. {"REV": "approval_required"}
-  domainOwners            Json      @default("{}")       // e.g. {"REV": "business_owner"}
-  preferredReplyLength    String    @default("medium")
-  includeBusinessName     Boolean   @default(true)
-  includeCallToAction     Boolean   @default(true)
-  active                  Boolean   @default(true)
-  createdAt               DateTime  @default(now())
-  updatedAt               DateTime  @updatedAt
+  id                   String   @id @default(cuid())
+  companyId            String   @unique
+  company              Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  automationLevel      String   @default("standard") // conservative | standard | aggressive
+  disabledSignalIds    Json     @default("[]")
+  domainExecutionModes Json     @default("{}") // e.g. {"REV": "approval_required"}
+  domainOwners         Json     @default("{}") // e.g. {"REV": "business_owner"}
+  preferredReplyLength String   @default("medium")
+  includeBusinessName  Boolean  @default(true)
+  includeCallToAction  Boolean  @default(true)
+  active               Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   @@map("pipeline_orchestrator_profiles")
 }
 
 // Action definitions
 model PipelineActionLibrary {
-  id                      String    @id @default(cuid())
-  actionId                String    @unique              // ACT-REV-001, ACT-A2P-002, etc.
-  name                    String
-  domain                  String                         // REV, TASK
-  isPublicFacing          Boolean   @default(false)
-  callsA2p                Boolean   @default(false)
-  defaultExecutionMode    String    @default("approval_required")
-  defaultOwner            String    @default("system")
-  requiredParams          Json      @default("[]")
-  active                  Boolean   @default(true)
-  createdAt               DateTime  @default(now())
+  id                   String   @id @default(cuid())
+  actionId             String   @unique // ACT-REV-001, ACT-A2P-002, etc.
+  name                 String
+  domain               String // REV, TASK
+  isPublicFacing       Boolean  @default(false)
+  callsA2p             Boolean  @default(false)
+  defaultExecutionMode String   @default("approval_required")
+  defaultOwner         String   @default("system")
+  requiredParams       Json     @default("[]")
+  active               Boolean  @default(true)
+  createdAt            DateTime @default(now())
 
   @@map("pipeline_action_library")
 }
 
 // Signal → Action mappings
 model PipelineSignalActionMapping {
-  id              String    @id @default(cuid())
-  signalRuleId    String                               // SIG-TRUST-001, etc.
-  actionId        String                               // ACT-REV-001, etc.
-  isPrimary       Boolean   @default(false)
-  isSecondary     Boolean   @default(false)
-  companyId       String?                              // null = global
-  active          Boolean   @default(true)
-  createdAt       DateTime  @default(now())
+  id           String   @id @default(cuid())
+  signalRuleId String // SIG-TRUST-001, etc.
+  actionId     String // ACT-REV-001, etc.
+  isPrimary    Boolean  @default(false)
+  isSecondary  Boolean  @default(false)
+  companyId    String? // null = global
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
 
   @@index([signalRuleId])
   @@map("pipeline_signal_action_mappings")
@@ -987,33 +1020,33 @@ model PipelineSignalActionMapping {
 
 // Safety compliance rules
 model PipelineSafetyRule {
-  id            String    @id @default(cuid())
-  ruleId        String    @unique                      // SAF-001, SAF-002
-  ruleName      String
-  conditions    Json
-  blockReason   String
-  severity      Int       @default(1)
-  active        Boolean   @default(true)
-  createdAt     DateTime  @default(now())
+  id          String   @id @default(cuid())
+  ruleId      String   @unique // SAF-001, SAF-002
+  ruleName    String
+  conditions  Json
+  blockReason String
+  severity    Int      @default(1)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
 
   @@map("pipeline_safety_rules")
 }
 
 // Orchestrator routing overrides
 model PipelineOrchestratorRule {
-  id              String    @id @default(cuid())
-  ruleId          String    @unique
+  id              String   @id @default(cuid())
+  ruleId          String   @unique
   ruleName        String
   signalRuleId    String
   conditions      Json?
   executionMode   String?
   owner           String?
-  suppressSignals Json?     @default("[]")
-  scope           String    @default("global")         // global | client
+  suppressSignals Json?    @default("[]")
+  scope           String   @default("global") // global | client
   companyId       String?
-  isSafetyRule    Boolean   @default(false)
-  active          Boolean   @default(true)
-  createdAt       DateTime  @default(now())
+  isSafetyRule    Boolean  @default(false)
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
 
   @@map("pipeline_orchestrator_rules")
 }

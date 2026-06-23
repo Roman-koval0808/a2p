@@ -46,90 +46,80 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 			role: m.role
 		}));
 
-		// Fetch raw telemetry events from ProfileDB
-		const profileDbUrl = process.env.PROFILEDB_URL || 'http://localhost:6277';
-		const profileDbRes = await fetch(`${profileDbUrl}/api/v1/tenants/${locals.user.company.id}/events?limit=${limit}&page=${page}`);
-		if (!profileDbRes.ok) {
-			console.error('ProfileDB events fetch failed:', profileDbRes.status);
-			return {
-				logs: [],
-				members: membersForPicker,
-				useA2pCommLog: true,
-				totalCount: 0,
-				limit,
-				page
-			};
-		}
-		const data = await profileDbRes.json();
-		const events = Array.isArray(data.data) ? data.data : [];
-
-		const logs = events.map((ev: any) => {
-			const payload = ev.payload || {};
-			const type = ev.eventType.includes('sms') ? 'sms' : (ev.eventType.includes('voicemail') || ev.eventType.includes('call') ? 'voice' : 'web');
-			const direction = ev.eventType.includes('received') || ev.eventType.includes('incoming') || ev.eventType === 'sms_received' || ev.eventType === 'telnyx.voice.voicemail' ? 'inbound' : 'outbound';
-			
-			// Extract clean display name/source
-			let source = '—';
-			if (payload.phone || payload.customer_phone) {
-				source = payload.phone || payload.customer_phone;
-			} else if (ev.customerProfile?.name) {
-				source = ev.customerProfile.name;
-			} else if (ev.customerProfile?.phone && ev.customerProfile.phone.length < 20) {
-				source = ev.customerProfile.phone;
-			} else {
-				source = 'Lead (' + ev.customerProfileId.slice(0, 6) + ')';
-			}
-
-			let summary = payload.detail || payload.body || payload.text || payload.textContent || payload.voicemail_text || ev.eventType;
-			if (ev.eventType === 'telnyx.voice.voicemail') {
-				summary = `Voicemail: "${payload.voicemail_text || 'Emergency call'}"`;
-			} else if (ev.eventType === 'sms_sent') {
-				summary = `SMS Sent: "${payload.body || payload.text || summary}"`;
-			} else if (ev.eventType === 'sms_received') {
-				summary = `SMS Received: "${payload.body || payload.text || summary}"`;
-			} else if (ev.eventType === 'call_initiated') {
-				summary = `Outbound Call: "${payload.detail || summary}"`;
-			} else if (ev.eventType === 'job_completed') {
-				summary = `Job Completed: Invoiced $${Number(payload.revenue || 250.00).toFixed(2)}`;
-			}
-
-			return {
-				id: ev.id,
-				type,
-				direction,
-				status: ev.intentBucket === 'emergency' ? 'red' : (ev.intentBucket === 'active' || ev.intentBucket === 'Confirm' || ev.eventType?.includes('draft') ? 'blue' : 'green'),
-				source,
-				destination: payload.to || payload.from || locals.user.company.id,
-				summary: summary,
-				content: payload.textContent || payload.voicemail_text || payload.body || payload.text || '',
-				metadata: {
-					urgency_gpt: ev.intentBucket === 'emergency' ? 5 : 1,
-					category_gpt: ev.intentBucket || (ev.eventType?.includes('draft') ? 'Confirm' : 'General'),
-					subcat_gpt: ev.eventType,
-					score: ev.engagementScore || ev.score || 0,
-					scoreDelta: ev.scoreDelta || ev.delta || 0
+		// Fetch communication threads from Prisma
+		const threads = await prisma.communicationThread.findMany({
+			where: { companyId: locals.user.company.id },
+			include: {
+				logs: {
+					orderBy: { created: 'asc' },
+					include: {
+						assignedMembers: {
+							include: { user: true }
+						}
+					}
 				},
-				created: ev.occurredAt,
-				updated: ev.occurredAt,
-				expand: {
-					user_id: { name: 'System' },
-					customer_id: {
-						id: ev.customerProfileId,
-						name: ev.customerProfile?.name || 'Customer',
-						phone: payload.phone || payload.customer_phone || undefined,
-						email: payload.email || payload.customer_email || undefined
-					},
-					assigned_members: []
-				},
-				raw: ev
-			};
+				contact: true,
+				tasks: true
+			},
+			orderBy: { updated: 'desc' },
+			take: limit,
+			skip: offset
 		});
+
+		const totalCount = await prisma.communicationThread.count({
+			where: { companyId: locals.user.company.id }
+		});
+
+		// Flatten logs for the table, but give them a thread identifier
+		const logs: any[] = [];
+		for (const thread of threads) {
+			for (const log of thread.logs) {
+				const assignedMemberNames = log.assignedMembers.map((am) => am.user.name || am.user.email);
+				
+				let status = 'green';
+				if (log.status === 'pending_approval') {
+					status = 'blue';
+				} else if (log.direction === 'inbound') {
+					status = 'in';
+				} else {
+					status = 'out';
+				}
+
+				// The 'purpose' field in UI drives the 'Confirm' button
+				let purpose = 'General';
+				const meta = (log.metadata as any) || {};
+				if (log.status === 'pending_approval') {
+					purpose = 'Confirm';
+				} else if (meta.category_gpt) {
+					purpose = meta.category_gpt;
+				}
+
+				logs.push({
+					id: log.id,
+					type: log.type === 'voice' ? 'call' : log.type,
+					direction: log.direction,
+					status: status,
+					source: log.source || thread.contact?.name || thread.contact?.phone || '—',
+					destination: log.destination || locals.user.company.id,
+					summary: log.summary || log.content || '',
+					content: log.content || '',
+					metadata: meta,
+					created: log.created.toISOString(),
+					updated: log.updated.toISOString(),
+					commId: thread.id,
+					threadStatus: thread.status,
+					threadSummary: thread.summary,
+					assignedMemberNames,
+					raw: log
+				});
+			}
+		}
 
 		return {
 			logs,
 			members: membersForPicker,
 			useA2pCommLog: true,
-			totalCount: data.pagination?.total || 0,
+			totalCount,
 			limit,
 			page
 		};

@@ -219,6 +219,25 @@
 		selectedPipelineEvent = comm.raw;
 		pipelineDialogOpen = true;
 	}
+
+	async function handleConfirmClick(comm: any) {
+		const loadingId = toast.loading('Confirming communication...');
+		try {
+			const res = await fetch(`/api/communication-logs/${comm.id}/confirm`, {
+				method: 'POST'
+			});
+			const result = await res.json();
+			if (result.success) {
+				toast.success('Communication confirmed and dispatched', { id: loadingId });
+				await invalidateAll();
+			} else {
+				toast.error(result.error || 'Failed to confirm', { id: loadingId });
+			}
+		} catch (e) {
+			console.error(e);
+			toast.error('Failed to confirm communication', { id: loadingId });
+		}
+	}
 </script>
 
 <div class="flex w-full min-w-0 flex-col">
@@ -292,6 +311,7 @@
 			onAssignClick={handleAssignClick}
 			onPipelineClick={handlePipelineClick}
 			onReplyClick={handleReplyClick}
+			onConfirmClick={handleConfirmClick}
 			showAssignButton={!data.useA2pCommLog}
 			showSearch={false}
 		/>

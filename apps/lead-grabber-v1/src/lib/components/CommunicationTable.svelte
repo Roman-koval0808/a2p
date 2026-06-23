@@ -40,6 +40,7 @@
 		onAssignClick?: (comm: Communication) => void;
 		onPipelineClick?: (comm: Communication) => void;
 		onReplyClick?: (comm: Communication) => void;
+		onConfirmClick?: (comm: Communication) => void;
 		showFilters?: boolean;
 		showSearch?: boolean;
 		showAssignButton?: boolean;
@@ -65,6 +66,7 @@
 		onAssignClick,
 		onPipelineClick,
 		onReplyClick,
+		onConfirmClick,
 		showFilters = true,
 		showSearch = true,
 		showAssignButton = false
@@ -295,7 +297,7 @@
 								{#if comm.purpose}
 									{#if comm.purpose === 'Confirm'}
 										<button
-											onclick={() => onReplyClick?.(comm)}
+											onclick={() => onConfirmClick ? onConfirmClick(comm) : onReplyClick?.(comm)}
 											class="inline-block rounded bg-[#4A72B2] hover:bg-[#3b5d95] px-3.5 py-1 text-xs font-semibold text-white transition-colors"
 										>
 											Confirm
