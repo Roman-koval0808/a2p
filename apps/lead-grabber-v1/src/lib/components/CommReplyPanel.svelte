@@ -51,7 +51,7 @@
 		comm?.raw?.customerProfile?.name || comm?.source || 'Customer'
 	);
 	const threadId = $derived(
-		comm?.raw?.payload?.threadId || comm?.raw?.threadId || null
+		comm?.raw?.payload?.threadId || comm?.raw?.threadId || customerPhone || null
 	);
 
 	// Load thread messages when comm changes
@@ -74,7 +74,7 @@
 	$effect(() => {
 		if (open && comm && customerPhone) {
 			const userName = user?.name || 'our team';
-			draftValue = `${userName} has gotten your message and will be calling you shortly.`;
+			draftValue = comm?.draftResponse || comm?.raw?.draftResponse || comm?.raw?.metadata?.draftResponse || `${userName} has gotten your message and will be calling you shortly.`;
 		}
 	});
 
@@ -480,7 +480,7 @@
 		<div class="border-t border-gray-200 p-4">
 			{#if customerPhone}
 				<!-- Quick draft reply -->
-				{#if !chatMessages.some((m) => m.isYou) && draftValue}
+				{#if chatMessages.length > 0 && !chatMessages.some((m) => m.isYou) && !chatMessages.some((m) => m.type === 'call_summary') && (comm?.raw?.intentBucket === 'emergency' || comm?.raw?.metadata?.urgency_gpt >= 4 || comm?.status === 'red') && draftValue}
 					<div class="mb-3 flex flex-col gap-2 rounded-lg border border-sky-200 bg-sky-50/50 p-3">
 						<div class="text-[10px] font-bold uppercase tracking-wider font-mono text-sky-600">
 							Quick Reply
