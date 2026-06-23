@@ -38,6 +38,14 @@
 	// Draft response state
 	let draftValue = $state('');
 	let isSendingDraft = $state(false);
+	let draftInitialized = false;
+
+	const lastMessage = $derived(chatMessages[chatMessages.length - 1] ?? null);
+	const hasUnansweredSms = $derived(
+		lastMessage !== null &&
+		!lastMessage.isYou &&
+		lastMessage.type !== 'call_summary'
+	);
 
 	// Derive contact info from the comm log entry
 	const customerPhone = $derived(
@@ -54,10 +62,13 @@
 		comm?.raw?.payload?.threadId || comm?.raw?.threadId || customerPhone || null
 	);
 
-	// Load thread messages when comm changes
+	// Load thread messages when comm changes, and poll on interval when open
 	$effect(() => {
 		if (open && comm) {
+			draftInitialized = false;
 			loadThread();
+			const interval = setInterval(loadThread, 4000);
+			return () => clearInterval(interval);
 		}
 	});
 
@@ -67,13 +78,6 @@
 			setTimeout(() => {
 				messagesContainer.scrollTop = messagesContainer.scrollHeight;
 			}, 50);
-		}
-	});
-
-	// Set default draft
-	$effect(() => {
-		if (open && comm && customerPhone) {
-			draftValue = comm?.draftResponse || comm?.raw?.draftResponse || comm?.raw?.metadata?.draftResponse || '';
 		}
 	});
 
@@ -139,6 +143,18 @@
 					(a: any, b: any) =>
 						new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
 				);
+
+			// Set draftValue from thread if not initialized yet
+			if (!draftInitialized) {
+				const hasAgentReply = messagesArray.some((msg: any) => msg.is_agent_reply);
+				const hasCallSummary = messagesArray.some((msg: any) => msg.type === 'call_summary');
+				if (!hasAgentReply && !hasCallSummary && thread.draftResponse) {
+					draftValue = thread.draftResponse;
+				} else {
+					draftValue = '';
+				}
+				draftInitialized = true;
+			}
 		} catch (err) {
 			console.error('Error loading thread:', err);
 			// Fall back to single comm entry
@@ -485,7 +501,7 @@
 		<div class="border-t border-gray-200 p-4">
 			{#if customerPhone}
 				<!-- Quick draft reply -->
-				{#if chatMessages.length > 0 && !chatMessages.some((m) => m.isYou) && !chatMessages.some((m) => m.type === 'call_summary') && (comm?.raw?.intentBucket === 'emergency' || comm?.raw?.metadata?.urgency_gpt >= 4 || comm?.status === 'red') && draftValue}
+				{#if hasUnansweredSms && (comm?.raw?.intentBucket === 'emergency' || comm?.raw?.metadata?.urgency_gpt >= 4 || comm?.status === 'red') && draftValue}
 					<div class="mb-3 flex flex-col gap-2 rounded-lg border border-sky-200 bg-sky-50/50 p-3">
 						<div class="text-[10px] font-bold uppercase tracking-wider font-mono text-sky-600">
 							Quick Reply

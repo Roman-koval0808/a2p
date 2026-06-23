@@ -267,6 +267,19 @@ async function syncEmergencyMessages(companyId: string) {
 				};
 			}).sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
+			// De-duplicate mappedMessages to prevent showing duplicate messages (e.g. both sms_received and message.received)
+			const uniqueMappedMessages: typeof mappedMessages = [];
+			for (const msg of mappedMessages) {
+				const isDup = uniqueMappedMessages.some((existing: any) => 
+					existing.is_agent_reply === msg.is_agent_reply &&
+					existing.content === msg.content &&
+					Math.abs(new Date(existing.timestamp).getTime() - new Date(msg.timestamp).getTime()) < 5000
+				);
+				if (!isDup) {
+					uniqueMappedMessages.push(msg);
+				}
+			}
+
 			let draftResponse = null;
 			for (const ev of history) {
 				const payload = ev.payload;
@@ -318,7 +331,7 @@ async function syncEmergencyMessages(companyId: string) {
 
 			// Generate specific emergency advice locally if none exists
 			if (!draftResponse && profile.intentBucket === 'emergency') {
-				const lastMessage = mappedMessages[mappedMessages.length - 1]?.content?.toLowerCase() || '';
+				const lastMessage = uniqueMappedMessages[uniqueMappedMessages.length - 1]?.content?.toLowerCase() || '';
 				let advice = `Hi ${customerName}, we received your urgent message. A technician has been dispatched and will contact you in 2-3 minutes. Please keep your phone available. — RightFlush Plumbing`;
 				
 				if (lastMessage.includes('leak') || lastMessage.includes('pipe') || lastMessage.includes('water') || lastMessage.includes('flood')) {
@@ -393,10 +406,10 @@ async function syncEmergencyMessages(companyId: string) {
 				(m.is_agent_reply && !m.agent_name?.startsWith('System')) || 
 				m.type === 'call_summary'
 			);
-			// Combine mappedMessages and localAgentReplies, and sort by timestamp
-			const mergedMessages = [...mappedMessages];
+			// Combine uniqueMappedMessages and localAgentReplies, and sort by timestamp
+			const mergedMessages = [...uniqueMappedMessages];
 			for (const localRep of localAgentReplies) {
-				const isAlreadyMapped = mappedMessages.some((m: any) => 
+				const isAlreadyMapped = uniqueMappedMessages.some((m: any) => 
 					m.is_agent_reply && 
 					m.content === localRep.content && 
 					Math.abs(new Date(m.timestamp).getTime() - new Date(localRep.timestamp).getTime()) < 10000
