@@ -41,22 +41,25 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	});
 
 	if (replyMethod === 'sms') {
-		const destinationPhone = normalizePhoneNumber(n.sourceIdentifier || '');
+		const destinationPhone = normalizePhoneNumber(n.threadId || n.sourceName || '');
 		if (!destinationPhone) {
 			return json({ success: false, error: 'No valid destination phone number found' }, { status: 400 });
 		}
 
-		let fromNumber = TELNYX_PHONE_NUMBER;
-		const companyNumbers = await prisma.companyPhoneNumber.findMany({
-			where: { companyId: auth.companyId },
-			select: { phoneNumber: true }
-		});
-		const validNumbers = companyNumbers.map(num => normalizePhoneNumber(num.phoneNumber)).filter(Boolean);
-		const telnyxNorm = normalizePhoneNumber(TELNYX_PHONE_NUMBER);
-		if (validNumbers.includes(telnyxNorm)) {
+		let fromNumber = normalizePhoneNumber(n.sourceIdentifier || '');
+		if (!fromNumber || !fromNumber.startsWith('+')) {
 			fromNumber = TELNYX_PHONE_NUMBER;
-		} else if (validNumbers.length > 0) {
-			fromNumber = validNumbers[0];
+			const companyNumbers = await prisma.companyPhoneNumber.findMany({
+				where: { companyId: auth.companyId },
+				select: { phoneNumber: true }
+			});
+			const validNumbers = companyNumbers.map(num => normalizePhoneNumber(num.phoneNumber)).filter(Boolean);
+			const telnyxNorm = normalizePhoneNumber(TELNYX_PHONE_NUMBER);
+			if (validNumbers.includes(telnyxNorm)) {
+				fromNumber = TELNYX_PHONE_NUMBER;
+			} else if (validNumbers.length > 0) {
+				fromNumber = validNumbers[0];
+			}
 		}
 
 		console.log(`[Notification Reply SMS] Sending from: ${fromNumber} to: ${destinationPhone}`);
