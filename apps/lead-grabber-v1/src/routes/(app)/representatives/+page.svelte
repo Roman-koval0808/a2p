@@ -15,11 +15,23 @@
 				avatar?: string;
 				schedule: Record<string, { start: string; end: string }>;
 				rooms: string[];
+				isPending?: boolean;
+			}>;
+			pendingInvites: Array<{
+				id: string;
+				name: string;
+				email: string;
+				phone: string;
+				location: string;
+				avatar?: string;
+				schedule: Record<string, { start: string; end: string }>;
+				rooms: string[];
+				isPending?: boolean;
 			}>;
 		};
 	}>();
 
-	const representatives = $derived(data.representatives);
+	const representatives = $derived([...data.pendingInvites, ...data.representatives]);
 
 	let expandedRep: string | null = $state(null);
 
@@ -79,7 +91,12 @@
 							</span>
 						</div>
 					</div>
-					<div class="font-['Poppins'] text-[14px] text-[#737373]">{rep.name}</div>
+					<div class="flex items-center gap-2 font-['Poppins'] text-[14px] text-[#737373]">
+						{rep.name}
+						{#if rep.isPending}
+							<span class="rounded bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800">Pending</span>
+						{/if}
+					</div>
 					<div class="font-['Poppins'] text-[14px] text-[#737373]">{rep.phone}</div>
 					<div class="font-['Poppins'] text-[14px] text-[#737373]">{rep.email}</div>
 					<div class="font-['Poppins'] text-[14px] text-[#737373]">{rep.location}</div>
