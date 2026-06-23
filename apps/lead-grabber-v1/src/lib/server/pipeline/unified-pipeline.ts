@@ -192,7 +192,7 @@ export class UnifiedPipeline {
 						traceId: traceId,
 						provider: payload.provider,
 						providerEventName: payload.eventType,
-						providerEventId: payload.externalId,
+						providerEventId: suppressionReason === 'duplicate_provider_id' ? `${payload.externalId}_dup_${Date.now()}` : payload.externalId,
 						eventType: payload.eventType,
 						networkCategory: payload.provider.includes('telnyx') ? 'Communication' : 'Trust',
 						companyId: company?.id,
@@ -259,6 +259,7 @@ export class UnifiedPipeline {
 			let executionResult: any = null;
 			let outcomeResult: any = null;
 			let feedbackResult: any = null;
+			let signalCandidates: any[] = [];
 
 			if (!isDuplicate && !isSuppressed) {
 				// STEP 7-9: Signal Engine
@@ -266,7 +267,7 @@ export class UnifiedPipeline {
 				const fullTrace = [...evalResult.trace];
 
 				// STEP 10-12: Orchestrator Decision
-				const signalCandidates = await prisma.pipelineSignal.findMany({
+				signalCandidates = await prisma.pipelineSignal.findMany({
 					where: { eventId: event.id, status: 'candidate' }
 				});
 				
