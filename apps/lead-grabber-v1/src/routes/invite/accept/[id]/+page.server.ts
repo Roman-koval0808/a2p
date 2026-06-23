@@ -38,6 +38,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 					id: invite.id,
 					email: invite.email,
 					role: invite.role,
+					metadata: invite.metadata,
 					company: {
 						id: invite.company.id,
 						name: invite.company.name,
@@ -58,6 +59,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 					id: invite.id,
 					email: invite.email,
 					role: invite.role,
+					metadata: invite.metadata,
 					company: {
 						id: invite.company.id,
 						name: invite.company.name,
@@ -78,6 +80,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				id: invite.id,
 				email: invite.email,
 				role: invite.role,
+				metadata: invite.metadata,
 				company: {
 					id: invite.company.id,
 					name: invite.company.name,
@@ -149,6 +152,12 @@ export const actions = {
 				}
 			}
 
+			// Extract profileData from invite metadata if present
+			let profileData = undefined;
+			if (invite.metadata && typeof invite.metadata === 'object') {
+				profileData = (invite.metadata as any).profileData;
+			}
+
 			// Create company member
 			await prisma.companyMember.create({
 				data: {
@@ -156,7 +165,8 @@ export const actions = {
 					companyId: invite.companyId || '',
 					role: invite.role || 'member',
 					status: 'active',
-					joinedAt: new Date()
+					joinedAt: new Date(),
+					profileData: profileData || undefined
 				}
 			});
 

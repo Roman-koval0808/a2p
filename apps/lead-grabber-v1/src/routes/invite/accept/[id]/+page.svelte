@@ -13,6 +13,7 @@
 				id: string;
 				email: string;
 				role: string;
+				metadata?: any;
 				company: {
 					name: string;
 					logo?: string;
@@ -87,6 +88,7 @@
 								id="name"
 								name="name"
 								type="text"
+								value={data.invite.metadata && typeof data.invite.metadata === 'object' ? `${(data.invite.metadata as any).firstName || ''} ${(data.invite.metadata as any).lastName || ''}`.trim() : ''}
 								placeholder="Enter your full name"
 								required
 							/>
