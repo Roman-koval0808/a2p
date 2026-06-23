@@ -149,7 +149,8 @@
 				purpose,
 				purposeIsButton: false,
 				summary: log.summary || log.content || 'No content',
-				commId: log.id,
+				commId: log.commId,
+				id: log.id,
 				status,
 				assignedMemberNames,
 				raw: log
@@ -160,7 +161,7 @@
 	// Transform to CommunicationTable format
 	let tableCommunications = $derived(
 		communications.map((c: any) => ({
-			id: c.commId || c.raw?.id || '',
+			id: c.id || c.raw?.id || '',
 			date: c.date,
 			time: c.time,
 			type: c.typeIcon as any,
@@ -212,7 +213,7 @@
 
 	function handleAssignClick(comm: any) {
 		selectedEndpoint = comm.endpoint;
-		selectedCommId = comm.commId;
+		selectedCommId = comm.id;
 		preSelectedAgents = comm.assignedMemberNames || [];
 		assignDialogOpen = true;
 	}
