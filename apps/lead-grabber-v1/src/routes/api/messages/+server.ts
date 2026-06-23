@@ -467,8 +467,11 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	try {
 		if (threadId) {
 			// Get specific thread
-			const thread = await prisma.message.findUnique({
-				where: { threadId }
+			const thread = await prisma.message.findFirst({
+				where: {
+					companyId: locals.user.company.id,
+					OR: [{ threadId }, { customerPhone: threadId }]
+				}
 			});
 
 			if (!thread || thread.companyId !== locals.user.company.id) {
