@@ -97,14 +97,14 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 				id: ev.id,
 				type,
 				direction,
-				status: ev.intentBucket === 'emergency' ? 'red' : (ev.intentBucket === 'active' ? 'blue' : 'green'),
+				status: ev.intentBucket === 'emergency' ? 'red' : (ev.intentBucket === 'active' || ev.intentBucket === 'Confirm' || ev.eventType?.includes('draft') ? 'blue' : 'green'),
 				source,
 				destination: payload.to || payload.from || locals.user.company.id,
 				summary: summary,
 				content: payload.textContent || payload.voicemail_text || payload.body || payload.text || '',
 				metadata: {
 					urgency_gpt: ev.intentBucket === 'emergency' ? 5 : 1,
-					category_gpt: ev.intentBucket || 'General',
+					category_gpt: ev.intentBucket || (ev.eventType?.includes('draft') ? 'Confirm' : 'General'),
 					subcat_gpt: ev.eventType,
 					score: ev.engagementScore || ev.score || 0,
 					scoreDelta: ev.scoreDelta || ev.delta || 0
