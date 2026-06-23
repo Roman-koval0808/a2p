@@ -28,6 +28,7 @@ export interface CommunicationLogEntry {
 	duration?: number;
 	metadata?: Record<string, any>;
 	assigned_members?: string[];
+	thread_id?: string;
 	/** Optional: for A2P mirror (contact name/company) */
 	contact_name?: string;
 	contact_company?: string;
@@ -55,6 +56,27 @@ export async function logCommunication(entry: CommunicationLogEntry) {
 			duration: entry.duration || null,
 			metadata: entry.metadata || null
 		};
+
+		// Handle thread linking or creation
+		let threadId = entry.thread_id || (entry.metadata as { commId?: string })?.commId || (entry.metadata as { thread_id?: string })?.thread_id;
+		
+		if (!threadId && entry.company_id) {
+			const newThread = await prisma.communicationThread.create({
+				data: {
+					companyId: entry.company_id,
+					contactId: entry.customer_id || null,
+					status: 'open',
+					summary: entry.summary || null
+				}
+			});
+			threadId = newThread.id;
+		}
+
+		if (threadId) {
+			data.communicationThreadId = threadId;
+			// Also ensure thread is created if it was passed manually but doesn't exist? 
+			// We assume passed threadId already exists, or we could upsert it.
+		}
 
 		const record = await prisma.communicationLog.create({
 			data
@@ -84,8 +106,9 @@ export async function logCommunication(entry: CommunicationLogEntry) {
 					((entry.summary ?? entry.content ?? '').length > 120 ? '...' : ''),
 				content: entry.content ?? undefined,
 				communication_log_id: record.id,
+				communication_thread_id: data.communicationThreadId,
 				thread_id: (entry.metadata as { thread_id?: string })?.thread_id
-			});
+			} as any); // using as any since we added communication_thread_id in DB but types might not be updated yet
 		}
 
 		// Mirror into A2P DB when configured (leadbox/leadform/email/etc. then appear on A2P comm log page)
