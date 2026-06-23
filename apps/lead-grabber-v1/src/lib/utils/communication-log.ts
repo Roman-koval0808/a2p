@@ -87,6 +87,14 @@ export async function logCommunication(entry: CommunicationLogEntry) {
 
 		if (threadId) {
 			data.communicationThreadId = threadId;
+			let metaObj = entry.metadata || {};
+			if (typeof metaObj === 'object' && !Array.isArray(metaObj)) {
+				metaObj = {
+					...metaObj,
+					commId: threadId
+				};
+			}
+			data.metadata = metaObj;
 		}
 
 		const record = await prisma.communicationLog.create({

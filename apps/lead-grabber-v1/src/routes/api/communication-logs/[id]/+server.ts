@@ -36,7 +36,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 	const status = m.assignmentStatus ?? (firstAssigned ? 'assigned_to_agent' : 'unassigned');
 	const data = {
 		id: log.id,
-		commId: m.commId ?? `COMM-${log.created.getFullYear()}-${log.id.slice(-6).toUpperCase()}`,
+		commId: m.commId ?? (log.communicationThreadId ? `COMM-${log.created.getFullYear()}-${log.communicationThreadId.slice(-6).toUpperCase()}` : `COMM-${log.created.getFullYear()}-${log.id.slice(-6).toUpperCase()}`),
 		type: toSpecType(log.type),
 		direction: log.direction,
 		contactName: log.customer?.name ?? null,

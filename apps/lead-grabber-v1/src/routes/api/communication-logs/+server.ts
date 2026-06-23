@@ -35,6 +35,7 @@ function toSpecLog(l: {
 	duration: number | null;
 	metadata: unknown;
 	created: Date;
+	communicationThreadId?: string | null;
 	customer?: {
 		name: string | null;
 		phone: string | null;
@@ -47,9 +48,10 @@ function toSpecLog(l: {
 	const firstAssigned = l.assignedMembers?.[0]?.user?.name ?? null;
 	const status: AssignmentStatus =
 		m.assignmentStatus ?? (firstAssigned ? 'assigned_to_agent' : 'unassigned');
+	const referenceId = m.commId || l.communicationThreadId || l.id;
 	return {
 		id: l.id,
-		commId: m.commId ?? `COMM-${l.created.getFullYear()}-${l.id.slice(-6).toUpperCase()}`,
+		commId: referenceId.startsWith('COMM-') ? referenceId : `COMM-${l.created.getFullYear()}-${referenceId.slice(-6).toUpperCase()}`,
 		type: toSpecType(l.type),
 		direction: l.direction,
 		contactName: l.customer?.name ?? null,

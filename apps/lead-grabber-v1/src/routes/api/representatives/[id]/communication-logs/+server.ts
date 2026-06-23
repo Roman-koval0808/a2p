@@ -48,7 +48,7 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 		const firstAssigned = l.assignedMembers?.[0]?.user?.name ?? null;
 		return {
 			id: l.id,
-			commId: m.commId ?? `COMM-${l.created.getFullYear()}-${l.id.slice(-6).toUpperCase()}`,
+			commId: m.commId ?? (l.communicationThreadId ? `COMM-${l.created.getFullYear()}-${l.communicationThreadId.slice(-6).toUpperCase()}` : `COMM-${l.created.getFullYear()}-${l.id.slice(-6).toUpperCase()}`),
 			type: toSpecType(l.type),
 			direction: l.direction,
 			contactName: l.customer?.name ?? null,
