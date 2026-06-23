@@ -124,7 +124,9 @@
 				(s ?? '').charAt(0).toUpperCase() + (s ?? '').slice(1).toLowerCase();
 			const urgentPrefix = urgencyGpt !== null && urgencyGpt >= 4 ? 'Urgent ' : '';
 			let purpose: string;
-			if (meta.category_gpt) {
+			if (log.status === 'pending_approval') {
+				purpose = 'Confirm';
+			} else if (meta.category_gpt) {
 				purpose = urgentPrefix + cap(meta.category_gpt);
 			} else if (meta.intent || meta.sentiment) {
 				const word = meta.intent
