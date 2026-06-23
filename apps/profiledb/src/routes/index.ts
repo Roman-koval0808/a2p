@@ -4,6 +4,7 @@ import {
   getTenantProfiles,
   getProfileDetails,
   getProfileHistory,
+  assignRepresentative,
 } from '../controllers/profile.controller';
 import { getAnalyticsAggregation, getTenantAnalytics } from '../controllers/analytics.controller';
 import { createOfflineRepEntry } from '../controllers/offline.controller';
@@ -24,6 +25,7 @@ router.post('/tenants/:tenantSlug/clear', clearTenantTelemetry);
 router.get('/tenants/:tenantSlug/profiles', getTenantProfiles);
 router.get('/tenants/:tenantSlug/profiles/:id', getProfileDetails);
 router.get('/tenants/:tenantSlug/profiles/:id/history', getProfileHistory);
+router.put('/tenants/:tenantSlug/profiles/:id/representative', assignRepresentative);
 
 // Build 8 / P24 — Offline rep entry (no browser session required)
 router.post('/tenants/:tenantSlug/profiles/offline', createOfflineRepEntry);

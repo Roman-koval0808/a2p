@@ -16,6 +16,7 @@ export async function getTenantProfiles(req: Request, res: Response) {
       sortOrder = 'desc',
       search = '',
       intentBucket,
+      representativeId,
     } = req.query;
 
     let tenant = await prisma.tenant.findUnique({
@@ -46,6 +47,14 @@ export async function getTenantProfiles(req: Request, res: Response) {
 
     if (intentBucket) {
       whereClause.intentBucket = intentBucket as string;
+    }
+
+    if (representativeId) {
+      if (representativeId === 'unassigned') {
+        whereClause.representativeId = null;
+      } else {
+        whereClause.representativeId = representativeId as string;
+      }
     }
 
     if (search) {
@@ -309,6 +318,43 @@ export async function getProfileHistory(req: Request, res: Response) {
     return res.status(200).json(events);
   } catch (error: any) {
     console.error('Error fetching profile history:', error);
+    return res.status(500).json({ error: 'Internal server error', details: error.message });
+  }
+}
+
+/**
+ * PUT /api/v1/tenants/:tenantSlug/profiles/:id/representative
+ * Assign a profile to a representative (User ID from clearsky-db-client).
+ */
+export async function assignRepresentative(req: Request, res: Response) {
+  try {
+    const { tenantSlug, id } = req.params;
+    const { representativeId } = req.body;
+
+    let tenant = await prisma.tenant.findUnique({
+      where: { slug: tenantSlug },
+    });
+
+    if (!tenant) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    const profile = await prisma.customerProfile.findFirst({
+      where: { id, tenantId: tenant.id },
+    });
+
+    if (!profile) {
+      return res.status(404).json({ error: 'Profile not found' });
+    }
+
+    const updatedProfile = await prisma.customerProfile.update({
+      where: { id: profile.id },
+      data: { representativeId: representativeId || null },
+    });
+
+    return res.status(200).json(updatedProfile);
+  } catch (error: any) {
+    console.error('Error assigning representative:', error);
     return res.status(500).json({ error: 'Internal server error', details: error.message });
   }
 }
