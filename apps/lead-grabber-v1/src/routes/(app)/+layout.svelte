@@ -75,7 +75,7 @@
 			unreadCount++;
 			
 			const threadId = data.notification?.threadId;
-			const targetUrl = threadId ? `/inbox?threadId=${encodeURIComponent(threadId)}` : '/inbox';
+			const targetUrl = '/communication-log';
 			
 			// Show toast and desktop notification
 			toast.info(data.notification.messagePreview || 'New notification received', {
@@ -105,7 +105,7 @@
 		eventSource.addEventListener('new_sms', (e) => {
 			const data = JSON.parse(e.data);
 			const threadId = data.notification?.threadId;
-			const targetUrl = threadId ? `/inbox?threadId=${encodeURIComponent(threadId)}` : '/inbox';
+			const targetUrl = '/communication-log';
 			
 			toast.success(`New SMS from ${data.notification.sourceName}`, {
 				description: data.notification.messagePreview,
@@ -217,7 +217,7 @@
 							size="sm" 
 							class="ml-2 h-7 rounded-full px-3 text-xs"
 							onclick={() => {
-								goto(activeBanner?.url || '/inbox');
+								goto(activeBanner?.url || '/communication-log');
 								activeBanner = null;
 							}}
 						>

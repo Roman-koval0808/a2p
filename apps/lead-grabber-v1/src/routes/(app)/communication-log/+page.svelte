@@ -7,6 +7,7 @@
 	import NotificationsDialog from '$lib/components/notifications/notifications-dialog.svelte';
 	import AssignAgentDialog from '$lib/components/assign-agent-dialog.svelte';
 	import PipelineModal from '$lib/components/PipelineModal.svelte';
+	import CommReplyPanel from '$lib/components/CommReplyPanel.svelte';
 	import { toast } from 'svelte-sonner';
 	import { invalidateAll, goto } from '$app/navigation';
 
@@ -42,6 +43,10 @@
 	let selectedEndpoint = $state<string | null>(null);
 	let selectedCommId = $state<string | null>(null);
 	let preSelectedAgents = $state<string[]>([]);
+
+	// Reply panel state
+	let replyPanelOpen = $state(false);
+	let replyComm = $state<any>(null);
 
 	let { data } = $props<{
 		data: {
@@ -177,8 +182,30 @@
 	}
 
 	function handleActionClick(action: string, comm: any) {
-		console.log('Action:', action, 'for comm:', comm);
-		// Handle actions
+		if (action === 'sms' || action === 'reply') {
+			replyComm = comm;
+			replyPanelOpen = true;
+		} else if (action === 'call') {
+			const phone =
+				comm.raw?.payload?.phone ||
+				comm.raw?.payload?.customer_phone ||
+				comm.raw?.customerProfile?.phone ||
+				comm.source;
+			if (phone) {
+				goto(`/dialer?phone=${encodeURIComponent(phone)}&call=true`);
+			} else {
+				toast.error('No phone number available');
+			}
+		} else if (action === 'view') {
+			handleSummaryClick(comm);
+		} else {
+			console.log('Action:', action, 'for comm:', comm);
+		}
+	}
+
+	function handleReplyClick(comm: any) {
+		replyComm = comm;
+		replyPanelOpen = true;
 	}
 
 	function handleAssignClick(comm: any) {
@@ -264,6 +291,7 @@
 			onActionClick={handleActionClick}
 			onAssignClick={handleAssignClick}
 			onPipelineClick={handlePipelineClick}
+			onReplyClick={handleReplyClick}
 			showAssignButton={!data.useA2pCommLog}
 			showSearch={false}
 		/>
@@ -413,3 +441,13 @@
 />
 
 <PipelineModal bind:open={pipelineDialogOpen} event={selectedPipelineEvent} />
+
+<CommReplyPanel
+	bind:open={replyPanelOpen}
+	comm={replyComm}
+	user={data.user}
+	onClose={() => {
+		replyPanelOpen = false;
+		replyComm = null;
+	}}
+/>

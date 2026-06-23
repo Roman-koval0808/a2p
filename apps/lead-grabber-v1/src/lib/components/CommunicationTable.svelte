@@ -9,7 +9,8 @@
 		Facebook,
 		Bot,
 		FileText,
-		MessageCircle
+		MessageCircle,
+		Reply
 	} from 'lucide-svelte';
 
 	export interface Communication {
@@ -38,6 +39,7 @@
 		onActionClick?: (action: string, comm: Communication) => void;
 		onAssignClick?: (comm: Communication) => void;
 		onPipelineClick?: (comm: Communication) => void;
+		onReplyClick?: (comm: Communication) => void;
 		showFilters?: boolean;
 		showSearch?: boolean;
 		showAssignButton?: boolean;
@@ -62,6 +64,7 @@
 		onActionClick,
 		onAssignClick,
 		onPipelineClick,
+		onReplyClick,
 		showFilters = true,
 		showSearch = true,
 		showAssignButton = false
@@ -325,13 +328,24 @@
 								{comm.commId ? comm.commId.slice(0, 8) + '…' : '—'}
 							</td>
 							<td class="whitespace-nowrap px-3 py-2.5">
-								<button
-									type="button"
-									class="inline-flex items-center gap-1 rounded bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors"
-									onclick={() => onPipelineClick?.(comm)}
-								>
-									⚡ Pipeline
-								</button>
+								<div class="flex items-center gap-1.5">
+									<button
+										type="button"
+										class="inline-flex items-center gap-1 rounded bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors"
+										onclick={() => onPipelineClick?.(comm)}
+									>
+										⚡ Pipeline
+									</button>
+									{#if onReplyClick}
+										<button
+											type="button"
+											class="inline-flex items-center gap-1 rounded bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-700 hover:bg-sky-100 transition-colors"
+											onclick={() => onReplyClick(comm)}
+										>
+											<Reply class="h-3 w-3" /> Reply
+										</button>
+									{/if}
+								</div>
 							</td>
 							<td class="px-3 py-2.5 text-right align-top">
 								<div class="relative inline-block">
