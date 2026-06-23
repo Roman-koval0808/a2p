@@ -121,7 +121,17 @@ export const POST: RequestHandler = async ({ request }) => {
 			return json({ success: false, error: 'Missing phone number' }, { status: 400 });
 		}
 
-		const companyId = toNumber ? await getCompanyIdByPhoneNumber(prisma, toNumber) : null;
+		let companyId = toNumber ? await getCompanyIdByPhoneNumber(prisma, toNumber) : null;
+		if (!companyId && normalizedPhoneNumber) {
+			const existingMessage = await prisma.message.findFirst({
+				where: {
+					OR: [{ threadId: normalizedPhoneNumber }, { customerPhone: normalizedPhoneNumber }]
+				}
+			});
+			if (existingMessage) {
+				companyId = existingMessage.companyId;
+			}
+		}
 
 		// --- BACKGROUND PROCESSING ---
 		// We execute the heavy AI pipeline and DB logging in the background so we can respond
@@ -271,14 +281,14 @@ export const POST: RequestHandler = async ({ request }) => {
 					// SMS Notification for event alerts
 					try {
 						if (companyId) {
-							const action = pipelineResult.decision?.action_queue?.find(
+							const action = pipelineResult?.decision?.action_queue?.find(
 								(act: any) =>
 									act.action_id === 'ACT-A2P-002' ||
 									act.title?.toLowerCase().includes('owner notification')
 							);
-							if (action) {
+							if (hasEmergency || action) {
 								console.log(
-									`[SMS Webhook Pipeline] Owner notification triggered for SMS from ${smsSender}`
+									`[SMS Webhook Pipeline] Owner notification triggered for SMS from ${smsSender} (hasEmergency=${hasEmergency})`
 								);
 								const alertMsg = `[Alert] Urgent SMS from ${pipelineAuthorName}: "${smsText.substring(0, 100)}${smsText.length > 100 ? '...' : ''}"`;
 								const { sendOwnerSmsAlert } = await import('$lib/server/sms-alert');
