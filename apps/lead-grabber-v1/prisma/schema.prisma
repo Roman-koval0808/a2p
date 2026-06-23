@@ -387,6 +387,7 @@ model Invite {
   user       User?        @relation("InvitedUser", fields: [userId], references: [id])
   role       InviteRole?
   status     InviteStatus
+  metadata   Json?
   expiresAt  DateTime?
   acceptedAt DateTime?
   declinedAt DateTime?
