@@ -11,6 +11,7 @@ export class PipelineSimulator {
     comment: string;
     mode: 'review' | 'call' | 'sms' | 'email' | 'faq';
     sessionId: string;
+    companyId?: string;
   }) {
     const externalId = payload.sessionId || `evt_${Math.random().toString(36).substring(2, 9)}`;
 
@@ -249,6 +250,7 @@ export class PipelineSimulator {
         provider,
         eventType,
         externalId,
+        companyId: payload.companyId,
         customerPhone: payload.customer_phone,
         customerEmail: payload.customer_email,
         customerName: payload.author_name,

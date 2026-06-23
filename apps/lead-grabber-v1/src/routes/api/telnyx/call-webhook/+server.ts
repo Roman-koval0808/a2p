@@ -1411,7 +1411,8 @@ export const POST: RequestHandler = async ({ request }) => {
 											rating: 0,
 											comment: transcript,
 											mode: 'call',
-											sessionId: callControlId
+											sessionId: callControlId,
+											companyId: numberInfo?.companyId || undefined
 										}).then(async (pipelineResult) => {
 											if (!pipelineResult.success) {
 												console.error('❌ Voice Pipeline run failed:', pipelineResult.error);
