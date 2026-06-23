@@ -470,13 +470,6 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	const perPage = parseInt(url.searchParams.get('perPage') || '20');
 	const threadId = url.searchParams.get('threadId');
 
-	// Only sync if querying list, and do it in the background (non-blocking)
-	if (!threadId) {
-		syncEmergencyMessages(locals.user.company.id).catch((err) => {
-			console.warn('[syncEmergencyMessages] background sync failed:', err);
-		});
-	}
-
 	try {
 		if (threadId) {
 			// Get specific thread
@@ -498,9 +491,10 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 			const messages = await prisma.message.findMany({
 				where: {
 					companyId: locals.user.company.id,
-					intent: {
-						in: ['emergency', 'active', 'comparison', 'research']
-					}
+					OR: [
+						{ threadId: { startsWith: 'leadbox-' } },
+						{ threadId: { startsWith: 'leadform-' } }
+					]
 				},
 				skip,
 				take: perPage,
@@ -512,9 +506,10 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 			const total = await prisma.message.count({
 				where: {
 					companyId: locals.user.company.id,
-					intent: {
-						in: ['emergency', 'active', 'comparison', 'research']
-					}
+					OR: [
+						{ threadId: { startsWith: 'leadbox-' } },
+						{ threadId: { startsWith: 'leadform-' } }
+					]
 				}
 			});
 
