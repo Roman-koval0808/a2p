@@ -220,7 +220,7 @@
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
-					tenantSlug: 'clearsky-demo',
+					tenantSlug: data.userCompanyId || 'clearsky-demo',
 					eventType: 'call_initiated',
 					phone: clearPhone,
 					provider: 'telnyx_voice',
@@ -254,7 +254,7 @@
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
-					tenantSlug: 'clearsky-demo',
+					tenantSlug: data.userCompanyId || 'clearsky-demo',
 					eventType: 'job_completed',
 					phone: clearPhone,
 					provider: 'telnyx_voice',

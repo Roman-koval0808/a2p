@@ -387,7 +387,7 @@ export class UnifiedPipeline {
 							'Authorization': 'Bearer clearsky_pixel_api_key'
 						},
 						body: JSON.stringify({
-							tenantSlug: 'clearsky-demo',
+							tenantSlug: company?.id || payload.companyId || 'clearsky-demo',
 							fingerprintId,
 							eventType: payload.eventType,
 							pageUrl: null,

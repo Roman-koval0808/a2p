@@ -138,7 +138,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 						'Authorization': 'Bearer clearsky_pixel_api_key'
 					},
 					body: JSON.stringify({
-						tenantSlug: 'clearsky-demo',
+						tenantSlug: companyId || 'clearsky-demo',
 						eventType: 'sms_sent',
 						phone: formattedPhoneNumber,
 						payload: {

@@ -6,9 +6,10 @@
 	interface Props {
 		open: boolean;
 		event: any;
+		companyId?: string;
 	}
 
-	let { open = $bindable(false), event }: Props = $props();
+	let { open = $bindable(false), event, companyId = 'clearsky-demo' }: Props = $props();
 
 	let activeTab = $state('all');
 	let copied = $state(false);
@@ -33,7 +34,7 @@
 				`🔵 [${formatLogTime(2950)}] [Step 1] Raw data received: Provider hands us a review/telemetry from "${phone}"`,
 				`🔵 [${formatLogTime(2900)}] [Step 2/3] Official naming: Mapping "call" intake to internal event "${event?.eventType || 'inbound_message'}"`,
 				`🔵 [${formatLogTime(2850)}] [Step 4/5] Tidying up: Normalized rating to N/A stars`,
-				`🔵 [${formatLogTime(2800)}] [Step 6] Finding business: Mapped to "ClearSky Plumbers" (clearsky-demo)`,
+				`🔵 [${formatLogTime(2800)}] [Step 6] Finding business: Mapped to "Tenant" (${companyId})`,
 				`🔵 [${formatLogTime(2750)}] [Step 6b] Identity Resolution: Resolving profile for "${phone}"...`,
 				`🔵 [${formatLogTime(2700)}] [Step 6b] Q2 Attribution: Resolved tier = "Tier 3"`,
 				`🔵 [${formatLogTime(2650)}] [Step 6b] Identity Resolution Complete: CP Profile CP_${Math.random().toString(36).substr(2, 7).toUpperCase()}`,
@@ -56,7 +57,7 @@
 				`🔵 [${formatLogTime(800)}] [Step 12] Final Count: Created 1 Signal candidates.`,
 				`🔵 [${formatLogTime(750)}] [Step 13] Orchestrator Decision: Selecting the best actions for this event...`,
 				`🔵 [${formatLogTime(700)}] Section 3 - ORCHESTRATOR_STARTED : 1 Signal candidate(s) received`,
-				`🔵 [${formatLogTime(650)}] Section 3 - EVENT_LOADED : business_id=clearsky-demo`,
+				`🔵 [${formatLogTime(650)}] Section 3 - EVENT_LOADED : business_id=${companyId}`,
 				`🔵 [${formatLogTime(600)}] Section 3 - CLIENT_PROFILE_LOADED : automation_level=standard`,
 				`🔵 [${formatLogTime(550)}] Section 3 - DOMINANT_SIGNAL_IDENTIFIED : Dominant Signal matched.`,
 				`🔵 [${formatLogTime(500)}] Section 3 - ACTION_SELECTED : ACT-A2P-005 (Draft Callback Script) -> mode=approval_required`,
