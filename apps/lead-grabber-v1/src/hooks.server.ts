@@ -33,9 +33,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 		return event.url.pathname.startsWith(route);
 	});
 
-	// Get user from session cookie
-	const cookieHeader = event.request.headers.get('cookie');
-	const token = parseSessionCookie(cookieHeader);
+	// Get user from session cookie using SvelteKit's native cookies
+	const token = event.cookies.get('app_session');
 	let user = null;
 
 	if (token) {
@@ -69,24 +68,15 @@ export const handle: Handle = async ({ event, resolve }) => {
 		}
 	}
 
+	// Clear invalid session proactively before resolving
+	if (!user && token) {
+		console.log(`[Auth] Clearing session for ${event.url.pathname} - user is null but token exists`);
+		event.cookies.delete('app_session', { path: '/' });
+	}
+
 	event.locals.user = user;
 	event.locals.prisma = prisma;
 
 	const response = await resolve(event);
-
-	// Update session cookie if user is authenticated
-	if (user && token) {
-		response.headers.set('set-cookie', createSessionCookie(token));
-	} else if (!user && token) {
-		// Clear invalid session
-		console.log(
-			`[Auth] Clearing session for ${event.url.pathname} - user is null but token exists`
-		);
-		response.headers.set(
-			'set-cookie',
-			'app_session=; Path=/; HttpOnly=false; SameSite=Lax; Max-Age=0'
-		);
-	}
-
 	return response;
 };
