@@ -77,25 +77,31 @@
 			const threadId = data.notification?.threadId;
 			const targetUrl = '/communication-log';
 			
-			// Show toast and desktop notification
-			toast.info(data.notification.messagePreview || 'New notification received', {
-				description: data.notification.sourceName,
-				action: {
-					label: 'View',
-					onClick: () => goto(targetUrl)
-				}
-			});
-			
-			activeBanner = {
-				title: data.notification.sourceName || 'New Notification',
-				message: data.notification.messagePreview || 'You have a new message.',
-				url: targetUrl,
-				id: threadId || Date.now().toString()
-			};
+			const notifSettings = currentUser?.company?.settings;
+			const parsedSettings = typeof notifSettings === 'string' ? JSON.parse(notifSettings) : notifSettings;
+			const isWebNotifEnabled = parsedSettings?.notifications?.web !== false;
 
-			showDesktopNotification(data.notification.sourceName || 'New Notification', {
-				body: data.notification.messagePreview
-			});
+			if (isWebNotifEnabled) {
+				// Show toast and desktop notification
+				toast.info(data.notification.messagePreview || 'New notification received', {
+					description: data.notification.sourceName,
+					action: {
+						label: 'View',
+						onClick: () => goto(targetUrl)
+					}
+				});
+				
+				activeBanner = {
+					title: data.notification.sourceName || 'New Notification',
+					message: data.notification.messagePreview || 'You have a new message.',
+					url: targetUrl,
+					id: threadId || Date.now().toString()
+				};
+
+				showDesktopNotification(data.notification.sourceName || 'New Notification', {
+					body: data.notification.messagePreview
+				});
+			}
 
 			if (typeof window !== 'undefined') {
 				window.dispatchEvent(new CustomEvent('sse-new-notification', { detail: data }));
@@ -107,20 +113,30 @@
 			const threadId = data.notification?.threadId;
 			const targetUrl = '/communication-log';
 			
-			toast.success(`New SMS from ${data.notification.sourceName}`, {
-				description: data.notification.messagePreview,
-				action: {
-					label: 'Reply',
-					onClick: () => goto(targetUrl)
-				}
-			});
-			
-			activeBanner = {
-				title: `New SMS from ${data.notification.sourceName}`,
-				message: data.notification.messagePreview,
-				url: targetUrl,
-				id: threadId || Date.now().toString()
-			};
+			const notifSettings = currentUser?.company?.settings;
+			const parsedSettings = typeof notifSettings === 'string' ? JSON.parse(notifSettings) : notifSettings;
+			const isWebNotifEnabled = parsedSettings?.notifications?.web !== false;
+
+			if (isWebNotifEnabled) {
+				toast.success(`New SMS from ${data.notification.sourceName}`, {
+					description: data.notification.messagePreview,
+					action: {
+						label: 'Reply',
+						onClick: () => goto(targetUrl)
+					}
+				});
+				
+				activeBanner = {
+					title: `New SMS from ${data.notification.sourceName}`,
+					message: data.notification.messagePreview,
+					url: targetUrl,
+					id: threadId || Date.now().toString()
+				};
+
+				showDesktopNotification(`New SMS from ${data.notification.sourceName}`, {
+					body: data.notification.messagePreview
+				});
+			}
 
 			if (typeof window !== 'undefined') {
 				window.dispatchEvent(new CustomEvent('sse-new-sms', { detail: data }));
@@ -136,9 +152,15 @@
 			};
 			incomingCallOpen = true;
 
-			showDesktopNotification(`Incoming Call: ${currentCaller.name}`, {
-				body: `Calling ${currentCaller.phone}`
-			});
+			const notifSettings = currentUser?.company?.settings;
+			const parsedSettings = typeof notifSettings === 'string' ? JSON.parse(notifSettings) : notifSettings;
+			const isWebNotifEnabled = parsedSettings?.notifications?.web !== false;
+
+			if (isWebNotifEnabled) {
+				showDesktopNotification(`Incoming Call: ${currentCaller.name}`, {
+					body: `Calling ${currentCaller.phone}`
+				});
+			}
 		});
 
 		eventSource.addEventListener('heartbeat', () => {
