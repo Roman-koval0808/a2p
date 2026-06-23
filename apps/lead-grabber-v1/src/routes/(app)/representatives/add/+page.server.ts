@@ -64,26 +64,29 @@ export const actions: Actions = {
 			}
 
 			// Create invite record with metadata
-			const invite = await prisma.invite.create({
-				data: {
-					email,
-					companyId: locals.user.company.id,
-					role: 'member',
-					status: 'pending',
-					invitedById: locals.user.id,
-					userId: existingUser?.id || null,
-					expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-					metadata: {
-						firstName,
-						lastName,
-						profileData: {
-							phone: phoneNumber,
-							location,
-							schedule
-						}
+			const inviteData: any = {
+				email,
+				role: 'member',
+				status: 'pending',
+				expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+				metadata: {
+					firstName,
+					lastName,
+					profileData: {
+						phone: phoneNumber,
+						location,
+						schedule
 					}
-				}
-			});
+				},
+				company: { connect: { id: locals.user.company.id } },
+				invitedBy: { connect: { id: locals.user.id } }
+			};
+
+			if (existingUser?.id) {
+				inviteData.user = { connect: { id: existingUser.id } };
+			}
+
+			const invite = await prisma.invite.create({ data: inviteData });
 
 			// Dispatch the email invite
 			const { PUBLIC_BASE_URL, PUBLIC_ENV } = await import('$env/static/public');
