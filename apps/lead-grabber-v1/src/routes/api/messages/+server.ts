@@ -67,15 +67,15 @@ export const POST: RequestHandler = async ({ request }) => {
 		// AI first so we can store OpenAI summary + purpose in CommunicationLog
 		const analysis = await analyzeIncomingMessage(messageContent, threadMessages as any);
 
-		const aiData = analysis
-			? {
-					urgency: analysis.urgency,
-					urgencyScore: analysis.urgencyScore,
-					sentiment: analysis.sentiment,
-					intent: analysis.intent,
-					aiSummary: analysis.aiSummary
-				}
-			: {};
+		const aiData = {
+			...(analysis && {
+				urgency: analysis.urgency,
+				urgencyScore: analysis.urgencyScore,
+				sentiment: analysis.sentiment,
+				aiSummary: analysis.aiSummary
+			}),
+			intent: source === 'leadform' ? 'leadform' : 'leadbox'
+		};
 
 		let message;
 		if (existing && existing.companyId === companyId) {
@@ -491,10 +491,9 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 			const messages = await prisma.message.findMany({
 				where: {
 					companyId: locals.user.company.id,
-					OR: [
-						{ threadId: { startsWith: 'leadbox-' } },
-						{ threadId: { startsWith: 'leadform-' } }
-					]
+					intent: {
+						in: ['leadform', 'leadbox']
+					}
 				},
 				skip,
 				take: perPage,
@@ -506,10 +505,9 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 			const total = await prisma.message.count({
 				where: {
 					companyId: locals.user.company.id,
-					OR: [
-						{ threadId: { startsWith: 'leadbox-' } },
-						{ threadId: { startsWith: 'leadform-' } }
-					]
+					intent: {
+						in: ['leadform', 'leadbox']
+					}
 				}
 			});
 
