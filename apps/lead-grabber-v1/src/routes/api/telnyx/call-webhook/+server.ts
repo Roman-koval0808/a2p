@@ -1436,16 +1436,17 @@ export const POST: RequestHandler = async ({ request }) => {
 											}
 
 											// Persist the full pipeline package into ProfileDB
-											const profiledbUrl = process.env.PROFILEDB_URL || 'http://localhost:6277';
-											const res = await fetch(`${profiledbUrl}/api/v1/telemetry/events`, {
-												method: 'POST',
-												headers: {
-													'Content-Type': 'application/json',
-													'Authorization': 'Bearer clearsky_pixel_api_key'
-												},
-												body: JSON.stringify({
-													tenantSlug: 'clearsky-demo',
-													fingerprintId: callControlId,
+											if (numberInfo?.companyId) {
+												const profiledbUrl = process.env.PROFILEDB_URL || 'http://localhost:6277';
+												const res = await fetch(`${profiledbUrl}/api/v1/telemetry/events`, {
+													method: 'POST',
+													headers: {
+														'Content-Type': 'application/json',
+														'Authorization': 'Bearer clearsky_pixel_api_key'
+													},
+													body: JSON.stringify({
+														tenantSlug: numberInfo.companyId,
+														fingerprintId: callControlId,
 													eventType: 'telnyx.voice.voicemail',
 													phone: contactNumber || null,
 													name: contact?.name || callerName || null,
@@ -1466,16 +1467,19 @@ export const POST: RequestHandler = async ({ request }) => {
 														outcome: pipelineResult.outcome,
 														feedback: pipelineResult.feedback,
 														ai_protocol: pipelineResult.ai_protocol,
-														estimatedPrice: estimatedPrice
-													}
-												})
-											});
+													estimatedPrice: estimatedPrice
+												}
+											})
+										});
 
-											if (res.ok) {
-												console.log('📡 Pipeline executed and Voice event logged to ProfileDB successfully');
-											} else {
-												console.error('❌ Failed to log Voice event to ProfileDB:', res.statusText);
-											}
+										if (res.ok) {
+											console.log('📡 Pipeline executed and Voice event logged to ProfileDB successfully');
+										} else {
+											console.error('❌ Failed to log Voice event to ProfileDB:', res.statusText);
+										}
+									} else {
+										console.log('📡 Skipping ProfileDB logging for unassigned number');
+									}
 
 											// Check if the pipeline decided to dispatch a safety SMS (emergency route)
 											const action = pipelineResult.decision?.action_queue?.[0];

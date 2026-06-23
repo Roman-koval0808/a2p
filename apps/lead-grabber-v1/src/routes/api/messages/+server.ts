@@ -165,7 +165,7 @@ async function syncEmergencyMessages(companyId: string) {
 
 	const PROFILEDB_URL = process.env.PROFILEDB_URL || 'http://localhost:6277';
 	try {
-		const resEvents = await fetch(`${PROFILEDB_URL}/api/v1/tenants/clearsky-demo/events?limit=30`);
+		const resEvents = await fetch(`${PROFILEDB_URL}/api/v1/tenants/${companyId}/events?limit=30`);
 		if (!resEvents.ok) return;
 		const jsonEvents = await resEvents.json();
 		const events = (jsonEvents && Array.isArray(jsonEvents.data)) ? jsonEvents.data : [];
@@ -212,12 +212,12 @@ async function syncEmergencyMessages(companyId: string) {
 		const profileIds = [...activeProfileIds];
 
 		for (const profileId of profileIds) {
-			const resHistory = await fetch(`${PROFILEDB_URL}/api/v1/tenants/clearsky-demo/profiles/${profileId}/history`);
+			const resHistory = await fetch(`${PROFILEDB_URL}/api/v1/tenants/${companyId}/profiles/${profileId}/history`);
 			if (!resHistory.ok) continue;
 			const history = await resHistory.json();
 			if (!Array.isArray(history) || history.length === 0) continue;
 
-			const resProfile = await fetch(`${PROFILEDB_URL}/api/v1/tenants/clearsky-demo/profiles/${profileId}`);
+			const resProfile = await fetch(`${PROFILEDB_URL}/api/v1/tenants/${companyId}/profiles/${profileId}`);
 			if (!resProfile.ok) continue;
 			const profile = await resProfile.json();
 

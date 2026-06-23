@@ -71,6 +71,15 @@ export const POST: RequestHandler = async ({ request }) => {
 			return json({ success: true, message: 'Ignored outbound event' });
 		}
 
+		// Resolve company early for tenant isolation
+		const parsedForTo = JSON.parse(rawBody);
+		const payloadForTo = parsedForTo.data?.payload || parsedForTo;
+		const toNumberRaw = payloadForTo.to;
+		const toNumber = Array.isArray(toNumberRaw)
+			? (toNumberRaw[0]?.phone_number || toNumberRaw[0])
+			: (toNumberRaw?.phone_number || toNumberRaw);
+		const companyId = toNumber ? await getCompanyIdByPhoneNumber(prisma, toNumber) : null;
+
 		// RUN SVELTEKIT INTERNAL AI SIGNALS PIPELINE synchronously:
 		let pipelineResult = null;
 		try {
@@ -97,16 +106,17 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		if (pipelineResult && pipelineResult.success) {
 			// Persist the full pipeline package into ProfileDB
-			try {
-				const profiledbUrl = process.env.PROFILEDB_URL || 'http://localhost:6277';
-				const res = await fetch(`${profiledbUrl}/api/v1/telemetry/events`, {
-					method: 'POST',
-					headers: {
-						'Content-Type': 'application/json',
-						'Authorization': 'Bearer clearsky_pixel_api_key'
-					},
-					body: JSON.stringify({
-						tenantSlug: 'clearsky-demo',
+			if (companyId) {
+				try {
+					const profiledbUrl = process.env.PROFILEDB_URL || 'http://localhost:6277';
+					const res = await fetch(`${profiledbUrl}/api/v1/telemetry/events`, {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+							'Authorization': 'Bearer clearsky_pixel_api_key'
+						},
+						body: JSON.stringify({
+							tenantSlug: companyId,
 						fingerprintId: smsId,
 						eventType: 'sms_received',
 						pageUrl: null,
@@ -142,17 +152,12 @@ export const POST: RequestHandler = async ({ request }) => {
 			} catch (dbErr) {
 				console.error('❌ ProfileDB logging error:', dbErr);
 			}
+			} else {
+				console.log('📡 Skipping ProfileDB logging for unassigned number');
+			}
 
 			// SMS Notification for event alerts
 			try {
-				const parsed = JSON.parse(rawBody);
-				const msgPayload = parsed.data?.payload || parsed;
-				const toNumberRaw = msgPayload.to;
-				const toNumber = Array.isArray(toNumberRaw)
-					? (toNumberRaw[0]?.phone_number || toNumberRaw[0])
-					: (toNumberRaw?.phone_number || toNumberRaw);
-				const companyId = toNumber ? await getCompanyIdByPhoneNumber(prisma, toNumber) : null;
-
 				if (companyId) {
 					const action = pipelineResult.decision?.action_queue?.find(
 						(act: any) => act.action_id === 'ACT-A2P-002' || act.title?.toLowerCase().includes('owner notification')
@@ -204,11 +209,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		}
 
 		const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
-		const toNumberRaw = messageData.to;
-		const toNumber = Array.isArray(toNumberRaw)
-			? (toNumberRaw[0]?.phone_number || toNumberRaw[0])
-			: (toNumberRaw?.phone_number || toNumberRaw);
-		const companyId = toNumber ? await getCompanyIdByPhoneNumber(prisma, toNumber) : null;
+		// companyId and toNumber already resolved above
 		console.log(
 			'Normalized phone:',
 			normalizedPhoneNumber,

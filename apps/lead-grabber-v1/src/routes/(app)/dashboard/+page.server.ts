@@ -19,7 +19,7 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 	const PROFILEDB_URL = process.env.PROFILEDB_URL || 'http://localhost:6277';
 	let latestCommunications: any[] = [];
 	try {
-		const profileDbRes = await fetch(`${PROFILEDB_URL}/api/v1/tenants/clearsky-demo/events?limit=20`);
+		const profileDbRes = await fetch(`${PROFILEDB_URL}/api/v1/tenants/${locals.user.company.id}/events?limit=20`);
 		if (profileDbRes.ok) {
 			const data = await profileDbRes.json();
 			const events = Array.isArray(data.data) ? data.data : [];
@@ -59,7 +59,7 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 					direction,
 					status: ev.intentBucket === 'emergency' ? 'red' : (ev.intentBucket === 'active' ? 'blue' : 'green'),
 					source,
-					destination: payload.to || payload.from || 'clearsky-demo',
+					destination: payload.to || payload.from || locals.user.company.id,
 					summary: summary,
 					created: ev.occurredAt,
 					metadata: {
@@ -75,7 +75,7 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 	// 2. Site Visitors (CDP Profiles)
 	let siteVisitors: any[] = [];
 	try {
-		const res = await fetch(`${PROFILEDB_URL}/api/v1/tenants/clearsky-demo/profiles?limit=10`);
+		const res = await fetch(`${PROFILEDB_URL}/api/v1/tenants/${locals.user.company.id}/profiles?limit=10`);
 		if (res.ok) {
 			const json = await res.json();
 			if (json && Array.isArray(json.data)) {

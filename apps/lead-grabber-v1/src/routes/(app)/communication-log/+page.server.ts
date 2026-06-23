@@ -48,7 +48,7 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 
 		// Fetch raw telemetry events from ProfileDB
 		const profileDbUrl = process.env.PROFILEDB_URL || 'http://localhost:6277';
-		const profileDbRes = await fetch(`${profileDbUrl}/api/v1/tenants/clearsky-demo/events?limit=${limit}&page=${page}`);
+		const profileDbRes = await fetch(`${profileDbUrl}/api/v1/tenants/${locals.user.company.id}/events?limit=${limit}&page=${page}`);
 		if (!profileDbRes.ok) {
 			console.error('ProfileDB events fetch failed:', profileDbRes.status);
 			return {
@@ -99,7 +99,7 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 				direction,
 				status: ev.intentBucket === 'emergency' ? 'red' : (ev.intentBucket === 'active' ? 'blue' : 'green'),
 				source,
-				destination: payload.to || payload.from || 'clearsky-demo',
+				destination: payload.to || payload.from || locals.user.company.id,
 				summary: summary,
 				content: payload.textContent || payload.voicemail_text || payload.body || payload.text || '',
 				metadata: {

@@ -13,7 +13,7 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 	const PROFILEDB_URL = process.env.PROFILEDB_URL || 'http://localhost:6277';
 	let contacts: any[] = [];
 	try {
-		const res = await fetch(`${PROFILEDB_URL}/api/v1/tenants/clearsky-demo/profiles?limit=100`);
+		const res = await fetch(`${PROFILEDB_URL}/api/v1/tenants/${locals.user.company.id}/profiles?limit=100`);
 		if (res.ok) {
 			const json = await res.json();
 			if (json && Array.isArray(json.data)) {

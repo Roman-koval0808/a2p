@@ -24,7 +24,7 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 			}
 		});
 
-		let fetchUrl = `${PROFILEDB_URL}/api/v1/tenants/clearsky-demo/profiles?limit=100`;
+		let fetchUrl = `${PROFILEDB_URL}/api/v1/tenants/${locals.user.company.id}/profiles?limit=100`;
 		
 		// If user is a Representative (member), only show their assigned customers
 		if (companyMember && companyMember.role === 'member') {

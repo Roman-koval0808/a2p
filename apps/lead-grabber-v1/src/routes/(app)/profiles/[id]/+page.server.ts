@@ -37,14 +37,14 @@ export const load: PageServerLoad = async ({ params, locals, fetch }) => {
 
 	try {
 		// 1. Fetch profile from ProfileDB
-		let profileRes = await fetch(`${PROFILEDB_URL}/api/v1/tenants/clearsky-demo/profiles/${params.id}`);
+		let profileRes = await fetch(`${PROFILEDB_URL}/api/v1/tenants/${locals.user.company.id}/profiles/${params.id}`);
 		let cdpProfile: any = null;
 		if (profileRes.ok) {
 			cdpProfile = await profileRes.json();
 		}
 
 		// 2. Fetch history from ProfileDB
-		let historyRes = await fetch(`${PROFILEDB_URL}/api/v1/tenants/clearsky-demo/profiles/${params.id}/history`);
+		let historyRes = await fetch(`${PROFILEDB_URL}/api/v1/tenants/${locals.user.company.id}/profiles/${params.id}/history`);
 		let historyEvents: any[] = [];
 		if (historyRes.ok) {
 			historyEvents = await historyRes.json();
@@ -238,7 +238,7 @@ export const load: PageServerLoad = async ({ params, locals, fetch }) => {
 				type,
 				direction,
 				source: clearPhone !== '—' ? clearPhone : (clearEmail !== '—' ? clearEmail : 'Anonymous'),
-				endpoint: payload.to || payload.from || 'clearsky-demo',
+				endpoint: payload.to || payload.from || locals.user.company.id,
 				purpose: ev.intentBucket || 'unclassified',
 				summary: summary,
 				commId: ev.id,
@@ -268,7 +268,8 @@ export const load: PageServerLoad = async ({ params, locals, fetch }) => {
 				recAction
 			},
 			userRole,
-			representatives
+			representatives,
+			userCompanyId: locals.user.company.id
 		};
 	} catch (e) {
 		if (e && typeof e === 'object' && 'status' in e && (e as { status: number }).status === 404) {
@@ -328,7 +329,7 @@ export const actions: Actions = {
 
 		const PROFILEDB_URL = process.env.PROFILEDB_URL || 'http://localhost:6277';
 		try {
-			const res = await fetch(`${PROFILEDB_URL}/api/v1/tenants/clearsky-demo/profiles/${id}/representative`, {
+			const res = await fetch(`${PROFILEDB_URL}/api/v1/tenants/${locals.user.company.id}/profiles/${id}/representative`, {
 				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ representativeId })

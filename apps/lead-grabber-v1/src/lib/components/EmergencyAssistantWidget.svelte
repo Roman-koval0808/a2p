@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { toast } from 'svelte-sonner';
+	let { companyId } = $props<{ companyId: string }>();
 
 	let activeEmergencyProfile: { id: string; closed: boolean } | null = null;
 	let lastKnownEventId: string | null = null;
@@ -39,7 +40,7 @@
 
 	async function pollEmergencyEvents() {
 		try {
-			const res = await fetch('/api/emergency/tenants/clearsky-demo/events?limit=15');
+			const res = await fetch(`/api/emergency/tenants/${companyId}/events?limit=15`);
 			if (!res.ok) return;
 			const json = await res.json();
 			if (json && Array.isArray(json.data) && json.data.length > 0) {
@@ -70,14 +71,14 @@
 
 	async function loadEmergencyWidgetData(profileId: string) {
 		try {
-			const res = await fetch(`/api/emergency/tenants/clearsky-demo/profiles/${profileId}`);
+			const res = await fetch(`/api/emergency/tenants/${companyId}/profiles/${profileId}`);
 			if (!res.ok) return;
 			const p = await res.json();
 			
 			currentWidgetProfileId = profileId;
 			currentWidgetPhone = (p.clearPhone && p.clearPhone !== '—') ? p.clearPhone : (p.phone && p.phone.length < 20 ? p.phone : '');
 			
-			const historyRes = await fetch(`/api/emergency/tenants/clearsky-demo/profiles/${profileId}/history`);
+			const historyRes = await fetch(`/api/emergency/tenants/${companyId}/profiles/${profileId}/history`);
 			if (!historyRes.ok) return;
 			const events = await historyRes.json();
 			
@@ -205,7 +206,7 @@
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({
-						tenantSlug: 'clearsky-demo',
+						tenantSlug: companyId,
 						eventType: 'sms_sent',
 						phone: currentWidgetPhone,
 						provider: 'telnyx_voice',
@@ -239,7 +240,7 @@
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
-					tenantSlug: 'clearsky-demo',
+					tenantSlug: companyId,
 					eventType: 'call_initiated',
 					phone: currentWidgetPhone,
 					provider: 'telnyx_voice',
@@ -274,7 +275,7 @@
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
-					tenantSlug: 'clearsky-demo',
+					tenantSlug: companyId,
 					eventType: 'job_completed',
 					phone: currentWidgetPhone,
 					provider: 'telnyx_voice',
