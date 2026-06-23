@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { enhance } from '$app/forms';
 
 	const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -25,11 +26,6 @@
 		goto('/representatives');
 	}
 
-	function handleAdd() {
-		// TODO: Add representative
-		console.log('Add representative');
-	}
-
 	function handleFileUpload(event: Event) {
 		const target = event.target as HTMLInputElement;
 		const file = target.files?.[0];
@@ -39,19 +35,23 @@
 	}
 </script>
 
-<div class="min-h-screen bg-[#ECEEF3] p-6">
+<form method="POST" action="?/addRepresentative" use:enhance class="min-h-screen bg-[#ECEEF3] p-6">
+	<!-- Hidden input to send JSON schedule string -->
+	<input type="hidden" name="schedule" value={JSON.stringify(schedule)} />
+
 	<!-- Header -->
 	<div class="mb-6 flex items-center justify-between bg-white px-11 py-7">
 		<h1 class="font-['Poppins'] text-2xl font-medium text-[#737373]">Add Representatives</h1>
 		<div class="flex gap-2">
 			<button
+				type="button"
 				onclick={handleCancel}
 				class="h-[41px] rounded-[5px] bg-[#E0E0E0] px-4 font-['Poppins'] text-base font-normal leading-[21px] text-[#737373] transition-colors hover:bg-[#D0D0D0]"
 			>
 				Cancel
 			</button>
 			<button
-				onclick={handleAdd}
+				type="submit"
 				class="h-[41px] rounded-[5px] bg-[#4B77BE] px-4 font-['Poppins'] text-base font-normal leading-[21px] text-white transition-colors hover:bg-[#4B77BE]/90"
 			>
 				Save and Add
@@ -72,6 +72,7 @@
 						<input
 							type="text"
 							id="first_name"
+							name="firstName"
 							bind:value={firstName}
 							placeholder="Enter first name"
 							class="h-[38px] w-full rounded-[5px] border border-[#9E9E9E] bg-white px-3 font-['Poppins'] text-sm outline-none focus-visible:ring-2 focus-visible:ring-[#4B77BE] focus-visible:ring-offset-2"
@@ -84,6 +85,7 @@
 						<input
 							type="text"
 							id="last_name"
+							name="lastName"
 							bind:value={lastName}
 							placeholder="Enter last name"
 							class="h-[38px] w-full rounded-[5px] border border-[#9E9E9E] bg-white px-3 font-['Poppins'] text-sm outline-none focus-visible:ring-2 focus-visible:ring-[#4B77BE] focus-visible:ring-offset-2"
@@ -96,6 +98,7 @@
 						<input
 							type="email"
 							id="email"
+							name="email"
 							bind:value={email}
 							placeholder="Enter email"
 							class="h-[38px] w-full rounded-[5px] border border-[#9E9E9E] bg-white px-3 font-['Poppins'] text-sm outline-none focus-visible:ring-2 focus-visible:ring-[#4B77BE] focus-visible:ring-offset-2"
@@ -110,6 +113,7 @@
 						<input
 							type="tel"
 							id="phone"
+							name="phoneNumber"
 							bind:value={phoneNumber}
 							placeholder="Enter phone number"
 							class="h-[38px] w-full rounded-[5px] border border-[#9E9E9E] bg-white px-3 font-['Poppins'] text-sm outline-none focus-visible:ring-2 focus-visible:ring-[#4B77BE] focus-visible:ring-offset-2"
@@ -121,6 +125,7 @@
 						</label>
 						<select
 							id="location"
+							name="location"
 							bind:value={location}
 							class="h-[38px] w-full appearance-none rounded-[5px] border border-[#9E9E9E] bg-white px-3 font-['Poppins'] text-sm outline-none focus-visible:ring-2 focus-visible:ring-[#4B77BE] focus-visible:ring-offset-2"
 						>
@@ -173,4 +178,4 @@
 			</div>
 		</div>
 	</div>
-</div>
+</form>
