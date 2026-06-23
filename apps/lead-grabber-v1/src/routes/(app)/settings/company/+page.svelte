@@ -263,6 +263,7 @@
 						<Tabs.List>
 							{#if data.isAdminOrOwner}
 								<Tabs.Trigger value="customization">Customization</Tabs.Trigger>
+								<Tabs.Trigger value="danger" class="text-red-500 data-[state=active]:text-red-600">Danger</Tabs.Trigger>
 							{/if}
 							<Tabs.Trigger value="members">Team Members</Tabs.Trigger>
 						</Tabs.List>
@@ -447,6 +448,48 @@
 						</form>
 					</Tabs.Content>
 				{/if}
+
+				<Tabs.Content value="danger">
+					<div class="rounded-lg border border-red-200 bg-white p-6 shadow-sm">
+						<div class="mb-4 space-y-1">
+							<h3 class="text-lg font-medium text-red-600">Danger Zone</h3>
+							<p class="text-sm text-gray-500">
+								Destructive actions for your company data.
+							</p>
+						</div>
+
+						<div class="flex items-center justify-between rounded-lg border border-red-100 p-4">
+							<div class="space-y-0.5">
+								<h4 class="font-medium text-gray-900">Wipe Test Data</h4>
+								<p class="text-sm text-gray-500">
+									Permanently delete all customer profiles and message threads across LeadGrabber and CDP.
+								</p>
+							</div>
+							<Button
+								variant="destructive"
+								onclick={async () => {
+									if (confirm('Are you absolutely sure you want to wipe all profiles and messages? This cannot be undone.')) {
+										try {
+											const res = await fetch('/api/company/wipe-data', { method: 'POST' });
+											if (res.ok) {
+												toast.success('All profiles and messages have been wiped successfully.');
+												window.location.reload();
+											} else {
+												const err = await res.json();
+												toast.error(err.error || 'Failed to wipe data');
+											}
+										} catch (e) {
+											console.error(e);
+											toast.error('Failed to wipe data');
+										}
+									}
+								}}
+							>
+								Wipe All Data
+							</Button>
+						</div>
+					</div>
+				</Tabs.Content>
 
 				<Tabs.Content value="members" class="flex-1 overflow-y-auto">
 					<div class="space-y-6">

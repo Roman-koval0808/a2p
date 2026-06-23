@@ -125,7 +125,9 @@
 						? msg.agent_name || 'Agent'
 						: thread.customerName || customerName,
 					message: msg.content,
-					time: new Date(msg.timestamp).toLocaleTimeString([], {
+					time: new Date(msg.timestamp).toLocaleString([], {
+						month: 'short',
+						day: 'numeric',
 						hour: '2-digit',
 						minute: '2-digit'
 					}),
@@ -221,7 +223,9 @@
 				{
 					sender: user?.name || 'You',
 					message,
-					time: new Date().toLocaleTimeString([], {
+					time: new Date().toLocaleString([], {
+						month: 'short',
+						day: 'numeric',
 						hour: '2-digit',
 						minute: '2-digit'
 					}),
@@ -303,7 +307,9 @@
 				{
 					sender: user?.name || 'You',
 					message: draftValue,
-					time: new Date().toLocaleTimeString([], {
+					time: new Date().toLocaleString([], {
+						month: 'short',
+						day: 'numeric',
 						hour: '2-digit',
 						minute: '2-digit'
 					}),
