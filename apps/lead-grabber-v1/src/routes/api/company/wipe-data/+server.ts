@@ -13,7 +13,8 @@ export const POST: RequestHandler = async ({ locals }) => {
 		// 1. Wipe local Prisma database
 		await prisma.$transaction([
 			prisma.message.deleteMany({ where: { companyId } }),
-			prisma.contact.deleteMany({ where: { companyId } })
+			prisma.contact.deleteMany({ where: { companyId } }),
+			prisma.notification.deleteMany({ where: { companyId } })
 		]);
 
 		// 2. Wipe ProfileDB (CDP) database

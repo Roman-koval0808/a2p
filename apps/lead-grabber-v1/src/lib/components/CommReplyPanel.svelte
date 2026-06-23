@@ -1,6 +1,18 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button/index';
-	import { Phone, X, MessageSquareText, Send } from 'lucide-svelte';
+	import {
+		Phone,
+		X,
+		MessageSquareText,
+		Send,
+		Paperclip,
+		Link,
+		ChevronDown,
+		Smile,
+		MoreVertical,
+		Reply,
+		Image as ImageIcon
+	} from 'lucide-svelte';
 	import { toast } from 'svelte-sonner';
 	import { goto } from '$app/navigation';
 
@@ -148,8 +160,8 @@
 			if (!draftInitialized) {
 				const hasAgentReply = messagesArray.some((msg: any) => msg.is_agent_reply);
 				const hasCallSummary = messagesArray.some((msg: any) => msg.type === 'call_summary');
-				if (!hasAgentReply && !hasCallSummary && thread.draftResponse) {
-					draftValue = thread.draftResponse;
+				if (thread.draftResponse || comm.raw?.draftResponse || comm.summary) {
+					draftValue = thread.draftResponse || comm.raw?.draftResponse || comm.summary;
 				} else {
 					draftValue = '';
 				}
@@ -167,6 +179,10 @@
 					timestamp: comm?.raw?.occurredAt || new Date().toISOString()
 				}
 			];
+			if (!draftInitialized) {
+				draftValue = comm.raw?.draftResponse || comm.summary || '';
+				draftInitialized = true;
+			}
 		} finally {
 			isLoadingChat = false;
 		}
@@ -500,25 +516,104 @@
 		<!-- Reply area -->
 		<div class="border-t border-gray-200 p-4">
 			{#if customerPhone}
-				<!-- Quick draft reply -->
-				{#if hasUnansweredSms && (comm?.raw?.intentBucket === 'emergency' || comm?.raw?.metadata?.urgency_gpt >= 4 || comm?.status === 'red') && draftValue}
-					<div class="mb-3 flex flex-col gap-2 rounded-lg border border-sky-200 bg-sky-50/50 p-3">
-						<div class="text-[10px] font-bold uppercase tracking-wider font-mono text-sky-600">
-							Quick Reply
+				<!-- Quick draft reply (Mockup-matched Gmail Card) -->
+				{#if draftValue}
+					<div class="mb-4 flex gap-3 border border-gray-200 rounded-xl bg-white shadow-sm overflow-hidden p-4">
+						<!-- User avatar on the left -->
+						<div
+							class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white font-semibold text-xs bg-[#516F90]"
+						>
+							{getInitials(user?.name ?? 'Mark Doe')}
 						</div>
-						<textarea
-							bind:value={draftValue}
-							class="h-14 w-full resize-none rounded border border-sky-200 bg-white p-1.5 text-xs text-slate-800 outline-none transition-colors focus:border-sky-400"
-						></textarea>
-						<div class="flex justify-end">
-							<Button
-								type="button"
-								class="cursor-pointer rounded border-0 bg-sky-500 px-3 py-1.5 text-[10px] font-bold text-white transition-colors hover:bg-sky-600 disabled:opacity-50"
-								onclick={sendDraftSms}
-								disabled={isSendingDraft}
-							>
-								{isSendingDraft ? 'Sending...' : 'Send Quick Reply'}
-							</Button>
+
+						<!-- Composer Card -->
+						<div class="flex-1 min-w-0">
+							<!-- Header -->
+							<div class="flex items-center gap-2 pb-2 border-b border-gray-100 mb-3">
+								<Reply class="h-3.5 w-3.5 text-gray-500" />
+								<span class="text-xs font-sans font-medium text-gray-700">
+									{customerName}
+									{#if customerPhone}
+										<span class="text-gray-500 font-normal">({customerPhone})</span>
+									{/if}
+								</span>
+							</div>
+
+							<!-- Body and Details -->
+							<div>
+								<!-- Editable Text Area -->
+								<textarea
+									bind:value={draftValue}
+									class="w-full min-h-[100px] font-sans text-xs text-gray-800 leading-relaxed outline-none border-none resize-y"
+								></textarea>
+
+								<!-- Structured Appointment Details -->
+								<div class="mt-4 pt-3 border-t border-gray-100 space-y-1.5 text-xs text-gray-600">
+									<div><span class="font-bold text-gray-700">Agent:</span> {user?.name ?? 'Mark Doe'}</div>
+									<div><span class="font-bold text-gray-700">Appointment:</span> 2:30pm - 3:15pm</div>
+									<div><span class="font-bold text-gray-700">Location:</span> 123 Pine St N Timmins Ontario</div>
+									<div><span class="font-bold text-gray-700">Purpose:</span> Test Drive</div>
+									<div class="flex items-center gap-2 mt-3">
+										<span class="font-bold text-gray-700 font-sans">Confirm Appointment:</span>
+										<button 
+											type="button"
+											onclick={sendDraftSms}
+											class="bg-[#4CAF50] hover:bg-[#43A047] text-white text-[10px] font-semibold px-2 py-0.5 rounded transition-colors shadow-sm"
+										>
+											Yes
+										</button>
+										<button 
+											type="button"
+											onclick={handleClose}
+											class="bg-[#F44336] hover:bg-[#E53935] text-white text-[10px] font-semibold px-2 py-0.5 rounded transition-colors shadow-sm"
+										>
+											No
+										</button>
+									</div>
+								</div>
+							</div>
+
+							<!-- Footer Toolbar -->
+							<div class="flex items-center justify-between mt-4 pt-3 border-t border-gray-100">
+								<!-- Left side: Send button with dropdown -->
+								<div class="flex items-center bg-[#0C58D1] rounded-full overflow-hidden shadow-sm">
+									<button
+										type="button"
+										onclick={sendDraftSms}
+										disabled={isSendingDraft}
+										class="px-4 py-1.5 text-xs font-medium text-white hover:bg-[#0b51c1] transition-colors"
+									>
+										{isSendingDraft ? 'Sending...' : 'Send'}
+									</button>
+									<div class="w-px h-4 bg-[#ffffff]/20"></div>
+									<button
+										type="button"
+										class="p-1.5 text-white hover:bg-[#0b51c1] transition-colors flex items-center justify-center"
+										aria-label="Send options"
+									>
+										<ChevronDown class="h-3 w-3" />
+									</button>
+								</div>
+
+								<!-- Right side: Formatting / Attachments -->
+								<div class="flex items-center gap-3 text-gray-500">
+									<button type="button" class="text-xs font-semibold hover:text-gray-800 hover:bg-gray-100 px-1.5 py-0.5 rounded transition-all" aria-label="Format text">
+										Aa
+									</button>
+									<button type="button" class="hover:text-gray-800 hover:bg-gray-100 p-1 rounded transition-all" aria-label="Attach file">
+										<Paperclip class="h-3.5 w-3.5" />
+									</button>
+									<button type="button" class="hover:text-gray-800 hover:bg-gray-100 p-1 rounded transition-all" aria-label="Insert link">
+										<Link class="h-3.5 w-3.5" />
+									</button>
+									<button type="button" class="hover:text-gray-800 hover:bg-gray-100 p-1 rounded transition-all" aria-label="Insert image">
+										<ImageIcon class="h-3.5 w-3.5" />
+									</button>
+									<button type="button" class="hover:text-gray-800 hover:bg-gray-100 p-1 rounded transition-all" aria-label="More options">
+										<MoreVertical class="h-3.5 w-3.5" />
+									</button>
+								</div>
+							</div>
 						</div>
 					</div>
 				{/if}
