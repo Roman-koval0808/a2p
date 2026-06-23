@@ -160,8 +160,8 @@
 			if (!draftInitialized) {
 				const hasAgentReply = messagesArray.some((msg: any) => msg.is_agent_reply);
 				const hasCallSummary = messagesArray.some((msg: any) => msg.type === 'call_summary');
-				if (thread.draftResponse || comm.raw?.draftResponse || comm.summary) {
-					draftValue = thread.draftResponse || comm.raw?.draftResponse || comm.summary;
+				if (thread.draftResponse || comm.raw?.draftResponse || comm.raw?.payload?.draftResponse || comm.raw?.payload?.draft_reply || comm.summary) {
+					draftValue = thread.draftResponse || comm.raw?.draftResponse || comm.raw?.payload?.draftResponse || comm.raw?.payload?.draft_reply || comm.summary;
 				} else {
 					draftValue = '';
 				}
@@ -180,7 +180,7 @@
 				}
 			];
 			if (!draftInitialized) {
-				draftValue = comm.raw?.draftResponse || comm.summary || '';
+				draftValue = comm.raw?.draftResponse || comm.raw?.payload?.draftResponse || comm.raw?.payload?.draft_reply || comm.summary || '';
 				draftInitialized = true;
 			}
 		} finally {

@@ -8,6 +8,7 @@ import { createOrUpdateContact } from '$lib/utils/contacts';
 import { getCompanyIdByPhoneNumber } from '$lib/company-numbers';
 import { isA2pEnabled, forwardSmsWebhook } from '$lib/server/a2p-client';
 import { PipelineSimulator } from '$lib/server/pipeline-simulator';
+import { draftResponse } from '$lib/ai/openai';
 
 async function handleWebhook(request: Request) {
 	return await POST({ request } as Parameters<typeof POST>[0]);
@@ -104,9 +105,37 @@ export const POST: RequestHandler = async ({ request }) => {
 		const hasEmergency = emergencyKeywords.some(kw => lowerText.includes(kw));
 		const scoreDelta = hasEmergency ? 15 : (bookingKeywords.some(kw => lowerText.includes(kw)) ? 20 : 10);
 
+		let draftText = '';
+		if (pipelineResult && pipelineResult.success) {
+			if (pipelineResult.execution?.execution_output_package?.execution_records) {
+				for (const rec of pipelineResult.execution.execution_output_package.execution_records) {
+					if (rec.generated_output) {
+						try {
+							const parsedOutput = typeof rec.generated_output === 'string'
+								? JSON.parse(rec.generated_output)
+								: rec.generated_output;
+							if (parsedOutput.draft_reply) {
+								draftText = parsedOutput.draft_reply;
+								break;
+							}
+						} catch (e) {}
+					}
+				}
+			}
+		}
+
+		if (!draftText && smsText && companyId) {
+			try {
+				draftText = await draftResponse(smsText, [{ role: 'customer', content: smsText }], 'sms') || '';
+			} catch (err) {
+				console.error('Error generating fallback draft response:', err);
+			}
+		}
+
 		if (pipelineResult && pipelineResult.success) {
 			// Persist the full pipeline package into ProfileDB
 			if (companyId) {
+				const compId = companyId as string;
 				try {
 					const profiledbUrl = process.env.PROFILEDB_URL || 'http://localhost:6277';
 					const res = await fetch(`${profiledbUrl}/api/v1/telemetry/events`, {
@@ -116,42 +145,42 @@ export const POST: RequestHandler = async ({ request }) => {
 							'Authorization': 'Bearer clearsky_pixel_api_key'
 						},
 						body: JSON.stringify({
-							tenantSlug: companyId,
-						fingerprintId: smsId,
-						eventType: 'sms_received',
-						pageUrl: null,
-						scoreDelta: scoreDelta,
-						phone: smsSender !== 'Anonymous' ? smsSender : null,
-						name: extractedName || (smsSender !== 'Anonymous' ? smsSender : null),
-						payload: {
-							provider: 'telnyx_sms',
-							event_type: 'sms_received',
-							textContent: smsText,
-							rating: 0,
-							author_name: extractedName || smsSender,
-							customer_phone: smsSender !== 'Anonymous' ? smsSender : null,
-							contains_emergency_keywords: hasEmergency,
-							urgency_level: hasEmergency ? 'high' : 'medium',
-							pipeline_logs: pipelineResult.logs,
-							signals: pipelineResult.signals,
-							enrichments: pipelineResult.enrichments,
-							decision: pipelineResult.decision,
-							execution: pipelineResult.execution,
-							outcome: pipelineResult.outcome,
-							feedback: pipelineResult.feedback,
-							ai_protocol: pipelineResult.ai_protocol,
-							externalEventId: smsId
-						}
-					})
-				});
-				if (res.ok) {
-					console.log('📡 Pipeline executed and SMS event logged to ProfileDB successfully');
-				} else {
-					console.error('❌ Failed to log SMS event to ProfileDB:', res.statusText);
+							tenantSlug: compId,
+							fingerprintId: smsId,
+							eventType: 'sms_received',
+							pageUrl: null,
+							scoreDelta: scoreDelta,
+							phone: smsSender !== 'Anonymous' ? smsSender : null,
+							name: extractedName || (smsSender !== 'Anonymous' ? smsSender : null),
+							payload: {
+								provider: 'telnyx_sms',
+								event_type: 'sms_received',
+								textContent: smsText,
+								rating: 0,
+								author_name: extractedName || smsSender,
+								customer_phone: smsSender !== 'Anonymous' ? smsSender : null,
+								contains_emergency_keywords: hasEmergency,
+								urgency_level: hasEmergency ? 'high' : 'medium',
+								pipeline_logs: pipelineResult.logs,
+								signals: pipelineResult.signals,
+								enrichments: pipelineResult.enrichments,
+								decision: pipelineResult.decision,
+								execution: pipelineResult.execution,
+								outcome: pipelineResult.outcome,
+								feedback: pipelineResult.feedback,
+								ai_protocol: pipelineResult.ai_protocol,
+								externalEventId: smsId
+							}
+						})
+					});
+					if (res.ok) {
+						console.log('📡 Pipeline executed and SMS event logged to ProfileDB successfully');
+					} else {
+						console.error('❌ Failed to log SMS event to ProfileDB:', res.statusText);
+					}
+				} catch (dbErr) {
+					console.error('❌ ProfileDB logging error:', dbErr);
 				}
-			} catch (dbErr) {
-				console.error('❌ ProfileDB logging error:', dbErr);
-			}
 			} else {
 				console.log('📡 Skipping ProfileDB logging for unassigned number');
 			}
@@ -171,6 +200,59 @@ export const POST: RequestHandler = async ({ request }) => {
 				}
 			} catch (err) {
 				console.error('[SMS Pipeline SMS Alert Error]', err);
+			}
+		}
+
+		// Log separate outbound draft event if generated
+		if (draftText && companyId) {
+			const compId = companyId as string;
+			try {
+				const profiledbUrl = process.env.PROFILEDB_URL || 'http://localhost:6277';
+				const draftRes = await fetch(`${profiledbUrl}/api/v1/telemetry/events`, {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+						'Authorization': 'Bearer clearsky_pixel_api_key'
+					},
+					body: JSON.stringify({
+						tenantSlug: compId,
+						fingerprintId: `${smsId}_draft`,
+						eventType: 'sms_draft',
+						pageUrl: null,
+						scoreDelta: 0,
+						phone: smsSender !== 'Anonymous' ? smsSender : null,
+						name: extractedName || (smsSender !== 'Anonymous' ? smsSender : null),
+						intentBucket: 'Confirm',
+						payload: {
+							provider: 'telnyx_sms',
+							event_type: 'sms_draft',
+							textContent: draftText,
+							body: draftText,
+							draftResponse: draftText,
+							draft_reply: draftText,
+							author_name: 'AI Agent',
+							customer_phone: smsSender !== 'Anonymous' ? smsSender : null,
+							contains_emergency_keywords: hasEmergency,
+							urgency_level: hasEmergency ? 'high' : 'medium',
+							pipeline_logs: pipelineResult?.logs || [],
+							signals: pipelineResult?.signals || [],
+							enrichments: pipelineResult?.enrichments || [],
+							decision: pipelineResult?.decision || {},
+							execution: pipelineResult?.execution || {},
+							outcome: pipelineResult?.outcome || {},
+							feedback: pipelineResult?.feedback || {},
+							ai_protocol: pipelineResult?.ai_protocol || {},
+							externalEventId: `${smsId}_draft`
+						}
+					})
+				});
+				if (draftRes.ok) {
+					console.log('📡 Outbound draft event logged to ProfileDB successfully');
+				} else {
+					console.error('❌ Failed to log Outbound draft event to ProfileDB:', draftRes.statusText);
+				}
+			} catch (dbErr) {
+				console.error('❌ ProfileDB draft logging error:', dbErr);
 			}
 		}
 
@@ -253,7 +335,8 @@ export const POST: RequestHandler = async ({ request }) => {
 						status: 'new',
 						customerName,
 						updated: new Date(),
-						...(hasEmergency && { urgency: 'red', intent: 'emergency' })
+						...(hasEmergency && { urgency: 'red', intent: 'emergency' }),
+						...(draftText && { draftResponse: draftText })
 					}
 				});
 			} else {
@@ -278,7 +361,8 @@ export const POST: RequestHandler = async ({ request }) => {
 							}
 						],
 						status: 'new',
-						...(hasEmergency && { urgency: 'red', intent: 'emergency' })
+						...(hasEmergency && { urgency: 'red', intent: 'emergency' }),
+						...(draftText && { draftResponse: draftText })
 					}
 				});
 			}
