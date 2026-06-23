@@ -18,6 +18,7 @@ model Tenant {
   // Relations
   profiles    CustomerProfile[]
   events      TelemetryEvent[]
+  users       User[]
 }
 
 /// Unified Customer profile representing either an identified lead or a tracked anonymous user
@@ -53,11 +54,15 @@ model CustomerProfile {
   // Relations
   fingerprints    DeviceFingerprint[]
   events          TelemetryEvent[]
+  
+  representativeId String?
+  representative   User?          @relation(fields: [representativeId], references: [id], onDelete: SetNull)
 
   @@unique([tenantId, email])
   @@unique([tenantId, phone])
   @@index([tenantId])
   @@index([intentBucket])
+  @@index([representativeId])
 }
 
 /// Maps browser fingerprints or cookie IDs to a unified customer profile
@@ -97,4 +102,29 @@ model TelemetryEvent {
   @@index([customerProfileId])
   @@index([eventType])
   @@index([occurredAt])
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  REPRESENTATIVE
+}
+
+/// Represents a platform user (staff, representatives) who logs into the system
+model User {
+  id            String            @id @default(uuid())
+  tenantId      String
+  tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  email         String            @unique
+  passwordHash  String?
+  name          String
+  role          UserRole          @default(REPRESENTATIVE)
+  
+  // A representative manages many customers
+  customers     CustomerProfile[]
+  
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@index([tenantId])
 }
