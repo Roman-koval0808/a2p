@@ -81,20 +81,25 @@ export const POST: RequestHandler = async ({ request }) => {
 			: (toNumberRaw?.phone_number || toNumberRaw);
 		const companyId = toNumber ? await getCompanyIdByPhoneNumber(prisma, toNumber) : null;
 
-		// RUN SVELTEKIT INTERNAL AI SIGNALS PIPELINE synchronously:
-		let pipelineResult = null;
-		try {
-			pipelineResult = await PipelineSimulator.run({
-				author_name: smsSender !== 'Anonymous' ? smsSender : 'Anonymous',
-				customer_phone: smsSender !== 'Anonymous' ? smsSender : undefined,
-				rating: 0,
-				comment: smsText,
-				mode: 'sms',
-				sessionId: smsId
-			});
-		} catch (err) {
-			console.error('[SMS Pipeline Error]', err);
-		}
+		// --- BACKGROUND PROCESSING ---
+		// We execute the heavy AI pipeline and DB logging in the background so we can respond
+		// to Telnyx immediately with 200 OK. This prevents Telnyx from timing out and retrying
+		// the webhook, which was causing duplicate messages.
+		Promise.resolve().then(async () => {
+			// RUN SVELTEKIT INTERNAL AI SIGNALS PIPELINE synchronously:
+			let pipelineResult = null;
+			try {
+				pipelineResult = await PipelineSimulator.run({
+					author_name: smsSender !== 'Anonymous' ? smsSender : 'Anonymous',
+					customer_phone: smsSender !== 'Anonymous' ? smsSender : undefined,
+					rating: 0,
+					comment: smsText,
+					mode: 'sms',
+					sessionId: smsId
+				});
+			} catch (err) {
+				console.error('[SMS Pipeline Error]', err);
+			}
 
 		const extractedName = pipelineResult?.ai_protocol?.raw_response?.customer_name || null;
 		const pipelineAuthorName = extractedName || smsSender;
@@ -254,6 +259,35 @@ export const POST: RequestHandler = async ({ request }) => {
 			} catch (dbErr) {
 				console.error('❌ ProfileDB draft logging error:', dbErr);
 			}
+
+			// Also log as a pending CommunicationLog so it shows up in the UI for approval
+			try {
+				// We need contact if we want to link it, let's try to get or create contact
+				const contact = await createOrUpdateContact({
+					company_id: compId,
+					phone: normalizePhoneNumber(phoneNumber),
+					name: extractedName !== 'Unknown Customer' ? extractedName : undefined
+				});
+
+				await logCommunication({
+					type: 'sms',
+					direction: 'outbound',
+					status: 'pending_approval',
+					source: toNumber || 'Inbox',
+					destination: phoneNumber,
+					company_id: compId,
+					customer_id: contact?.id ?? undefined,
+					summary: draftText.substring(0, 50) + '...',
+					content: draftText,
+					metadata: {
+						thread_id: normalizePhoneNumber(phoneNumber),
+						is_draft: true
+					}
+				});
+				console.log('📡 Logged pending_approval draft to local CommunicationLog');
+			} catch (draftErr) {
+				console.error('Failed to log pending draft:', draftErr);
+			}
 		}
 
 		// Forward to A2P backend when configured (replaces local SMS/messages/comm-log handling)
@@ -391,15 +425,15 @@ export const POST: RequestHandler = async ({ request }) => {
 					telnyx_event: payload.data?.event_type
 				}
 			});
-
-			return json({ success: true });
 		} catch (dbError) {
-			console.error('Database error:', dbError);
-			return json(
-				{ success: false, error: dbError instanceof Error ? dbError.message : String(dbError) },
-				{ status: 500 }
-			);
+			console.error('Database error in background task:', dbError);
 		}
+		}).catch(err => {
+			console.error('Unhandled error in background webhook processing:', err);
+		});
+
+		// Respond immediately to prevent retries
+		return json({ success: true });
 	} catch (err) {
 		console.error('Webhook processing error:', err);
 		return json(
