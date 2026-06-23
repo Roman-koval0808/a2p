@@ -61,11 +61,47 @@ export const load: PageServerLoad = async ({ locals }) => {
 			};
 		});
 
+		const pendingInvites = await prisma.invite.findMany({
+			where: {
+				companyId: locals.user.company.id,
+				role: 'member',
+				status: 'pending'
+			},
+			orderBy: {
+				created: 'desc'
+			}
+		});
+
+		const formattedInvites = pendingInvites.map(invite => {
+			let profileData: any = {};
+			let firstName = '';
+			let lastName = '';
+			
+			if (invite.metadata && typeof invite.metadata === 'object') {
+				const meta = invite.metadata as any;
+				profileData = meta.profileData || {};
+				firstName = meta.firstName || '';
+				lastName = meta.lastName || '';
+			}
+
+			return {
+				id: invite.id,
+				name: `${firstName} ${lastName}`.trim() || invite.email || 'Pending Invite',
+				email: invite.email,
+				phone: profileData.phone || '',
+				location: profileData.location || '',
+				schedule: profileData.schedule || {},
+				isPending: true,
+				rooms: []
+			};
+		});
+
 		return {
-			representatives: formattedReps
+			representatives: formattedReps,
+			pendingInvites: formattedInvites
 		};
 	} catch (err) {
 		console.error('Error fetching representatives:', err);
-		return { representatives: [] };
+		return { representatives: [], pendingInvites: [] };
 	}
 };
