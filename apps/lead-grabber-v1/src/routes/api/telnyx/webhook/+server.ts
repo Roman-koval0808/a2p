@@ -353,68 +353,23 @@ export const POST: RequestHandler = async ({ request }) => {
 							name: extractedName !== 'Unknown Customer' ? extractedName : undefined
 						});
 
-						if (hasEmergency) {
-							const response = await fetch('https://api.telnyx.com/v2/messages', {
-								method: 'POST',
-								headers: {
-									'Content-Type': 'application/json',
-									Authorization: `Bearer ${TELNYX_API_KEY}`
-								},
-								body: JSON.stringify({
-									from: toNumber,
-									to: phoneNumber,
-									text: draftText,
-									messaging_profile_id: TELNYX_MESSAGING_PROFILE_ID,
-									webhook_url: normalizeUrl(PUBLIC_BASE_URL, '/api/telnyx/webhook'),
-									webhook_failover_url: normalizeUrl(PUBLIC_BASE_URL, '/api/telnyx/webhook-backup'),
-									use_profile_webhooks: false,
-									type: 'SMS'
-								})
-							});
-
-							let telnyxId = undefined;
-							if (response.ok) {
-								const parsedResponse = await response.json();
-								telnyxId = parsedResponse.data?.id;
-								console.log('📡 Sent emergency auto-reply via Telnyx successfully');
-							} else {
-								console.error('❌ Failed to send emergency auto-reply:', await response.text());
+						await logCommunication({
+							type: 'sms',
+							direction: 'outbound',
+							status: 'pending_approval',
+							source: toNumber || 'Inbox',
+							destination: phoneNumber,
+							company_id: compId,
+							customer_id: contact?.id ?? undefined,
+							summary: draftText.substring(0, 50) + '...',
+							content: draftText,
+							metadata: {
+								thread_id: normalizedPhoneNumber,
+								is_draft: true,
+								is_emergency: hasEmergency
 							}
-
-							await logCommunication({
-								type: 'sms',
-								direction: 'outbound',
-								status: 'success',
-								source: toNumber || 'Inbox',
-								destination: phoneNumber,
-								company_id: compId,
-								customer_id: contact?.id ?? undefined,
-								summary: draftText.substring(0, 50) + '...',
-								content: draftText,
-								metadata: {
-									thread_id: normalizedPhoneNumber,
-									is_auto_reply: true,
-									telnyx_id: telnyxId
-								}
-							});
-						} else {
-							await logCommunication({
-								type: 'sms',
-								direction: 'outbound',
-								status: 'pending_approval',
-								source: toNumber || 'Inbox',
-								destination: phoneNumber,
-								company_id: compId,
-								customer_id: contact?.id ?? undefined,
-								summary: draftText.substring(0, 50) + '...',
-								content: draftText,
-								metadata: {
-									thread_id: normalizedPhoneNumber,
-									is_draft: true
-								}
-							});
-							console.log('📡 Logged pending_approval draft to local CommunicationLog');
-						}
+						});
+						console.log('📡 Logged pending_approval draft to local CommunicationLog');
 					} catch (draftErr) {
 						console.error('Failed to log/send draft:', draftErr);
 					}
@@ -469,25 +424,17 @@ export const POST: RequestHandler = async ({ request }) => {
 						};
 
 						const finalMessages = [...prevMessages, newMsg];
-						if (hasEmergency && draftText) {
-							finalMessages.push({
-								content: draftText,
-								timestamp: new Date().toISOString(),
-								is_agent_reply: true,
-								agent_name: 'AI Agent'
-							});
-						}
 
 						await prisma.message.update({
 							where: { id: existingMessage.id },
 							data: {
 								...(companyIdForThread && { companyId: companyIdForThread }),
 								messages: finalMessages,
-								status: hasEmergency ? 'replied' : 'new',
+								status: 'new',
 								customerName,
 								updated: new Date(),
-								...(hasEmergency && { urgency: 'red', intent: 'emergency', draftResponse: null }),
-								...(!hasEmergency && draftText && { draftResponse: draftText })
+								...(hasEmergency && { urgency: 'red', intent: 'emergency' }),
+								draftResponse: draftText || null
 							}
 						});
 					} else {
@@ -505,14 +452,6 @@ export const POST: RequestHandler = async ({ request }) => {
 								...(media.length > 0 && { media })
 							}
 						];
-						if (hasEmergency && draftText) {
-							initialMessages.push({
-								content: draftText,
-								timestamp: new Date().toISOString(),
-								is_agent_reply: true,
-								agent_name: 'AI Agent'
-							});
-						}
 
 						await prisma.message.create({
 							data: {
@@ -521,9 +460,9 @@ export const POST: RequestHandler = async ({ request }) => {
 								customerPhone: phoneNumber,
 								customerName,
 								messages: initialMessages,
-								status: hasEmergency ? 'replied' : 'new',
+								status: 'new',
 								...(hasEmergency && { urgency: 'red', intent: 'emergency' }),
-								...(!hasEmergency && draftText && { draftResponse: draftText })
+								draftResponse: draftText || null
 							}
 						});
 					}
