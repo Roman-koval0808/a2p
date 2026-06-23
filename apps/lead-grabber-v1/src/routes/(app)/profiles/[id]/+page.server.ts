@@ -16,6 +16,25 @@ export const load: PageServerLoad = async ({ params, locals, fetch }) => {
 	const companyId = user.company.id;
 	const PROFILEDB_URL = process.env.PROFILEDB_URL || 'http://localhost:6277';
 
+	// Get user's role
+	const companyMember = await prisma.companyMember.findFirst({
+		where: {
+			userId: user.id,
+			companyId: user.company.id
+		}
+	});
+	const userRole = companyMember?.role || 'member';
+
+	// If super admin, fetch all representatives for assignment dropdown
+	let representatives: any[] = [];
+	if (userRole === 'admin') {
+		const members = await prisma.companyMember.findMany({
+			where: { companyId: user.company.id, role: 'member' },
+			include: { user: true }
+		});
+		representatives = members.map(m => ({ id: m.user.id, name: m.user.name, email: m.user.email }));
+	}
+
 	try {
 		// 1. Fetch profile from ProfileDB
 		let profileRes = await fetch(`${PROFILEDB_URL}/api/v1/tenants/clearsky-demo/profiles/${params.id}`);
@@ -247,7 +266,9 @@ export const load: PageServerLoad = async ({ params, locals, fetch }) => {
 				intentLevel,
 				interpretation,
 				recAction
-			}
+			},
+			userRole,
+			representatives
 		};
 	} catch (e) {
 		if (e && typeof e === 'object' && 'status' in e && (e as { status: number }).status === 404) {
@@ -289,6 +310,39 @@ export const actions: Actions = {
 		} catch (e) {
 			console.error('Error deleting profile:', e);
 			return { success: false };
+		}
+	},
+	assignRepresentative: async ({ request, params, locals }) => {
+		const user = locals.user;
+		if (!user?.company) return { success: false };
+
+		// Verify user is an admin
+		const companyMember = await prisma.companyMember.findFirst({
+			where: { userId: user.id, companyId: user.company.id }
+		});
+		if (companyMember?.role !== 'admin') return { success: false, error: 'Unauthorized' };
+
+		const form = await request.formData();
+		const representativeId = form.get('representativeId')?.toString() || null;
+		const id = params.id;
+
+		const PROFILEDB_URL = process.env.PROFILEDB_URL || 'http://localhost:6277';
+		try {
+			const res = await fetch(`${PROFILEDB_URL}/api/v1/tenants/clearsky-demo/profiles/${id}/representative`, {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ representativeId })
+			});
+
+			if (res.ok) {
+				return { success: true };
+			} else {
+				console.error('Failed to assign representative in ProfileDB');
+				return { success: false, error: 'Failed to assign representative' };
+			}
+		} catch (e) {
+			console.error('Error assigning representative:', e);
+			return { success: false, error: 'Failed to assign representative' };
 		}
 	}
 };

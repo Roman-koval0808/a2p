@@ -16,7 +16,22 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 	const PROFILEDB_URL = process.env.PROFILEDB_URL || 'http://localhost:6277';
 	let profiles: any[] = [];
 	try {
-		const res = await fetch(`${PROFILEDB_URL}/api/v1/tenants/clearsky-demo/profiles?limit=100`);
+		// Get user's role to determine data access
+		const companyMember = await prisma.companyMember.findFirst({
+			where: {
+				userId: user.id,
+				companyId: user.company.id
+			}
+		});
+
+		let fetchUrl = `${PROFILEDB_URL}/api/v1/tenants/clearsky-demo/profiles?limit=100`;
+		
+		// If user is a Representative (member), only show their assigned customers
+		if (companyMember && companyMember.role === 'member') {
+			fetchUrl += `&representativeId=${user.id}`;
+		}
+
+		const res = await fetch(fetchUrl);
 		if (res.ok) {
 			const json = await res.json();
 			if (json && Array.isArray(json.data)) {

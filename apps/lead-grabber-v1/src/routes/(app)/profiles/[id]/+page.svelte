@@ -134,6 +134,7 @@
 	let editForm = $state({ name: '', email: '', phone: '' });
 	let pipelineDialogOpen = $state(false);
 	let selectedPipelineEvent = $state<any>(null);
+	let assignFormState = $state({ loading: false });
 
 	function openEdit() {
 		if (data.profile) {
@@ -158,6 +159,29 @@
 			await invalidateAll();
 		} else {
 			toast.error('Failed to update profile');
+		}
+	}
+
+	async function assignRepresentative(e: Event) {
+		const target = e.target as HTMLSelectElement;
+		const representativeId = target.value;
+		assignFormState.loading = true;
+		
+		const form = new FormData();
+		form.set('representativeId', representativeId);
+		
+		try {
+			const res = await fetch('?/assignRepresentative', { method: 'POST', body: form });
+			if (res.ok) {
+				toast.success('Representative assigned');
+				await invalidateAll();
+			} else {
+				toast.error('Failed to assign representative');
+			}
+		} catch (err) {
+			toast.error('Error assigning representative');
+		} finally {
+			assignFormState.loading = false;
 		}
 	}
 
@@ -372,6 +396,29 @@
 					</div>
 				</div>
 			</div>
+
+			<!-- Representative Assignment (Super Admin Only) -->
+			{#if data.userRole === 'admin' && data.representatives?.length > 0}
+			<div class="bg-white rounded-lg border border-[#e2e8f0] overflow-hidden mb-5 shadow-sm">
+				<div class="bg-[#edf2f7] px-3 py-2 border-b border-[#e2e8f0]">
+					<h3 class="text-xs font-bold text-[#4a5568] uppercase tracking-wider">Assigned Representative</h3>
+				</div>
+				<div class="p-3">
+					<select 
+						class="w-full text-sm border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+						disabled={assignFormState.loading}
+						onchange={assignRepresentative}
+					>
+						<option value="">Unassigned</option>
+						{#each data.representatives as rep}
+							<option value={rep.id} selected={data.profile?.representativeId === rep.id}>
+								{rep.name}
+							</option>
+						{/each}
+					</select>
+				</div>
+			</div>
+			{/if}
 
 			<!-- Interactive Demo Actions -->
 			<div class="bg-white rounded-lg p-4 border border-[#e2e8f0] mb-5 shadow-sm">
