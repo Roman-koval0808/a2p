@@ -1425,7 +1425,8 @@ export const POST: RequestHandler = async ({ request }) => {
 											const emergencyKeywords = ['burst', 'flood', 'leak', 'emergency', 'pipe', 'water', 'immediate', 'urgent'];
 											const bookingKeywords = ['book', 'appointment', 'estimate', 'quote', 'schedule', 'renovate', 'renovation', 'toilet', 'shower', 'fixture'];
 
-											if (finalPriority === 'emergency' || emergencyKeywords.some(kw => lowerTranscript.includes(kw))) {
+											const hasEmergency = finalPriority === 'emergency' || emergencyKeywords.some(kw => lowerTranscript.includes(kw));
+											if (hasEmergency) {
 												scoreDelta = 15;
 												bucketSignal = 'emergency';
 											} else if (intent === 'Booking' || bookingKeywords.some(kw => lowerTranscript.includes(kw))) {
@@ -1482,9 +1483,9 @@ export const POST: RequestHandler = async ({ request }) => {
 										console.log('📡 Skipping ProfileDB logging for unassigned number');
 									}
 
-											// Check if the pipeline decided to dispatch a safety SMS (emergency route)
-											const action = pipelineResult.decision?.action_queue?.[0];
-											if (action && (action.action_id === 'ACT-A2P-002' || action.title?.toLowerCase().includes('owner notification'))) {
+											// Check if the pipeline decided to dispatch a safety SMS (emergency route) or if it's an emergency
+											const action = pipelineResult?.decision?.action_queue?.[0];
+											if (hasEmergency || (action && (action.action_id === 'ACT-A2P-002' || action.title?.toLowerCase().includes('owner notification')))) {
 												console.log('🚨 Emergency action detected! Attempting to send safety SMS & notifying owner...');
 
 												// Send SMS alert to company notification numbers
