@@ -24,7 +24,7 @@ vite.config.ts.timestamp-*
 
 logs/
 
-uploads/
+/static/uploads/
 
 .pnpm-store/
 voip/
