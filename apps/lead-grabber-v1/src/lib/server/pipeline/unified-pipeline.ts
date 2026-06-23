@@ -52,10 +52,7 @@ export class UnifiedPipeline {
 			// STEP 2: Business Resolution
 			let company = null;
 			if (payload.companyId) {
-				const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payload.companyId);
-				if (isUuid) {
-					company = await prisma.company.findUnique({ where: { id: payload.companyId } });
-				}
+				company = await prisma.company.findUnique({ where: { id: payload.companyId } });
 			} 
 			
 			if (!company) {
