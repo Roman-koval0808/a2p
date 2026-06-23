@@ -81,27 +81,21 @@ export const POST: RequestHandler = async ({ request }) => {
 		const rawBody = await request.text();
 		console.log('Webhook raw body:', rawBody);
 
-		let smsText = '';
-		let smsSender = 'Anonymous';
-		let smsId = `sms_${Date.now()}`;
-		let isOutbound = false;
-		let eventType = 'unknown';
+		let parsed: any;
 		try {
-			const parsed = JSON.parse(rawBody);
-			eventType = parsed.data?.event_type || 'unknown';
-			const msgPayload = parsed.data?.payload || parsed;
-			const direction = msgPayload.direction;
-			if (
-				eventType === 'message.sent' ||
-				eventType === 'message.finalized' ||
-				direction === 'outbound'
-			) {
-				isOutbound = true;
-			}
-			smsText = msgPayload.text || '';
-			smsSender = msgPayload.from?.phone_number || msgPayload.from || 'Anonymous';
-			smsId = msgPayload.id || smsId;
-		} catch (e) {}
+			parsed = JSON.parse(rawBody);
+		} catch (err) {
+			console.error('Failed to parse webhook body:', err);
+			return json({ success: false, error: 'Invalid JSON' }, { status: 400 });
+		}
+
+		const eventType = parsed.data?.event_type || 'unknown';
+		const messagePayload = parsed.data?.payload || parsed;
+		const direction = messagePayload.direction || '';
+		const isOutbound =
+			eventType === 'message.sent' ||
+			eventType === 'message.finalized' ||
+			direction === 'outbound';
 
 		// Skip completely if this is an outbound event to prevent loops and double logging
 		if (isOutbound) {
@@ -109,13 +103,24 @@ export const POST: RequestHandler = async ({ request }) => {
 			return json({ success: true, message: 'Ignored outbound event' });
 		}
 
-		// Resolve company early for tenant isolation
-		const parsedForTo = JSON.parse(rawBody);
-		const payloadForTo = parsedForTo.data?.payload || parsedForTo;
-		const toNumberRaw = payloadForTo.to;
+		const smsText = messagePayload.text || '';
+		const phoneNumber = messagePayload.from?.phone_number || messagePayload.from || '';
+		const smsSender = phoneNumber || 'Anonymous';
+		const smsId = messagePayload.id || `sms_${Date.now()}`;
+		const media = messagePayload.media || [];
+		const normalizedPhoneNumber = phoneNumber ? normalizePhoneNumber(phoneNumber) : '';
+		const threadId = normalizedPhoneNumber || `sms_${Date.now()}`;
+
+		const toNumberRaw = messagePayload.to;
 		const toNumber = Array.isArray(toNumberRaw)
 			? toNumberRaw[0]?.phone_number || toNumberRaw[0]
 			: toNumberRaw?.phone_number || toNumberRaw;
+
+		if (!phoneNumber) {
+			console.error('Missing phone number in webhook:', messagePayload);
+			return json({ success: false, error: 'Missing phone number' }, { status: 400 });
+		}
+
 		const companyId = toNumber ? await getCompanyIdByPhoneNumber(prisma, toNumber) : null;
 
 		// --- BACKGROUND PROCESSING ---
@@ -344,7 +349,7 @@ export const POST: RequestHandler = async ({ request }) => {
 						// We need contact if we want to link it, let's try to get or create contact
 						const contact = await createOrUpdateContact({
 							company_id: compId,
-							phone: normalizePhoneNumber(phoneNumber),
+							phone: normalizedPhoneNumber,
 							name: extractedName !== 'Unknown Customer' ? extractedName : undefined
 						});
 
@@ -387,7 +392,7 @@ export const POST: RequestHandler = async ({ request }) => {
 								summary: draftText.substring(0, 50) + '...',
 								content: draftText,
 								metadata: {
-									thread_id: normalizePhoneNumber(phoneNumber),
+									thread_id: normalizedPhoneNumber,
 									is_auto_reply: true,
 									telnyx_id: telnyxId
 								}
@@ -404,7 +409,7 @@ export const POST: RequestHandler = async ({ request }) => {
 								summary: draftText.substring(0, 50) + '...',
 								content: draftText,
 								metadata: {
-									thread_id: normalizePhoneNumber(phoneNumber),
+									thread_id: normalizedPhoneNumber,
 									is_draft: true
 								}
 							});
@@ -427,32 +432,6 @@ export const POST: RequestHandler = async ({ request }) => {
 					}
 				}
 
-				// Parse the webhook payload
-				const payload = JSON.parse(rawBody);
-				console.log('Webhook payload:', payload);
-
-				let messageData;
-
-				if (payload.data?.event_type === 'message.received') {
-					messageData = payload.data.payload;
-				} else if (payload.record_type === 'message' && payload.direction === 'inbound') {
-					messageData = payload;
-				} else {
-					console.log('Unknown webhook format or not an inbound message:', payload);
-					return json({ success: true });
-				}
-
-				const phoneNumber = messageData.from?.phone_number || messageData.from;
-				const content = messageData.text;
-				const media = messageData.media || [];
-
-				if (!phoneNumber) {
-					console.error('Missing phone number in webhook:', messageData);
-					return json({ success: false, error: 'Missing phone number' });
-				}
-
-				const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
-				// companyId and toNumber already resolved above
 				console.log(
 					'Normalized phone:',
 					normalizedPhoneNumber,
@@ -461,8 +440,6 @@ export const POST: RequestHandler = async ({ request }) => {
 					'companyId:',
 					companyId ?? 'none'
 				);
-
-				const threadId = normalizedPhoneNumber;
 
 				try {
 					// Find existing message by threadId or customerPhone
@@ -485,7 +462,7 @@ export const POST: RequestHandler = async ({ request }) => {
 						const companyIdForThread = companyId ?? existingMessage.companyId;
 						const prevMessages = (existingMessage.messages as Array<Record<string, unknown>>) ?? [];
 						const newMsg = {
-							content,
+							content: smsText,
 							timestamp: new Date().toISOString(),
 							is_agent_reply: false,
 							...(media.length > 0 && { media })
@@ -522,7 +499,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
 						const initialMessages = [
 							{
-								content,
+								content: smsText,
 								timestamp: new Date().toISOString(),
 								is_agent_reply: false,
 								...(media.length > 0 && { media })
@@ -568,11 +545,11 @@ export const POST: RequestHandler = async ({ request }) => {
 						destination: toNumber || 'Inbox',
 						company_id: companyId ?? undefined,
 						customer_id: contact?.id ?? undefined,
-						summary: content.substring(0, 50) + '...',
-						content,
+						summary: smsText.substring(0, 50) + '...',
+						content: smsText,
 						metadata: {
 							thread_id: threadId,
-							telnyx_event: payload.data?.event_type
+							telnyx_event: eventType
 						}
 					});
 				} catch (dbError) {
