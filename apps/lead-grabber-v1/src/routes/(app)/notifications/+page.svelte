@@ -73,9 +73,30 @@
 		}
 	}
 
-	function handleSend() {
-		toast.success('Reply draft sent successfully!');
-		draftActive = false;
+	async function handleSend() {
+		if (!selectedNotification) return;
+		try {
+			const res = await fetch(`/api/notifications/${selectedNotification.id}/reply`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					message: draftText,
+					replyMethod: selectedNotification.type === 'sms' ? 'sms' : 'email'
+				})
+			});
+			const result = await res.json();
+			if (result.success) {
+				toast.success('Reply sent successfully!');
+				draftActive = false;
+				selectedNotification = null;
+				window.location.reload();
+			} else {
+				toast.error(result.error || 'Failed to send reply');
+			}
+		} catch (err) {
+			console.error(err);
+			toast.error('Failed to send reply');
+		}
 	}
 
 	function formatTime(d: Date) {

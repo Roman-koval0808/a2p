@@ -12,6 +12,8 @@ export const POST: RequestHandler = async ({ locals }) => {
 	try {
 		// 1. Wipe local Prisma database
 		await prisma.$transaction([
+			prisma.communicationLog.deleteMany({ where: { companyId } }),
+			prisma.communicationThread.deleteMany({ where: { companyId } }),
 			prisma.message.deleteMany({ where: { companyId } }),
 			prisma.contact.deleteMany({ where: { companyId } }),
 			prisma.notification.deleteMany({ where: { companyId } })
