@@ -220,7 +220,7 @@
 
 			<div class="flex-1 overflow-y-auto space-y-2.5">
 				{#each data.siteVisitors as visitor}
-					{@const displayName = visitor.isAnonymous ? (visitor.clearPhone !== '—' ? 'Visitor (' + visitor.clearPhone + ')' : 'Anonymous Lead') : visitor.name}
+					{@const displayName = visitor.isAnonymous ? (visitor.clearPhone !== '—' ? 'Visitor (' + visitor.clearPhone + ')' : 'Anonymous Lead') : (visitor.name || visitor.email || 'Unknown')}
 					<div 
 						role="button"
 						tabindex="0"
@@ -234,7 +234,7 @@
 					>
 						<div class="flex items-center gap-3">
 							<div class="relative flex h-8 w-8 items-center justify-center rounded bg-gray-100 border border-gray-200 text-gray-600 text-xs font-bold">
-								{displayName.charAt(0).toUpperCase()}
+								{displayName?.charAt(0)?.toUpperCase() || '?'}
 							</div>
 							<div class="flex flex-col">
 								<span class="text-xs font-bold text-gray-800">{displayName}</span>
