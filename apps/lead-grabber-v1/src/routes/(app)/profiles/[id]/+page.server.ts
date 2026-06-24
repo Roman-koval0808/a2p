@@ -85,9 +85,14 @@ export const load: PageServerLoad = async ({ params, locals, fetch }) => {
 
 		historyEvents.forEach((ev: any) => {
 			const payload = ev.payload || {};
-			const emailVal = payload.email || null;
-			const nameVal = payload.name || null;
-			const phoneVal = payload.phone || null;
+			const emailVal = payload.email || payload.metadata?.email || payload.payload?.email || ev.email || null;
+			let nameVal = payload.name || payload.metadata?.name || payload.payload?.name || ev.name || null;
+			const phoneVal = payload.phone || payload.metadata?.phone || payload.payload?.phone || ev.phone || null;
+
+			// Do not record "Unknown Caller" or Anonymous as valid identity updates
+			if (nameVal === 'Unknown Caller' || nameVal === 'Anonymous') {
+				nameVal = null;
+			}
 
 			if (phoneVal && phoneVal !== '—') {
 				clearPhone = phoneVal;
