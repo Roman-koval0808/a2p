@@ -29,12 +29,17 @@ export const POST: RequestHandler = async ({ request }) => {
 	try {
 		const body = await request.json();
 		const companyId = body.company_id ?? body.company?.id;
-		const threadId = String(body.thread_id ?? '').trim() || `leadbox-${crypto.randomUUID()}`;
 		const customerName = body.customer_name ?? 'Anonymous';
 		const customerPhone = body.customer_phone ?? null;
 		const customerEmail = body.customer_email ?? null;
 		const messageContent = typeof body.message === 'string' ? body.message : '';
 		const source = body.source ?? 'leadbox';
+		let threadId = String(body.thread_id ?? '').trim();
+		if (!threadId) {
+			threadId = `${source}-${crypto.randomUUID()}`;
+		} else if (!threadId.startsWith('leadbox-') && !threadId.startsWith('leadform-')) {
+			threadId = `${source}-${threadId}`;
+		}
 
 		if (!companyId) {
 			return new Response(JSON.stringify({ error: 'company_id is required' }), {
