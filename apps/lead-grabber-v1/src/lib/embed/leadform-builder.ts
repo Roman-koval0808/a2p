@@ -113,7 +113,8 @@ export function buildLeadformScript(config: LeadformConfig): string {
 
       console.log('Sending message data:', messageData);
 
-      const response = await fetch(baseUrl + '/api/messages', {
+      const apiBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+      const response = await fetch(apiBase + '/api/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(messageData)
