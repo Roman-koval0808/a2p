@@ -166,7 +166,10 @@ export const POST: RequestHandler = async ({ request }) => {
 						textContent: messageContent,
 						detail: logSummary,
 						from: customerPhone || customerEmail || threadId,
-						to: companyId
+						to: companyId,
+						name: customerName !== 'Anonymous' ? customerName : null,
+						phone: customerPhone || null,
+						email: customerEmail || null
 					}
 				})
 			});
