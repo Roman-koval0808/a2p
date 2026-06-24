@@ -315,7 +315,7 @@
 			onPipelineClick={handlePipelineClick}
 			onReplyClick={handleReplyClick}
 			onConfirmClick={handleConfirmClick}
-			showAssignButton={!data.useA2pCommLog}
+			showAssignButton={true}
 			showSearch={false}
 		/>
 		<!-- Pagination -->

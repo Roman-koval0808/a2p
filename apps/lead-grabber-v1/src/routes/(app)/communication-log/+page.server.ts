@@ -94,13 +94,24 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 					purpose = meta.category_gpt;
 				}
 
+				let displaySource = log.source || '—';
+				let displayDestination = log.destination || locals.user.company.id;
+
+				if (thread.contact?.name) {
+					if (log.direction === 'inbound') {
+						displaySource = thread.contact.name;
+					} else {
+						displayDestination = thread.contact.name;
+					}
+				}
+
 				logs.push({
 					id: log.id,
 					type: log.type === 'voice' ? 'call' : log.type,
 					direction: log.direction,
 					status: status,
-					source: log.source || thread.contact?.name || thread.contact?.phone || '—',
-					destination: log.destination || locals.user.company.id,
+					source: displaySource,
+					destination: displayDestination,
 					summary: log.summary || log.content || '',
 					content: log.content || '',
 					metadata: meta,
