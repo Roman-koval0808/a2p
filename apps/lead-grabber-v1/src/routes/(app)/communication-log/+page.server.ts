@@ -94,16 +94,12 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 					purpose = meta.category_gpt;
 				}
 
-				let displaySource = log.source || '—';
-				let displayDestination = log.destination || locals.user.company.id;
+				const isOutbound = log.direction === 'outbound';
+				let customerValue = isOutbound ? log.destination : log.source;
+				let companyValue = isOutbound ? log.source : log.destination;
 
-				if (thread.contact?.name) {
-					if (log.direction === 'inbound') {
-						displaySource = thread.contact.name;
-					} else {
-						displayDestination = thread.contact.name;
-					}
-				}
+				let displayDestination = thread.contact?.name || customerValue || '—';
+				let displaySource = companyValue || locals.user.company.id;
 
 				logs.push({
 					id: log.id,
