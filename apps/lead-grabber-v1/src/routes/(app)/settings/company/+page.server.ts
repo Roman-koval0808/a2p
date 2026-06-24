@@ -35,7 +35,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 		const members = await prisma.companyMember.findMany({
 			where: {
 				companyId: company.id,
-				status: 'active'
+				status: 'active',
+				role: { not: 'support' }
 			},
 			include: {
 				user: true

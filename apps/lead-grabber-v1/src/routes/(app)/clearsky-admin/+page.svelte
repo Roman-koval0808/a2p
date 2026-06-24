@@ -1,8 +1,28 @@
 <script lang="ts">
 	import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card';
 	import { Building2, Users, ShieldAlert } from 'lucide-svelte';
+	import { toast } from 'svelte-sonner';
+	import { goto } from '$app/navigation';
 
 	let { data } = $props();
+
+	async function handleManage(companyId: string) {
+		try {
+			const res = await fetch('/api/me/switch-company', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ companyId })
+			});
+			if (res.ok) {
+				toast.success('Switched to company context');
+				goto('/dashboard').then(() => window.location.reload());
+			} else {
+				toast.error('Failed to switch company');
+			}
+		} catch (err) {
+			toast.error('Failed to switch company');
+		}
+	}
 </script>
 
 <div class="flex flex-1 flex-col gap-6 p-8">
@@ -65,7 +85,7 @@
 							<td class="px-6 py-4">{company._count.teamMembers} members</td>
 							<td class="px-6 py-4">{company._count.communicationLogs} logs</td>
 							<td class="px-6 py-4">
-								<button class="font-medium text-blue-600 hover:underline">Manage</button>
+								<button class="font-medium text-blue-600 hover:underline" onclick={() => handleManage(company.id)}>Manage</button>
 							</td>
 						</tr>
 					{/each}
