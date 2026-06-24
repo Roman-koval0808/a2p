@@ -44,6 +44,10 @@ export async function verifyToken(
 const userCache = new Map<string, { user: UserWithCompany | null; timestamp: number }>();
 const USER_CACHE_MS = 5000; // Cache for 5 seconds
 
+export function invalidateUserCache(userId: string) {
+	userCache.delete(userId);
+}
+
 export async function getUserFromToken(token: string): Promise<UserWithCompany | null> {
 	const payload = await verifyToken(token);
 	if (!payload) return null;

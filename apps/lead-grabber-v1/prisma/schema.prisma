@@ -22,6 +22,7 @@ model User {
   name            String?
   avatar          String? // File path/URL
   role            UserRole?
+  platformRole    PlatformRole @default(TENANT_USER)
   companyId       String?
   company         Company?  @relation(fields: [companyId], references: [id])
   created         DateTime  @default(now())
@@ -44,6 +45,12 @@ model User {
   @@index([email])
   @@index([tokenKey])
   @@map("users")
+}
+
+enum PlatformRole {
+  CLEARSKY_ADMIN
+  CLEARSKY_SUPPORT
+  TENANT_USER
 }
 
 enum UserRole {
@@ -276,6 +283,7 @@ enum CompanyMemberRole {
   owner
   admin
   member
+  support
 }
 
 enum CompanyMemberStatus {
