@@ -70,51 +70,7 @@ export const POST: RequestHandler = async ({ request }) => {
 					: []
 				: [];
 
-		let aiData: any = { intent: source === 'leadform' ? 'leadform' : 'leadbox' };
-		let analysis: any = null;
-
-		if (source === 'leadform' || source === 'leadbox') {
-			const pipelineResult = await UnifiedPipeline.process({
-				provider: 'clearsky_pixel',
-				eventType: source === 'leadform' ? 'leadform_submit' : 'leadbox_submit',
-				externalId: crypto.randomUUID(),
-				companyId: companyId,
-				customerPhone: customerPhone || undefined,
-				customerEmail: customerEmail || undefined,
-				customerName: customerName !== 'Anonymous' ? customerName : undefined,
-				sessionId: threadId,
-				textContent: messageContent,
-				metadata: { source, url: body.url || null }
-			});
-
-			if (pipelineResult?.success && pipelineResult.ai_protocol?.raw_response) {
-				const raw = pipelineResult.ai_protocol.raw_response;
-				aiData = {
-					urgency: raw.urgency_level || 'low',
-					urgencyScore: raw.urgency_level === 'high' ? 80 : raw.urgency_level === 'medium' ? 50 : 20,
-					sentiment: raw.sentiment || 'neutral',
-					aiSummary: raw.summary || undefined,
-					intent: source === 'leadform' ? 'leadform' : 'leadbox'
-				};
-				analysis = {
-					urgency: aiData.urgency,
-					urgencyScore: aiData.urgencyScore,
-					sentiment: aiData.sentiment,
-					aiSummary: aiData.aiSummary
-				};
-			}
-		} else {
-			analysis = await analyzeIncomingMessage(messageContent, threadMessages as any);
-			if (analysis) {
-				aiData = {
-					urgency: analysis.urgency,
-					urgencyScore: analysis.urgencyScore,
-					sentiment: analysis.sentiment,
-					aiSummary: analysis.aiSummary,
-					intent: source === 'leadform' ? 'leadform' : 'leadbox'
-				};
-			}
-		}
+		let initialAiData: any = { intent: source === 'leadform' ? 'leadform' : 'leadbox' };
 
 		let message;
 		if (existing && existing.companyId === companyId) {
@@ -128,7 +84,7 @@ export const POST: RequestHandler = async ({ request }) => {
 					customerPhone: customerPhone ?? existing.customerPhone,
 					customerEmail: customerEmail ?? existing.customerEmail,
 					updated: new Date(),
-					...aiData
+					...initialAiData
 				}
 			});
 		} else {
@@ -141,10 +97,12 @@ export const POST: RequestHandler = async ({ request }) => {
 					customerEmail,
 					status: 'new',
 					messages: [newItem],
-					...aiData
+					...initialAiData
 				}
 			});
 		}
+
+		const logSummaryFallback = messageContent.slice(0, 80) + (messageContent.length > 80 ? '...' : '');
 
 		const contact =
 			customerPhone || customerEmail || customerName !== 'Anonymous'
@@ -156,14 +114,7 @@ export const POST: RequestHandler = async ({ request }) => {
 					})
 				: null;
 
-		const logSummary =
-			analysis?.aiSummary ??
-			messageContent.slice(0, 80) + (messageContent.length > 80 ? '...' : '');
-		const logMetadata: Record<string, string> = { thread_id: threadId };
-		if (analysis?.urgency != null) logMetadata.urgency = analysis.urgency;
-		if (analysis?.sentiment != null) logMetadata.sentiment = analysis.sentiment;
-		if (analysis?.intent != null) logMetadata.intent = analysis.intent;
-
+		// Initial communication log without AI summary
 		await logCommunication({
 			type: source === 'leadform' ? 'leadform' : 'leadbox',
 			direction: 'inbound',
@@ -172,11 +123,89 @@ export const POST: RequestHandler = async ({ request }) => {
 			destination: null,
 			company_id: companyId,
 			customer_id: contact?.id ?? undefined,
-			summary: logSummary,
+			summary: logSummaryFallback,
 			content: messageContent,
-			metadata: logMetadata,
+			metadata: { thread_id: threadId, intent: initialAiData.intent },
 			contact_name: customerName !== 'Anonymous' ? customerName : undefined,
 			contact_company: company?.name
+		});
+
+		// BACKGROUND PROCESSING: AI Pipeline
+		Promise.resolve().then(async () => {
+			try {
+				let aiData: any = {};
+				let logSummary = logSummaryFallback;
+
+				if (source === 'leadform' || source === 'leadbox') {
+					const pipelineResult = await UnifiedPipeline.process({
+						provider: 'clearsky_pixel',
+						eventType: source === 'leadform' ? 'leadform_submit' : 'leadbox_submit',
+						externalId: crypto.randomUUID(),
+						companyId: companyId,
+						customerPhone: customerPhone || undefined,
+						customerEmail: customerEmail || undefined,
+						customerName: customerName !== 'Anonymous' ? customerName : undefined,
+						sessionId: threadId,
+						textContent: messageContent,
+						metadata: { source, url: body.url || null }
+					});
+
+					if (pipelineResult?.success && pipelineResult.ai_protocol?.raw_response) {
+						const raw = pipelineResult.ai_protocol.raw_response;
+						const urgencyRaw = raw.urgency_level || 'low';
+						let mappedUrgency = 'green';
+						if (urgencyRaw === 'high') mappedUrgency = 'red';
+						if (urgencyRaw === 'medium') mappedUrgency = 'blue';
+
+						aiData = {
+							urgency: mappedUrgency,
+							urgencyScore: urgencyRaw === 'high' ? 80 : urgencyRaw === 'medium' ? 50 : 20,
+							sentiment: raw.sentiment || 'neutral',
+							aiSummary: raw.summary || undefined
+						};
+						logSummary = raw.summary || logSummaryFallback;
+					}
+				} else {
+					const analysis = await analyzeIncomingMessage(messageContent, threadMessages as any);
+					if (analysis) {
+						// analyzeIncomingMessage already maps urgency to green/blue/red
+						aiData = {
+							urgency: analysis.urgency,
+							urgencyScore: analysis.urgencyScore,
+							sentiment: analysis.sentiment,
+							aiSummary: analysis.aiSummary
+						};
+						logSummary = analysis.aiSummary || logSummaryFallback;
+					}
+				}
+
+				if (Object.keys(aiData).length > 0) {
+					await prisma.message.update({
+						where: { id: message.id },
+						data: aiData
+					});
+
+					const latestLog = await prisma.communicationLog.findFirst({
+						where: { companyId, metadata: { path: ['thread_id'], equals: threadId } },
+						orderBy: { created: 'desc' }
+					});
+					if (latestLog) {
+						await prisma.communicationLog.update({
+							where: { id: latestLog.id },
+							data: {
+								summary: logSummary,
+								metadata: {
+									...((latestLog.metadata as object) || {}),
+									urgency: aiData.urgency,
+									sentiment: aiData.sentiment
+								}
+							}
+						});
+					}
+				}
+			} catch (err) {
+				console.error('[Background Pipeline Error]', err);
+			}
 		});
 
 		return new Response(JSON.stringify(message), {
