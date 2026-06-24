@@ -6,6 +6,7 @@ import { logCommunication } from '$lib/utils/communication-log';
 import { createNotification } from '$lib/utils/notifications';
 import { createOrUpdateContact } from '$lib/utils/contacts';
 import { analyzeIncomingMessage } from '$lib/ai/openai';
+import { UnifiedPipeline } from '$lib/server/pipeline/unified-pipeline';
 
 const CORS_HEADERS = {
 	'Access-Control-Allow-Origin': '*',
@@ -69,18 +70,51 @@ export const POST: RequestHandler = async ({ request }) => {
 					: []
 				: [];
 
-		// AI first so we can store OpenAI summary + purpose in CommunicationLog
-		const analysis = await analyzeIncomingMessage(messageContent, threadMessages as any);
+		let aiData: any = { intent: source === 'leadform' ? 'leadform' : 'leadbox' };
+		let analysis: any = null;
 
-		const aiData = {
-			...(analysis && {
-				urgency: analysis.urgency,
-				urgencyScore: analysis.urgencyScore,
-				sentiment: analysis.sentiment,
-				aiSummary: analysis.aiSummary
-			}),
-			intent: source === 'leadform' ? 'leadform' : 'leadbox'
-		};
+		if (source === 'leadform' || source === 'leadbox') {
+			const pipelineResult = await UnifiedPipeline.process({
+				provider: 'clearsky_pixel',
+				eventType: source === 'leadform' ? 'leadform_submit' : 'leadbox_submit',
+				externalId: crypto.randomUUID(),
+				companyId: companyId,
+				customerPhone: customerPhone || undefined,
+				customerEmail: customerEmail || undefined,
+				customerName: customerName !== 'Anonymous' ? customerName : undefined,
+				sessionId: threadId,
+				textContent: messageContent,
+				metadata: { source, url: body.url || null }
+			});
+
+			if (pipelineResult?.success && pipelineResult.ai_protocol?.raw_response) {
+				const raw = pipelineResult.ai_protocol.raw_response;
+				aiData = {
+					urgency: raw.urgency_level || 'low',
+					urgencyScore: raw.urgency_level === 'high' ? 80 : raw.urgency_level === 'medium' ? 50 : 20,
+					sentiment: raw.sentiment || 'neutral',
+					aiSummary: raw.summary || undefined,
+					intent: source === 'leadform' ? 'leadform' : 'leadbox'
+				};
+				analysis = {
+					urgency: aiData.urgency,
+					urgencyScore: aiData.urgencyScore,
+					sentiment: aiData.sentiment,
+					aiSummary: aiData.aiSummary
+				};
+			}
+		} else {
+			analysis = await analyzeIncomingMessage(messageContent, threadMessages as any);
+			if (analysis) {
+				aiData = {
+					urgency: analysis.urgency,
+					urgencyScore: analysis.urgencyScore,
+					sentiment: analysis.sentiment,
+					aiSummary: analysis.aiSummary,
+					intent: source === 'leadform' ? 'leadform' : 'leadbox'
+				};
+			}
+		}
 
 		let message;
 		if (existing && existing.companyId === companyId) {
@@ -144,38 +178,6 @@ export const POST: RequestHandler = async ({ request }) => {
 			contact_name: customerName !== 'Anonymous' ? customerName : undefined,
 			contact_company: company?.name
 		});
-
-		try {
-			const profiledbUrl = process.env.PROFILEDB_URL || 'http://localhost:6277';
-			await fetch(`${profiledbUrl}/api/v1/telemetry/events`, {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					'Authorization': 'Bearer clearsky_pixel_api_key'
-				},
-				body: JSON.stringify({
-					tenantSlug: companyId,
-					fingerprintId: threadId,
-					eventType: source === 'leadform' ? 'leadform_submit' : 'leadbox_submit',
-					pageUrl: body.url || null,
-					scoreDelta: source === 'leadform' ? 20 : 10,
-					phone: customerPhone || null,
-					email: customerEmail || null,
-					name: customerName !== 'Anonymous' ? customerName : null,
-					payload: {
-						textContent: messageContent,
-						detail: logSummary,
-						from: customerPhone || customerEmail || threadId,
-						to: companyId,
-						name: customerName !== 'Anonymous' ? customerName : null,
-						phone: customerPhone || null,
-						email: customerEmail || null
-					}
-				})
-			});
-		} catch (cdpErr) {
-			console.error('Failed to sync message to ProfileDB:', cdpErr);
-		}
 
 		return new Response(JSON.stringify(message), {
 			status: 201,
