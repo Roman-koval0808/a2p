@@ -14,12 +14,23 @@ const prisma = new PrismaClient({
 async function main() {
   const logs = await prisma.communicationLog.findMany({
     orderBy: { created: 'desc' },
-    take: 5,
+    take: 10,
     include: {
-      communicationThread: true
+      communicationThread: {
+        include: {
+          contact: true
+        }
+      }
     }
   });
-  console.log(JSON.stringify(logs, null, 2));
+  console.log(JSON.stringify(logs.map(l => ({
+    id: l.id,
+    direction: l.direction,
+    source: l.source,
+    destination: l.destination,
+    threadId: l.threadId,
+    contactName: l.communicationThread?.contact?.name || null
+  })), null, 2));
 }
 
 main()
