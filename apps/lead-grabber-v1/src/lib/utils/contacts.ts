@@ -93,9 +93,8 @@ export async function createOrUpdateContact(data: ContactData) {
 			// Merge into existing contact - keep original name, add new name to past_names
 			const updates: any = {};
 
-			// Handle name merging: keep original name, add new name to past_names if different
+			// Handle name merging: prefer NEW name, add old name to past_names if different
 			if (data.name && data.name !== contact.name && data.name !== 'Anonymous') {
-				// Only add to past_names if the existing contact has a name and it's different
 				if (contact.name && contact.name !== 'Anonymous' && contact.name !== data.name) {
 					// Get existing past_names array or initialize empty array
 					let pastNames: string[] = [];
@@ -107,16 +106,17 @@ export async function createOrUpdateContact(data: ContactData) {
 						}
 					}
 
-					// Add new name to past_names if it's not already there and not the current name
-					if (!pastNames.includes(data.name) && data.name !== contact.name) {
-						pastNames.push(data.name);
+					// Add OLD name to past_names if it's not already there
+					if (!pastNames.includes(contact.name)) {
+						pastNames.push(contact.name);
 						updates.pastNames = pastNames;
 					}
+					// Update primary name to the NEW name
+					updates.name = data.name;
 				} else if ((!contact.name || contact.name === 'Anonymous') && data.name) {
 					// If existing contact has no name or is Anonymous, update the name
 					updates.name = data.name;
 				}
-				// Otherwise, keep the original name (don't update)
 			}
 
 			// Update email if provided and different
