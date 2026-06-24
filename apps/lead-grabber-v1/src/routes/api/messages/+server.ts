@@ -145,6 +145,35 @@ export const POST: RequestHandler = async ({ request }) => {
 			contact_company: company?.name
 		});
 
+		try {
+			const profiledbUrl = process.env.PROFILEDB_URL || 'http://localhost:6277';
+			await fetch(`${profiledbUrl}/api/v1/telemetry/events`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': 'Bearer clearsky_pixel_api_key'
+				},
+				body: JSON.stringify({
+					tenantSlug: companyId,
+					fingerprintId: threadId,
+					eventType: source === 'leadform' ? 'leadform_submit' : 'leadbox_submit',
+					pageUrl: body.url || null,
+					scoreDelta: source === 'leadform' ? 20 : 10,
+					phone: customerPhone || null,
+					email: customerEmail || null,
+					name: customerName !== 'Anonymous' ? customerName : null,
+					payload: {
+						textContent: messageContent,
+						detail: logSummary,
+						from: customerPhone || customerEmail || threadId,
+						to: companyId
+					}
+				})
+			});
+		} catch (cdpErr) {
+			console.error('Failed to sync message to ProfileDB:', cdpErr);
+		}
+
 		return new Response(JSON.stringify(message), {
 			status: 201,
 			headers: { 'Content-Type': 'application/json', ...CORS_HEADERS }
