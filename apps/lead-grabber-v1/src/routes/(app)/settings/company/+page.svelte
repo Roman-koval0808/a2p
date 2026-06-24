@@ -293,6 +293,7 @@
 							class="space-y-6"
 							enctype="multipart/form-data"
 						>
+							<input type="hidden" name="companyId" value={company.id} />
 							<div class="space-y-4">
 								<div class="space-y-2">
 									<Label for="name">Company Name</Label>
@@ -586,6 +587,30 @@
 																>
 																	Edit
 																</button>
+																{#if member.role !== 'owner' && member.user?.id !== data.user?.id}
+																	<button
+																		class="ml-4 text-red-600 hover:text-red-900"
+																		onclick={async () => {
+																			if (confirm('Are you sure you want to remove this member?')) {
+																				try {
+																					const res = await fetch(`/api/company-members/${member.id}`, {
+																						method: 'DELETE'
+																					});
+																					if (res.ok) {
+																						toast.success('Member removed successfully');
+																						window.location.reload();
+																					} else {
+																						toast.error('Failed to remove member');
+																					}
+																				} catch (e) {
+																					toast.error('Failed to remove member');
+																				}
+																			}
+																		}}
+																	>
+																		Delete
+																	</button>
+																{/if}
 															{/if}
 														</td>
 													</tr>
@@ -676,10 +701,11 @@
 					};
 				}}
 			>
+				<input type="hidden" name="companyId" value={company.id} />
 				<div class="grid gap-4 py-4">
 					<div class="space-y-2">
-						<Label for="email">Email</Label>
-						<Input id="email" name="email" type="email" placeholder="member@company.com" required />
+						<Label for="email">Email Address</Label>
+						<Input type="email" id="email" name="email" required placeholder="colleague@company.com" />
 					</div>
 					<div class="space-y-2">
 						<Label>Role</Label>

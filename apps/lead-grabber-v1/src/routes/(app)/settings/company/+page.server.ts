@@ -6,22 +6,26 @@ import { PUBLIC_BASE_URL, PUBLIC_ENV } from '$env/static/public';
 import { saveUploadedFile } from '$lib/utils/file-upload';
 import { normalizeUrl } from '$lib/utils';
 
-export const load: PageServerLoad = async ({ locals }) => {
+export const load: PageServerLoad = async ({ locals, url }) => {
 	const user = locals.user;
 	if (!user) {
 		throw redirect(303, '/login');
 	}
 
 	try {
-		// Check if user has a company
-		if (!user.company) {
-			console.error('User has no company:', user);
+		const isPlatformStaff = user.platformRole === 'CLEARSKY_ADMIN' || user.platformRole === 'CLEARSKY_SUPPORT';
+		const targetCompanyId = (isPlatformStaff && url.searchParams.get('companyId')) 
+			? url.searchParams.get('companyId') 
+			: user.company?.id;
+
+		if (!targetCompanyId) {
+			console.error('No target company found for user:', user);
 			throw redirect(303, '/create-company');
 		}
 
-		// Get user's company with owner relation
+		// Get company with owner relation
 		const company = await prisma.company.findUnique({
-			where: { id: user.company.id },
+			where: { id: targetCompanyId },
 			include: {
 				owner: true
 			}
@@ -57,7 +61,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		const currentUserMember = members.find((m) => m.userId === user.id);
 		const userRole = currentUserMember?.role || 'member';
 		const isAdminOrOwner =
-			userRole === 'admin' || userRole === 'owner' || company.ownerId === user.id;
+			userRole === 'admin' || userRole === 'owner' || company.ownerId === user.id || isPlatformStaff;
 
 		// Parse settings if it's a string, otherwise use as-is
 		let settings = company.settings;
@@ -139,12 +143,15 @@ export const load: PageServerLoad = async ({ locals }) => {
 export const actions: Actions = {
 	updateCompany: async ({ request, locals }) => {
 		const user = locals.user;
-		if (!user?.company) {
+		if (!user) {
 			return fail(401, { error: 'Unauthorized' });
 		}
 
 		try {
 			const formData = await request.formData();
+			const targetCompanyId = formData.get('companyId') as string || user.company?.id;
+			if (!targetCompanyId) return fail(404, { error: 'Company not found' });
+
 			const name = formData.get('name') as string;
 			const website = formData.get('website') as string;
 			const primaryColor = formData.get('primaryColor') as string;
@@ -156,14 +163,15 @@ export const actions: Actions = {
 
 			// Get current company
 			const company = await prisma.company.findUnique({
-				where: { id: user.company.id }
+				where: { id: targetCompanyId }
 			});
 
 			if (!company) {
 				return fail(404, { error: 'Company not found' });
 			}
 
-			// Check if user is owner or admin
+			// Check if user is owner or admin or platform staff
+			const isPlatformStaff = user.platformRole === 'CLEARSKY_ADMIN' || user.platformRole === 'CLEARSKY_SUPPORT';
 			const userMember = await prisma.companyMember.findFirst({
 				where: {
 					userId: user.id,
@@ -175,7 +183,7 @@ export const actions: Actions = {
 			const isOwner = company.ownerId === user.id;
 			const isAdmin = userMember?.role === 'admin';
 
-			if (!isOwner && !isAdmin) {
+			if (!isOwner && !isAdmin && !isPlatformStaff) {
 				return fail(403, {
 					error: 'Only company owners and admins can update company settings'
 				});
@@ -224,12 +232,15 @@ export const actions: Actions = {
 
 	inviteMember: async ({ request, locals }) => {
 		const user = locals.user;
-		if (!user?.company) {
+		if (!user) {
 			return fail(401, { error: 'Unauthorized' });
 		}
 
 		try {
 			const data = await request.formData();
+			const targetCompanyId = data.get('companyId')?.toString() || user.company?.id;
+			if (!targetCompanyId) return fail(404, { error: 'Company not found' });
+
 			const email = data.get('email')?.toString();
 			const role = (data.get('role')?.toString() || 'member') as 'admin' | 'member';
 
@@ -244,14 +255,15 @@ export const actions: Actions = {
 
 			// Get company and check if user has permission to invite
 			const company = await prisma.company.findUnique({
-				where: { id: user.company.id }
+				where: { id: targetCompanyId }
 			});
 
 			if (!company) {
 				return fail(404, { error: 'Company not found' });
 			}
 
-			if (company.ownerId !== user.id) {
+			const isPlatformStaff = user.platformRole === 'CLEARSKY_ADMIN' || user.platformRole === 'CLEARSKY_SUPPORT';
+			if (company.ownerId !== user.id && !isPlatformStaff) {
 				return fail(403, { error: 'Only company owners can invite members' });
 			}
 

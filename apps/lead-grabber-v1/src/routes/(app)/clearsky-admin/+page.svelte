@@ -7,21 +7,7 @@
 	let { data } = $props();
 
 	async function handleManage(companyId: string) {
-		try {
-			const res = await fetch('/api/me/switch-company', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ companyId })
-			});
-			if (res.ok) {
-				toast.success('Switched to company context');
-				goto('/dashboard').then(() => window.location.reload());
-			} else {
-				toast.error('Failed to switch company');
-			}
-		} catch (err) {
-			toast.error('Failed to switch company');
-		}
+		goto(`/settings/company?companyId=${companyId}`);
 	}
 </script>
 
