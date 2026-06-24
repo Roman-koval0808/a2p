@@ -985,6 +985,27 @@ export const POST: RequestHandler = async ({ request }) => {
 									select: { callTrackingCategoryId: true }
 								})
 							: null;
+
+						let commThread = await prisma.communicationThread.findFirst({
+							where: {
+								companyId: numberInfo.companyId,
+								contactId: contact.id,
+								status: 'open'
+							},
+							orderBy: { updated: 'desc' }
+						});
+
+						if (!commThread) {
+							commThread = await prisma.communicationThread.create({
+								data: {
+									companyId: numberInfo.companyId,
+									contactId: contact.id,
+									status: 'open',
+									summary: 'Voice Call'
+								}
+							});
+						}
+
 						const createdLog = await prisma.communicationLog.create({
 							data: {
 								type: 'voice',
@@ -995,6 +1016,7 @@ export const POST: RequestHandler = async ({ request }) => {
 								companyId: numberInfo.companyId,
 								customerId: contact.id,
 								callTrackingCategoryId: numberRow?.callTrackingCategoryId ?? undefined,
+								communicationThreadId: commThread.id,
 								duration: hangupDuration,
 								content:
 									hangupDuration != null
@@ -1593,6 +1615,26 @@ export const POST: RequestHandler = async ({ request }) => {
 									thread_id: contactNumber
 								});
 							} else {
+								let commThread = await prisma.communicationThread.findFirst({
+									where: {
+										companyId: numberInfo.companyId,
+										contactId: contact.id,
+										status: 'open'
+									},
+									orderBy: { updated: 'desc' }
+								});
+
+								if (!commThread) {
+									commThread = await prisma.communicationThread.create({
+										data: {
+											companyId: numberInfo.companyId,
+											contactId: contact.id,
+											status: 'open',
+											summary: 'Voice Call'
+										}
+									});
+								}
+
 								const createdLog = await prisma.communicationLog.create({
 									data: {
 										type: 'voice',
@@ -1602,6 +1644,7 @@ export const POST: RequestHandler = async ({ request }) => {
 										destination: companyNumber,
 										companyId: numberInfo.companyId,
 										customerId: contact.id,
+										communicationThreadId: commThread.id,
 										callTrackingCategoryId: numberRow?.callTrackingCategoryId ?? undefined,
 										duration: recDurationSeconds > 0 ? recDurationSeconds : null,
 										content: transcript || `Call recording available (${recDurationSeconds}s)`,
