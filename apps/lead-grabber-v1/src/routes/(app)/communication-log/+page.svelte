@@ -369,7 +369,7 @@
 	{@const meta = selectedComm.raw?.metadata ?? {}}
 	{@const hasRecordingId = selectedComm.raw?.type === 'voice' && meta.recording_id}
 	{@const recordingUrl = hasRecordingId
-		? `/api/recording/${selectedComm.commId || selectedComm.raw?.id}`
+		? `/api/recording/${selectedComm.id || selectedComm.raw?.id}`
 		: typeof meta.recording_urls === 'object' && meta.recording_urls !== null
 			? (meta.recording_urls.mp3 ??
 				meta.recording_urls.m4a ??
