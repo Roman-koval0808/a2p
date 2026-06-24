@@ -18,6 +18,7 @@
 		/** For voice: call recording playback URL (mp3/m4a from metadata.recording_urls) */
 		recordingUrl?: string | null;
 		estimatedPrice?: number | null;
+		draftedMessage?: string | null;
 	}
 
 	let {
@@ -34,7 +35,8 @@
 		tasks = [],
 		sourceLabel = 'Email Address',
 		recordingUrl = null,
-		estimatedPrice = null
+		estimatedPrice = null,
+		draftedMessage = null
 	}: Props = $props();
 </script>
 
@@ -145,6 +147,20 @@
 									class="min-w-0 break-words font-sans text-[15px] font-normal leading-[141%] text-[rgba(86,86,86,0.78)]"
 								>
 									{body}
+								</span>
+							</div>
+						{/if}
+						{#if draftedMessage}
+							<div class="flex items-start gap-4">
+								<span
+									class="flex-shrink-0 whitespace-nowrap font-sans text-[15px] font-medium leading-[141%] text-blue-600"
+								>
+									Drafted Reply:
+								</span>
+								<span
+									class="min-w-0 break-words font-sans text-[15px] font-normal italic leading-[141%] text-gray-700 bg-blue-50/50 p-2 rounded w-full border border-blue-100"
+								>
+									{draftedMessage}
 								</span>
 							</div>
 						{/if}

@@ -95,16 +95,8 @@
 			});
 			const time = dateObj.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 
-			// Get assigned member names from expanded assigned_members
-			// assigned_members is a relation to users, so when expanded we get user objects
-			const assignedMembers = Array.isArray(log.expand?.assigned_members)
-				? log.expand.assigned_members
-				: log.expand?.assigned_members
-					? [log.expand.assigned_members]
-					: [];
-			const assignedMemberNames = assignedMembers
-				.map((user: any) => user?.name || user?.email || '')
-				.filter(Boolean);
+			// Get assigned member names from the pre-mapped property provided by +page.server.ts
+			const assignedMemberNames = log.assignedMemberNames || [];
 
 			// Urgency: use urgency_gpt (1–5) only; high → red, mid → blue, low → green
 			const meta = log.metadata || {};
@@ -406,6 +398,7 @@
 		tasks={meta.actionItems ?? meta.tasks ?? []}
 		{recordingUrl}
 		estimatedPrice={meta.estimatedPrice ?? null}
+		draftedMessage={selectedComm.raw?.draftResponse || selectedComm.raw?.payload?.draftResponse || selectedComm.raw?.payload?.draft_reply || null}
 	/>
 {/if}
 
