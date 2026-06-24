@@ -224,7 +224,39 @@
 	<Sidebar.Inset class="flex !h-full !min-h-0 min-w-0 flex-col overflow-hidden relative">
 		<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-auto bg-background px-4">
 			<div class="mb-4 flex flex-shrink-0 items-center justify-between pt-4">
-				<Sidebar.Trigger />
+				<div class="flex items-center gap-4">
+					<Sidebar.Trigger />
+					{#if data.availableCompanies && data.availableCompanies.length > 1}
+						<div class="ml-4 flex items-center gap-2">
+							<span class="hidden text-sm font-medium text-gray-500 sm:inline">Company:</span>
+							<select
+								class="h-8 rounded-md border border-input bg-transparent px-2 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+								value={currentUser?.companyId}
+								onchange={async (e) => {
+									const newCompanyId = e.target.value;
+									try {
+										const res = await fetch('/api/me/switch-company', {
+											method: 'POST',
+											headers: { 'Content-Type': 'application/json' },
+											body: JSON.stringify({ companyId: newCompanyId })
+										});
+										if (res.ok) {
+											window.location.reload();
+										} else {
+											toast.error('Failed to switch company');
+										}
+									} catch (err) {
+										toast.error('Failed to switch company');
+									}
+								}}
+							>
+								{#each data.availableCompanies as company}
+									<option value={company.id}>{company.name}</option>
+								{/each}
+							</select>
+						</div>
+					{/if}
+				</div>
 				{#if activeBanner}
 					<div class="flex items-center gap-3 rounded-full bg-white px-4 py-2 shadow-md border border-gray-100 animate-in slide-in-from-top-2">
 						<div class="relative flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-blue-600">
