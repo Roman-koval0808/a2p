@@ -103,7 +103,7 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 
 				logs.push({
 					id: log.id,
-					type: log.type === 'voice' ? 'call' : log.type,
+					type: log.type,
 					direction: log.direction,
 					status: status,
 					source: displaySource,
