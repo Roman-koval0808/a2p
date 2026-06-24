@@ -12,8 +12,8 @@
 
 	let {
 		open = $bindable(false),
-		endpointName = 'Kurt Ravioli Builder',
-		agents = ['Marcus George', 'Betty Mcgregor', 'Gregory Malonzo', 'Jared YU'],
+		endpointName = 'Conversation',
+		agents = [],
 		preSelectedAgents = [],
 		onAssign
 	}: Props = $props();

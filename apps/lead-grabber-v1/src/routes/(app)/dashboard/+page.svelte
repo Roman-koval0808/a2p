@@ -313,6 +313,16 @@
 				</button>
 			</div>
 
+			{#if data.assignedLeads.some(l => l.status === 'assigned')}
+				<div class="mb-3 rounded bg-amber-50 border border-amber-200 p-2 text-xs text-amber-700 flex items-center gap-2">
+					<span class="relative flex h-2 w-2">
+					  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+					  <span class="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+					</span>
+					You have new pending assignments!
+				</div>
+			{/if}
+
 			<div class="flex-1 overflow-y-auto space-y-2.5">
 				{#each data.assignedLeads as lead}
 					<div 
@@ -337,6 +347,9 @@
 						</div>
 						
 						<div class="flex items-center gap-3">
+							{#if lead.status === 'assigned'}
+								<span class="text-[9px] font-bold text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded animate-pulse">PENDING</span>
+							{/if}
 							{#if lead.urgency === 'red'}
 								<span class="text-[9px] font-bold text-red-600 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded">URGENT</span>
 							{:else}
