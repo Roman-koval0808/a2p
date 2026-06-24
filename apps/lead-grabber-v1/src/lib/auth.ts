@@ -65,7 +65,8 @@ export async function getUserFromToken(token: string): Promise<UserWithCompany |
 	const user = await prisma.user.findUnique({
 		where: { id: payload.id },
 		include: {
-			company: true
+			company: true,
+			teamMemberships: true
 		}
 	});
 

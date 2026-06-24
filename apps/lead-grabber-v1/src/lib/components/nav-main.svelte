@@ -31,14 +31,46 @@
 	const { user } = $props();
 	let isCompany = $state(user?.company && user?.company !== '');
 
-	let items = $state([
-		{ title: 'Dashboard', url: '/inbox', icon: LayoutDashboard, href: '/dashboard' },
+	const adminItems = [
+		{ title: 'Dashboard', url: '/clearsky-admin', icon: LayoutDashboard, href: '/clearsky-admin' },
+		{ title: 'Communication Logs', url: '/communication-log', icon: FileText, href: '/communication-log' },
+		{ title: 'Phone Numbers', url: '/manage-numbers', icon: Phone, href: '/manage-numbers' },
+		{ title: 'IVR', url: '/ivr', icon: Headphones, href: '/ivr' },
+		{ title: 'Analytics', url: '/analytics', icon: ChartLineIcon, href: '/analytics' }
+	];
+
+	const supportItems = [
+		{ title: 'Dashboard', url: '/dashboard', icon: LayoutDashboard, href: '/dashboard' },
+		{ title: 'Communication Logs', url: '/communication-log', icon: FileText, href: '/communication-log' },
+		{ title: 'Notifications', url: '/notifications', icon: Bell, href: '/notifications' },
+		{ title: 'Phone Numbers', url: '/manage-numbers', icon: Phone, href: '/manage-numbers' },
+		{ title: 'IVR', url: '/ivr', icon: Headphones, href: '/ivr' },
+		{ title: 'Representatives', url: '/representatives', icon: UserCheck, href: '/representatives' },
+		{ title: 'Analytics', url: '/analytics', icon: ChartLineIcon, href: '/analytics' },
 		{
-			title: 'Communication Log',
-			url: '/communication-log',
-			icon: FileText,
-			href: '/communication-log'
-		},
+			title: 'Settings',
+			url: '/settings',
+			icon: Settings,
+			href: '/settings',
+			subItems: [
+				...(isCompany ? [{ title: 'Company Settings', url: '/settings/company', icon: Building, href: '/settings/company' }] : [])
+			]
+		}
+	];
+
+	const tenantRepItems = [
+		{ title: 'Dashboard', url: '/dashboard', icon: LayoutDashboard, href: '/dashboard' },
+		{ title: 'Communication Log', url: '/communication-log', icon: FileText, href: '/communication-log' },
+		{ title: 'Important Notifications', url: '/notifications', icon: Bell, href: '/notifications' },
+		{ title: 'Inbox', url: '/inbox', icon: Home, href: '/inbox' },
+		{ title: 'Profiles', url: '/profiles', icon: UserCircle, href: '/profiles' },
+		{ title: 'Dialer', url: '/dialer', icon: Phone, href: '/dialer' },
+		{ title: 'Analytics', url: '/analytics', icon: ChartLineIcon, href: '/analytics' }
+	];
+
+	const tenantAdminItems = [
+		{ title: 'Dashboard', url: '/dashboard', icon: LayoutDashboard, href: '/dashboard' },
+		{ title: 'Communication Log', url: '/communication-log', icon: FileText, href: '/communication-log' },
 		{ title: 'Important Notifications', url: '/notifications', icon: Bell, href: '/notifications' },
 		{ title: 'Inbox', url: '/inbox', icon: Home, href: '/inbox' },
 		{ title: 'Profiles', url: '/profiles', icon: UserCircle, href: '/profiles' },
@@ -50,22 +82,12 @@
 			href: '/buy-number',
 			subItems: [
 				{ title: 'Buy Numbers', url: '/buy-number', icon: ShoppingCart, href: '/buy-number' },
-				{
-					title: 'Manage Numbers',
-					url: '/manage-numbers',
-					icon: ShoppingCart,
-					href: '/manage-numbers'
-				},
+				{ title: 'Manage Numbers', url: '/manage-numbers', icon: ShoppingCart, href: '/manage-numbers' },
 				{ title: 'Port Numbers', url: '/port-numbers', icon: ShoppingCart, href: '/port-numbers' }
 			]
 		},
 		{ title: 'IVR', url: '/ivr', icon: Headphones, href: '/ivr' },
-		{
-			title: 'Representatives',
-			url: '/representatives',
-			icon: UserCheck,
-			href: '/representatives'
-		},
+		{ title: 'Representatives', url: '/representatives', icon: UserCheck, href: '/representatives' },
 		{ title: 'Locations', url: '/locations', icon: MapPin, href: '/locations' },
 		{ title: 'Analytics', url: '/analytics', icon: ChartLineIcon, href: '/analytics' },
 		{
@@ -76,44 +98,24 @@
 			subItems: [
 				{ title: 'Lead Box', url: '/leadbox', icon: Smartphone, href: '/leadbox' },
 				{ title: 'Lead Form', url: '/leadform', icon: BookOpen, href: '/leadform' },
-				{
-					title: 'Auto Replies',
-					url: '/settings/auto-replies',
-					icon: Reply,
-					href: '/settings/auto-replies'
-				},
-				{
-					title: 'Shortcuts',
-					url: '/settings/shortcuts',
-					icon: SquareSlash,
-					href: '/settings/shortcuts'
-				},
-				...(isCompany
-					? []
-					: [
-							{
-								title: 'Create Company',
-								url: '/create-company',
-								icon: Building,
-								href: '/create-company'
-							}
-						]),
-				...(isCompany
-					? [
-							{
-								title: 'Company Settings',
-								url: '/settings/company',
-								icon: Building,
-								href: '/settings/company'
-							}
-						]
-					: []),
-				{ title: 'Knowledge Base', url: '/knowledge-base', icon: BookOpen, href: '/knowledge-base' }
-,
-        { title: 'Manage Account', url: '/settings/manage-account', icon: UserCircle, href: '/settings/manage-account' }
+				{ title: 'Auto Replies', url: '/settings/auto-replies', icon: Reply, href: '/settings/auto-replies' },
+				{ title: 'Shortcuts', url: '/settings/shortcuts', icon: SquareSlash, href: '/settings/shortcuts' },
+				...(!isCompany ? [{ title: 'Create Company', url: '/create-company', icon: Building, href: '/create-company' }] : []),
+				...(isCompany ? [{ title: 'Company Settings', url: '/settings/company', icon: Building, href: '/settings/company' }] : [])
 			]
 		}
-	]);
+	];
+
+	let items = $derived.by(() => {
+		const activeMembership = user?.teamMemberships?.find((m: any) => m.companyId === user?.companyId);
+		const tenantRole = activeMembership?.role || 'member'; 
+		const platformRole = user?.platformRole || 'TENANT_USER';
+
+		if (platformRole === 'CLEARSKY_ADMIN') return adminItems;
+		if (platformRole === 'CLEARSKY_SUPPORT') return supportItems;
+		if (tenantRole === 'owner' || tenantRole === 'admin') return tenantAdminItems;
+		return tenantRepItems;
+	});
 
 	const sidebar = useSidebar();
 	let expandedItems = $state<Set<string>>(new Set());
