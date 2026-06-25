@@ -328,12 +328,12 @@
 	</Sidebar.Inset>
 </Sidebar.Provider>
 
-<IncomingCallDialog 
+<!-- <IncomingCallDialog 
 	bind:open={incomingCallOpen} 
 	caller={currentCaller} 
 	on:answer={handleAnswerCall}
 	on:decline={handleDeclineCall}
-/>
+/> -->
 
 <style>
 	main {

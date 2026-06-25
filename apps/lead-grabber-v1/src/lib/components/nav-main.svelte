@@ -34,8 +34,7 @@
 	const adminItems = [
 		{ title: 'Dashboard', url: '/clearsky-admin', icon: LayoutDashboard, href: '/clearsky-admin' },
 		{ title: 'Communication Logs', url: '/communication-log', icon: FileText, href: '/communication-log' },
-		{ title: 'Phone Numbers', url: '/manage-numbers', icon: Phone, href: '/manage-numbers' },
-		{ title: 'IVR', url: '/ivr', icon: Headphones, href: '/ivr' },
+		{ title: 'Profiles', url: '/profiles', icon: UserCircle, href: '/profiles' },
 		{ title: 'Analytics', url: '/analytics', icon: ChartLineIcon, href: '/analytics' }
 	];
 
