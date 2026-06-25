@@ -93,6 +93,17 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	if (draftedResponse && companyNumber && customerPhone) {
 		console.log(`[Orchestrator] Drafting SMS response: "${draftedResponse}"`);
 		
+		const now = new Date();
+		const hour = now.getHours();
+		const day = now.getDay(); // 0 is Sunday, 6 is Saturday
+		const isWeekend = day === 0 || day === 6;
+		const isAfterHours = hour < 9 || hour >= 17;
+		const shouldDefer = isWeekend || isAfterHours;
+
+		if (shouldDefer) {
+			console.log('[Orchestrator] Outside business hours, flagging draft as deferred.');
+		}
+		
 		try {
 			await logCommunication({
 				type: 'sms',
@@ -102,13 +113,14 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				destination: customerPhone,
 				company_id: company.id,
 				customer_id: customer.id,
-				summary: draftedResponse.substring(0, 50) + '...',
+				summary: (shouldDefer ? '[DEFERRED] ' : '') + draftedResponse.substring(0, 40) + '...',
 				content: draftedResponse,
 				metadata: {
 					thread_id: customerPhone,
 					is_draft: true,
 					orchestrator_draft: true,
-					trigger_comm_id: commId
+					trigger_comm_id: commId,
+					deferred_after_hours: shouldDefer
 				}
 			});
 
