@@ -71,6 +71,10 @@
 
 	let { data } = $props();
 
+	let editingAccount = $state(false);
+	let editBalance = $state('');
+	let editScore = $state('');
+
 	let communications = $state<Communication[]>(data.communications || []);
 
 	// Update when data changes
@@ -310,6 +314,51 @@
 					<div class="flex items-start text-sm pt-1 border-t border-[#edf2f7]">
 						<span class="w-[82px] font-sans font-medium text-[#4a5568]">Past names:</span>
 						<span class="font-sans text-[#718096]">{selectedProfile.past_names.join(', ')}</span>
+					</div>
+				{/if}
+			</div>
+
+			<!-- Account Balance & Engagement Score -->
+			<div class="mb-5 bg-white rounded-lg border border-[#e2e8f0] shadow-sm overflow-hidden">
+				<div class="bg-[#edf2f7] px-3 py-2 border-b border-[#e2e8f0] flex items-center justify-between">
+					<h3 class="text-xs font-bold text-[#4a5568] uppercase tracking-wider">Account</h3>
+					{#if !editingAccount}
+						<button
+							type="button"
+							class="text-[10px] text-indigo-600 hover:text-indigo-800 font-medium cursor-pointer"
+							onclick={() => { editingAccount = true; editBalance = data.accountBalance != null ? String(data.accountBalance) : ''; editScore = String(data.engagementScore ?? 0); }}
+						>Edit</button>
+					{/if}
+				</div>
+				{#if editingAccount}
+					<form method="POST" action="?/updateAccount" class="p-3 space-y-3" onsubmit={() => { editingAccount = false; }}>
+						<div>
+							<label for="accountBalance" class="text-[10px] font-medium text-[#4a5568] uppercase tracking-wider block mb-1">Balance Owed ($)</label>
+							<input id="accountBalance" name="accountBalance" type="number" step="0.01" bind:value={editBalance} class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none" placeholder="e.g. 1130.00" />
+						</div>
+						<div>
+							<label for="engagementScore" class="text-[10px] font-medium text-[#4a5568] uppercase tracking-wider block mb-1">Engagement Score</label>
+							<input id="engagementScore" name="engagementScore" type="number" bind:value={editScore} class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none" placeholder="0" />
+						</div>
+						<div class="flex gap-2">
+							<button type="submit" class="rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700">Save</button>
+							<button type="button" class="rounded border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50" onclick={() => { editingAccount = false; }}>Cancel</button>
+						</div>
+					</form>
+				{:else}
+					<div class="p-3 grid grid-cols-2 gap-3">
+						<div class="text-center">
+							<span class="text-[9px] text-[#718096] uppercase font-bold tracking-wider">Balance Owed</span>
+							<div class="text-lg font-bold mt-1 {data.accountBalance != null && data.accountBalance > 0 ? 'text-amber-600' : 'text-gray-400'}">
+								{data.accountBalance != null ? `$${data.accountBalance.toFixed(2)}` : '—'}
+							</div>
+						</div>
+						<div class="text-center">
+							<span class="text-[9px] text-[#718096] uppercase font-bold tracking-wider">Engagement</span>
+							<div class="text-lg font-bold text-indigo-600 mt-1">
+								{data.engagementScore ?? 0}
+							</div>
+						</div>
 					</div>
 				{/if}
 			</div>
