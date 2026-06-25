@@ -14,7 +14,7 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 import { isA2pEnabled, forwardVoiceWebhook } from '$lib/server/a2p-client';
 import { createNotification } from '$lib/utils/notifications';
-
+import { setIntent, setVoicemail, removeVoicemail, getState, deleteState, addVoicemailRecordingId, hasVoicemailRecordingId, removeVoicemailRecordingId } from '$lib/server/call-state';
 const TELNYX_PUBLIC_KEY = process.env.TELNYX_PUBLIC_KEY;
 
 const playPublic = false;
@@ -62,16 +62,7 @@ function safeDecodeClientState(clientState: any): any {
 	return null;
 }
 
-/**
- * Tracks call control IDs that have transitioned to voicemail.
- */
-const callsWithVoicemail = new Set<string>();
-
-/**
- * Tracks recording IDs that are started specifically for voicemails.
- */
-const voicemailRecordingIds = new Set<string>();
-
+// Replaced by CallState model in Prisma
 function resolveAudioUrl(path: string | null | undefined, baseUrl: string): string | null {
 	if (playPublic) return publicTestAudio;
 	return toAbsoluteAudioUrl(path, baseUrl);
@@ -439,7 +430,7 @@ export const POST: RequestHandler = async ({ request }) => {
 					).toString('base64');
 
 					if (goesToVoicemail) {
-						callsWithVoicemail.add(callControlId);
+						await setVoicemail(callControlId);
 					}
 
 					try {
@@ -627,7 +618,7 @@ export const POST: RequestHandler = async ({ request }) => {
 				if (digit === '#') {
 					try {
 						// Mark call as going to voicemail
-						callsWithVoicemail.add(callControlId);
+						await setVoicemail(callControlId);
 
 						// Stop current recording
 						await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/record_stop`, {
@@ -686,6 +677,10 @@ export const POST: RequestHandler = async ({ request }) => {
 				// --- GAP 6: EMERGENCY BYPASS & FLAG ---
 				const isEmergency = digit === '3' || match?.name?.toLowerCase().includes('emergency');
 				const callPriority = isEmergency ? 'emergency' : 'standard';
+
+				if (match) {
+					await setIntent(callControlId, String(match.key), match.name || String(match.key), 'high');
+				}
 
 				if (match?.extension) {
 					const to = String(match.extension).trim();
@@ -833,7 +828,7 @@ export const POST: RequestHandler = async ({ request }) => {
 							const recordingId = resData?.data?.recording_id;
 							if (recordingId) {
 								console.log('🎙️ Voicemail recording started, id:', recordingId);
-								voicemailRecordingIds.add(recordingId);
+								await addVoicemailRecordingId(callControlId, recordingId);
 							} else {
 								console.warn('⚠️ Voicemail recording started but no recording_id in response:', resData);
 							}
@@ -903,7 +898,7 @@ export const POST: RequestHandler = async ({ request }) => {
 					console.log('📞 Transfer not answered (', hangupCause, '), playing voicemail on original caller', originalCallControlId);
 					try {
 						// Mark call as going to voicemail
-						callsWithVoicemail.add(originalCallControlId);
+						await setVoicemail(originalCallControlId);
 
 						// Stop current recording
 						await fetch(`https://api.telnyx.com/v2/calls/${originalCallControlId}/actions/record_stop`, {
@@ -973,6 +968,48 @@ export const POST: RequestHandler = async ({ request }) => {
 						let contact = await prisma.contact.findFirst({
 							where: { companyId: numberInfo.companyId, phone: contactNumber }
 						});
+						const contactExisted = !!contact;
+
+						// --- DROP CALL LOGIC ---
+						const callState = await getState(callControlId);
+						let intentInfo: any = callState?.intentDigit ? {
+							digit: callState.intentDigit,
+							intentName: callState.intentName,
+							confidence: callState.intentConfidence,
+							timestamp: callState.intentTimestamp ? callState.intentTimestamp.getTime() : Date.now()
+						} : undefined;
+						const hasVoicemail = callState?.hasVoicemail || false;
+						
+						// Check if hangup was very fast after digit press
+						if (intentInfo) {
+							const timeSinceIntentMs = Date.now() - intentInfo.timestamp;
+							if (timeSinceIntentMs < 1500) {
+								intentInfo = { ...intentInfo, confidence: 'low' };
+							}
+						}
+
+						const hasIntent = !!intentInfo;
+						const isDropCall = !hasIntent && !hasVoicemail && direction === 'inbound';
+
+						if (isDropCall) {
+							await prisma.dropCall.create({
+								data: {
+									phoneNumber: contactNumber,
+									duration: hangupDuration ?? 0,
+									knownContact: contactExisted,
+									companyId: numberInfo.companyId
+								}
+							});
+							console.log('📞 Logged as DropCall (no intent/voicemail captured)');
+
+							if (!contactExisted) {
+								// Unknown caller -> stop processing here. No CRM pollution.
+								await deleteState(callControlId);
+								// callsWithVoicemail.delete(callControlId); - handled by deleteState
+								break;
+							}
+						}
+
 						if (!contact) {
 							contact = await prisma.contact.create({
 								data: { companyId: numberInfo.companyId, phone: contactNumber, name: null }
@@ -1010,7 +1047,7 @@ export const POST: RequestHandler = async ({ request }) => {
 							data: {
 								type: 'voice',
 								direction: direction as 'inbound' | 'outbound',
-								status: 'completed',
+								status: isDropCall ? 'failed' : 'completed',
 								source: contactNumber,
 								destination: companyNumber,
 								companyId: numberInfo.companyId,
@@ -1020,15 +1057,24 @@ export const POST: RequestHandler = async ({ request }) => {
 								duration: hangupDuration,
 								content:
 									hangupDuration != null
-										? `Call completed (${Math.round(hangupDuration)}s)`
-										: 'Call completed',
-								metadata: { call_control_id: callControlId, origin: directionFromMeta }
+										? `Call ${isDropCall ? 'attempted' : 'completed'} (${Math.round(hangupDuration)}s)`
+										: `Call ${isDropCall ? 'attempted' : 'completed'}`,
+								metadata: { 
+									call_control_id: callControlId, 
+									origin: directionFromMeta,
+									ivr_intent: intentInfo?.intentName,
+									ivr_digit: intentInfo?.digit,
+									ivr_confidence: intentInfo?.confidence
+								}
 							}
 						});
 						console.log(
 							'📝 Created CommunicationLog on hangup (duration, recording link added when saved)',
 							callControlId
 						);
+						
+						// Clean up tracking sets/maps
+						await deleteState(callControlId);
 
 						// Create real-time notification
 						await createNotification({
@@ -1332,10 +1378,12 @@ export const POST: RequestHandler = async ({ request }) => {
 							let transcript = '';
 							let summary = '';
 							let intent = '';
+							let sub_intent: string | null = null;
 							let urgency = 'medium';
 							let sentiment = '';
 							let actionItems: string[] = [];
 							let estimatedPrice: number | null = null;
+							let datetime: string | null = null;
 
 							let decoded: any = null;
 							if (payload?.client_state) {
@@ -1347,14 +1395,16 @@ export const POST: RequestHandler = async ({ request }) => {
 							const recordingCount = await prisma.callRecording.count({
 								where: { callId: callControlId }
 							});
-							const hasVoicemail = callsWithVoicemail.has(callControlId);
-							const isVoicemailRecording = (recId ? voicemailRecordingIds.has(recId) : false) || (hasVoicemail && recordingCount >= 2);
+							const callState = await getState(callControlId);
+							const hasVoicemail = callState?.hasVoicemail || false;
+							const hasVmRecId = recId ? await hasVoicemailRecordingId(callControlId, recId) : false;
+							const isVoicemailRecording = hasVmRecId || (hasVoicemail && recordingCount >= 2);
 
-							if (recId && voicemailRecordingIds.has(recId)) {
-								voicemailRecordingIds.delete(recId);
+							if (recId && hasVmRecId) {
+								await removeVoicemailRecordingId(callControlId, recId);
 							}
 							if (hasVoicemail && isVoicemailRecording) {
-								callsWithVoicemail.delete(callControlId);
+								await removeVoicemail(callControlId);
 							}
 
 							const shouldTranscribe = !hasVoicemail || isVoicemailRecording;
@@ -1368,10 +1418,12 @@ export const POST: RequestHandler = async ({ request }) => {
 										const analysis = await analyzeCallLog(transcript);
 										summary = analysis.summary;
 										intent = analysis.intent;
+										sub_intent = analysis.sub_intent;
 										urgency = analysis.urgency;
 										sentiment = analysis.sentiment;
 										actionItems = analysis.actionItems;
 										estimatedPrice = analysis.estimatedPrice;
+										datetime = analysis.datetime;
 										const callerName = analysis.callerName;
 										const buyingSignals = analysis.buyingSignals;
 
@@ -1441,7 +1493,7 @@ export const POST: RequestHandler = async ({ request }) => {
 												return;
 											}
 
-											let scoreDelta = 5;
+											let scoreDelta = 0; // Orchestrator handles engagement score increments
 											let bucketSignal = 'research';
 											const lowerTranscript = transcript.toLowerCase();
 											const emergencyKeywords = ['burst', 'flood', 'leak', 'emergency', 'pipe', 'water', 'immediate', 'urgent'];
@@ -1449,13 +1501,10 @@ export const POST: RequestHandler = async ({ request }) => {
 
 											const hasEmergency = finalPriority === 'emergency' || emergencyKeywords.some(kw => lowerTranscript.includes(kw));
 											if (hasEmergency) {
-												scoreDelta = 15;
 												bucketSignal = 'emergency';
 											} else if (intent === 'Booking' || bookingKeywords.some(kw => lowerTranscript.includes(kw))) {
-												scoreDelta = 20;
 												bucketSignal = 'active';
 											} else if (sentiment === 'Angry' || sentiment === 'Negative') {
-												scoreDelta = -10;
 												bucketSignal = 'friction';
 											}
 
@@ -1582,11 +1631,14 @@ export const POST: RequestHandler = async ({ request }) => {
 								urgency,
 								sentiment,
 								intent: intent || undefined,
+								sub_intent: sub_intent || undefined,
+								datetime: datetime || undefined,
 								actionItems,
 								origin: direction,
 								estimatedPrice
 							};
 
+							let finalLogId: string | null = null;
 							if (existingLog) {
 								const updatedLog = await prisma.communicationLog.update({
 									where: { id: existingLog.id },
@@ -1600,6 +1652,7 @@ export const POST: RequestHandler = async ({ request }) => {
 										} as any
 									}
 								});
+								finalLogId = updatedLog.id;
 								console.log('📝 Updated CommunicationLog with recording link', callControlId);
 
 								// Create notification for updated call log with recording/voicemail
@@ -1668,6 +1721,13 @@ export const POST: RequestHandler = async ({ request }) => {
 									content: transcript || `Call recording available (${recDurationSeconds}s)`,
 									communication_log_id: createdLog.id,
 									thread_id: contactNumber
+								});
+								finalLogId = createdLog.id;
+							}
+
+							if (finalLogId) {
+								import('$lib/server/orchestrator').then(({ process_orchestrator }) => {
+									process_orchestrator(finalLogId as string, 'ai_ready').catch(e => console.error('[Orchestrator] Error:', e));
 								});
 							}
 
