@@ -368,62 +368,45 @@
 	}
 </script>
 
-<div class="min-h-screen bg-[#ECEEF3] p-4">
+<div class="min-h-screen bg-gray-50 p-6 font-sans">
 	{#if page.url.searchParams.get('buy_number_first') === '1'}
 		<div
-			class="mb-4 rounded-[3px] border border-amber-500 bg-amber-50 px-4 py-3 font-['Poppins'] text-[15px] leading-[22px] text-amber-900"
+			class="mb-6 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 font-sans text-sm leading-[22px] text-amber-900 shadow-sm"
 		>
 			<strong>IVR requires a phone number.</strong> You must buy or assign at least one phone number
 			to your company before using Call Flows (IVR). Buy or assign a number below, then return to IVR.
 		</div>
 	{/if}
 	<!-- Header -->
-	<div class="mb-4 rounded-[3px] bg-white px-4 py-3">
-		<h1 class="font-['Poppins'] text-[23px] font-semibold leading-[30px] text-[#747474]">
-			My Numbers
-		</h1>
+	<div class="mb-6 flex items-center justify-between border-b border-gray-200 pb-5">
+		<div>
+			<h1 class="text-xl font-bold text-gray-800 font-sans">My Numbers</h1>
+			<p class="text-xs text-gray-500 mt-1">Manage your active phone numbers, configure messaging profiles, assign IVR flows and set up call tracking.</p>
+		</div>
 	</div>
 
 	<!-- Main Content Card -->
-	<div class="rounded-lg bg-white p-6">
+	<div class="rounded-lg bg-white p-6 border border-gray-200 shadow-sm">
 		<!-- Tabs -->
-		<div class="mb-6 border-b border-[#949494]">
-			<div class="flex gap-6">
+		<div class="mb-6 border-b border-gray-200">
+			<div class="-mb-px flex gap-6">
 				<button
-					class="relative pb-2 font-['Poppins'] text-lg font-medium leading-[21px] transition-colors {activeTab ===
-					'myNumber'
-						? 'text-[#577AB7]'
-						: 'text-[#A0A0A0]'}"
+					class="relative pb-3 font-sans text-sm font-semibold transition-all {activeTab === 'myNumber' ? 'text-[#577AB7] border-b-2 border-[#577AB7]' : 'text-gray-400 hover:text-gray-600 border-b-2 border-transparent'}"
 					onclick={() => (activeTab = 'myNumber')}
 				>
 					My Number
-					{#if activeTab === 'myNumber'}
-						<div class="absolute bottom-0 left-0 h-[6px] w-[122px] bg-[#577AB7]"></div>
-					{/if}
 				</button>
 				<button
-					class="relative pb-2 font-['Poppins'] text-lg font-medium leading-[21px] transition-colors {activeTab ===
-					'messaging'
-						? 'text-[#577AB7]'
-						: 'text-[#A0A0A0]'}"
+					class="relative pb-3 font-sans text-sm font-semibold transition-all {activeTab === 'messaging' ? 'text-[#577AB7] border-b-2 border-[#577AB7]' : 'text-gray-400 hover:text-gray-600 border-b-2 border-transparent'}"
 					onclick={() => (activeTab = 'messaging')}
 				>
 					Messaging
-					{#if activeTab === 'messaging'}
-						<div class="absolute bottom-0 left-0 h-[6px] w-[122px] bg-[#577AB7]"></div>
-					{/if}
 				</button>
 				<button
-					class="relative pb-2 font-['Poppins'] text-lg font-medium leading-[21px] transition-colors {activeTab ===
-					'voice'
-						? 'text-[#577AB7]'
-						: 'text-[#A0A0A0]'}"
+					class="relative pb-3 font-sans text-sm font-semibold transition-all {activeTab === 'voice' ? 'text-[#577AB7] border-b-2 border-[#577AB7]' : 'text-gray-400 hover:text-gray-600 border-b-2 border-transparent'}"
 					onclick={() => (activeTab = 'voice')}
 				>
 					Voice
-					{#if activeTab === 'voice'}
-						<div class="absolute bottom-0 left-0 h-[6px] w-[122px] bg-[#577AB7]"></div>
-					{/if}
 				</button>
 			</div>
 		</div>
@@ -432,59 +415,47 @@
 			<!-- Hosted Messaging Numbers Content -->
 			<div class="space-y-6">
 				<!-- Title -->
-				<h2 class="font-['Poppins'] text-[23px] font-semibold leading-[30px] text-[#747474]">
-					Hosted Messaging Numbers
-				</h2>
-
-				<!-- Description -->
-				<p class="font-['Poppins'] text-lg font-light leading-[24px] text-[#808080]">
-					Hosted SMS allows you to enable SMS/MMS services on numbers that have existing voice
-					services from another provider. The numbers that could also be for landlines that
-					traditionally have never had SMS capabilities.
-				</p>
+				<div>
+					<h2 class="font-sans text-lg font-bold text-gray-800">
+						Hosted Messaging Numbers
+					</h2>
+					<p class="font-sans text-sm text-gray-500 mt-1">
+						Hosted SMS allows you to enable SMS/MMS services on numbers that have existing voice
+						services from another provider. The numbers could also be for landlines that
+						traditionally have never had SMS capabilities.
+					</p>
+				</div>
 
 				<!-- Sub-tabs and Create Button -->
-				<div class="flex items-center justify-between border-b border-[#949494] pb-2">
-					<div class="flex gap-6">
+				<div class="flex items-center justify-between border-b border-gray-200 pb-2">
+					<div class="-mb-px flex gap-6">
 						<button
-							class="relative font-['Poppins'] text-lg font-medium leading-[21px] transition-colors {messagingSubTab ===
-							'numbers'
-								? 'text-[#577AB7]'
-								: 'text-[#A0A0A0]'}"
+							class="relative pb-2 font-sans text-sm font-semibold transition-all {messagingSubTab === 'numbers' ? 'text-[#577AB7] border-b-2 border-[#577AB7]' : 'text-gray-400 hover:text-gray-600 border-b-2 border-transparent'}"
 							onclick={() => (messagingSubTab = 'numbers')}
 						>
 							Numbers
-							{#if messagingSubTab === 'numbers'}
-								<div class="absolute -bottom-2 left-0 h-[6px] w-full bg-[#577AB7]"></div>
-							{/if}
 						</button>
 						<button
-							class="relative font-['Poppins'] text-lg font-medium leading-[21px] transition-colors {messagingSubTab ===
-							'orders'
-								? 'text-[#577AB7]'
-								: 'text-[#A0A0A0]'}"
+							class="relative pb-2 font-sans text-sm font-semibold transition-all {messagingSubTab === 'orders' ? 'text-[#577AB7] border-b-2 border-[#577AB7]' : 'text-gray-400 hover:text-gray-600 border-b-2 border-transparent'}"
 							onclick={() => (messagingSubTab = 'orders')}
 						>
 							Orders
-							{#if messagingSubTab === 'orders'}
-								<div class="absolute -bottom-2 left-0 h-[6px] w-full bg-[#577AB7]"></div>
-							{/if}
 						</button>
 					</div>
 					<button
 						onclick={() => goto('/manage-numbers/create-order')}
-						class="h-[31px] rounded-[4px] bg-[#577AB7] px-4 font-['Poppins'] text-base font-medium leading-[19px] text-white transition-colors hover:bg-[#4a6ba5]"
+						class="h-9 rounded-md bg-[#577AB7] px-4 font-sans text-sm font-medium text-white shadow-sm transition-colors hover:bg-[#4a6ba5]"
 					>
 						Create New Order
 					</button>
 				</div>
 
 				<!-- Table Container -->
-				<div class="rounded-b border border-[#BEBEBE] bg-white">
+				<div class="rounded-lg border border-gray-200 bg-white overflow-hidden shadow-sm">
 					{#if messagingSubTab === 'numbers'}
-						<div class="border-b border-[#949494] px-4 py-3">
+						<div class="border-b border-gray-200 bg-gray-50/50 px-4 py-3">
 							<div
-								class="grid grid-cols-4 gap-4 font-['Poppins'] text-[15px] font-medium leading-[18px] text-[#757575]"
+								class="grid grid-cols-4 gap-4 font-sans text-xs font-semibold uppercase tracking-wider text-gray-500"
 							>
 								<div>Number</div>
 								<div>Messaging Profile</div>
@@ -493,30 +464,36 @@
 							</div>
 						</div>
 						{#if isLoading}
-							<div class="flex h-[200px] items-center justify-center text-[#808080]">
+							<div class="flex h-[200px] items-center justify-center text-gray-400 font-sans">
 								Loading...
 							</div>
 						{:else if numbers.length === 0}
 							<div class="flex h-[200px] items-center justify-center">
-								<p class="font-['Poppins'] text-xl font-medium leading-[24px] text-[#808080]">
+								<p class="font-sans text-sm font-medium text-gray-400">
 									No numbers found.
 								</p>
 							</div>
 						{:else}
-							<div class="divide-y divide-[rgba(193,193,193,0.4)]">
+							<div class="divide-y divide-gray-100">
 								{#each numbers as num}
-									<div class="grid grid-cols-4 gap-4 px-4 py-3">
-										<div class="font-['Poppins'] text-sm text-[#808080]">{num.number}</div>
-										<div class="font-['Poppins'] text-sm text-[#808080]">
+									<div class="grid grid-cols-4 gap-4 px-4 py-3 hover:bg-gray-50/50 transition-colors items-center">
+										<div class="font-sans text-sm font-medium text-gray-700">{num.number}</div>
+										<div class="font-sans text-sm text-gray-500">
 											{num.messagingProfile}
 										</div>
 										<div class="flex gap-1.5">
-											{#if num.features?.sms}<MessageSquare
-													class="h-3.5 w-3.5 text-[#577AB7]"
-												/>{/if}
-											{#if num.features?.voice}<Phone class="h-3.5 w-3.5 text-[#577AB7]" />{/if}
+											{#if num.features?.sms}
+												<span class="inline-flex items-center rounded-md bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10" title="SMS">
+													<MessageSquare class="h-3 w-3 mr-0.5" /> SMS
+												</span>
+											{/if}
+											{#if num.features?.voice}
+												<span class="inline-flex items-center rounded-md bg-purple-50 px-1.5 py-0.5 text-xs font-medium text-purple-700 ring-1 ring-inset ring-purple-700/10" title="Voice">
+													<Phone class="h-3 w-3 mr-0.5" /> Voice
+												</span>
+											{/if}
 										</div>
-										<div class="font-['Poppins'] text-sm text-[#808080]">-</div>
+										<div class="font-sans text-sm text-gray-400">-</div>
 									</div>
 								{/each}
 							</div>
@@ -525,96 +502,62 @@
 						<!-- Orders sub-tab -->
 						<div class="max-h-[400px] overflow-x-auto overflow-y-auto">
 							<table class="w-full min-w-[800px]">
-								<thead class="sticky top-0 z-10 bg-white">
-									<tr class="border-b border-[rgba(193,193,193,0.96)]">
-										<th
-											class="pb-3 text-left font-['Poppins'] text-[15px] font-semibold text-[#757575]"
-											>Date</th
-										>
-										<th
-											class="pb-3 text-left font-['Poppins'] text-[15px] font-semibold text-[#757575]"
-											>Status</th
-										>
-										<th
-											class="pb-3 text-left font-['Poppins'] text-[15px] font-semibold text-[#757575]"
-											>Country</th
-										>
-										<th
-											class="pb-3 text-left font-['Poppins'] text-[15px] font-semibold text-[#757575]"
-											>Order ID</th
-										>
-										<th
-											class="pb-3 text-left font-['Poppins'] text-[15px] font-semibold text-[#757575]"
-											>SubOrder ID</th
-										>
-										<th
-											class="pb-3 text-left font-['Poppins'] text-[15px] font-semibold text-[#757575]"
-											>Actor</th
-										>
-										<th
-											class="pb-3 text-left font-['Poppins'] text-[15px] font-semibold text-[#757575]"
-											>Number Typ</th
-										>
+								<thead class="sticky top-0 z-10 bg-gray-50 border-b border-gray-200">
+									<tr>
+										<th class="py-3 px-4 text-left font-sans text-xs font-semibold uppercase tracking-wider text-gray-500">Date</th>
+										<th class="py-3 px-4 text-left font-sans text-xs font-semibold uppercase tracking-wider text-gray-500">Status</th>
+										<th class="py-3 px-4 text-left font-sans text-xs font-semibold uppercase tracking-wider text-gray-500">Country</th>
+										<th class="py-3 px-4 text-left font-sans text-xs font-semibold uppercase tracking-wider text-gray-500">Order ID</th>
+										<th class="py-3 px-4 text-left font-sans text-xs font-semibold uppercase tracking-wider text-gray-500">SubOrder ID</th>
+										<th class="py-3 px-4 text-left font-sans text-xs font-semibold uppercase tracking-wider text-gray-500">Actor</th>
+										<th class="py-3 px-4 text-left font-sans text-xs font-semibold uppercase tracking-wider text-gray-500">Number Type</th>
 									</tr>
 								</thead>
-								<tbody>
+								<tbody class="divide-y divide-gray-100">
 									{#if numberOrders.length === 0}
 										<tr>
-											<td colspan="7" class="py-8 text-center font-['Poppins'] text-[#808080]"
-												>No orders found.</td
-											>
+											<td colspan="7" class="py-8 text-center font-sans text-sm text-gray-400">No orders found.</td>
 										</tr>
 									{:else}
 										{#each numberOrders as order}
-											<tr class="border-b border-[rgba(193,193,193,0.4)]">
-												<td class="py-3 font-['Poppins'] text-[15px] text-[#808080]"
-													>{order.date}</td
-												>
-												<td class="py-3">
+											<tr class="hover:bg-gray-50/50 transition-colors">
+												<td class="py-3 px-4 font-sans text-sm text-gray-600">{order.date}</td>
+												<td class="py-3 px-4">
 													<div class="flex items-center gap-2">
-														<div class="h-[6px] w-[5px] rounded-full bg-[#04CB15]"></div>
-														<span class="font-['Poppins'] text-[15px] text-[#808080]"
-															>{order.status}</span
-														>
+														<span class="relative flex h-2 w-2">
+															<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+															<span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+														</span>
+														<span class="font-sans text-sm font-medium text-gray-700">{order.status}</span>
 													</div>
 												</td>
-												<td class="py-3 font-['Poppins'] text-[15px] text-[#808080]"
-													>{order.country}</td
-												>
-												<td class="py-3">
+												<td class="py-3 px-4 font-sans text-sm text-gray-500">{order.country}</td>
+												<td class="py-3 px-4">
 													<div class="flex items-center gap-2">
-														<span class="font-['Poppins'] text-[15px] text-[#808080]"
-															>{truncateId(order.orderId)}</span
-														>
+														<span class="font-mono text-xs text-gray-600">{truncateId(order.orderId)}</span>
 														<button
 															type="button"
 															onclick={() => copyOrderId(order.orderId)}
-															class="cursor-pointer text-[#6C6C6C] hover:text-[#808080]"
+															class="cursor-pointer text-gray-400 hover:text-gray-600 transition-colors"
 														>
-															<Copy class="h-4 w-4" />
+															<Copy class="h-3.5 w-3.5" />
 														</button>
 													</div>
 												</td>
-												<td class="py-3">
+												<td class="py-3 px-4">
 													<div class="flex items-center gap-2">
-														<span class="font-['Poppins'] text-[15px] text-[#808080]"
-															>{truncateId(order.subOrderId)}</span
-														>
+														<span class="font-mono text-xs text-gray-600">{truncateId(order.subOrderId)}</span>
 														<button
 															type="button"
 															onclick={() => copyOrderId(order.subOrderId)}
-															class="cursor-pointer text-[#6C6C6C] hover:text-[#808080]"
+															class="cursor-pointer text-gray-400 hover:text-gray-600 transition-colors"
 														>
-															<Copy class="h-4 w-4" />
+															<Copy class="h-3.5 w-3.5" />
 														</button>
 													</div>
 												</td>
-												<td class="py-3 font-['Poppins'] text-[15px] text-[#808080]"
-													>{order.actor}</td
-												>
-												<td class="py-3 font-['Poppins'] text-[15px] text-[#808080]"
-													>{order.numberType}</td
-												>
+												<td class="py-3 px-4 font-sans text-sm text-gray-500">{order.actor}</td>
+												<td class="py-3 px-4 font-sans text-sm text-gray-500">{order.numberType}</td>
 											</tr>
 										{/each}
 									{/if}
@@ -628,15 +571,15 @@
 			<!-- Verified Numbers Content -->
 			<div class="space-y-6">
 				<!-- Title -->
-				<h2 class="font-['Poppins'] text-[23px] font-semibold leading-[30px] text-[#747474]">
-					Verified Numbers
-				</h2>
-
-				<!-- Description -->
-				<p class="font-['Poppins'] text-base font-light leading-[21px] text-[#808080]">
-					Verified Numbers enable you to use that number as a Calling Line Identity (CLI) on your
-					outbound calls done through Telnyx.
-				</p>
+				<div>
+					<h2 class="font-sans text-lg font-bold text-gray-800">
+						Verified Numbers
+					</h2>
+					<p class="font-sans text-sm text-gray-500 mt-1">
+						Verified Numbers enable you to use that number as a Calling Line Identity (CLI) on your
+						outbound calls done through Telnyx.
+					</p>
+				</div>
 
 				<!-- Search and Verify Button -->
 				<div class="flex items-center gap-4">
@@ -645,26 +588,26 @@
 							type="text"
 							bind:value={verifiedSearchQuery}
 							placeholder="Search numbers starting with....."
-							class="h-[38px] w-full rounded-[2px] border border-[#787878] bg-white px-3 pr-10 font-['Poppins'] text-base font-normal leading-[19px] text-[#B6B6B6] outline-none placeholder:text-[#B6B6B6]"
+							class="h-10 w-full rounded-md border border-gray-200 bg-white px-3 pr-10 font-sans text-sm text-gray-700 outline-none shadow-sm placeholder:text-gray-400 focus:border-[#577AB7] focus:ring-1 focus:ring-[#577AB7] transition-all"
 						/>
 						<Search
-							class="pointer-events-none absolute right-3 top-1/2 h-3 w-3 -translate-y-1/2 text-[#999999]"
+							class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
 						/>
 					</div>
 					<button
 						onclick={() => goto('/manage-numbers/verify')}
-						class="h-[38px] rounded-[4px] bg-[#577AB7] px-4 font-['Poppins'] text-base font-medium leading-[19px] text-white transition-colors hover:bg-[#4a6ba5]"
+						class="h-10 rounded-md bg-[#577AB7] px-4 font-sans text-sm font-medium text-white shadow-sm transition-colors hover:bg-[#4a6ba5]"
 					>
 						Verify Number
 					</button>
 				</div>
 
 				<!-- Table Container -->
-				<div class="rounded-b border border-[#BEBEBE] bg-white">
+				<div class="rounded-lg border border-gray-200 bg-white overflow-hidden shadow-sm">
 					<!-- Table Headers -->
-					<div class="border-b border-[rgba(193,193,193,0.96)] px-4 py-3">
+					<div class="border-b border-gray-200 bg-gray-50/50 px-4 py-3">
 						<div
-							class="grid grid-cols-2 gap-4 font-['Poppins'] text-[15px] font-medium leading-[18px] text-[#757575]"
+							class="grid grid-cols-2 gap-4 font-sans text-xs font-semibold uppercase tracking-wider text-gray-500"
 						>
 							<div>Phone Number</div>
 							<div>Verified At</div>
@@ -672,22 +615,22 @@
 					</div>
 
 					<!-- Table Rows -->
-					<div class="divide-y divide-[rgba(193,193,193,0.96)]">
+					<div class="divide-y divide-gray-100">
 						{#if verifiedNumbers.length === 0}
-							<div class="px-4 py-8 text-center text-gray-500">No verified numbers found.</div>
+							<div class="px-4 py-8 text-center font-sans text-sm text-gray-400 bg-white">No verified numbers found.</div>
 						{:else}
 							{#each verifiedNumbers as verified}
-								<div class="grid grid-cols-2 gap-4 px-4 py-3">
-									<div class="font-['Poppins'] text-sm font-normal leading-[17px] text-[#808080]">
+								<div class="grid grid-cols-2 gap-4 px-4 py-3 hover:bg-gray-50/50 transition-colors items-center bg-white">
+									<div class="font-sans text-sm font-medium text-gray-700">
 										{verified.number}
 									</div>
 									<div class="flex items-center justify-between">
 										<span
-											class="font-['Poppins'] text-sm font-normal leading-[17px] text-[#808080]"
+											class="font-sans text-sm text-gray-500"
 										>
 											{verified.verifiedAt}
 										</span>
-										<button class="text-[#808080] transition-colors hover:text-red-500">
+										<button class="text-gray-400 transition-colors hover:text-red-500 rounded-md p-1 hover:bg-gray-100">
 											<Trash2 class="h-4 w-4" />
 										</button>
 									</div>
@@ -704,105 +647,105 @@
 					<input
 						type="text"
 						bind:value={searchQuery}
-						placeholder="Enter full or partial number (e.g last 4 digital)"
-						class="h-[29px] w-full rounded-[2px] border border-[#787878] bg-white px-3 pr-10 font-['Poppins'] text-base font-normal leading-[19px] text-[#B6B6B6] outline-none placeholder:text-[#B6B6B6]"
+						placeholder="Enter full or partial number (e.g. last 4 digits)"
+						class="h-10 w-full rounded-md border border-gray-200 bg-white px-3 pr-10 font-sans text-sm text-gray-700 outline-none shadow-sm placeholder:text-gray-400 focus:border-[#577AB7] focus:ring-1 focus:ring-[#577AB7] transition-all"
 					/>
 					<Search
-						class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#808080]"
+						class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
 					/>
 				</div>
 				<button
 					onclick={handleBuyNumbers}
-					class="h-[27px] w-[138px] rounded-[4px] bg-[#577AB7] font-['Poppins'] text-base font-medium leading-[19px] text-white transition-colors hover:bg-[#4a6ba5]"
+					class="h-10 rounded-md bg-[#577AB7] px-4 font-sans text-sm font-medium text-white shadow-sm transition-colors hover:bg-[#4a6ba5]"
 				>
 					Buy Numbers
 				</button>
 			</div>
 
 			<!-- Filter Dropdowns and Action Buttons -->
-			<div class="mb-4 flex items-center justify-between gap-4">
+			<div class="mb-4 flex flex-wrap items-center justify-between gap-4">
 				<div class="flex flex-wrap items-center gap-2">
 					<!-- Status -->
 					<div class="relative">
 						<select
-							class="min-w-[78px] appearance-none rounded-[2px] border-[0.5px] border-black bg-white px-2 py-1 pr-6 font-['Poppins'] text-[13px] font-normal leading-[15px] text-[#757575] outline-none"
+							class="min-w-[90px] appearance-none rounded-md border border-gray-200 bg-white pl-3 pr-8 py-1.5 font-sans text-xs font-medium text-gray-600 outline-none shadow-sm focus:border-[#577AB7] focus:ring-1 focus:ring-[#577AB7] transition-all cursor-pointer"
 						>
 							<option>Status</option>
 						</select>
 						<ChevronDown
-							class="pointer-events-none absolute right-1 top-1/2 h-3 w-3 -translate-y-1/2 text-[#808080]"
+							class="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400"
 						/>
 					</div>
 
 					<!-- Tags -->
 					<div class="relative">
 						<select
-							class="min-w-[67px] appearance-none rounded-[2px] border-[0.5px] border-black bg-white px-2 py-1 pr-6 font-['Poppins'] text-[13px] font-normal leading-[15px] text-[#757575] outline-none"
+							class="min-w-[80px] appearance-none rounded-md border border-gray-200 bg-white pl-3 pr-8 py-1.5 font-sans text-xs font-medium text-gray-600 outline-none shadow-sm focus:border-[#577AB7] focus:ring-1 focus:ring-[#577AB7] transition-all cursor-pointer"
 						>
 							<option>Tags</option>
 						</select>
 						<ChevronDown
-							class="pointer-events-none absolute right-1 top-1/2 h-3 w-3 -translate-y-1/2 text-[#808080]"
+							class="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400"
 						/>
 					</div>
 
 					<!-- Connection -->
 					<div class="relative">
 						<select
-							class="min-w-[111px] appearance-none rounded-[2px] border-[0.5px] border-black bg-white px-2 py-1 pr-6 font-['Poppins'] text-[13px] font-normal leading-[15px] text-[#757575] outline-none"
+							class="min-w-[120px] appearance-none rounded-md border border-gray-200 bg-white pl-3 pr-8 py-1.5 font-sans text-xs font-medium text-gray-600 outline-none shadow-sm focus:border-[#577AB7] focus:ring-1 focus:ring-[#577AB7] transition-all cursor-pointer"
 						>
 							<option>Connection</option>
 						</select>
 						<ChevronDown
-							class="pointer-events-none absolute right-1 top-1/2 h-3 w-3 -translate-y-1/2 text-[#808080]"
+							class="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400"
 						/>
 					</div>
 
 					<!-- Messaging Profile -->
 					<div class="relative">
 						<select
-							class="min-w-[148px] appearance-none rounded-[2px] border-[0.5px] border-black bg-white px-2 py-1 pr-6 font-['Poppins'] text-[13px] font-normal leading-[15px] text-[#757575] outline-none"
+							class="min-w-[150px] appearance-none rounded-md border border-gray-200 bg-white pl-3 pr-8 py-1.5 font-sans text-xs font-medium text-gray-600 outline-none shadow-sm focus:border-[#577AB7] focus:ring-1 focus:ring-[#577AB7] transition-all cursor-pointer"
 						>
 							<option>Messaging Profile</option>
 						</select>
 						<ChevronDown
-							class="pointer-events-none absolute right-1 top-1/2 h-3 w-3 -translate-y-1/2 text-[#808080]"
+							class="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400"
 						/>
 					</div>
 
 					<!-- Voice Billing Method -->
 					<div class="relative">
 						<select
-							class="min-w-[163px] appearance-none rounded-[2px] border-[0.5px] border-black bg-white px-2 py-1 pr-6 font-['Poppins'] text-[13px] font-normal leading-[15px] text-[#757575] outline-none"
+							class="min-w-[160px] appearance-none rounded-md border border-gray-200 bg-white pl-3 pr-8 py-1.5 font-sans text-xs font-medium text-gray-600 outline-none shadow-sm focus:border-[#577AB7] focus:ring-1 focus:ring-[#577AB7] transition-all cursor-pointer"
 						>
 							<option>Voice Billing Method</option>
 						</select>
 						<ChevronDown
-							class="pointer-events-none absolute right-1 top-1/2 h-3 w-3 -translate-y-1/2 text-[#808080]"
+							class="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400"
 						/>
 					</div>
 
 					<!-- Emergency Status -->
 					<div class="relative">
 						<select
-							class="min-w-[151px] appearance-none rounded-[2px] border-[0.5px] border-black bg-white px-2 py-1 pr-6 font-['Poppins'] text-[13px] font-normal leading-[15px] text-[#757575] outline-none"
+							class="min-w-[150px] appearance-none rounded-md border border-gray-200 bg-white pl-3 pr-8 py-1.5 font-sans text-xs font-medium text-gray-600 outline-none shadow-sm focus:border-[#577AB7] focus:ring-1 focus:ring-[#577AB7] transition-all cursor-pointer"
 						>
 							<option>Emergency Status</option>
 						</select>
 						<ChevronDown
-							class="pointer-events-none absolute right-1 top-1/2 h-3 w-3 -translate-y-1/2 text-[#808080]"
+							class="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400"
 						/>
 					</div>
 
 					<!-- Countries -->
 					<div class="relative">
 						<select
-							class="min-w-[97px] appearance-none rounded-[2px] border-[0.5px] border-black bg-white px-2 py-1 pr-6 font-['Poppins'] text-[13px] font-normal leading-[15px] text-[#757575] outline-none"
+							class="min-w-[110px] appearance-none rounded-md border border-gray-200 bg-white pl-3 pr-8 py-1.5 font-sans text-xs font-medium text-gray-600 outline-none shadow-sm focus:border-[#577AB7] focus:ring-1 focus:ring-[#577AB7] transition-all cursor-pointer"
 						>
 							<option>Countries</option>
 						</select>
 						<ChevronDown
-							class="pointer-events-none absolute right-1 top-1/2 h-3 w-3 -translate-y-1/2 text-[#808080]"
+							class="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400"
 						/>
 					</div>
 				</div>
@@ -810,13 +753,13 @@
 				<div class="flex items-center gap-2">
 					<button
 						onclick={handleBulkUpdate}
-						class="flex h-[23px] items-center gap-2 rounded-[3px] border-[0.5px] border-black bg-[#ECEFF3] px-3 font-['Poppins'] text-[13px] font-normal leading-[15px] text-[#757575] transition-colors hover:bg-[#E0E5EA]"
+						class="flex h-8 items-center gap-1.5 rounded-md border border-gray-200 bg-gray-50 px-3 font-sans text-xs font-semibold text-gray-600 shadow-sm transition-colors hover:bg-gray-100 hover:text-gray-900"
 					>
 						Bulk Update
 					</button>
 					<button
 						onclick={handleExport}
-						class="flex h-[23px] items-center gap-2 rounded-[3px] border-[0.5px] border-black bg-[#ECEFF3] px-3 font-['Poppins'] text-[13px] font-normal leading-[15px] text-[#757575] transition-colors hover:bg-[#E0E5EA]"
+						class="flex h-8 items-center gap-1.5 rounded-md border border-gray-200 bg-gray-50 px-3 font-sans text-xs font-semibold text-gray-600 shadow-sm transition-colors hover:bg-gray-100 hover:text-gray-900"
 					>
 						<Download class="h-3.5 w-3.5" />
 						Export
@@ -825,187 +768,180 @@
 			</div>
 
 			<!-- Table -->
-			<div class="rounded-b border border-t-0 border-[#BEBEBE]">
+			<div class="rounded-lg border border-gray-200 bg-white overflow-hidden shadow-sm">
 				<div class="max-h-[391px] overflow-x-auto overflow-y-auto">
 					<table class="w-full min-w-[1069px]">
-						<thead class="sticky top-0 z-10 bg-white">
-							<tr class="border-b border-[rgba(193,193,193,0.96)]">
-								<th
-									class="pb-3 pl-4 pr-3 text-left font-['Poppins'] text-[15px] font-semibold leading-[18px] text-[#757575]"
-								>
+						<thead class="sticky top-0 z-10 bg-gray-50 border-b border-gray-200">
+							<tr>
+								<th class="py-3 pl-4 pr-3 text-left">
 									<input
 										type="checkbox"
 										checked={selectedNumbers.size === numbers.length && numbers.length > 0}
 										onchange={toggleAllNumbers}
-										class="h-[18px] w-[17px] rounded-[1px] border-[0.8px] border-[#949494] bg-[rgba(217,217,217,0.08)]"
+										class="h-4 w-4 rounded border-gray-300 text-[#577AB7] focus:ring-[#577AB7]"
 									/>
 								</th>
-								<th
-									class="pb-3 text-left font-['Poppins'] text-[15px] font-semibold leading-[18px] text-[#757575]"
-								>
+								<th class="py-3 px-4 text-left font-sans text-xs font-semibold uppercase tracking-wider text-gray-500">
 									Number
 								</th>
-								<th
-									class="pb-3 text-left font-['Poppins'] text-[15px] font-semibold leading-[18px] text-[#757575]"
-								>
+								<th class="py-3 px-4 text-left font-sans text-xs font-semibold uppercase tracking-wider text-gray-500">
 									Status
 								</th>
-								<th
-									class="pb-3 text-left font-['Poppins'] text-[15px] font-semibold leading-[18px] text-[#757575]"
-								>
+								<th class="py-3 px-4 text-left font-sans text-xs font-semibold uppercase tracking-wider text-gray-500">
 									Connection/Application
 								</th>
-								<th
-									class="pb-3 text-left font-['Poppins'] text-[15px] font-semibold leading-[18px] text-[#757575]"
-								>
+								<th class="py-3 px-4 text-left font-sans text-xs font-semibold uppercase tracking-wider text-gray-500">
 									Messaging Profile
 								</th>
-								<th
-									class="pb-3 text-left font-['Poppins'] text-[15px] font-semibold leading-[18px] text-[#757575]"
-								>
+								<th class="py-3 px-4 text-left font-sans text-xs font-semibold uppercase tracking-wider text-gray-500">
 									Services
 								</th>
-								<th
-									class="pb-3 text-left font-['Poppins'] text-[15px] font-semibold leading-[18px] text-[#757575]"
-								>
+								<th class="py-3 px-4 text-left font-sans text-xs font-semibold uppercase tracking-wider text-gray-500">
 									Tags
 								</th>
-								<th
-									class="pb-3 text-left font-['Poppins'] text-[15px] font-semibold leading-[18px] text-[#757575]"
-								>
+								<th class="py-3 px-4 text-left font-sans text-xs font-semibold uppercase tracking-wider text-gray-500">
 									IVR Flow
 								</th>
-								<th
-									class="pb-3 text-left font-['Poppins'] text-[15px] font-semibold leading-[18px] text-[#757575]"
-								>
+								<th class="py-3 px-4 text-left font-sans text-xs font-semibold uppercase tracking-wider text-gray-500">
 									Call tracking
 								</th>
-								<th
-									class="pb-3 text-left font-['Poppins'] text-[15px] font-semibold leading-[18px] text-[#757575]"
-								>
+								<th class="py-3 px-4 text-left font-sans text-xs font-semibold uppercase tracking-wider text-gray-500">
 									Action
 								</th>
 							</tr>
 						</thead>
-						<tbody>
+						<tbody class="divide-y divide-gray-100 bg-white">
 							{#if isLoading}
 								<tr>
-									<td colspan="10" class="py-8 text-center text-gray-500"> Loading... </td>
+									<td colspan="10" class="py-8 text-center text-gray-400 font-sans text-sm"> Loading... </td>
 								</tr>
 							{:else if numbers.length === 0}
 								<tr>
-									<td colspan="10" class="py-8 text-center text-gray-500"> No numbers found. </td>
+									<td colspan="10" class="py-8 text-center text-gray-400 font-sans text-sm"> No numbers found. </td>
 								</tr>
 							{:else}
 								{#each numbers as num}
 									{@const assigned = isAssigned(num.number)}
-									<tr class="border-b border-[rgba(193,193,193,0.4)]">
+									<tr class="hover:bg-gray-50/50 transition-colors">
 										<td class="py-3 pl-4 pr-3">
 											<input
 												type="checkbox"
 												checked={selectedNumbers.has(num.number)}
 												onchange={() => toggleNumber(num.number)}
-												class="h-[18px] w-[17px] rounded-[1px] border-[0.8px] border-[#949494] bg-[rgba(217,217,217,0.08)]"
+												class="h-4 w-4 rounded border-gray-300 text-[#577AB7] focus:ring-[#577AB7]"
 											/>
 										</td>
 										<td
-											class="py-3 font-['Poppins'] text-[14px] font-normal leading-[17px] text-[#808080]"
+											class="py-3 px-4 font-sans text-sm font-semibold text-gray-700"
 										>
 											{num.number}
 										</td>
-										<td class="py-3">
+										<td class="py-3 px-4">
 											<div class="flex items-center gap-2">
-												<div class="h-[6px] w-[5px] rounded-full bg-[#04CB15]"></div>
+												<span class="relative flex h-2 w-2">
+													<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+													<span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+												</span>
 												<span
-													class="font-['Poppins'] text-[14px] font-normal leading-[17px] text-[#808080]"
+													class="font-sans text-xs font-medium text-gray-600"
 												>
-													- {num.status}
+													{num.status}
 												</span>
 											</div>
 										</td>
 										<td
-											class="py-3 font-['Poppins'] text-[14px] font-normal leading-[17px] text-[#808080]"
+											class="py-3 px-4"
 										>
 											{#if assigned}
 												<div class="flex flex-col gap-1">
-													<span class="text-[11px] font-medium text-[#A0A0A0]">Connection</span>
+									
 													<input
 														type="text"
-														class="min-w-[160px] rounded border border-[#969696] bg-white px-2 py-1 font-['Poppins'] text-sm text-[#808080] outline-none"
+														class="min-w-[160px] rounded-md border border-gray-200 bg-white px-2 py-1 font-sans text-xs text-gray-700 outline-none focus:border-[#577AB7] focus:ring-1 focus:ring-[#577AB7] transition-all shadow-sm"
 														value={assigned.connectionLabel ?? ''}
 														placeholder="Enter connection"
 														onblur={(e) => handleConnectionChange(assigned.id, e.currentTarget.value)}
 													/>
 												</div>
 											{:else}
-												<span class="text-[#B6B6B6]">—</span>
+												<span class="text-gray-300">—</span>
 											{/if}
 										</td>
 										<td
-											class="py-3 font-['Poppins'] text-[14px] font-normal leading-[17px] text-[#808080]"
+											class="py-3 px-4 font-sans text-sm text-gray-500"
 										>
 											{num.messagingProfile}
 										</td>
-										<td class="py-3">
+										<td class="py-3 px-4">
 											<div class="flex gap-1.5">
 												{#if num.features?.sms}
-													<MessageSquare class="h-3.5 w-3.5 text-[#577AB7]" />
+													<span class="inline-flex items-center rounded-md bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10" title="SMS">
+														<MessageSquare class="h-3 w-3 mr-0.5" /> SMS
+													</span>
 												{/if}
 												{#if num.features?.voice}
-													<Phone class="h-3.5 w-3.5 text-[#577AB7]" />
+													<span class="inline-flex items-center rounded-md bg-purple-50 px-1.5 py-0.5 text-xs font-medium text-purple-700 ring-1 ring-inset ring-purple-700/10" title="Voice">
+														<Phone class="h-3 w-3 mr-0.5" /> Voice
+													</span>
 												{/if}
 											</div>
 										</td>
-										<td class="py-3">
-											<button class="text-[#808080] transition-colors hover:text-[#577AB7]">
+										<td class="py-3 px-4">
+											<button class="text-gray-400 hover:text-[#577AB7] transition-colors rounded-md p-1 hover:bg-gray-100">
 												<Plus class="h-4 w-4" />
 											</button>
 										</td>
-										<td class="py-3">
+										<td class="py-3 px-4">
 											{#if assigned}
-												<select
-													class="min-w-[140px] rounded border border-[#969696] bg-white px-2 py-1 font-['Poppins'] text-sm text-[#808080] outline-none disabled:opacity-50"
-													disabled={updatingFlowId === assigned.id}
-													value={assigned.callFlowId ?? ''}
-													onchange={(e) =>
-														handleIvrFlowChange(
-															assigned.id,
-															(e.currentTarget.value || null) as string | null
-														)}
-												>
-													<option value="">No IVR</option>
-													{#each ivrFlows as flow}
-														<option value={flow.id}>{flow.title}</option>
-													{/each}
-												</select>
+												<div class="relative inline-block">
+													<select
+														class="min-w-[140px] appearance-none rounded-md border border-gray-200 bg-white pl-2 pr-7 py-1 font-sans text-xs text-gray-700 outline-none disabled:opacity-50 shadow-sm focus:border-[#577AB7] focus:ring-1 focus:ring-[#577AB7] transition-all cursor-pointer"
+														disabled={updatingFlowId === assigned.id}
+														value={assigned.callFlowId ?? ''}
+														onchange={(e) =>
+															handleIvrFlowChange(
+																assigned.id,
+																(e.currentTarget.value || null) as string | null
+															)}
+													>
+														<option value="">No IVR</option>
+														{#each ivrFlows as flow}
+															<option value={flow.id}>{flow.title}</option>
+														{/each}
+													</select>
+													<ChevronDown class="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
+												</div>
 											{:else}
-												<span class="text-[#B6B6B6]">—</span>
+												<span class="text-gray-300">—</span>
 											{/if}
 										</td>
-										<td class="py-3">
+										<td class="py-3 px-4">
 											{#if assigned}
-												<select
-													class="min-w-[120px] rounded border border-[#969696] bg-white px-2 py-1 font-['Poppins'] text-sm text-[#808080] outline-none"
-													value={assigned.callTrackingCategoryId ?? ''}
-													onchange={(e) =>
-														handleCategoryChange(
-															assigned.id,
-															(e.currentTarget.value || null) as string | null
-														)}
-												>
-													<option value="">—</option>
-													{#each callTrackingCategories as cat}
-														<option value={cat.id}>{cat.name}</option>
-													{/each}
-												</select>
+												<div class="relative inline-block">
+													<select
+														class="min-w-[120px] appearance-none rounded-md border border-gray-200 bg-white pl-2 pr-7 py-1 font-sans text-xs text-gray-700 outline-none shadow-sm focus:border-[#577AB7] focus:ring-1 focus:ring-[#577AB7] transition-all cursor-pointer"
+														value={assigned.callTrackingCategoryId ?? ''}
+														onchange={(e) =>
+															handleCategoryChange(
+																assigned.id,
+																(e.currentTarget.value || null) as string | null
+															)}
+													>
+														<option value="">—</option>
+														{#each callTrackingCategories as cat}
+															<option value={cat.id}>{cat.name}</option>
+														{/each}
+													</select>
+													<ChevronDown class="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
+												</div>
 											{:else}
-												<span class="text-[#B6B6B6]">—</span>
+												<span class="text-gray-300">—</span>
 											{/if}
 										</td>
-										<td class="py-3">
+										<td class="py-3 px-4">
 											<button
 												onclick={() => openDeleteDialog(num)}
-												class="text-[#666666] transition-colors hover:text-red-500"
+												class="text-gray-400 transition-colors hover:text-red-500 rounded-md p-1 hover:bg-gray-100"
 												aria-label="Delete"
 											>
 												<Trash2 class="h-4 w-4" />
