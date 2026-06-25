@@ -23,7 +23,8 @@
 		ShoppingCart,
 		Headphones,
 		UserCheck,
-		MapPin
+		MapPin,
+		PhoneOff
 	} from 'lucide-svelte';
 	import { page } from '$app/state';
 	import { Button } from '$lib/components/ui/button/index';
@@ -33,14 +34,32 @@
 
 	const adminItems = [
 		{ title: 'Dashboard', url: '/clearsky-admin', icon: LayoutDashboard, href: '/clearsky-admin' },
-		{ title: 'Communication Logs', url: '/communication-log', icon: FileText, href: '/communication-log' },
+		{
+			title: 'Communication Logs',
+			url: '/communication-log',
+			icon: FileText,
+			href: '/communication-log',
+			subItems: [
+				{ title: 'All Logs', url: '/communication-log', icon: FileText, href: '/communication-log' },
+				{ title: 'Drop Calls', url: '/drop-calls', icon: PhoneOff, href: '/drop-calls' }
+			]
+		},
 		{ title: 'Profiles', url: '/profiles', icon: UserCircle, href: '/profiles' },
 		{ title: 'Analytics', url: '/analytics', icon: ChartLineIcon, href: '/analytics' }
 	];
 
 	const tenantRepItems = [
 		{ title: 'Dashboard', url: '/dashboard', icon: LayoutDashboard, href: '/dashboard' },
-		{ title: 'Communication Log', url: '/communication-log', icon: FileText, href: '/communication-log' },
+		{
+			title: 'Communication Logs',
+			url: '/communication-log',
+			icon: FileText,
+			href: '/communication-log',
+			subItems: [
+				{ title: 'All Logs', url: '/communication-log', icon: FileText, href: '/communication-log' },
+				{ title: 'Drop Calls', url: '/drop-calls', icon: PhoneOff, href: '/drop-calls' }
+			]
+		},
 		{ title: 'Important Notifications', url: '/notifications', icon: Bell, href: '/notifications' },
 		{ title: 'Inbox', url: '/inbox', icon: Home, href: '/inbox' },
 		{ title: 'Profiles', url: '/profiles', icon: UserCircle, href: '/profiles' },
@@ -50,7 +69,16 @@
 
 	const tenantAdminItems = [
 		{ title: 'Dashboard', url: '/dashboard', icon: LayoutDashboard, href: '/dashboard' },
-		{ title: 'Communication Log', url: '/communication-log', icon: FileText, href: '/communication-log' },
+		{
+			title: 'Communication Logs',
+			url: '/communication-log',
+			icon: FileText,
+			href: '/communication-log',
+			subItems: [
+				{ title: 'All Logs', url: '/communication-log', icon: FileText, href: '/communication-log' },
+				{ title: 'Drop Calls', url: '/drop-calls', icon: PhoneOff, href: '/drop-calls' }
+			]
+		},
 		{ title: 'Important Notifications', url: '/notifications', icon: Bell, href: '/notifications' },
 		{ title: 'Inbox', url: '/inbox', icon: Home, href: '/inbox' },
 		{ title: 'Profiles', url: '/profiles', icon: UserCircle, href: '/profiles' },
