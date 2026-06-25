@@ -38,25 +38,6 @@
 		{ title: 'Analytics', url: '/analytics', icon: ChartLineIcon, href: '/analytics' }
 	];
 
-	const supportItems = [
-		{ title: 'Dashboard', url: '/dashboard', icon: LayoutDashboard, href: '/dashboard' },
-		{ title: 'Communication Logs', url: '/communication-log', icon: FileText, href: '/communication-log' },
-		{ title: 'Notifications', url: '/notifications', icon: Bell, href: '/notifications' },
-		{ title: 'Phone Numbers', url: '/manage-numbers', icon: Phone, href: '/manage-numbers' },
-		{ title: 'IVR', url: '/ivr', icon: Headphones, href: '/ivr' },
-		{ title: 'Representatives', url: '/representatives', icon: UserCheck, href: '/representatives' },
-		{ title: 'Analytics', url: '/analytics', icon: ChartLineIcon, href: '/analytics' },
-		{
-			title: 'Settings',
-			url: '/settings',
-			icon: Settings,
-			href: '/settings',
-			subItems: [
-				...(isCompany ? [{ title: 'Company Settings', url: '/settings/company', icon: Building, href: '/settings/company' }] : [])
-			]
-		}
-	];
-
 	const tenantRepItems = [
 		{ title: 'Dashboard', url: '/dashboard', icon: LayoutDashboard, href: '/dashboard' },
 		{ title: 'Communication Log', url: '/communication-log', icon: FileText, href: '/communication-log' },
@@ -111,7 +92,6 @@
 		const platformRole = user?.platformRole || 'TENANT_USER';
 
 		if (platformRole === 'CLEARSKY_ADMIN') return adminItems;
-		if (platformRole === 'CLEARSKY_SUPPORT') return supportItems;
 		if (tenantRole === 'owner' || tenantRole === 'admin') return tenantAdminItems;
 		return tenantRepItems;
 	});

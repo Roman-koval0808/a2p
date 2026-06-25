@@ -11,8 +11,8 @@ export const load = async ({ locals }) => {
 	const stats = {
 		totalCompanies: await locals.prisma.company.count(),
 		totalUsers: await locals.prisma.user.count(),
-		supportStaff: await locals.prisma.user.count({
-			where: { platformRole: 'CLEARSKY_SUPPORT' }
+		adminStaff: await locals.prisma.user.count({
+			where: { platformRole: 'CLEARSKY_ADMIN' }
 		})
 	};
 

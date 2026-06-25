@@ -47,7 +47,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 				maxAge: 60 * 60 * 24 * 7
 			});
 			return json(
-				{ success: true, redirect: '/dashboard' },
+				{ success: true, redirect: updatedUser.platformRole === 'CLEARSKY_ADMIN' ? '/clearsky-admin' : '/dashboard' },
 				{ headers: { 'Set-Cookie': createSessionCookie(token) } }
 			);
 		}

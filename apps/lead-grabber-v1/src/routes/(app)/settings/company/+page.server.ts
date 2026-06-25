@@ -13,7 +13,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	}
 
 	try {
-		const isPlatformStaff = user.platformRole === 'CLEARSKY_ADMIN' || user.platformRole === 'CLEARSKY_SUPPORT';
+		const isPlatformStaff = user.platformRole === 'CLEARSKY_ADMIN';
 		const targetCompanyId = (isPlatformStaff && url.searchParams.get('companyId')) 
 			? url.searchParams.get('companyId') 
 			: user.company?.id;
@@ -171,7 +171,7 @@ export const actions: Actions = {
 			}
 
 			// Check if user is owner or admin or platform staff
-			const isPlatformStaff = user.platformRole === 'CLEARSKY_ADMIN' || user.platformRole === 'CLEARSKY_SUPPORT';
+			const isPlatformStaff = user.platformRole === 'CLEARSKY_ADMIN';
 			const userMember = await prisma.companyMember.findFirst({
 				where: {
 					userId: user.id,
@@ -262,7 +262,7 @@ export const actions: Actions = {
 				return fail(404, { error: 'Company not found' });
 			}
 
-			const isPlatformStaff = user.platformRole === 'CLEARSKY_ADMIN' || user.platformRole === 'CLEARSKY_SUPPORT';
+			const isPlatformStaff = user.platformRole === 'CLEARSKY_ADMIN';
 			if (company.ownerId !== user.id && !isPlatformStaff) {
 				return fail(403, { error: 'Only company owners can invite members' });
 			}

@@ -49,7 +49,6 @@ model User {
 
 enum PlatformRole {
   CLEARSKY_ADMIN
-  CLEARSKY_SUPPORT
   TENANT_USER
 }
 

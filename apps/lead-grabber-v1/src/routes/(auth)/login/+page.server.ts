@@ -59,6 +59,7 @@ export const actions: Actions = {
 			return { success: false, message: 'An unexpected error occurred' };
 		}
 
-		throw redirect(303, '/dashboard');
+		const dest = updatedUser.platformRole === 'CLEARSKY_ADMIN' ? '/clearsky-admin' : '/dashboard';
+		throw redirect(303, dest);
 	}
 };
