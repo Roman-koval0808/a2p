@@ -720,6 +720,20 @@ export const POST: RequestHandler = async ({ request }) => {
 							console.log('📞 IVR transfer to', to, match.name ?? digit, isEmergency ? '(EMERGENCY)' : '');
 						}
 					}
+				} else if (match) {
+					// Key matched but no extension to transfer to. Go to voicemail.
+					await setVoicemail(callControlId);
+					await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/speak`, {
+						method: 'POST',
+						headers: TELNYX_HEADERS,
+						body: JSON.stringify({
+							payload: 'Please leave your message after the tone. When you are finished, you may hang up.',
+							voice: 'female',
+							language: 'en-US',
+							client_state: Buffer.from(JSON.stringify({ isVoicemailPrompt: true, ivrFlowId, ivrRuleId })).toString('base64')
+						})
+					});
+					console.log('📞 IVR key pressed but no extension provided, going to voicemail:', match.name ?? digit);
 				} else {
 					// Unknown key: treat like timeout, failover or hangup
 					if (ivrRetry >= failoverCount) {
