@@ -137,8 +137,7 @@
 					class="w-full"
 					onclick={(e) => {
 						if (mainItem.subItems) {
-							e.preventDefault();
-							e.stopPropagation();
+							// DO NOT preventDefault here so the link still navigates
 							const newExpanded = new Set(expandedItems);
 							if (newExpanded.has(mainItem.title)) {
 								newExpanded.delete(mainItem.title);
@@ -159,12 +158,23 @@
 						{#snippet tooltipContent()}
 							{mainItem.title}
 						{/snippet}
-						<mainItem.icon class="h-5 w-5" />
-						<span class="group-data-[collapsible=icon]:hidden">{mainItem.title}</span>
+						<mainItem.icon class="h-5 w-5 flex-shrink-0" />
+						<span class="flex-1 truncate text-left group-data-[collapsible=icon]:hidden">{mainItem.title}</span>
 						{#if mainItem.subItems}
 							<Button
 								variant="ghost"
-								class="ml-auto hover:bg-transparent hover:text-white group-data-[collapsible=icon]:hidden"
+								class="ml-auto hover:bg-transparent hover:text-white group-data-[collapsible=icon]:hidden px-2"
+								onclick={(e) => {
+									e.preventDefault();
+									e.stopPropagation();
+									const newExpanded = new Set(expandedItems);
+									if (newExpanded.has(mainItem.title)) {
+										newExpanded.delete(mainItem.title);
+									} else {
+										newExpanded.add(mainItem.title);
+									}
+									expandedItems = newExpanded;
+								}}
 							>
 								{#if expandedItems.has(mainItem.title)}
 									<ChevronUp class="h-5 w-5" />
