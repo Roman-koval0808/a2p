@@ -12,6 +12,21 @@ function checkCalendarMock(datetimeStr: string): boolean {
 	return true;
 }
 
+// Formats an ISO string (e.g. 2023-10-25T14:00:00) into a readable date/time. Leaves relative strings alone.
+function formatDatetime(datetimeStr: string): string {
+    const d = new Date(datetimeStr);
+    if (!isNaN(d.getTime()) && datetimeStr.includes('T')) {
+        return d.toLocaleString('en-US', {
+            weekday: 'long',
+            month: 'long',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit'
+        }).replace(/, 20\d\d/, ''); // optionally strip the year for casual SMS
+    }
+    return datetimeStr;
+}
+
 export async function process_orchestrator(commId: string, trigger: string) {
 	console.log(`[Orchestrator] Processing commId: ${commId} with trigger: ${trigger}`);
 
@@ -78,11 +93,12 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 		// 2. Check calendar for availability (mocked: check if datetime is within 9-5)
 		if (datetime) {
+			const formattedDatetime = formatDatetime(datetime);
 			const isAvailable = checkCalendarMock(datetime);
 			if (isAvailable) {
-				draftedResponse = `Hi! Thanks for reaching out to ${company.name || 'us'}. We see you'd like to book an appointment for ${datetime}. A representative will confirm this time with you shortly.`;
+				draftedResponse = `Hi! Thanks for reaching out to ${company.name || 'us'}. We see you'd like to book an appointment for ${formattedDatetime}. A representative will confirm this time with you shortly.`;
 			} else {
-				draftedResponse = `Hi! Thanks for reaching out to ${company.name || 'us'}. Unfortunately, ${datetime} is outside our normal business hours or unavailable. What other day or time works best for you?`;
+				draftedResponse = `Hi! Thanks for reaching out to ${company.name || 'us'}. Unfortunately, ${formattedDatetime} is outside our normal business hours or unavailable. What other day or time works best for you?`;
 			}
 		} else {
 			draftedResponse = `Hi! Thanks for contacting ${company.name || 'us'}. We received your booking request. What day and time works best for you?`;
