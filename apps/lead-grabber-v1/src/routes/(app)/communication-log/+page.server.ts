@@ -53,7 +53,7 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 				assignedMembers: {
 					include: { user: true }
 				},
-				thread: {
+				communicationThread: {
 					include: { contact: true }
 				}
 			},
@@ -93,7 +93,7 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 			let customerValue = isOutbound ? log.destination : log.source;
 			let companyValue = isOutbound ? log.source : log.destination;
 
-			let displayDestination = log.thread?.contact?.name || customerValue || '—';
+			let displayDestination = log.communicationThread?.contact?.name || customerValue || '—';
 			let displaySource = companyValue || locals.user.company.id;
 
 			logs.push({
@@ -108,9 +108,9 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 				metadata: meta,
 				created: log.created.toISOString(),
 				updated: log.updated.toISOString(),
-				commId: log.thread?.id || log.communicationThreadId,
-				threadStatus: log.thread?.status,
-				threadSummary: log.thread?.summary,
+				commId: log.communicationThread?.id || log.communicationThreadId,
+				threadStatus: log.communicationThread?.status,
+				threadSummary: log.communicationThread?.summary,
 				assignedMemberNames,
 				raw: log
 			});
