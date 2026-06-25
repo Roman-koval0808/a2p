@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { format } from 'date-fns';
 	import { PhoneOff } from 'lucide-svelte';
 
 	let { data } = $props<{
@@ -48,7 +47,7 @@
 							{#each logs as log}
 								<tr class="hover:bg-gray-50">
 									<td class="px-6 py-4">
-										{format(new Date(log.created), 'MMM d, yyyy h:mm a')}
+										{new Date(log.created).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
 									</td>
 									<td class="px-6 py-4 font-medium text-gray-900">
 										{log.phoneNumber}
