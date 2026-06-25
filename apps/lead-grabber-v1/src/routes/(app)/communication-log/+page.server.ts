@@ -46,80 +46,74 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 			role: m.role
 		}));
 
-		// Fetch communication threads from Prisma
-		const threads = await prisma.communicationThread.findMany({
+		// Fetch communication logs directly to ensure strict date sorting
+		const dbLogs = await prisma.communicationLog.findMany({
 			where: { companyId: locals.user.company.id },
 			include: {
-				logs: {
-					orderBy: { created: 'asc' },
-					include: {
-						assignedMembers: {
-							include: { user: true }
-						}
-					}
+				assignedMembers: {
+					include: { user: true }
 				},
-				contact: true,
-				tasks: true
+				thread: {
+					include: { contact: true }
+				}
 			},
-			orderBy: { updated: 'desc' },
+			orderBy: { created: 'desc' },
 			take: limit,
 			skip: offset
 		});
 
-		const totalCount = await prisma.communicationThread.count({
+		const totalCount = await prisma.communicationLog.count({
 			where: { companyId: locals.user.company.id }
 		});
 
-		// Flatten logs for the table, but give them a thread identifier
+		// Map logs for the table
 		const logs: any[] = [];
-		for (const thread of threads) {
-			for (const log of thread.logs) {
-				const assignedMemberNames = log.assignedMembers.map((am) => am.user.name || am.user.email);
-				
-				let status = 'green';
-				if (log.status === 'pending_approval') {
-					status = 'blue';
-				} else if (log.direction === 'inbound') {
-					status = 'in';
-				} else {
-					status = 'out';
-				}
-
-				// The 'purpose' field in UI drives the 'Confirm' button
-				let purpose = 'General';
-				const meta = (log.metadata as any) || {};
-				if (log.status === 'pending_approval') {
-					purpose = 'Confirm';
-				} else if (meta.category_gpt) {
-					purpose = meta.category_gpt;
-				}
-
-				const isOutbound = log.direction === 'outbound';
-				let customerValue = isOutbound ? log.destination : log.source;
-				let companyValue = isOutbound ? log.source : log.destination;
-
-				let displayDestination = thread.contact?.name || customerValue || '—';
-				let displaySource = companyValue || locals.user.company.id;
-
-				logs.push({
-					id: log.id,
-					type: log.type,
-					direction: log.direction,
-					status: status,
-					source: displaySource,
-					destination: displayDestination,
-					summary: log.summary || log.content || '',
-					content: log.content || '',
-					metadata: meta,
-					created: log.created.toISOString(),
-					updated: log.updated.toISOString(),
-					commId: thread.id,
-					threadStatus: thread.status,
-					threadSummary: thread.summary,
-					assignedMemberNames,
-					raw: log
-				});
+		for (const log of dbLogs) {
+			const assignedMemberNames = log.assignedMembers.map((am) => am.user.name || am.user.email);
+			
+			let status = 'green';
+			if (log.status === 'pending_approval') {
+				status = 'blue';
+			} else if (log.direction === 'inbound') {
+				status = 'in';
+			} else {
+				status = 'out';
 			}
+
+			// The 'purpose' field in UI drives the 'Confirm' button
+			let purpose = 'General';
+			const meta = (log.metadata as any) || {};
+			if (log.status === 'pending_approval') {
+				purpose = 'Confirm';
+			} else if (meta.category_gpt) {
+				purpose = meta.category_gpt;
+			}
+
+			const isOutbound = log.direction === 'outbound';
+			let customerValue = isOutbound ? log.destination : log.source;
+			let companyValue = isOutbound ? log.source : log.destination;
+
+			let displayDestination = log.thread?.contact?.name || customerValue || '—';
+			let displaySource = companyValue || locals.user.company.id;
+
+			logs.push({
+				id: log.id,
+				type: log.type,
+				direction: log.direction,
+				status: status,
+				source: displaySource,
+				destination: displayDestination,
+				summary: log.summary || log.content || '',
+				content: log.content || '',
+				metadata: meta,
+				created: log.created.toISOString(),
+				updated: log.updated.toISOString(),
+				commId: log.thread?.id || log.communicationThreadId,
+				threadStatus: log.thread?.status,
+				threadSummary: log.thread?.summary,
+				assignedMemberNames,
+				raw: log
+			});
 		}
 
 		return {
