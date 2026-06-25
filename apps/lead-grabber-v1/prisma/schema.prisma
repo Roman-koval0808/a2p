@@ -160,6 +160,7 @@ model Company {
   pipelineCustomerProfiles    PipelineCustomerProfile[]
   pipelineBusinessConfig      PipelineBusinessConfig?
   pipelineOrchestratorProfile PipelineOrchestratorProfile?
+  dropCalls                   DropCall[]
 
   @@map("companies")
 }
@@ -307,6 +308,8 @@ model Contact {
   notes         String?
   companyName   String? // Display name e.g. "Dredhart Inc." (ClearSky spec)
   avatarUrl     String? // URL to the uploaded avatar
+  accountBalance Float?  // Used for AR/Billing prototype scenario
+  engagementScore Int     @default(0) // Used for routing priority and Sales prototype scenario
   created       DateTime @default(now())
   updated       DateTime @updatedAt
 
@@ -552,6 +555,20 @@ model CallRecording {
 
   @@index([callId])
   @@map("call_recordings")
+}
+
+model CallState {
+  callId             String   @id // call_control_id
+  hasVoicemail       Boolean  @default(false)
+  intentDigit        String?
+  intentName         String?
+  intentConfidence   String?
+  intentTimestamp    DateTime?
+  voicemailRecordingIds Json? @default("[]") // Array of strings
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@map("call_states")
 }
 
 model Notification {
@@ -1056,4 +1073,20 @@ model PipelineOrchestratorRule {
   createdAt       DateTime @default(now())
 
   @@map("pipeline_orchestrator_rules")
+}
+
+// IVR Drop calls table for spam / quick hang-ups
+model DropCall {
+  id           String   @id @default(cuid())
+  phoneNumber  String
+  duration     Float
+  knownContact Boolean  @default(false)
+  companyId    String?
+  company      Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  created      DateTime @default(now())
+  updated      DateTime @updatedAt
+
+  @@index([phoneNumber])
+  @@index([companyId])
+  @@map("drop_calls")
 }

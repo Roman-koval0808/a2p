@@ -1,0 +1,61 @@
+Protocol for incoming call:
+
+Before we do any of this we follow our 7 step process.  Is the call or SMS real, is it spam.  Who is the call from? Included in our protocols will be the following additional procedures.
+
+Check # if its in our db.assign a comm id Temporary. 
+If the call is in our db we have the phone # or sms # the call is recorded as a line item, in the profile what information is collected, time, date, what phone number did they call. We may have call tracking enabled,the number could be connected to the reason why they called and we will set intention from this.   
+If the number is not connected, we need to set up a db profile, collect same information.  
+When we dont bother setting up a db.. When call is under a specified time, with no connection and no message and the caller has no profile. If short but has a db profile we record the call attempt.  
+Other information:We will know whether the number is mobile or land line, we will know the carrier, we will know the area code and extension and know where the caller resides.  
+We will cross reference the phone number with a db of phone books.   Or even connect via api to the white and yellow pages, for data enrichment.  
+More on call tracking: Lets assume we have 3 numbers assigned to one company, remember I said if we know which number they called we can tell why they called.  So we have a client that has 3 numbers   0001, 0002,0003, so when a client goes to a website we attach one of the numbers to his session, meaning if he calls us we know where he has been. When he clicks Contact us, this number will be shown or clicked. What does this mean, we can follow 3 clients at any one time.  If there are more than 3 visitors to the site we cannot follow them or we can dynamically add a phone number. This train of thought will be part of our dynamic actions when a client is on our site. 
+I said we will attach a comm id for every incoming call.  When the call is forwarded to AI, AI will need to evaluate the conversation and determine a similarity score of this conversation with all other threads or comm ids we have in the profile. If we find a comm id that has 80% or higher similar score we will attach this comm id to the original comm and this will be shown as a thread.
+We need to see the path for every incoming message.   For example we need to see which number they called, we need to see which extension they clicked, 1, 2, 3 or 4.  We need to see if they connected when dialed 1, 2, 3 and we can view summary. We should know that a phone message was left or sms message was left. 
+When we click on 1,2, 3 we are attaching an intent to the call. There is a purpose and by them clicking we are beginning to segment the call.  We will have a preset:  
+Billing - Accounts Receivable - active project 
+Billing - Accounts Payable - Admin
+Support- start off at research and adjust based on client 
+Sales- active project 
+We have 4 presets currently Admin - Emergency, Research, Active Project, Comparison
+
+
+
+
+
+
+
+
+
+
+
+
+Message Protocols:  
+
+What happens when we get a message from SMS or Call, we will expand this to include other ways of communication later.  
+We are taking their unstructured data to Open AI, included in our JSON we need to have a number of different things. This list will grow but we need to start dissecting the call.  
+We can tell when the call was made from what number and whether this call was from a client or not.  Do we include the profile (we have all of the comm ids does AI look for similarity now?) 
+We need to be asking AI to populate specific fields  they include:  
+Sentiment, tone, urgency, opportunity, book appointments, questions products or services, complaints, sales lead, answer a question. So we are asking ai to populate these fields. 
+When the response comes back we process the fields each return response means something. 
+The orchestrator needs know to evaluate the responses and determine what we need to do.  
+We will walk through this process in our scenarios. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

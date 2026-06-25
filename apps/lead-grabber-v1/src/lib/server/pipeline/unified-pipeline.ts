@@ -471,7 +471,7 @@ export class UnifiedPipeline {
 		return cleanText.trim();
 	}
 
-	private static calculateSimilarity(s1: string, s2: string): number {
+	public static calculateSimilarity(s1: string, s2: string): number {
 		if (!s1 || !s2) return 0;
 		const prepare = (s: string) => s.toLowerCase()
 			.replace(/[^\w\s]/g, '')

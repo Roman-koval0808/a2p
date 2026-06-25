@@ -52,19 +52,22 @@ export async function transcribeAudio(audioUrl: string): Promise<string> {
 export async function analyzeCallLog(transcript: string): Promise<{
 	summary: string;
 	intent: string;
+	sub_intent: string | null;
 	urgency: 'low' | 'medium' | 'high';
 	actionItems: string[];
 	sentiment: string;
 	callerName: string | null;
 	buyingSignals: string[];
 	estimatedPrice: number | null;
+	datetime: string | null;
 }> {
 	try {
 		const prompt = `
     Analyze the following phone call transcript / voicemail message.
     Provide the output in valid JSON format with the following keys:
     - "summary": A concise summary of the call (2-3 sentences).
-    - "intent": The main purpose or intent of the call (e.g., "Request information", "Complaint", "Booking", "Emergency").
+    - "intent": The main purpose or intent of the call (e.g., "Billing", "Sales", "Support", "Emergency").
+    - "sub_intent": A more specific category. E.g. if Billing, is it "Accounts Receivable" or "Accounts Payable"? If not applicable, return null.
     - "urgency": One of "low", "medium", "high" based on the customer's tone and request.
     - "actionItems": A list of action items or next steps.
     - "sentiment": One of "Positive", "Negative", "Neutral", "Angry", "Anxious" based on the overall tone.
@@ -79,6 +82,7 @@ export async function analyzeCallLog(transcript: string): Promise<{
       - Mentioning a competitor or comparison → "comparison_shopping"
       Return an empty array if no buying signals are detected.
     - "estimatedPrice": A number representing the estimated dollar value or price for the job if discussed or can be reasonably estimated based on the type of work described (e.g., water heater replacement: 1500, repair burst pipe: 500, simple leak: 200, faucet install: 150, standard inspection: 99). If the caller mentions a specific budget, price, or quote amount, use that value. If no specific service is described to estimate a price, return null.
+    - "datetime": If the caller mentions a specific date or time they want to book an appointment for (e.g. "July 1 at 2pm"), extract it into a standard format. Otherwise null.
 
     Transcript:
     "${transcript}"
@@ -97,7 +101,7 @@ export async function analyzeCallLog(transcript: string): Promise<{
 					{
 						role: 'system',
 						content:
-							'You are an expert customer service analyst. You analyze phone calls and voicemails to extract the caller identity, sentiment, buying intent, and urgency. Return only valid JSON. For callerName, extract the exact name if the caller introduces themselves; otherwise return null.'
+							'You are an expert customer service analyst. You analyze phone calls and voicemails to extract the caller identity, sentiment, buying intent, sub-intent, and requested appointment datetime. Return only valid JSON.'
 					},
 					{ role: 'user', content: prompt }
 				],
@@ -125,24 +129,28 @@ export async function analyzeCallLog(transcript: string): Promise<{
 		return {
 			summary: result.summary || 'No summary generated',
 			intent: result.intent ?? '',
+			sub_intent: result.sub_intent || null,
 			urgency: result.urgency?.toLowerCase() || 'medium',
 			actionItems: result.actionItems || [],
 			sentiment: result.sentiment || 'Neutral',
 			callerName: result.callerName || null,
 			buyingSignals: result.buyingSignals || [],
-			estimatedPrice: typeof result.estimatedPrice === 'number' ? result.estimatedPrice : null
+			estimatedPrice: typeof result.estimatedPrice === 'number' ? result.estimatedPrice : null,
+			datetime: result.datetime || null
 		};
 	} catch (error) {
 		console.error('Error in analyzeCallLog:', error);
 		return {
 			summary: 'Analysis failed',
 			intent: '',
+			sub_intent: null,
 			urgency: 'medium',
 			actionItems: [],
 			sentiment: 'Unknown',
 			callerName: null,
 			buyingSignals: [],
-			estimatedPrice: null
+			estimatedPrice: null,
+			datetime: null
 		};
 	}
 }
