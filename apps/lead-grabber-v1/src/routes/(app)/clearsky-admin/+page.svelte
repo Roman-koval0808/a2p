@@ -40,11 +40,11 @@
 
 		<Card>
 			<CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
-				<CardTitle class="text-sm font-medium">Support Staff</CardTitle>
+				<CardTitle class="text-sm font-medium">Admin Staff</CardTitle>
 				<ShieldAlert class="h-4 w-4 text-blue-500" />
 			</CardHeader>
 			<CardContent>
-				<div class="text-2xl font-bold">{data.stats.supportStaff}</div>
+				<div class="text-2xl font-bold">{data.stats.adminStaff}</div>
 				<p class="text-xs text-muted-foreground">ClearSky employees</p>
 			</CardContent>
 		</Card>

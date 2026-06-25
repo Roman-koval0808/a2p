@@ -21,7 +21,7 @@ export const PATCH: RequestHandler = async ({ request, params, locals }) => {
 		}
 
 		// Verify permissions: Must be owner/admin of that company, or platform staff
-		const isPlatformStaff = user.platformRole === 'CLEARSKY_ADMIN' || user.platformRole === 'CLEARSKY_SUPPORT';
+		const isPlatformStaff = user.platformRole === 'CLEARSKY_ADMIN';
 		const currentUserMember = await prisma.companyMember.findFirst({
 			where: { userId: user.id, companyId: memberToUpdate.companyId, status: 'active' }
 		});
@@ -68,7 +68,7 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
 		}
 
 		// Verify permissions: Must be owner/admin of that company, or platform staff
-		const isPlatformStaff = user.platformRole === 'CLEARSKY_ADMIN' || user.platformRole === 'CLEARSKY_SUPPORT';
+		const isPlatformStaff = user.platformRole === 'CLEARSKY_ADMIN';
 		const currentUserMember = await prisma.companyMember.findFirst({
 			where: { userId: user.id, companyId: memberToDelete.companyId, status: 'active' }
 		});
