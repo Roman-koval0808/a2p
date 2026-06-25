@@ -50,27 +50,29 @@ export const load: PageServerLoad = async ({ params, locals, fetch }) => {
 			historyEvents = await historyRes.json();
 		}
 
+		// Always fetch the contact from Prisma for accountBalance/engagementScore
+		const dbContact = await prisma.contact.findFirst({
+			where: { id: params.id, companyId }
+		});
+
 		// Fallback to prisma contact if not found in CDP
 		if (!cdpProfile) {
-			const dbProfile = await prisma.contact.findFirst({
-				where: { id: params.id, companyId }
-			});
-			if (!dbProfile) {
+			if (!dbContact) {
 				throw error(404, 'Profile not found');
 			}
 			// Map dbProfile to look like CDP Profile
 			cdpProfile = {
-				id: dbProfile.id,
-				name: dbProfile.name || 'Unknown Caller',
-				phone: dbProfile.phone || '',
-				email: dbProfile.email || '',
-				clearPhone: dbProfile.phone || '—',
-				clearEmail: dbProfile.email || '—',
+				id: dbContact.id,
+				name: dbContact.name || 'Unknown Caller',
+				phone: dbContact.phone || '',
+				email: dbContact.email || '',
+				clearPhone: dbContact.phone || '—',
+				clearEmail: dbContact.email || '—',
 				tier: 'T3',
 				scoreLive: 0,
 				intentBucket: 'unclassified',
-				isAnonymous: !dbProfile.email && !dbProfile.phone,
-				lastSeen: dbProfile.updated || new Date()
+				isAnonymous: !dbContact.email && !dbContact.phone,
+				lastSeen: dbContact.updated || new Date()
 			};
 		}
 
@@ -259,6 +261,8 @@ export const load: PageServerLoad = async ({ params, locals, fetch }) => {
 				clearEmail,
 				past_names: identityHistory.filter(h => h.field === 'Name').map(h => h.newValue)
 			},
+			accountBalance: dbContact?.accountBalance ?? null,
+			engagementScore: dbContact?.engagementScore ?? 0,
 			communications: comms,
 			historyEvents,
 			identityHistory,
@@ -302,6 +306,26 @@ export const actions: Actions = {
 			return { success: true };
 		} catch (e) {
 			console.error('Error updating profile:', e);
+			return { success: false };
+		}
+	},
+	updateAccount: async ({ request, params, locals }) => {
+		const user = locals.user;
+		if (!user?.company) return { success: false };
+		const form = await request.formData();
+		const id = params.id;
+		const balanceStr = form.get('accountBalance')?.toString();
+		const scoreStr = form.get('engagementScore')?.toString();
+		const accountBalance = balanceStr ? parseFloat(balanceStr) : null;
+		const engagementScore = scoreStr ? parseInt(scoreStr, 10) : 0;
+		try {
+			await prisma.contact.updateMany({
+				where: { id, companyId: user.company.id },
+				data: { accountBalance, engagementScore, updated: new Date() }
+			});
+			return { success: true, action: 'updateAccount' };
+		} catch (e) {
+			console.error('Error updating account:', e);
 			return { success: false };
 		}
 	},
