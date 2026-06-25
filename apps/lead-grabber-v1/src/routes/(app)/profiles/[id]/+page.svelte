@@ -18,6 +18,7 @@
 	} from 'lucide-svelte';
 	import { goto } from '$app/navigation';
 	import { invalidateAll } from '$app/navigation';
+	import { enhance } from '$app/forms';
 	import { page } from '$app/state';
 	import CommunicationTable from '$lib/components/CommunicationTable.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
@@ -331,16 +332,17 @@
 					{/if}
 				</div>
 				{#if editingAccount}
-					<form method="POST" action="?/updateAccount" class="p-3 space-y-3" onsubmit={() => { editingAccount = false; }}>
+					<form method="POST" action="?/updateAccount" class="p-3 space-y-3" use:enhance={() => {
+						return async ({ update }) => {
+							await update();
+							editingAccount = false;
+						};
+					}}>
 						<div>
 							<label for="accountBalance" class="text-[10px] font-medium text-[#4a5568] uppercase tracking-wider block mb-1">Balance Owed ($)</label>
 							<input id="accountBalance" name="accountBalance" type="number" step="0.01" bind:value={editBalance} class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none" placeholder="e.g. 1130.00" />
 						</div>
-						<div>
-							<label for="engagementScore" class="text-[10px] font-medium text-[#4a5568] uppercase tracking-wider block mb-1">Engagement Score</label>
-							<input id="engagementScore" name="engagementScore" type="number" bind:value={editScore} class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none" placeholder="0" />
-						</div>
-						<div class="flex gap-2">
+						<div class="flex gap-2 mt-2">
 							<button type="submit" class="rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700">Save</button>
 							<button type="button" class="rounded border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50" onclick={() => { editingAccount = false; }}>Cancel</button>
 						</div>

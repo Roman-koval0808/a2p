@@ -315,13 +315,11 @@ export const actions: Actions = {
 		const form = await request.formData();
 		const id = params.id;
 		const balanceStr = form.get('accountBalance')?.toString();
-		const scoreStr = form.get('engagementScore')?.toString();
 		const accountBalance = balanceStr ? parseFloat(balanceStr) : null;
-		const engagementScore = scoreStr ? parseInt(scoreStr, 10) : 0;
 		try {
 			await prisma.contact.updateMany({
 				where: { id, companyId: user.company.id },
-				data: { accountBalance, engagementScore, updated: new Date() }
+				data: { accountBalance, updated: new Date() }
 			});
 			return { success: true, action: 'updateAccount' };
 		} catch (e) {
