@@ -10,6 +10,8 @@ export const actions: Actions = {
 			password: string;
 		};
 
+		let dest = '/dashboard';
+
 		try {
 			// Find user by email
 			const user = await prisma.user.findUnique({
@@ -29,11 +31,6 @@ export const actions: Actions = {
 				return { success: false, message: 'Invalid email or password' };
 			}
 
-			// Check if email is verified (if you implement email verification)
-			// if (!user.verified) {
-			//   return { success: false, message: 'Email not verified' }
-			// }
-
 			// Update emailVisibility to true
 			const updatedUser = await prisma.user.update({
 				where: { id: user.id },
@@ -42,6 +39,8 @@ export const actions: Actions = {
 					company: true
 				}
 			});
+
+			dest = updatedUser.platformRole === 'CLEARSKY_ADMIN' ? '/clearsky-admin' : '/dashboard';
 
 			// Generate token and set cookie
 			const token = await generateToken(updatedUser);
@@ -59,7 +58,6 @@ export const actions: Actions = {
 			return { success: false, message: 'An unexpected error occurred' };
 		}
 
-		const dest = updatedUser.platformRole === 'CLEARSKY_ADMIN' ? '/clearsky-admin' : '/dashboard';
 		throw redirect(303, dest);
 	}
 };
