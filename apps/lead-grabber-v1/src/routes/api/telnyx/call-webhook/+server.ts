@@ -1450,20 +1450,16 @@ export const POST: RequestHandler = async ({ request }) => {
 											finalPriority = decoded.callPriority || finalPriority;
 										}
 
-										let scoreDelta = 5;
 										let bucketSignal = 'research';
 										const lowerTranscript = transcript.toLowerCase();
 										const emergencyKeywords = ['burst', 'flood', 'leak', 'emergency', 'pipe', 'water', 'immediate', 'urgent'];
 										const bookingKeywords = ['book', 'appointment', 'estimate', 'quote', 'schedule', 'renovate', 'renovation', 'toilet', 'shower', 'fixture'];
 
 										if (finalPriority === 'emergency' || emergencyKeywords.some(kw => lowerTranscript.includes(kw))) {
-											scoreDelta = 15;
 											bucketSignal = 'emergency';
 										} else if (intent === 'Booking' || bookingKeywords.some(kw => lowerTranscript.includes(kw))) {
-											scoreDelta = 20;
 											bucketSignal = 'active';
 										} else if (sentiment === 'Angry' || sentiment === 'Negative') {
-											scoreDelta = -10;
 											bucketSignal = 'friction';
 										}
 
