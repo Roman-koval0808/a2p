@@ -291,91 +291,6 @@ export const POST: RequestHandler = async ({ request }) => {
 					}
 				}
 
-				// Log separate outbound draft event if generated
-				if (draftText && companyId) {
-					const compId = companyId as string;
-					try {
-						const profiledbUrl = process.env.PROFILEDB_URL || 'http://localhost:6277';
-						const draftRes = await fetch(`${profiledbUrl}/api/v1/telemetry/events`, {
-							method: 'POST',
-							headers: {
-								'Content-Type': 'application/json',
-								Authorization: 'Bearer clearsky_pixel_api_key'
-							},
-							body: JSON.stringify({
-								tenantSlug: compId,
-								fingerprintId: `${smsId}_draft`,
-								eventType: hasEmergency ? 'sms_auto_reply' : 'sms_draft',
-								pageUrl: null,
-								scoreDelta: 0,
-								phone: smsSender !== 'Anonymous' ? smsSender : null,
-								name: extractedName || (smsSender !== 'Anonymous' ? smsSender : null),
-								intentBucket: hasEmergency ? 'AutoReply' : 'Confirm',
-								payload: {
-									provider: 'telnyx_sms',
-									event_type: hasEmergency ? 'sms_auto_reply' : 'sms_draft',
-									textContent: draftText,
-									body: draftText,
-									draftResponse: draftText,
-									draft_reply: draftText,
-									author_name: 'AI Agent',
-									customer_phone: smsSender !== 'Anonymous' ? smsSender : null,
-									contains_emergency_keywords: hasEmergency,
-									urgency_level: hasEmergency ? 'high' : 'medium',
-									pipeline_logs: pipelineResult?.logs || [],
-									signals: pipelineResult?.signals || [],
-									enrichments: pipelineResult?.enrichments || [],
-									decision: pipelineResult?.decision || {},
-									execution: pipelineResult?.execution || {},
-									outcome: pipelineResult?.outcome || {},
-									feedback: pipelineResult?.feedback || {},
-									ai_protocol: pipelineResult?.ai_protocol || {},
-									externalEventId: `${smsId}_draft`
-								}
-							})
-						});
-						if (draftRes.ok) {
-							console.log('📡 Outbound draft event logged to ProfileDB successfully');
-						} else {
-							console.error(
-								'❌ Failed to log Outbound draft event to ProfileDB:',
-								draftRes.statusText
-							);
-						}
-					} catch (dbErr) {
-						console.error('❌ ProfileDB draft logging error:', dbErr);
-					}
-
-					// Also log as a pending CommunicationLog or send auto-reply
-					try {
-						// We need contact if we want to link it, let's try to get or create contact
-						const contact = await createOrUpdateContact({
-							company_id: compId,
-							phone: normalizedPhoneNumber,
-							name: extractedName !== 'Unknown Customer' ? extractedName : undefined
-						});
-
-						await logCommunication({
-							type: 'sms',
-							direction: 'outbound',
-							status: 'pending_approval',
-							source: toNumber || 'Inbox',
-							destination: phoneNumber,
-							company_id: compId,
-							customer_id: contact?.id ?? undefined,
-							summary: draftText.substring(0, 50) + '...',
-							content: draftText,
-							metadata: {
-								thread_id: normalizedPhoneNumber,
-								is_draft: true,
-								is_emergency: hasEmergency
-							}
-						});
-						console.log('📡 Logged pending_approval draft to local CommunicationLog');
-					} catch (draftErr) {
-						console.error('Failed to log/send draft:', draftErr);
-					}
-				}
 
 				// Forward to A2P backend when configured (replaces local SMS/messages/comm-log handling)
 				if (isA2pEnabled()) {
@@ -493,6 +408,86 @@ export const POST: RequestHandler = async ({ request }) => {
 							telnyx_event: eventType
 						}
 					});
+
+					// Log separate outbound draft event if generated
+					if (draftText && effectiveCompanyId) {
+						const compId = effectiveCompanyId as string;
+						try {
+							const profiledbUrl = process.env.PROFILEDB_URL || 'http://localhost:6277';
+							const draftRes = await fetch(`${profiledbUrl}/api/v1/telemetry/events`, {
+								method: 'POST',
+								headers: {
+									'Content-Type': 'application/json',
+									Authorization: 'Bearer clearsky_pixel_api_key'
+								},
+								body: JSON.stringify({
+									tenantSlug: compId,
+									fingerprintId: `${smsId}_draft`,
+									eventType: hasEmergency ? 'sms_auto_reply' : 'sms_draft',
+									pageUrl: null,
+									scoreDelta: 0,
+									phone: smsSender !== 'Anonymous' ? smsSender : null,
+									name: extractedName || (smsSender !== 'Anonymous' ? smsSender : null),
+									intentBucket: hasEmergency ? 'AutoReply' : 'Confirm',
+									payload: {
+										provider: 'telnyx_sms',
+										event_type: hasEmergency ? 'sms_auto_reply' : 'sms_draft',
+										textContent: draftText,
+										body: draftText,
+										draftResponse: draftText,
+										draft_reply: draftText,
+										author_name: 'AI Agent',
+										customer_phone: smsSender !== 'Anonymous' ? smsSender : null,
+										contains_emergency_keywords: hasEmergency,
+										urgency_level: hasEmergency ? 'high' : 'medium',
+										pipeline_logs: pipelineResult?.logs || [],
+										signals: pipelineResult?.signals || [],
+										enrichments: pipelineResult?.enrichments || [],
+										decision: pipelineResult?.decision || {},
+										execution: pipelineResult?.execution || {},
+										outcome: pipelineResult?.outcome || {},
+										feedback: pipelineResult?.feedback || {},
+										ai_protocol: pipelineResult?.ai_protocol || {},
+										externalEventId: `${smsId}_draft`
+									}
+								})
+							});
+							if (draftRes.ok) {
+								console.log('📡 Outbound draft event logged to ProfileDB successfully');
+							} else {
+								console.error(
+									'❌ Failed to log Outbound draft event to ProfileDB:',
+									draftRes.statusText
+								);
+							}
+						} catch (dbErr) {
+							console.error('❌ ProfileDB draft logging error:', dbErr);
+						}
+
+						// Also log as a pending CommunicationLog or send auto-reply
+						try {
+							await logCommunication({
+								type: 'sms',
+								direction: 'outbound',
+								status: 'pending_approval',
+								source: toNumber || 'Inbox',
+								destination: phoneNumber,
+								company_id: compId,
+								customer_id: contact?.id ?? undefined,
+								summary: draftText.substring(0, 50) + '...',
+								content: draftText,
+								metadata: {
+									thread_id: normalizedPhoneNumber,
+									is_draft: true,
+									is_emergency: hasEmergency,
+									commId: inboundCommLog?.communicationThreadId
+								}
+							});
+							console.log('📡 Logged pending_approval draft to local CommunicationLog');
+						} catch (draftErr) {
+							console.error('Failed to log/send draft:', draftErr);
+						}
+					}
 
 					// --- SMS → Orchestrator: extract intent and route through orchestrator ---
 					if (inboundCommLog?.id && effectiveCompanyId && smsText.trim()) {
