@@ -57,9 +57,9 @@ export async function logCommunication(entry: CommunicationLogEntry) {
 			metadata: entry.metadata || null
 		};
 
-		// Handle thread linking or creation
-		let threadId = entry.thread_id || (entry.metadata as { commId?: string })?.commId || (entry.metadata as { thread_id?: string })?.thread_id;
-		
+		// We separate the concept of a UI message thread (phone number) from the logical CommunicationThread (context/intent).
+		// Only use an explicit commId for the CommunicationThread if provided.
+		let threadId = (entry.metadata as { commId?: string })?.commId;
 		if (threadId && entry.company_id) {
 			// Ensure thread exists if an ID was passed in
 			await prisma.communicationThread.upsert({
@@ -126,7 +126,7 @@ export async function logCommunication(entry: CommunicationLogEntry) {
 				content: entry.content ?? undefined,
 				communication_log_id: record.id,
 				communication_thread_id: data.communicationThreadId,
-				thread_id: (entry.metadata as { thread_id?: string })?.thread_id
+				thread_id: (entry.metadata as { thread_id?: string })?.thread_id || entry.thread_id
 			} as any); // using as any since we added communication_thread_id in DB but types might not be updated yet
 		}
 
