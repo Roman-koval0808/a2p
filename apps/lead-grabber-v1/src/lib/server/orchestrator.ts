@@ -192,11 +192,17 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		console.log(`[Orchestrator] Drafting SMS response: "${draftedResponse}"`);
 		
 		const now = new Date();
-		const hour = now.getHours();
-		const day = now.getDay(); // 0 is Sunday, 6 is Saturday
-		const isWeekend = day === 0 || day === 6;
-		const isAfterHours = hour < 9 || hour >= 17;
-		const shouldDefer = isWeekend || isAfterHours;
+		let shouldDefer = false;
+		if (company.locations && company.locations.length > 0) {
+			const isAvailable = checkCalendarAvailability(now.toISOString(), company.locations);
+			shouldDefer = !isAvailable;
+		} else {
+			const hour = now.getHours();
+			const day = now.getDay(); // 0 is Sunday, 6 is Saturday
+			const isWeekend = day === 0 || day === 6;
+			const isAfterHours = hour < 9 || hour >= 17;
+			shouldDefer = isWeekend || isAfterHours;
+		}
 
 		if (shouldDefer) {
 			console.log('[Orchestrator] Outside business hours, flagging draft as deferred.');
