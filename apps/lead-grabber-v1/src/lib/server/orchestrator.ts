@@ -271,7 +271,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			where: {
 				customerId: customer.id,
 				id: { not: commId },
-				status: 'completed',
+				status: { in: ['completed', 'success'] },
 				content: { not: null }
 			},
 			orderBy: { created: 'desc' },
