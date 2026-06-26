@@ -153,9 +153,27 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		if (sub_intent?.toLowerCase().includes('receivable') || sub_intent?.toLowerCase().includes('ar') || sub_intent?.toLowerCase().includes('balance') || sub_intent?.toLowerCase().includes('payable')) {
 			console.log('[Orchestrator] Detected Scenario 1: Billing / AR');
 			
-			const balance = customer.accountBalance;
+			let balance = customer.accountBalance;
+			if (balance === null || balance === undefined) {
+				const crypto = await import('crypto');
+				const hashedPhone = customer.phone ? crypto.createHash('sha256').update(customer.phone).digest('hex') : null;
+				const altContact = await prisma.contact.findFirst({
+					where: {
+						companyId: company.id,
+						accountBalance: { not: null },
+						OR: [
+							...(hashedPhone ? [{ phone: hashedPhone }] : []),
+							...(customer.name ? [{ name: customer.name }] : [])
+						]
+					}
+				});
+				if (altContact) {
+					balance = altContact.accountBalance;
+				}
+			}
+
 			if (balance !== null && balance !== undefined) {
-				draftedResponse = `Hi ${customer.name || 'there'}, this is ${company.name || 'our billing department'}. Your current outstanding balance is $${balance.toFixed(2)}. You can pay online at ${company.website || 'our portal'}. Let us know if you need help!`;
+				draftedResponse = `You currently owe $${balance.toFixed(2)}, Thank you for your business have a nice day.`;
 			} else {
 				draftedResponse = `Hi ${customer.name || 'there'}, we received your message regarding your account balance. An agent will review your account and reach out shortly.`;
 			}
