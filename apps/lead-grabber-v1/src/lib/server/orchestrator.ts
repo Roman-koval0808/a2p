@@ -148,9 +148,12 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	console.log(`[Orchestrator] Debug -> digit: "${digit}", intent: "${intent}", sub_intent: "${sub_intent}"`);
 
 	// --- SCENARIO 1: BILLING (Accounts Receivable) ---
-	// Trigger: Caller presses 1 (or intent is Billing) AND sub-intent is AR.
+	// Trigger: Caller presses 1 (or intent is Billing). If sub_intent is present, it must match AR/balance/payable.
+	// If sub_intent is null/missing, default to AR behavior (balance inquiry).
 	if (digit === '1' || intent?.toLowerCase().includes('billing')) {
-		if (sub_intent?.toLowerCase().includes('receivable') || sub_intent?.toLowerCase().includes('ar') || sub_intent?.toLowerCase().includes('balance') || sub_intent?.toLowerCase().includes('payable')) {
+		const subLower = sub_intent?.toLowerCase() || '';
+		const isBillingSubIntent = !sub_intent || subLower.includes('receivable') || subLower.includes('ar') || subLower.includes('balance') || subLower.includes('payable');
+		if (isBillingSubIntent) {
 			console.log('[Orchestrator] Detected Scenario 1: Billing / AR');
 			
 			let balance = customer.accountBalance;

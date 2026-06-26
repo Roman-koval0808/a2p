@@ -478,7 +478,7 @@ export const POST: RequestHandler = async ({ request }) => {
 							})
 						: undefined;
 
-					await logCommunication({
+					const inboundCommLog = await logCommunication({
 						type: 'sms',
 						direction: 'inbound',
 						status: 'success',
@@ -493,6 +493,37 @@ export const POST: RequestHandler = async ({ request }) => {
 							telnyx_event: eventType
 						}
 					});
+
+					// --- SMS → Orchestrator: extract intent and route through orchestrator ---
+					if (inboundCommLog?.id && effectiveCompanyId && smsText.trim()) {
+						try {
+							const { analyzeCallLog } = await import('$lib/server/openai');
+							const analysis = await analyzeCallLog(smsText);
+							console.log('[SMS Orchestrator] AI analysis:', analysis.intent, analysis.sub_intent, analysis.datetime);
+
+							// Update commLog metadata with AI-extracted fields
+							await prisma.communicationLog.update({
+								where: { id: inboundCommLog.id },
+								data: {
+									summary: analysis.summary || inboundCommLog.summary,
+									metadata: {
+										...((inboundCommLog.metadata as Record<string, any>) || {}),
+										intent: analysis.intent,
+										sub_intent: analysis.sub_intent,
+										datetime: analysis.datetime,
+										urgency: analysis.urgency,
+										sentiment: analysis.sentiment
+									}
+								}
+							});
+
+							// Fire orchestrator (same as voice path)
+							const { process_orchestrator } = await import('$lib/server/orchestrator');
+							await process_orchestrator(inboundCommLog.id, 'sms_ai_ready');
+						} catch (orchErr) {
+							console.error('[SMS Orchestrator] Error:', orchErr);
+						}
+					}
 				} catch (dbError) {
 					console.error('Database error in background task:', dbError);
 				}
