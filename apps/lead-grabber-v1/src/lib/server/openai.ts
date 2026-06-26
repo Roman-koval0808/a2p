@@ -62,8 +62,10 @@ export async function analyzeCallLog(transcript: string): Promise<{
 	datetime: string | null;
 }> {
 	try {
+		const currentDate = new Date().toLocaleString();
 		const prompt = `
     Analyze the following phone call transcript / voicemail message.
+    The current date and time is: ${currentDate} (Use this to resolve relative dates like "tomorrow" or "next week").
     Provide the output in valid JSON format with the following keys:
     - "summary": A concise summary of the call (2-3 sentences).
     - "intent": The main purpose or intent of the call (e.g., "Billing", "Sales", "Support", "Emergency").

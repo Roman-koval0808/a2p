@@ -214,15 +214,6 @@ export const POST: RequestHandler = async ({ request }) => {
 						}
 					}
 
-					if (!draftText && smsText && companyId) {
-						try {
-							draftText =
-								(await draftResponse(smsText, [{ role: 'customer', content: smsText }], 'sms')) ||
-								'';
-						} catch (err) {
-							console.error('Error generating fallback draft response:', err);
-						}
-					}
 				}
 
 				if (pipelineResult && pipelineResult.success) {
