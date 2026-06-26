@@ -200,8 +200,10 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			} else {
 				draftedResponse = `Hi! Thanks for reaching out to ${company.name || 'us'}. Unfortunately, ${formattedDatetime} is outside our normal business hours or unavailable. What other day or time works best for you?`;
 			}
-		} else {
+		} else if (intent?.toLowerCase().includes('booking') || sub_intent?.toLowerCase().includes('appointment') || digit === '2') {
 			draftedResponse = `Hi! Thanks for contacting ${company.name || 'us'}. We received your booking request. What day and time works best for you?`;
+		} else {
+			draftedResponse = `Hi! Thanks for contacting ${company.name || 'us'}. We received your inquiry and an agent will review it and reach out shortly.`;
 		}
 	}
 
