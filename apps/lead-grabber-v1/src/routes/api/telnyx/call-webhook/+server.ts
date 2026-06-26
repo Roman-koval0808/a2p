@@ -1038,25 +1038,14 @@ export const POST: RequestHandler = async ({ request }) => {
 								})
 							: null;
 
-						let commThread = await prisma.communicationThread.findFirst({
-							where: {
+						let commThread = await prisma.communicationThread.create({
+							data: {
 								companyId: numberInfo.companyId,
 								contactId: contact.id,
-								status: 'open'
-							},
-							orderBy: { updated: 'desc' }
+								status: 'open',
+								summary: 'Voice Call'
+							}
 						});
-
-						if (!commThread) {
-							commThread = await prisma.communicationThread.create({
-								data: {
-									companyId: numberInfo.companyId,
-									contactId: contact.id,
-									status: 'open',
-									summary: 'Voice Call'
-								}
-							});
-						}
 
 						const createdLog = await prisma.communicationLog.create({
 							data: {
@@ -1687,25 +1676,14 @@ export const POST: RequestHandler = async ({ request }) => {
 									thread_id: contactNumber
 								});
 							} else {
-								let commThread = await prisma.communicationThread.findFirst({
-									where: {
+								let commThread = await prisma.communicationThread.create({
+									data: {
 										companyId: numberInfo.companyId,
 										contactId: contact.id,
-										status: 'open'
-									},
-									orderBy: { updated: 'desc' }
+										status: 'open',
+										summary: 'Voice Call'
+									}
 								});
-
-								if (!commThread) {
-									commThread = await prisma.communicationThread.create({
-										data: {
-											companyId: numberInfo.companyId,
-											contactId: contact.id,
-											status: 'open',
-											summary: 'Voice Call'
-										}
-									});
-								}
 
 								const createdLog = await prisma.communicationLog.create({
 									data: {

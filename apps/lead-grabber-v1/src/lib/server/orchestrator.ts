@@ -239,6 +239,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				content: draftedResponse,
 				metadata: {
 					thread_id: customerPhone,
+					commId: commLog.communicationThreadId,
 					is_draft: true,
 					orchestrator_draft: true,
 					trigger_comm_id: commId,
