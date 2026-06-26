@@ -7,13 +7,40 @@ function checkCalendarAvailability(datetimeStr: string, locations: any[]): boole
 	const lower = datetimeStr.toLowerCase();
     
 	let reqDay: string | null = null;
-	if (lower.includes('mon')) reqDay = 'Mon';
-	else if (lower.includes('tue')) reqDay = 'Tue';
-	else if (lower.includes('wed')) reqDay = 'Wed';
-	else if (lower.includes('thu')) reqDay = 'Thurs';
-	else if (lower.includes('fri')) reqDay = 'Fri';
-	else if (lower.includes('sat')) reqDay = 'Sat';
-	else if (lower.includes('sun')) reqDay = 'Sun';
+	let reqHour24 = -1;
+
+	const d = new Date(datetimeStr);
+	if (!isNaN(d.getTime())) {
+		const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thurs', 'Fri', 'Sat'];
+		reqDay = days[d.getDay()];
+		reqHour24 = d.getHours();
+	} else {
+		if (lower.includes('mon')) reqDay = 'Mon';
+		else if (lower.includes('tue')) reqDay = 'Tue';
+		else if (lower.includes('wed')) reqDay = 'Wed';
+		else if (lower.includes('thu')) reqDay = 'Thurs';
+		else if (lower.includes('fri')) reqDay = 'Fri';
+		else if (lower.includes('sat')) reqDay = 'Sat';
+		else if (lower.includes('sun')) reqDay = 'Sun';
+
+		const amMatch = lower.match(/(\d{1,2})(?:\:\d{2})?\s*am/);
+		const pmMatch = lower.match(/(\d{1,2})(?:\:\d{2})?\s*pm/);
+		
+		if (amMatch) {
+			let h = parseInt(amMatch[1]);
+			if (h === 12) h = 0;
+			reqHour24 = h;
+		} else if (pmMatch) {
+			let h = parseInt(pmMatch[1]);
+			if (h < 12) h += 12;
+			reqHour24 = h;
+		} else {
+			const milMatch = lower.match(/(\d{1,2})\:\d{2}/);
+			if (milMatch) {
+				reqHour24 = parseInt(milMatch[1]);
+			}
+		}
+	}
 
 	if (locations && locations.length > 0 && reqDay) {
 		let isAvailableInAnyLocation = false;
@@ -24,25 +51,6 @@ function checkCalendarAvailability(datetimeStr: string, locations: any[]): boole
 			
 			if (!dayHours || dayHours.toLowerCase() === 'closed') {
 				continue;
-			}
-
-			const amMatch = lower.match(/(\d{1,2})(?:\:\d{2})?\s*am/);
-			const pmMatch = lower.match(/(\d{1,2})(?:\:\d{2})?\s*pm/);
-			let reqHour24 = -1;
-			
-			if (amMatch) {
-				let h = parseInt(amMatch[1]);
-				if (h === 12) h = 0;
-				reqHour24 = h;
-			} else if (pmMatch) {
-				let h = parseInt(pmMatch[1]);
-				if (h < 12) h += 12;
-				reqHour24 = h;
-			} else {
-				const milMatch = lower.match(/(\d{1,2})\:\d{2}/);
-				if (milMatch) {
-					reqHour24 = parseInt(milMatch[1]);
-				}
 			}
 
 			if (reqHour24 !== -1) {
@@ -61,25 +69,22 @@ function checkCalendarAvailability(datetimeStr: string, locations: any[]): boole
 						break;
 					}
 				} else {
+					// Fallback to true if hours string exists but is not parsable
 					isAvailableInAnyLocation = true;
 					break;
 				}
 			} else {
+				// No hour specified, but location is open on this day
 				isAvailableInAnyLocation = true;
 				break;
 			}
 		}
 
-		if (!isAvailableInAnyLocation) {
-			return false;
-		}
-		return true;
+		return isAvailableInAnyLocation;
 	}
 
-	// Fallback logic
-	if (lower.includes('saturday') || lower.includes('sunday')) return false;
-	if (/[6-9]\s*pm|1[0-1]\s*pm|[1-8]\s*am/.test(lower)) return false;
-	return true;
+	// Strictly require explicit location availability - no fallbacks
+	return false;
 }
 
 // Formats an ISO string (e.g. 2023-10-25T14:00:00) into a readable date/time. Leaves relative strings alone.
