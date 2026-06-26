@@ -279,18 +279,13 @@
 							</td>
 							<td class="max-w-[180px] px-3 py-2.5 text-sm text-gray-700">
 								{#if showAssignButton && onAssignClick}
-									<div class="flex flex-col gap-0.5">
-										<span class="truncate" title={comm.endpoint}>{comm.endpoint || '—'}</span>
-										<button
-											type="button"
-											class="text-left text-xs text-blue-600 underline hover:no-underline"
-											onclick={() => onAssignClick(comm)}
-										>
-											Assign
-										</button>
-									</div>
-								{:else}
-									<span class="block truncate" title={comm.endpoint}>{comm.endpoint || '—'}</span>
+									<button
+										type="button"
+										class="text-left text-xs text-blue-600 underline hover:no-underline"
+										onclick={() => onAssignClick(comm)}
+									>
+										Assign
+									</button>
 								{/if}
 							</td>
 							<td class="max-w-[140px] truncate px-3 py-2.5 text-sm text-gray-700">
