@@ -257,6 +257,7 @@ export const actions: Actions = {
 									urgency: analysis?.urgency,
 									sentiment: analysis?.sentiment,
 									intent: analysis?.intent,
+									sub_intent: analysis?.sub_intent,
 									actionItems: analysis?.actionItems,
 									estimatedPrice: analysis?.estimatedPrice,
 									datetime: analysis?.datetime
