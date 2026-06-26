@@ -343,7 +343,11 @@
 								class="max-w-[120px] truncate px-3 py-2.5 text-gray-700 text-sm"
 								title={comm.commId ?? ''}
 							>
-								{comm.commId ? (comm.commId.startsWith('DROP-') ? comm.commId : 'COM-' + comm.commId.slice(-5).toUpperCase()) : '—'}
+								{#if comm.direction === 'In' && !comm.raw?.metadata?.orchestrator_processed && !comm.raw?.isDropCall}
+									<span class="text-gray-400 italic">Processing...</span>
+								{:else}
+									{comm.commId ? (comm.commId.startsWith('DROP-') ? comm.commId : 'COM-' + comm.commId.slice(-5).toUpperCase()) : '—'}
+								{/if}
 							</td>
 							<!-- Pipeline hidden -->
 							<!--
