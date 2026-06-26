@@ -92,15 +92,10 @@ export const POST: RequestHandler = async ({ request }) => {
 		const eventType = parsed.data?.event_type || 'unknown';
 		const messagePayload = parsed.data?.payload || parsed;
 		const direction = messagePayload.direction || '';
-		const isOutbound =
-			eventType === 'message.sent' ||
-			eventType === 'message.finalized' ||
-			direction === 'outbound';
-
-		// Skip completely if this is an outbound event to prevent loops and double logging
-		if (isOutbound) {
-			console.log(`--- [WEBHOOK] Ignoring outbound event: ${eventType} ---`);
-			return json({ success: true, message: 'Ignored outbound event' });
+		// Only process inbound SMS message.received events
+		if (eventType !== 'message.received') {
+			console.log(`--- [WEBHOOK] Ignoring non-inbound-SMS event: ${eventType} ---`);
+			return json({ success: true, message: 'Ignored non-inbound-SMS event' });
 		}
 
 		const smsText = messagePayload.text || '';
