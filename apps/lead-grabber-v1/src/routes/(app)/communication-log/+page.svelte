@@ -101,8 +101,9 @@
 			// Urgency: use urgency_gpt (1–5) only; high → red, mid → blue, low → green
 			const meta = log.metadata || {};
 			const urgencyGpt = typeof meta.urgency_gpt === 'number' ? meta.urgency_gpt : null;
-			const status: string =
-				urgencyGpt !== null
+			const status: string = log.isDropCall
+				? 'red'
+				: urgencyGpt !== null
 					? urgencyGpt >= 4
 						? 'red'
 						: urgencyGpt >= 3
@@ -116,7 +117,9 @@
 				(s ?? '').charAt(0).toUpperCase() + (s ?? '').slice(1).toLowerCase();
 			const urgentPrefix = urgencyGpt !== null && urgencyGpt >= 4 ? 'Urgent ' : '';
 			let purpose: string;
-			if (log.raw?.status === 'pending_approval' || log.status === 'pending_approval') {
+			if (log.isDropCall) {
+				purpose = 'Dropped Call';
+			} else if (log.raw?.status === 'pending_approval' || log.status === 'pending_approval') {
 				purpose = 'Confirm';
 			} else if (meta.category_gpt) {
 				purpose = urgentPrefix + cap(meta.category_gpt);

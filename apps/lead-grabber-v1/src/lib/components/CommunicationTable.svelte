@@ -294,7 +294,11 @@
 								{/if}
 							</td>
 							<td class="max-w-[140px] truncate px-3 py-2.5 text-sm text-gray-700">
-								{#if comm.purpose}
+								{#if comm.raw?.isDropCall}
+									<span class="inline-flex items-center rounded bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800">
+										Dropped Call
+									</span>
+								{:else if comm.purpose}
 									{#if comm.purpose === 'Confirm'}
 										<button
 											onclick={() => onConfirmClick ? onConfirmClick(comm) : onReplyClick?.(comm)}
@@ -339,7 +343,7 @@
 								class="max-w-[120px] truncate px-3 py-2.5 text-gray-700 text-sm"
 								title={comm.commId ?? ''}
 							>
-								{comm.commId ? 'COM-' + comm.commId.slice(-5).toUpperCase() : '—'}
+								{comm.commId ? (comm.commId.startsWith('DROP-') ? comm.commId : 'COM-' + comm.commId.slice(-5).toUpperCase()) : '—'}
 							</td>
 							<!-- Pipeline hidden -->
 							<!--
