@@ -60,7 +60,7 @@
 				<!-- Right side: Comm ID, Category, Sub-Category -->
 				<div class="flex flex-col items-end gap-1">
 					<span class="font-sans text-base font-medium leading-[1.29] text-[rgba(86,86,86,0.78)]">
-						Comm ID - {commId}
+						Comm ID - {commId ? (commId.startsWith('DROP-') ? commId : 'COM-' + commId.slice(-5).toUpperCase()) : '—'}
 					</span>
 					<span class="font-sans text-base font-medium leading-[1.29] text-[rgba(86,86,86,0.88)]">
 						Category: {category}
