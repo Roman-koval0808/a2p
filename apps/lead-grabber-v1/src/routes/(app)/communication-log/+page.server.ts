@@ -105,9 +105,14 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 			const isOutbound = log.direction === 'outbound';
 			let customerValue = isOutbound ? log.destination : log.source;
 			let companyValue = isOutbound ? log.source : log.destination;
+			
+			const customerNameOrPhone = log.communicationThread?.contact?.name || customerValue || '—';
+			const companyNameOrPhone = companyValue || companyId;
 
-			let displayDestination = log.communicationThread?.contact?.name || customerValue || '—';
-			let displaySource = companyValue || companyId;
+			// If inbound: customer sent it (source), company received it (destination)
+			// If outbound: company sent it (source), customer received it (destination)
+			let displaySource = isOutbound ? companyNameOrPhone : customerNameOrPhone;
+			let displayDestination = isOutbound ? customerNameOrPhone : companyNameOrPhone;
 
 			return {
 				id: log.id,
