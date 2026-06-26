@@ -145,6 +145,8 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 	let draftedResponse = '';
 
+	console.log(`[Orchestrator] Debug -> digit: "${digit}", intent: "${intent}", sub_intent: "${sub_intent}"`);
+
 	// --- SCENARIO 1: BILLING (Accounts Receivable) ---
 	// Trigger: Caller presses 1 (or intent is Billing) AND sub-intent is AR.
 	if (digit === '1' || intent?.toLowerCase().includes('billing')) {
