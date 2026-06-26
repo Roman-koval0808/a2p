@@ -38,11 +38,7 @@
 			title: 'Communication Logs',
 			url: '/communication-log',
 			icon: FileText,
-			href: '/communication-log',
-			subItems: [
-				{ title: 'All Logs', url: '/communication-log', icon: FileText, href: '/communication-log' },
-				{ title: 'Drop Calls', url: '/drop-calls', icon: PhoneOff, href: '/drop-calls' }
-			]
+			href: '/communication-log'
 		},
 		{ title: 'Profiles', url: '/profiles', icon: UserCircle, href: '/profiles' },
 		{ title: 'Analytics', url: '/analytics', icon: ChartLineIcon, href: '/analytics' }
@@ -54,11 +50,7 @@
 			title: 'Communication Logs',
 			url: '/communication-log',
 			icon: FileText,
-			href: '/communication-log',
-			subItems: [
-				{ title: 'All Logs', url: '/communication-log', icon: FileText, href: '/communication-log' },
-				{ title: 'Drop Calls', url: '/drop-calls', icon: PhoneOff, href: '/drop-calls' }
-			]
+			href: '/communication-log'
 		},
 		{ title: 'Important Notifications', url: '/notifications', icon: Bell, href: '/notifications' },
 		{ title: 'Inbox', url: '/inbox', icon: Home, href: '/inbox' },
@@ -73,11 +65,7 @@
 			title: 'Communication Logs',
 			url: '/communication-log',
 			icon: FileText,
-			href: '/communication-log',
-			subItems: [
-				{ title: 'All Logs', url: '/communication-log', icon: FileText, href: '/communication-log' },
-				{ title: 'Drop Calls', url: '/drop-calls', icon: PhoneOff, href: '/drop-calls' }
-			]
+			href: '/communication-log'
 		},
 		{ title: 'Important Notifications', url: '/notifications', icon: Bell, href: '/notifications' },
 		{ title: 'Inbox', url: '/inbox', icon: Home, href: '/inbox' },
