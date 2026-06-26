@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { env } from '$env/dynamic/private';
 import { z } from 'zod';
+import { getReferenceCalendar } from '../openai';
 
 export const ExtractionResultSchema = z.object({
 	contains_problem: z.boolean().describe("True if the customer mentions a specific issue, complaint, or problem with service."),
@@ -18,7 +19,8 @@ export const ExtractionResultSchema = z.object({
 	confidence_score: z.number().min(0).max(1),
 	urgency_level: z.enum(['low', 'medium', 'high']).describe("Use booleans for decision logic. For extraction, set 'high' only if multiple urgency booleans are true."),
 	customer_name: z.string().nullable().describe("The name of the customer if explicitly mentioned in message, e.g. 'sam' from 'sam here', otherwise null"),
-	has_name: z.boolean().describe("True if customer name is explicitly mentioned, otherwise false")
+	has_name: z.boolean().describe("True if customer name is explicitly mentioned, otherwise false"),
+	datetime: z.string().nullable().describe("If the customer mentions a specific date or time they want to book an appointment for (e.g. 'July 1 at 2pm'), extract it into standard YYYY-MM-DDTHH:mm:ss format. Otherwise null.")
 });
 
 export type ExtractionResult = z.infer<typeof ExtractionResultSchema>;
@@ -50,7 +52,8 @@ export const AI_EXTRACTION_PROTOCOL = {
 		summary: "string (one-sentence summary)",
 		confidence_score: "number (0 to 1)",
 		customer_name: "string (the name of the customer if explicitly mentioned, otherwise null)",
-		has_name: "boolean (true if customer name is explicitly mentioned, otherwise false)"
+		has_name: "boolean (true if customer name is explicitly mentioned, otherwise false)",
+		datetime: "string (if the customer mentions a specific date or time they want to book an appointment for, extract it into standard YYYY-MM-DDTHH:mm:ss format, otherwise null)"
 	}
 };
 
@@ -63,8 +66,11 @@ export async function performAiExtraction(text: string): Promise<ExtractionResul
 		if (!openai) {
 			useFallback = true;
 		} else {
+			const calendarReference = getReferenceCalendar();
 			const systemPrompt = `You are a semantic parser for a home services business. Your job is to extract raw facts from customer messages (SMS, reviews, voicemails).
             
+${calendarReference}
+
 Do NOT make business decisions. Do NOT decide if something is 'Critical' or 'Important'. 
 Instead, return specific booleans and factual fields based on the content of the message.
 
@@ -78,6 +84,7 @@ Fields:
 - detected_keywords: List all important nouns/verbs related to business (e.g. quote, call, roof, leak, pricing). If the user mentions their name, include it here.
 - customer_name: The name of the customer if explicitly mentioned in message, e.g. 'sam' from 'sam here', otherwise null.
 - has_name: True if customer name is explicitly mentioned in message, otherwise false.
+- datetime: If the customer mentions a specific date or time they want to book an appointment for (e.g. "saturday at 8am"), resolve it to the exact date using the Reference Calendar and output it in YYYY-MM-DDTHH:mm:ss format. If no time is specified but a day is, set time to "12:00:00". Otherwise null.
 
 For 'complaint_topics' and 'praise_topics': Use concise phrases. 
 CRITICAL: If the communication mentions ANY safety concerns or dangerous behavior, include 'safety_violation' in complaint_topics.
@@ -116,7 +123,8 @@ Set urgency_level to 'high' ONLY if contains_emergency_keywords is true OR (cont
 								'confidence_score',
 								'urgency_level',
 								'customer_name',
-								'has_name'
+								'has_name',
+								'datetime'
 							],
 							properties: {
 								contains_problem: { type: 'boolean' },
@@ -134,7 +142,8 @@ Set urgency_level to 'high' ONLY if contains_emergency_keywords is true OR (cont
 								confidence_score: { type: 'number' },
 								urgency_level: { type: 'string', enum: ['low', 'medium', 'high'] },
 								customer_name: { type: ['string', 'null'] },
-								has_name: { type: 'boolean' }
+								has_name: { type: 'boolean' },
+								datetime: { type: ['string', 'null'] }
 							}
 						}
 					}
@@ -233,7 +242,8 @@ Set urgency_level to 'high' ONLY if contains_emergency_keywords is true OR (cont
 			confidence_score: 0.95,
 			urgency_level: hasEmergency ? 'high' : hasQuote ? 'medium' : 'low',
 			customer_name: parsedName,
-			has_name: parsedName !== null
+			has_name: parsedName !== null,
+			datetime: null
 		};
 	}
 
