@@ -224,6 +224,12 @@ export const actions: Actions = {
 			await sendWebhook('call.playback.ended', { client_state: voicemailState });
 			await new Promise(r => setTimeout(r, 200));
 
+			// Force voicemail state so hangup doesn't count it as a drop call
+			if (comment) {
+				const { setVoicemail } = await import('$lib/server/call-state');
+				await setVoicemail(callId);
+			}
+
 			// 6. Hangup FIRST
 			await sendWebhook('call.hangup', { hangup_cause: 'normal_clearing', start_time: new Date(Date.now() - 60000).toISOString(), end_time: new Date().toISOString() });
 			await new Promise(r => setTimeout(r, 500)); // wait for hangup to process and create the log
