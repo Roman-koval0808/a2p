@@ -167,6 +167,19 @@
 		}
 	}
 
+	async function submitAccountEdit() {
+		const form = new FormData();
+		form.set('accountBalance', editBalance);
+		const res = await fetch('?/updateAccount', { method: 'POST', body: form });
+		if (res.ok) {
+			editingAccount = false;
+			toast.success('Account balance updated');
+			await invalidateAll();
+		} else {
+			toast.error('Failed to update account balance');
+		}
+	}
+
 	async function assignRepresentative(e: Event) {
 		const target = e.target as HTMLSelectElement;
 		const representativeId = target.value;
@@ -351,12 +364,7 @@
 					{/if}
 				</div>
 				{#if editingAccount}
-					<form method="POST" action="?/updateAccount" class="p-3 space-y-3" use:enhance={() => {
-						return async ({ update }) => {
-							await update();
-							editingAccount = false;
-						};
-					}}>
+					<form class="p-3 space-y-3" onsubmit={(e) => { e.preventDefault(); submitAccountEdit(); }}>
 						<div>
 							<label for="accountBalance" class="text-[10px] font-medium text-[#4a5568] uppercase tracking-wider block mb-1">Balance Owed ($)</label>
 							<input id="accountBalance" name="accountBalance" type="number" step="0.01" bind:value={editBalance} class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none" placeholder="e.g. 1130.00" />
