@@ -205,6 +205,49 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		}
 	}
 
+	// --- 3. Post-Processing: Thread Similarity Matching ---
+	// Compare this commLog's transcript with recent comms for the same customer
+	if (commLog.content) {
+		const recentComms = await prisma.communicationLog.findMany({
+			where: {
+				customerId: customer.id,
+				id: { not: commId },
+				status: { in: ['completed', 'success'] },
+				content: { not: null }
+			},
+			orderBy: { created: 'desc' },
+			take: 5
+		});
+
+		for (const pastComm of recentComms) {
+			if (!pastComm.content) continue;
+			
+			const similarity = UnifiedPipeline.calculateSimilarity(commLog.content, pastComm.content);
+			
+			const currentMetadata = (commLog.metadata as { intent?: string }) || {};
+			const pastMetadata = (pastComm.metadata as { intent?: string }) || {};
+			
+			const hasSemanticMatch = 
+				currentMetadata.intent && 
+				pastMetadata.intent && 
+				currentMetadata.intent.toLowerCase() === pastMetadata.intent.toLowerCase();
+
+			if (similarity >= 0.8 || hasSemanticMatch) {
+				const matchType = hasSemanticMatch ? `Semantic match: ${currentMetadata.intent}` : `${Math.round(similarity * 100)}% text match`;
+				console.log(`[Orchestrator] Found similar thread (${matchType}). Merging threads.`);
+				
+				await prisma.communicationLog.update({
+					where: { id: commId },
+					data: { communicationThreadId: pastComm.communicationThreadId }
+				});
+				
+				// Update in-memory so draft SMS gets the new merged thread ID
+				commLog.communicationThreadId = pastComm.communicationThreadId;
+				break;
+			}
+		}
+	}
+
 	// If we drafted a response, save it as pending_approval
 	if (draftedResponse && companyNumber && customerPhone) {
 		console.log(`[Orchestrator] Drafting SMS response: "${draftedResponse}"`);
@@ -264,43 +307,4 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		console.log('[Orchestrator] No action taken for this intent.');
 	}
 
-	// --- 3. Post-Processing: Thread Similarity Matching ---
-	// Compare this commLog's transcript with recent comms for the same customer
-	if (commLog.content) {
-		const recentComms = await prisma.communicationLog.findMany({
-			where: {
-				customerId: customer.id,
-				id: { not: commId },
-				status: { in: ['completed', 'success'] },
-				content: { not: null }
-			},
-			orderBy: { created: 'desc' },
-			take: 5
-		});
-
-		for (const pastComm of recentComms) {
-			if (!pastComm.content) continue;
-			
-			const similarity = UnifiedPipeline.calculateSimilarity(commLog.content, pastComm.content);
-			
-			const currentMetadata = (commLog.metadata as { intent?: string }) || {};
-			const pastMetadata = (pastComm.metadata as { intent?: string }) || {};
-			
-			const hasSemanticMatch = 
-				currentMetadata.intent && 
-				pastMetadata.intent && 
-				currentMetadata.intent.toLowerCase() === pastMetadata.intent.toLowerCase();
-
-			if (similarity >= 0.8 || hasSemanticMatch) {
-				const matchType = hasSemanticMatch ? `Semantic match: ${currentMetadata.intent}` : `${Math.round(similarity * 100)}% text match`;
-				console.log(`[Orchestrator] Found similar thread (${matchType}). Merging threads.`);
-				
-				await prisma.communicationLog.update({
-					where: { id: commId },
-					data: { communicationThreadId: pastComm.communicationThreadId }
-				});
-				break;
-			}
-		}
-	}
 }
