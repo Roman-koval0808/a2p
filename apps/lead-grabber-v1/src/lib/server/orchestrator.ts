@@ -148,7 +148,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// --- SCENARIO 1: BILLING (Accounts Receivable) ---
 	// Trigger: Caller presses 1 (or intent is Billing) AND sub-intent is AR.
 	if (digit === '1' || intent?.toLowerCase().includes('billing')) {
-		if (sub_intent?.toLowerCase().includes('receivable') || sub_intent?.toLowerCase().includes('ar') || sub_intent?.toLowerCase().includes('balance')) {
+		if (sub_intent?.toLowerCase().includes('receivable') || sub_intent?.toLowerCase().includes('ar') || sub_intent?.toLowerCase().includes('balance') || sub_intent?.toLowerCase().includes('payable')) {
 			console.log('[Orchestrator] Detected Scenario 1: Billing / AR');
 			
 			const balance = customer.accountBalance;
