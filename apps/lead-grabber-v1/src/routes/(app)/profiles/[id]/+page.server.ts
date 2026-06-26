@@ -186,10 +186,21 @@ export const load: PageServerLoad = async ({ params, locals, fetch }) => {
 			recAction = 'Notify owner / Dispatch SMS';
 		}
 
-		// 5. Parse historyEvents as Communications for the table
-		const comms = historyEvents.map((ev: any) => {
-			const payload = ev.payload || {};
-			const dateObj = new Date(ev.occurredAt);
+		// 5. Query CommunicationLog for the table
+		const dbLogs = await prisma.communicationLog.findMany({
+			where: { 
+				companyId: locals.user.company.id,
+				OR: [
+					{ customerId: params.id },
+					...(clearPhone !== '—' ? [{ source: clearPhone }, { destination: clearPhone }] : []),
+					...(clearEmail !== '—' ? [{ source: clearEmail }, { destination: clearEmail }] : [])
+				]
+			},
+			orderBy: { created: 'desc' }
+		});
+
+		const comms = dbLogs.map(log => {
+			const dateObj = new Date(log.created);
 			const date = dateObj.toLocaleDateString('en-US', {
 				month: 'short',
 				day: '2-digit',
@@ -201,56 +212,34 @@ export const load: PageServerLoad = async ({ params, locals, fetch }) => {
 				hour12: true
 			});
 
-			const type = ev.eventType.includes('sms')
-				? 'sms'
-				: ev.eventType.includes('voicemail') || ev.eventType.includes('call')
-					? 'voice'
-					: 'web';
-			const direction =
-				ev.eventType.includes('received') ||
-				ev.eventType.includes('incoming') ||
-				ev.eventType === 'sms_received' ||
-				ev.eventType === 'telnyx.voice.voicemail'
-					? 'In'
-					: 'Out';
+			let status = 'green';
+			if (log.status === 'pending_approval') status = 'blue';
+			else if (log.direction === 'inbound') status = 'in';
+			else status = 'out';
 
-			let status: 'red' | 'green' | 'blue' = 'blue';
-			if (ev.intentBucket === 'emergency') {
-				status = 'red';
-			} else if (ev.intentBucket === 'active') {
-				status = 'green';
-			}
-
-			let summary = payload.detail || payload.body || payload.text || payload.textContent || payload.voicemail_text || ev.eventType;
-			const isSmsSent = ev.eventType === 'sms_sent' || ev.eventType === 'message.sent';
-			const isSmsRecv = ev.eventType === 'sms_received' || ev.eventType === 'message.received';
-			const isVoice = ev.eventType.includes('voicemail') || ev.eventType.includes('call') || ev.eventType.includes('voice');
-
-			if (isVoice) {
-				summary = `Voicemail: "${payload.voicemail_text || payload.textContent || payload.detail || 'Emergency call'}"`;
-			} else if (isSmsSent) {
-				summary = `SMS Sent: "${payload.body || payload.text || payload.detail || summary}"`;
-			} else if (isSmsRecv) {
-				summary = `SMS Received: "${payload.body || payload.text || payload.detail || summary}"`;
-			} else if (ev.eventType === 'call_initiated') {
-				summary = `Outbound Call: "${payload.detail || summary}"`;
-			} else if (ev.eventType === 'job_completed') {
-				summary = `Job Completed: Invoiced $${Number(payload.revenue || 250.0).toFixed(2)}`;
+			let summary = log.summary || log.content || '';
+			const meta = (log.metadata as any) || {};
+			
+			let purpose = 'General';
+			if (log.status === 'pending_approval') {
+				purpose = 'Confirm';
+			} else if (meta.category_gpt) {
+				purpose = meta.category_gpt;
 			}
 
 			return {
-				id: ev.id,
+				id: log.id,
 				date,
 				time,
-				type,
-				direction,
-				source: clearPhone !== '—' ? clearPhone : (clearEmail !== '—' ? clearEmail : 'Anonymous'),
-				endpoint: payload.to || payload.from || locals.user.company.id,
-				purpose: ev.intentBucket || 'unclassified',
+				type: log.type,
+				direction: log.direction === 'inbound' ? 'In' : 'Out',
+				source: log.source || 'Unknown',
+				endpoint: log.destination || locals.user.company.id,
+				purpose: purpose,
 				summary: summary,
-				commId: ev.id,
+				commId: log.communicationThreadId || log.id,
 				status,
-				raw: ev
+				raw: log
 			};
 		});
 
@@ -321,7 +310,7 @@ export const actions: Actions = {
 				where: { id, companyId: user.company.id },
 				data: { accountBalance, updated: new Date() }
 			});
-			return { success: true, action: 'updateAccount' };
+			return { success: true };
 		} catch (e) {
 			console.error('Error updating account:', e);
 			return { success: false };

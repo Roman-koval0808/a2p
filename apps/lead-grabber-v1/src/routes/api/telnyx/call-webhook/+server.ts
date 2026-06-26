@@ -1443,8 +1443,8 @@ export const POST: RequestHandler = async ({ request }) => {
 										const buyingSignals = analysis.buyingSignals;
 
 										// --- Identity resolution from transcript ---
-										// If the AI extracted a name and the contact has no name, update the contact record
-										if (callerName && contact && !contact.name) {
+										// If the AI extracted a name and the contact has a default name, update the contact record
+										if (callerName && contact && (!contact.name || ['Unknown Caller', 'Anonymous', 'Valued Customer', 'Unknown'].includes(contact.name))) {
 											try {
 												await prisma.contact.update({
 													where: { id: contact.id },
@@ -1452,6 +1452,14 @@ export const POST: RequestHandler = async ({ request }) => {
 												});
 												contact = { ...contact, name: callerName };
 												console.log(`👤 Contact name resolved from transcript: "${callerName}" (${contact.id})`);
+												
+												// Also update PipelineCustomerProfile if it exists
+												if (contact.phone) {
+													await prisma.pipelineCustomerProfile.updateMany({
+														where: { companyId: contact.companyId, phoneNumber: contact.phone },
+														data: { displayName: callerName, firstName: callerName.split(' ')[0] }
+													});
+												}
 											} catch (nameErr) {
 												console.error('⚠️ Failed to update contact name:', nameErr);
 											}

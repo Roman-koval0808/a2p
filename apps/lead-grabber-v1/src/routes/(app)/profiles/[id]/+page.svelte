@@ -215,6 +215,25 @@
 		pipelineDialogOpen = true;
 	}
 
+	async function handleConfirmClick(comm: Communication) {
+		const loadingId = toast.loading('Confirming communication...');
+		try {
+			const res = await fetch(`/api/communication-logs/${comm.id}/confirm`, {
+				method: 'POST'
+			});
+			const result = await res.json();
+			if (result.success) {
+				toast.success('Communication confirmed and dispatched', { id: loadingId });
+				await invalidateAll();
+			} else {
+				toast.error(result.error || 'Failed to confirm', { id: loadingId });
+			}
+		} catch (e) {
+			console.error(e);
+			toast.error('Failed to confirm communication', { id: loadingId });
+		}
+	}
+
 	async function simulateOutboundCall(profileId: string, clearPhone: string) {
 		if (!clearPhone || clearPhone === '—') {
 			toast.error('Cannot call profile without a phone number.');
@@ -629,6 +648,7 @@
 					onSummaryClick={handleSummaryClick}
 					onActionClick={handleActionClick}
 					onPipelineClick={handlePipelineClick}
+					onConfirmClick={handleConfirmClick}
 				/>
 			</div>
 		</div>

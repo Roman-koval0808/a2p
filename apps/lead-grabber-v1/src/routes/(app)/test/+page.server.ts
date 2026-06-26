@@ -267,18 +267,16 @@ export const actions: Actions = {
 						// Update contact name if resolved from AI analysis
 						const resolvedName = analysis?.callerName || null;
 						if (resolvedName) {
+							// Update Svelte Contact
 							await prisma.contact.updateMany({
-								where: {
-									companyId,
-									phone: caller,
-									OR: [
-										{ name: null },
-										{ name: 'Unknown Caller' },
-										{ name: 'Anonymous' },
-										{ name: 'Valued Customer' }
-									]
-								},
+								where: { companyId, phone: caller },
 								data: { name: resolvedName }
+							});
+
+							// Update Pipeline Customer Profile
+							await prisma.pipelineCustomerProfile.updateMany({
+								where: { companyId, phoneNumber: caller },
+								data: { displayName: resolvedName, firstName: resolvedName.split(' ')[0] }
 							});
 						}
 
