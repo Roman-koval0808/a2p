@@ -46,9 +46,13 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 			role: m.role
 		}));
 
-		// Fetch communication logs directly to ensure strict date sorting
+		const companyId = locals.user.company.id;
+
+		// Fetch both tables with size offset + limit to correctly paginate after sorting
+		const maxTake = offset + limit;
+
 		const dbLogs = await prisma.communicationLog.findMany({
-			where: { companyId: locals.user.company.id },
+			where: { companyId },
 			include: {
 				assignedMembers: {
 					include: { user: true }
@@ -58,17 +62,27 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 				}
 			},
 			orderBy: { created: 'desc' },
-			take: limit,
-			skip: offset
+			take: maxTake
 		});
 
-		const totalCount = await prisma.communicationLog.count({
-			where: { companyId: locals.user.company.id }
+		const dbDropCalls = await prisma.dropCall.findMany({
+			where: { companyId },
+			orderBy: { created: 'desc' },
+			take: maxTake
 		});
 
-		// Map logs for the table
-		const logs: any[] = [];
-		for (const log of dbLogs) {
+		const logCount = await prisma.communicationLog.count({
+			where: { companyId }
+		});
+
+		const dropCallCount = await prisma.dropCall.count({
+			where: { companyId }
+		});
+
+		const totalCount = logCount + dropCallCount;
+
+		// Map communication logs
+		const mappedLogs = dbLogs.map((log) => {
 			const assignedMemberNames = log.assignedMembers.map((am) => am.user.name || am.user.email);
 			
 			let status = 'green';
@@ -80,7 +94,6 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 				status = 'out';
 			}
 
-			// The 'purpose' field in UI drives the 'Confirm' button
 			let purpose = 'General';
 			const meta = (log.metadata as any) || {};
 			if (log.status === 'pending_approval') {
@@ -94,27 +107,62 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 			let companyValue = isOutbound ? log.source : log.destination;
 
 			let displayDestination = log.communicationThread?.contact?.name || customerValue || '—';
-			let displaySource = companyValue || locals.user.company.id;
+			let displaySource = companyValue || companyId;
 
-			logs.push({
+			return {
 				id: log.id,
 				type: log.type,
 				direction: log.direction,
-				status: status,
+				status,
 				source: displaySource,
 				destination: displayDestination,
 				summary: log.summary || log.content || '',
 				content: log.content || '',
 				metadata: meta,
-				created: log.created.toISOString(),
+				created: log.created,
 				updated: log.updated.toISOString(),
 				commId: log.communicationThread?.id || log.communicationThreadId,
 				threadStatus: log.communicationThread?.status,
 				threadSummary: log.communicationThread?.summary,
 				assignedMemberNames,
-				raw: log
-			});
-		}
+				raw: log,
+				isDropCall: false
+			};
+		});
+
+		// Map drop calls
+		const mappedDropCalls = dbDropCalls.map((dc) => {
+			return {
+				id: dc.id,
+				type: 'voice',
+				direction: 'inbound',
+				status: 'red', // red status color
+				source: dc.phoneNumber,
+				destination: 'IVR (Dropped)',
+				summary: `Dropped Call - duration ${Math.round(dc.duration)}s (${dc.knownContact ? 'Known Contact' : 'Unknown Contact'})`,
+				content: `Call from ${dc.phoneNumber} hung up in IVR after ${dc.duration} seconds.`,
+				metadata: { isDropCall: true, duration: dc.duration, knownContact: dc.knownContact },
+				created: dc.created,
+				updated: dc.updated.toISOString(),
+				commId: `DROP-${dc.id.slice(-6).toUpperCase()}`,
+				threadStatus: 'failed',
+				threadSummary: 'Dropped in IVR',
+				assignedMemberNames: [],
+				raw: dc,
+				isDropCall: true
+			};
+		});
+
+		// Merge and sort in memory
+		const combined = [...mappedLogs, ...mappedDropCalls].sort(
+			(a, b) => b.created.getTime() - a.created.getTime()
+		);
+
+		// Slice for pagination and format created date to string
+		const logs = combined.slice(offset, offset + limit).map((item) => ({
+			...item,
+			created: item.created.toISOString()
+		}));
 
 		return {
 			logs,

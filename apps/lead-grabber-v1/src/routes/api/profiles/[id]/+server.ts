@@ -31,23 +31,41 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 	const auth = requireAuth(locals);
 	if (!auth) return unauthorized();
 
-	const contact = await prisma.contact.findFirst({
-		where: { id: params.id, companyId: auth.companyId },
-		select: {
-			id: true,
-			name: true,
-			phone: true,
-			email: true,
-			companyName: true,
-			address: true,
-			notes: true,
-			created: true,
-			updated: true
-		}
+	let contact = await prisma.contact.findFirst({
+		where: { id: params.id, companyId: auth.companyId }
 	});
+
 	if (!contact) {
-		return json({ success: false, error: 'Profile not found', code: 404 }, { status: 404 });
+		const PROFILEDB_URL = process.env.PROFILEDB_URL || 'http://localhost:6277';
+		let name = 'Unknown';
+		let phone = '';
+		let email = '';
+		try {
+			const res = await fetch(`${PROFILEDB_URL}/api/v1/tenants/${auth.companyId}/profiles/${params.id}`);
+			if (res.ok) {
+				const cdp = await res.json();
+				name = cdp.name || 'Unknown';
+				phone = cdp.phone || '';
+				email = cdp.email || '';
+			} else {
+				return json({ success: false, error: 'Profile not found', code: 404 }, { status: 404 });
+			}
+		} catch (e) {
+			console.error('Error fetching from ProfileDB:', e);
+			return json({ success: false, error: 'Profile not found', code: 404 }, { status: 404 });
+		}
+
+		contact = await prisma.contact.create({
+			data: {
+				id: params.id,
+				companyId: auth.companyId,
+				name,
+				phone,
+				email
+			}
+		});
 	}
+
 	return json({ success: true, data: toSpecProfile(contact) });
 };
 
@@ -55,11 +73,36 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
 	const auth = requireAuth(locals);
 	if (!auth) return unauthorized();
 
-	const contact = await prisma.contact.findFirst({
+	let contact = await prisma.contact.findFirst({
 		where: { id: params.id, companyId: auth.companyId }
 	});
+
 	if (!contact) {
-		return json({ success: false, error: 'Profile not found', code: 404 }, { status: 404 });
+		const PROFILEDB_URL = process.env.PROFILEDB_URL || 'http://localhost:6277';
+		let name = 'Unknown';
+		let phone = '';
+		let email = '';
+		try {
+			const res = await fetch(`${PROFILEDB_URL}/api/v1/tenants/${auth.companyId}/profiles/${params.id}`);
+			if (res.ok) {
+				const cdp = await res.json();
+				name = cdp.name || 'Unknown';
+				phone = cdp.phone || '';
+				email = cdp.email || '';
+			}
+		} catch (e) {
+			console.error('Error fetching from ProfileDB:', e);
+		}
+
+		contact = await prisma.contact.create({
+			data: {
+				id: params.id,
+				companyId: auth.companyId,
+				name,
+				phone,
+				email
+			}
+		});
 	}
 
 	const body = await request.json().catch(() => ({}));
@@ -112,9 +155,8 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
 	const contact = await prisma.contact.findFirst({
 		where: { id: params.id, companyId: auth.companyId }
 	});
-	if (!contact) {
-		return json({ success: false, error: 'Profile not found', code: 404 }, { status: 404 });
+	if (contact) {
+		await prisma.contact.delete({ where: { id: params.id } });
 	}
-	await prisma.contact.delete({ where: { id: params.id } });
 	return json({ success: true, message: 'Profile deleted successfully' });
 };
