@@ -258,7 +258,8 @@ export const actions: Actions = {
 									sentiment: analysis?.sentiment,
 									intent: analysis?.intent,
 									actionItems: analysis?.actionItems,
-									estimatedPrice: analysis?.estimatedPrice
+									estimatedPrice: analysis?.estimatedPrice,
+									datetime: analysis?.datetime
 								}
 							}
 						});
