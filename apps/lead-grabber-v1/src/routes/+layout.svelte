@@ -189,7 +189,7 @@
       </div>
     {/if} -->
 
-	{#if $callDialog.open && $callDialog.call}
+	<!-- {#if $callDialog.open && $callDialog.call}
 		<IncomingCallDialog
 			open={$callDialog.open}
 			caller={{
@@ -243,5 +243,5 @@
 				callDialog.set({ open: false, call: null });
 			}}
 		/>
-	{/if}
+	{/if} -->
 </div>

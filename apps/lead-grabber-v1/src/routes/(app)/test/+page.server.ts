@@ -224,48 +224,38 @@ export const actions: Actions = {
 			await sendWebhook('call.playback.ended', { client_state: voicemailState });
 			await new Promise(r => setTimeout(r, 200));
 
-			// 6. Recording Saved (Simulating the Voicemail being left)
+			// 6. Hangup FIRST
+			await sendWebhook('call.hangup', { hangup_cause: 'normal_clearing', start_time: new Date(Date.now() - 60000).toISOString(), end_time: new Date().toISOString() });
+			await new Promise(r => setTimeout(r, 500)); // wait for hangup to process and create the log
+
+			// 7. Simulating the Voicemail being saved (without hitting the real webhook which would transcribe a fake MP3)
 			if (comment) {
-				await sendWebhook('call.recording.saved', { 
-					client_state: voicemailState,
-					recording_urls: { mp3: 'https://cdn.freesound.org/previews/411/411132_5121236-lq.mp3' },
-					recording_id: `rec_${callId}`,
-					// For simulation purposes we need to fake deepgram transcript here if deepgram is disabled
-					// But we will intercept this below and write the DB record directly so the orchestrator sees it!
-				});
-				
-				// Ensure transcription is written to the DB so orchestrator uses it instead of calling deepgram
 				const cLog = await prisma.communicationLog.findFirst({
 					where: { companyId, source: caller, type: 'voice' },
 					orderBy: { created: 'desc' }
 				});
+
 				if (cLog) {
-					await prisma.communicationLog.update({
-						where: { id: cLog.id },
-						data: { content: `Transcription: ${comment}` }
-					});
-					
 					// Force the AI analysis on the transcript just like the old triggerCall did
-					// Because the real webhook might not run Deepgram locally in dev without keys
 					try {
 						const { analyzeCallLog } = await import('$lib/server/openai');
 						const analysis = await analyzeCallLog(comment);
-						if (analysis) {
-							await prisma.communicationLog.update({
-								where: { id: cLog.id },
-								data: {
-									summary: analysis.summary || cLog.summary,
-									metadata: {
-										...((cLog.metadata as object) || {}),
-										urgency: analysis.urgency,
-										sentiment: analysis.sentiment,
-										intent: analysis.intent,
-										actionItems: analysis.actionItems,
-										estimatedPrice: analysis.estimatedPrice
-									}
+						
+						await prisma.communicationLog.update({
+							where: { id: cLog.id },
+							data: { 
+								content: `Transcription: ${comment}`,
+								summary: analysis?.summary || cLog.summary,
+								metadata: {
+									...((cLog.metadata as object) || {}),
+									urgency: analysis?.urgency,
+									sentiment: analysis?.sentiment,
+									intent: analysis?.intent,
+									actionItems: analysis?.actionItems,
+									estimatedPrice: analysis?.estimatedPrice
 								}
-							});
-						}
+							}
+						});
 
 						// Also run the pipeline
 						await PipelineSimulator.run({
@@ -276,6 +266,12 @@ export const actions: Actions = {
 							mode: 'call',
 							sessionId: callId
 						});
+
+						// CRITICAL: Manually trigger the Orchestrator since we bypassed the recording.saved webhook!
+						import('$lib/server/orchestrator').then(({ process_orchestrator }) => {
+							process_orchestrator(cLog.id, 'ai_ready').catch(e => console.error('[Orchestrator] Error:', e));
+						});
+
 					} catch (e) {
 						logs.push(`Warning: Mock analysis failed ${e}`);
 					}
@@ -284,10 +280,6 @@ export const actions: Actions = {
 				logs.push('⏱️ Waiting 3 seconds for Orchestrator to draft SMS...');
 				await new Promise(r => setTimeout(r, 3000));
 			}
-
-			// 7. Hangup
-			await sendWebhook('call.hangup', { hangup_cause: 'normal_clearing', start_time: new Date(Date.now() - 60000).toISOString(), end_time: new Date().toISOString() });
-			await new Promise(r => setTimeout(r, 500));
 
 			// 8. Fetch the final resulting log to show the UI
 			const finalCommLog = await prisma.communicationLog.findFirst({
