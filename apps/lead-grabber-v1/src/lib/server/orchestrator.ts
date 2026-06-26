@@ -2,12 +2,82 @@ import { prisma } from '$lib/db';
 import { logCommunication } from '$lib/utils/communication-log';
 import { toE164 } from '$lib/company-numbers';
 import { UnifiedPipeline } from '$lib/server/pipeline/unified-pipeline';
-// Mock function: checks if a requested datetime is likely within business hours (9-5 M-F)
-function checkCalendarMock(datetimeStr: string): boolean {
+// Checks if a requested datetime is within business hours of any location, fallback to 9-5 M-F
+function checkCalendarAvailability(datetimeStr: string, locations: any[]): boolean {
 	const lower = datetimeStr.toLowerCase();
-	// Reject weekends
+    
+	let reqDay: string | null = null;
+	if (lower.includes('mon')) reqDay = 'Mon';
+	else if (lower.includes('tue')) reqDay = 'Tue';
+	else if (lower.includes('wed')) reqDay = 'Wed';
+	else if (lower.includes('thu')) reqDay = 'Thurs';
+	else if (lower.includes('fri')) reqDay = 'Fri';
+	else if (lower.includes('sat')) reqDay = 'Sat';
+	else if (lower.includes('sun')) reqDay = 'Sun';
+
+	if (locations && locations.length > 0 && reqDay) {
+		let isAvailableInAnyLocation = false;
+		
+		for (const loc of locations) {
+			const hoursObj = loc.hours || {};
+			const dayHours = hoursObj[reqDay];
+			
+			if (!dayHours || dayHours.toLowerCase() === 'closed') {
+				continue;
+			}
+
+			const amMatch = lower.match(/(\d{1,2})(?:\:\d{2})?\s*am/);
+			const pmMatch = lower.match(/(\d{1,2})(?:\:\d{2})?\s*pm/);
+			let reqHour24 = -1;
+			
+			if (amMatch) {
+				let h = parseInt(amMatch[1]);
+				if (h === 12) h = 0;
+				reqHour24 = h;
+			} else if (pmMatch) {
+				let h = parseInt(pmMatch[1]);
+				if (h < 12) h += 12;
+				reqHour24 = h;
+			} else {
+				const milMatch = lower.match(/(\d{1,2})\:\d{2}/);
+				if (milMatch) {
+					reqHour24 = parseInt(milMatch[1]);
+				}
+			}
+
+			if (reqHour24 !== -1) {
+				const locMatch = dayHours.toLowerCase().match(/(\d{1,2})(?:\:\d{2})?\s*(am|pm)\s*-\s*(\d{1,2})(?:\:\d{2})?\s*(am|pm)/);
+				if (locMatch) {
+					let startH = parseInt(locMatch[1]);
+					if (locMatch[2] === 'pm' && startH < 12) startH += 12;
+					if (locMatch[2] === 'am' && startH === 12) startH = 0;
+
+					let endH = parseInt(locMatch[3]);
+					if (locMatch[4] === 'pm' && endH < 12) endH += 12;
+					if (locMatch[4] === 'am' && endH === 12) endH = 0;
+
+					if (reqHour24 >= startH && reqHour24 < endH) {
+						isAvailableInAnyLocation = true;
+						break;
+					}
+				} else {
+					isAvailableInAnyLocation = true;
+					break;
+				}
+			} else {
+				isAvailableInAnyLocation = true;
+				break;
+			}
+		}
+
+		if (!isAvailableInAnyLocation) {
+			return false;
+		}
+		return true;
+	}
+
+	// Fallback logic
 	if (lower.includes('saturday') || lower.includes('sunday')) return false;
-	// Reject after-hours (6pm-11pm or 1am-8am)
 	if (/[6-9]\s*pm|1[0-1]\s*pm|[1-8]\s*am/.test(lower)) return false;
 	return true;
 }
@@ -33,7 +103,12 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// Fetch the communication log
 	const commLog = await prisma.communicationLog.findUnique({
 		where: { id: commId },
-		include: { company: true, customer: true }
+		include: { 
+			company: {
+				include: { locations: true }
+			}, 
+			customer: true 
+		}
 	});
 
 	if (!commLog || !commLog.companyId || !commLog.customerId) {
@@ -91,10 +166,10 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			data: { engagementScore: { increment: 10 } }
 		});
 
-		// 2. Check calendar for availability (mocked: check if datetime is within 9-5)
+		// 2. Check calendar for availability (mocked: check if datetime is within 9-5 or location hours)
 		if (datetime) {
 			const formattedDatetime = formatDatetime(datetime);
-			const isAvailable = checkCalendarMock(datetime);
+			const isAvailable = checkCalendarAvailability(datetime, company.locations || []);
 			if (isAvailable) {
 				draftedResponse = `Hi! Thanks for reaching out to ${company.name || 'us'}. We see you'd like to book an appointment for ${formattedDatetime}. A representative will confirm this time with you shortly.`;
 			} else {
