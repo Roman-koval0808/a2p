@@ -260,7 +260,23 @@
 						</div>
 
 						<div class="space-y-1.5">
+							<label for="call-digit" class="text-xs font-bold text-slate-500 uppercase tracking-wider">IVR Digit Pressed</label>
+							<select
+								id="call-digit"
+								name="digit"
+								class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-sm bg-white"
+							>
+								<option value="1">1 (e.g. Sales)</option>
+								<option value="2">2 (e.g. Billing)</option>
+								<option value="3">3 (e.g. Emergency / Service)</option>
+								<option value="0">0 (e.g. Operator)</option>
+								<option value="">No Digit (Timeout / Drop Call)</option>
+							</select>
+						</div>
+
+						<div class="space-y-1.5">
 							<label for="call-comment" class="text-xs font-bold text-slate-500 uppercase tracking-wider">Voicemail Transcript text</label>
+
 							<textarea
 								id="call-comment"
 								name="comment"
