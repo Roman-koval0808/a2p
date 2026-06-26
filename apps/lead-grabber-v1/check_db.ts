@@ -2,24 +2,30 @@ import { PrismaClient } from 'clearsky-db-client';
 const prisma = new PrismaClient();
 
 async function check() {
-    const logs = await prisma.communicationLog.findMany({
-        where: {
-            source: { startsWith: '+1909' }
-        },
+    const voiceLogs = await prisma.communicationLog.findMany({
+        where: { type: 'voice' },
         orderBy: { created: 'desc' },
-        take: 3,
-        include: {
-            communicationThread: true
-        }
+        take: 5
     });
 
-    console.log("Found", logs.length, "logs for test numbers:");
-    
-    logs.reverse().forEach(log => {
-        console.log(`\nLog ID: ${log.id}`);
+    console.log("Found", voiceLogs.length, "voice logs:");
+    voiceLogs.forEach(log => {
+        console.log(`\nLog ID: ${log.id} | Type: ${log.type} | Direction: ${log.direction}`);
+        console.log(`Source: ${log.source} | Destination: ${log.destination}`);
         console.log(`Content: "${log.content}"`);
-        console.log(`Metadata Thread ID (UI): ${log.metadata?.thread_id}`);
-        console.log(`Actual DB Thread ID (commId): ${log.communicationThreadId}`);
+    });
+
+    const smsLogs = await prisma.communicationLog.findMany({
+        where: { type: 'sms' },
+        orderBy: { created: 'desc' },
+        take: 5
+    });
+
+    console.log("\nFound", smsLogs.length, "sms logs:");
+    smsLogs.forEach(log => {
+        console.log(`\nLog ID: ${log.id} | Type: ${log.type} | Direction: ${log.direction}`);
+        console.log(`Source: ${log.source} | Destination: ${log.destination}`);
+        console.log(`Content: "${log.content}"`);
     });
     
     await prisma.$disconnect();

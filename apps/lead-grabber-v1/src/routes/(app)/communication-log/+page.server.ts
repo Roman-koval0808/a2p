@@ -59,7 +59,8 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 				},
 				communicationThread: {
 					include: { contact: true }
-				}
+				},
+				customer: true
 			},
 			orderBy: { created: 'desc' },
 			take: maxTake
@@ -106,12 +107,15 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 			let customerValue = isOutbound ? log.destination : log.source;
 			let companyValue = isOutbound ? log.source : log.destination;
 			
-			const customerNameOrPhone = log.communicationThread?.contact?.name || customerValue || '—';
+			const customerNameOrPhone = log.customer?.name || log.communicationThread?.contact?.name || customerValue || '—';
 			const companyNameOrPhone = companyValue || companyId;
 
 			// If inbound: customer sent it (source), company received it (destination)
 			// If outbound: company sent it (source), customer received it (destination)
-			let displaySource = isOutbound ? companyNameOrPhone : customerNameOrPhone;
+			// For drafts/pending approval, the source should also display as the customer name.
+			let displaySource = isOutbound 
+				? (log.status === 'pending_approval' ? customerNameOrPhone : companyNameOrPhone)
+				: customerNameOrPhone;
 			let displayDestination = isOutbound ? customerNameOrPhone : companyNameOrPhone;
 
 			return {
