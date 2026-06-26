@@ -45,6 +45,24 @@ export async function transcribeAudio(audioUrl: string): Promise<string> {
 	}
 }
 
+
+export function getReferenceCalendar(): string {
+	const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+	const now = new Date();
+	
+	let calendarPrompt = `Today's current date and time: ${now.toLocaleString()} (timezone of the server).
+Reference Calendar for resolving relative days (like "saturday", "tomorrow", "next week Monday", etc.):\n`;
+	
+	for (let i = 0; i < 10; i++) {
+		const d = new Date(now.getTime() + i * 24 * 60 * 60 * 1000);
+		const dayName = daysOfWeek[d.getDay()];
+		const dateString = d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+		const label = i === 0 ? ' (Today)' : i === 1 ? ' (Tomorrow)' : '';
+		calendarPrompt += `- ${dayName}${label}: ${dateString}\n`;
+	}
+	return calendarPrompt;
+}
+
 /**
  * Analyze call transcript using OpenAI GPT-4o-mini to generate summary, intent, urgency,
  * action items, caller name, and buying signals.
@@ -62,10 +80,10 @@ export async function analyzeCallLog(transcript: string): Promise<{
 	datetime: string | null;
 }> {
 	try {
-		const currentDate = new Date().toLocaleString();
+		const calendarReference = getReferenceCalendar();
 		const prompt = `
     Analyze the following phone call transcript / voicemail message.
-    The current date and time is: ${currentDate} (Use this to resolve relative dates like "tomorrow" or "next week").
+    ${calendarReference}
     Provide the output in valid JSON format with the following keys:
     - "summary": A concise summary of the call (2-3 sentences).
     - "intent": The main purpose or intent of the call (e.g., "Billing", "Sales", "Support", "Emergency").
@@ -84,7 +102,7 @@ export async function analyzeCallLog(transcript: string): Promise<{
       - Mentioning a competitor or comparison → "comparison_shopping"
       Return an empty array if no buying signals are detected.
     - "estimatedPrice": A number representing the estimated dollar value or price for the job if discussed or can be reasonably estimated based on the type of work described (e.g., water heater replacement: 1500, repair burst pipe: 500, simple leak: 200, faucet install: 150, standard inspection: 99). If the caller mentions a specific budget, price, or quote amount, use that value. If no specific service is described to estimate a price, return null.
-    - "datetime": If the caller mentions a specific date or time they want to book an appointment for (e.g. "July 1 at 2pm"), extract it into a standard format. Otherwise null.
+    - "datetime": If the caller mentions a specific date or time they want to book an appointment for (e.g. "July 1 at 2pm" or "Saturday at 8am"), resolve it to the exact date using the Reference Calendar and output it in YYYY-MM-DDTHH:mm:ss format (e.g. "2026-06-27T08:00:00"). If no time is specified but a day is, set time to "12:00:00". If no appointment datetime is mentioned, return null.
 
     Transcript:
     "${transcript}"

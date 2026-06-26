@@ -15,6 +15,7 @@ import { existsSync } from 'fs';
 import { isA2pEnabled, forwardVoiceWebhook } from '$lib/server/a2p-client';
 import { createNotification } from '$lib/utils/notifications';
 import { setIntent, setVoicemail, removeVoicemail, getState, deleteState, addVoicemailRecordingId, hasVoicemailRecordingId, removeVoicemailRecordingId } from '$lib/server/call-state';
+import { logCommunication } from '$lib/utils/communication-log';
 const TELNYX_PUBLIC_KEY = process.env.TELNYX_PUBLIC_KEY;
 
 const playPublic = false;
@@ -1503,13 +1504,13 @@ export const POST: RequestHandler = async ({ request }) => {
 												return;
 											}
 
-											let scoreDelta = 0; // Orchestrator handles engagement score increments
 											let bucketSignal = 'research';
 											const lowerTranscript = transcript.toLowerCase();
 											const emergencyKeywords = ['burst', 'flood', 'leak', 'emergency', 'pipe', 'water', 'immediate', 'urgent'];
 											const bookingKeywords = ['book', 'appointment', 'estimate', 'quote', 'schedule', 'renovate', 'renovation', 'toilet', 'shower', 'fixture'];
 
 											const hasEmergency = finalPriority === 'emergency' || emergencyKeywords.some(kw => lowerTranscript.includes(kw));
+											let scoreDelta = hasEmergency ? 95 : 0;
 											if (hasEmergency) {
 												bucketSignal = 'emergency';
 											} else if (intent === 'Booking' || bookingKeywords.some(kw => lowerTranscript.includes(kw))) {

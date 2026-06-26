@@ -125,6 +125,9 @@ describe('SMS Name & Intent Extraction via AI Protocol', () => {
 
 		expect(res.status).toBe(200);
 
+		// Wait for background promises to execute
+		await new Promise((resolve) => setTimeout(resolve, 50));
+
 		// Verify database inserts/updates
 		expect(mockPrismaMessageCreate).toHaveBeenCalledWith(
 			expect.objectContaining({

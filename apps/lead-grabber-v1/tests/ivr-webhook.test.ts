@@ -15,9 +15,19 @@ const mockPrismaCallRecordingCreate = vi.fn();
 const mockPrismaCallRecordingCount = vi.fn();
 const mockPrismaContactFindFirst = vi.fn();
 const mockPrismaContactCreate = vi.fn();
+const mockPrismaContactUpdate = vi.fn();
+const mockPrismaCommunicationThreadFindFirst = vi.fn();
+const mockPrismaCommunicationThreadCreate = vi.fn();
+const mockPrismaCommunicationThreadUpsert = vi.fn();
+const mockPrismaMessageFindFirst = vi.fn();
+const mockPrismaMessageUpdate = vi.fn();
 const mockPrismaCommunicationLogFindMany = vi.fn();
 const mockPrismaCommunicationLogCreate = vi.fn();
 const mockPrismaCommunicationLogUpdate = vi.fn();
+const mockPrismaCallStateFindUnique = vi.fn();
+const mockPrismaCallStateUpsert = vi.fn();
+const mockPrismaCallStateUpdateMany = vi.fn();
+const mockPrismaCallStateDeleteMany = vi.fn();
 const mockPbCreate = vi.fn();
 const mockAddPendingCall = vi.fn();
 
@@ -51,12 +61,28 @@ vi.mock('$lib/db', () => ({
 		},
 		contact: {
 			findFirst: (...args: unknown[]) => mockPrismaContactFindFirst(...args),
-			create: (...args: unknown[]) => mockPrismaContactCreate(...args)
+			create: (...args: unknown[]) => mockPrismaContactCreate(...args),
+			update: (...args: unknown[]) => mockPrismaContactUpdate(...args)
 		},
 		communicationLog: {
 			findMany: (...args: unknown[]) => mockPrismaCommunicationLogFindMany(...args),
 			create: (...args: unknown[]) => mockPrismaCommunicationLogCreate(...args),
 			update: (...args: unknown[]) => mockPrismaCommunicationLogUpdate(...args)
+		},
+		communicationThread: {
+			findFirst: (...args: unknown[]) => mockPrismaCommunicationThreadFindFirst(...args),
+			create: (...args: unknown[]) => mockPrismaCommunicationThreadCreate(...args),
+			upsert: (...args: unknown[]) => mockPrismaCommunicationThreadUpsert(...args)
+		},
+		message: {
+			findFirst: (...args: unknown[]) => mockPrismaMessageFindFirst(...args),
+			update: (...args: unknown[]) => mockPrismaMessageUpdate(...args)
+		},
+		callState: {
+			findUnique: (...args: unknown[]) => mockPrismaCallStateFindUnique(...args),
+			upsert: (...args: unknown[]) => mockPrismaCallStateUpsert(...args),
+			updateMany: (...args: unknown[]) => mockPrismaCallStateUpdateMany(...args),
+			deleteMany: (...args: unknown[]) => mockPrismaCallStateDeleteMany(...args)
 		}
 	}
 }));
@@ -86,9 +112,19 @@ beforeEach(() => {
 	mockPrismaCallRecordingCount.mockResolvedValue(0);
 	mockPrismaContactFindFirst.mockResolvedValue(null);
 	mockPrismaContactCreate.mockResolvedValue({});
+	mockPrismaContactUpdate.mockResolvedValue({});
+	mockPrismaCommunicationThreadFindFirst.mockResolvedValue(null);
+	mockPrismaCommunicationThreadCreate.mockResolvedValue({ id: 'thread-1' });
+	mockPrismaCommunicationThreadUpsert.mockResolvedValue({ id: 'thread-1' });
+	mockPrismaMessageFindFirst.mockResolvedValue(null);
+	mockPrismaMessageUpdate.mockResolvedValue({});
 	mockPrismaCommunicationLogFindMany.mockResolvedValue([]);
 	mockPrismaCommunicationLogCreate.mockResolvedValue({});
 	mockPrismaCommunicationLogUpdate.mockResolvedValue({});
+	mockPrismaCallStateFindUnique.mockResolvedValue(null);
+	mockPrismaCallStateUpsert.mockResolvedValue({});
+	mockPrismaCallStateUpdateMany.mockResolvedValue({});
+	mockPrismaCallStateDeleteMany.mockResolvedValue({});
 	mockPrismaCompanyFindUnique.mockResolvedValue({ settings: { timezone: 'America/New_York' } });
 });
 
@@ -820,6 +856,7 @@ describe('IVR webhook simulation', () => {
 
 			vi.mock('$lib/server/openai', () => ({
 				transcribeAudio: async () => 'hello, please call me back',
+				getReferenceCalendar: () => 'Mock Reference Calendar',
 				analyzeCallLog: async () => ({
 					summary: 'nothing urgent',
 					intent: 'General',
@@ -828,7 +865,8 @@ describe('IVR webhook simulation', () => {
 					actionItems: [],
 					callerName: 'Jane',
 					buyingSignals: [],
-					estimatedPrice: 100
+					estimatedPrice: 100,
+					datetime: null
 				})
 			}));
 
@@ -855,6 +893,9 @@ describe('IVR webhook simulation', () => {
 					})
 				})
 			} as any);
+
+			// Wait for background promises to execute
+			await new Promise((resolve) => setTimeout(resolve, 50));
 
 			const telemetryCalls = mockFetch.mock.calls.filter(
 				(c: any) => c[0].includes('/api/v1/telemetry/events')
