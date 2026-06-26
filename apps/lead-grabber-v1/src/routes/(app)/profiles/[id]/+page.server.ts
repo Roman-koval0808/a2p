@@ -298,24 +298,7 @@ export const actions: Actions = {
 			return { success: false };
 		}
 	},
-	updateAccount: async ({ request, params, locals }) => {
-		const user = locals.user;
-		if (!user?.company) return { success: false };
-		const form = await request.formData();
-		const id = params.id;
-		const balanceStr = form.get('accountBalance')?.toString();
-		const accountBalance = balanceStr ? parseFloat(balanceStr) : null;
-		try {
-			await prisma.contact.updateMany({
-				where: { id, companyId: user.company.id },
-				data: { accountBalance, updated: new Date() }
-			});
-			return { success: true };
-		} catch (e) {
-			console.error('Error updating account:', e);
-			return { success: false };
-		}
-	},
+
 	deleteProfile: async ({ params, locals }) => {
 		const user = locals.user;
 		if (!user?.company) return { success: false };

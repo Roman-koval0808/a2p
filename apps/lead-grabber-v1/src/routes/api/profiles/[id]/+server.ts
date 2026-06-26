@@ -63,13 +63,25 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
 	}
 
 	const body = await request.json().catch(() => ({}));
-	const data: Record<string, string | null> = {};
+	const data: Record<string, any> = {};
 	if (typeof body.name === 'string') data.name = body.name.trim();
 	if (typeof body.phone === 'string') data.phone = body.phone.trim();
 	if (typeof body.email === 'string') data.email = body.email.trim();
 	if (typeof body.company === 'string') data.companyName = body.company.trim();
 	if (typeof body.address === 'string') data.address = body.address.trim();
 	if (typeof body.notes === 'string') data.notes = body.notes.trim();
+
+	if ('accountBalance' in body) {
+		const val = body.accountBalance;
+		if (val === null || val === undefined || val === '') {
+			data.accountBalance = null;
+		} else {
+			const parsed = parseFloat(String(val));
+			data.accountBalance = isNaN(parsed) ? null : parsed;
+		}
+	}
+
+	data.updated = new Date();
 
 	const updated = await prisma.contact.update({
 		where: { id: params.id },

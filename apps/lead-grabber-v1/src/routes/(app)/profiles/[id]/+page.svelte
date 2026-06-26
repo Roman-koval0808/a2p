@@ -168,9 +168,11 @@
 	}
 
 	async function submitAccountEdit() {
-		const form = new FormData();
-		form.set('accountBalance', editBalance);
-		const res = await fetch('?/updateAccount', { method: 'POST', body: form });
+		const res = await fetch(`/api/profiles/${profileId}`, {
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ accountBalance: editBalance })
+		});
 		if (res.ok) {
 			editingAccount = false;
 			toast.success('Account balance updated');
