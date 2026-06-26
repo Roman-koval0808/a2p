@@ -280,9 +280,21 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 		for (const pastComm of recentComms) {
 			if (!pastComm.content) continue;
+			
 			const similarity = UnifiedPipeline.calculateSimilarity(commLog.content, pastComm.content);
-			if (similarity >= 0.8) {
-				console.log(`[Orchestrator] Found similar thread (${Math.round(similarity * 100)}% match). Merging threads.`);
+			
+			const currentMetadata = (commLog.metadata as { intent?: string }) || {};
+			const pastMetadata = (pastComm.metadata as { intent?: string }) || {};
+			
+			const hasSemanticMatch = 
+				currentMetadata.intent && 
+				pastMetadata.intent && 
+				currentMetadata.intent.toLowerCase() === pastMetadata.intent.toLowerCase();
+
+			if (similarity >= 0.8 || hasSemanticMatch) {
+				const matchType = hasSemanticMatch ? `Semantic match: ${currentMetadata.intent}` : `${Math.round(similarity * 100)}% text match`;
+				console.log(`[Orchestrator] Found similar thread (${matchType}). Merging threads.`);
+				
 				await prisma.communicationLog.update({
 					where: { id: commId },
 					data: { communicationThreadId: pastComm.communicationThreadId }
