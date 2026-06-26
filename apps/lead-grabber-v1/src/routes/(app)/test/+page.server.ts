@@ -264,14 +264,33 @@ export const actions: Actions = {
 							}
 						});
 
+						// Update contact name if resolved from AI analysis
+						const resolvedName = analysis?.callerName || null;
+						if (resolvedName) {
+							await prisma.contact.updateMany({
+								where: {
+									companyId,
+									phone: caller,
+									OR: [
+										{ name: null },
+										{ name: 'Unknown Caller' },
+										{ name: 'Anonymous' },
+										{ name: 'Valued Customer' }
+									]
+								},
+								data: { name: resolvedName }
+							});
+						}
+
 						// Also run the pipeline
 						await PipelineSimulator.run({
-							author_name: 'Unknown Caller',
+							author_name: resolvedName || 'Unknown Caller',
 							customer_phone: caller,
 							rating: 0,
 							comment: comment,
 							mode: 'call',
-							sessionId: callId
+							sessionId: callId,
+							companyId: companyId
 						});
 
 						// CRITICAL: Manually trigger the Orchestrator since we bypassed the recording.saved webhook!

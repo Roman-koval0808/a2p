@@ -262,7 +262,7 @@ export const load: PageServerLoad = async ({ params, locals, fetch }) => {
 				past_names: identityHistory.filter(h => h.field === 'Name').map(h => h.newValue)
 			},
 			accountBalance: dbContact?.accountBalance ?? null,
-			engagementScore: dbContact?.engagementScore ?? 0,
+			engagementScore: cdpProfile?.scoreLive ?? dbContact?.engagementScore ?? 0,
 			communications: comms,
 			historyEvents,
 			identityHistory,
