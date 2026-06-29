@@ -208,14 +208,18 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	}
 
 	// --- 3. Post-Processing: Thread Similarity Matching ---
-	// Compare this commLog's transcript with recent comms for the same customer
+	const customerPhone = commLog.source?.startsWith('+1') ? commLog.source : (commLog.destination || '');
 	if (commLog.content) {
 		const recentComms = await prisma.communicationLog.findMany({
 			where: {
-				customerId: customer.id,
+				companyId: commLog.companyId,
 				id: { not: commId },
-				status: { in: ['completed', 'success'] },
-				content: { not: null }
+				status: { in: ['completed', 'success', 'pending_approval'] },
+				content: { not: null },
+				OR: customerPhone ? [
+					{ source: customerPhone },
+					{ destination: customerPhone }
+				] : undefined
 			},
 			orderBy: { created: 'desc' },
 			take: 5
@@ -318,22 +322,28 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					deferred_after_hours: shouldDefer
 				}
 			});
-
-			// Mark as processed
-			await prisma.communicationLog.update({
-				where: { id: commId },
-				data: {
-					metadata: {
-						...metadata,
-						orchestrator_processed: true
-					}
-				}
-			});
 		} catch (err) {
 			console.error('[Orchestrator] Failed to log pending SMS:', err);
 		}
+	} else if (intent?.toLowerCase() === 'emergency' || intent?.toLowerCase() === 'support') {
+		console.log(`[Orchestrator] Acknowledging intent "${intent}". No extra response drafted as webhook handles emergencies or support is manual.`);
 	} else {
-		console.log('[Orchestrator] No action taken for this intent.');
+		console.log(`[Orchestrator] No action taken for intent: ${intent}`);
+	}
+
+	// Always mark as processed
+	try {
+		await prisma.communicationLog.update({
+			where: { id: commId },
+			data: {
+				metadata: {
+					...metadata,
+					orchestrator_processed: true
+				}
+			}
+		});
+	} catch (err) {
+		console.error('[Orchestrator] Failed to mark as processed:', err);
 	}
 
 }
