@@ -9,7 +9,7 @@ const OPENAI_API_URL = 'https://api.openai.com/v1';
 export async function transcribeAudio(audioUrl: string): Promise<string> {
 	try {
 		console.log(`🎙️ Fetching audio from: ${audioUrl}`);
-		const audioResponse = await fetch(audioUrl);
+		const audioResponse = await fetch(audioUrl, { signal: AbortSignal.timeout(30000) });
 		if (!audioResponse.ok) {
 			throw new Error(`Failed to fetch audio: ${audioResponse.statusText}`);
 		}
@@ -27,7 +27,8 @@ export async function transcribeAudio(audioUrl: string): Promise<string> {
 			headers: {
 				Authorization: `Bearer ${OPEN_AI_KEY}`
 			},
-			body: formData
+			body: formData,
+			signal: AbortSignal.timeout(30000)
 		});
 
 		if (!response.ok) {
@@ -81,6 +82,7 @@ export async function analyzeCallLog(
 	buyingSignals: string[];
 	estimatedPrice: number | null;
 	datetime: string | null;
+	analysisSucceeded: boolean;
 }> {
 	try {
 		const calendarReference = getReferenceCalendar();
@@ -131,7 +133,8 @@ export async function analyzeCallLog(
 				],
 				temperature: 0.1, // Low temperature for deterministic output
 				response_format: { type: 'json_object' }
-			})
+			}),
+			signal: AbortSignal.timeout(30000)
 		});
 
 		if (!response.ok) {
@@ -150,17 +153,21 @@ export async function analyzeCallLog(
 		const result = JSON.parse(content);
 		console.log('✅ Analysis complete:', result);
 
+		const validUrgencies = ['low', 'medium', 'high'];
+		const parsedUrgency = result.urgency?.toLowerCase();
+
 		return {
 			summary: result.summary || 'No summary generated',
 			intent: result.intent ?? '',
 			sub_intent: result.sub_intent || null,
-			urgency: result.urgency?.toLowerCase() || 'medium',
+			urgency: validUrgencies.includes(parsedUrgency) ? parsedUrgency : 'medium',
 			actionItems: result.actionItems || [],
 			sentiment: result.sentiment || 'Neutral',
 			callerName: result.callerName || null,
 			buyingSignals: result.buyingSignals || [],
 			estimatedPrice: typeof result.estimatedPrice === 'number' ? result.estimatedPrice : null,
-			datetime: result.datetime || null
+			datetime: result.datetime || null,
+			analysisSucceeded: true
 		};
 	} catch (error) {
 		console.error('Error in analyzeCallLog:', error);
@@ -174,7 +181,8 @@ export async function analyzeCallLog(
 			callerName: null,
 			buyingSignals: [],
 			estimatedPrice: null,
-			datetime: null
+			datetime: null,
+			analysisSucceeded: false
 		};
 	}
 }
@@ -205,7 +213,8 @@ Output a JSON object with a single key "matched_id". If the new message belongs 
 				messages: [{ role: 'user', content: prompt }],
 				response_format: { type: 'json_object' },
 				temperature: 0.1
-			})
+			}),
+			signal: AbortSignal.timeout(30000)
 		});
 
 		if (!response.ok) {

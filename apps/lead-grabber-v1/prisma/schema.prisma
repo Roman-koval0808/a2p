@@ -543,6 +543,7 @@ model CallLog {
   @@index([callId])
   @@index([from])
   @@index([to])
+  @@index([callId, status])
   @@map("call_logs")
 }
 
@@ -554,6 +555,7 @@ model CallRecording {
   createdAt   DateTime @default(now())
 
   @@index([callId])
+  @@unique([callId, recordingId])
   @@map("call_recordings")
 }
 

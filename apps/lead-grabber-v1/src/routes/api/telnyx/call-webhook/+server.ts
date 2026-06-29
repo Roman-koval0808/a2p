@@ -41,6 +41,18 @@ const intentToTransfer = new Map<
 	{ originalCallControlId: string; ivrFlowId: string; ivrRuleId: string; timestamp: number }
 >();
 
+// Periodic cleanup of stale in-memory transfer state (5 min TTL)
+setInterval(() => {
+	const now = Date.now();
+	const FIVE_MIN = 5 * 60 * 1000;
+	for (const [key, val] of intentToTransfer) {
+		if (now - val.timestamp > FIVE_MIN) intentToTransfer.delete(key);
+	}
+}, 60_000);
+
+const processedEventIds = new Set<string>();
+const MAX_EVENT_IDS = 10000;
+
 const defaultBeepAudio = 'https://codeskulptor-demos.commondatastorage.googleapis.com/descent/gotitem.mp3';
 
 /**
@@ -92,7 +104,9 @@ function computeDurationFromPayload(payload: Record<string, unknown>): number | 
 		const startMs = new Date(start).getTime();
 		const endMs = new Date(end).getTime();
 		if (Number.isNaN(startMs) || Number.isNaN(endMs) || endMs < startMs) return null;
-		return Math.round((endMs - startMs) / 1000);
+		const duration = Math.round((endMs - startMs) / 1000);
+		if (isNaN(duration)) return 0;
+		return duration;
 	} catch {
 		return null;
 	}
@@ -142,6 +156,19 @@ export const POST: RequestHandler = async ({ request }) => {
 		// IVR, recording, and comm-log creation always run locally. A2P is used only for
 		// communication-logs UI (e.g. isA2pCommLogEnabled / api/a2p/communication-log).
 		const body = JSON.parse(rawBody);
+
+		const eventId = body?.data?.id || body?.meta?.event_id;
+		if (eventId && processedEventIds.has(eventId)) {
+			console.log('⏭️ Skipping duplicate webhook event:', eventId);
+			return json({ ok: true });
+		}
+		if (eventId) {
+			processedEventIds.add(eventId);
+			if (processedEventIds.size > MAX_EVENT_IDS) {
+				const first = processedEventIds.values().next().value;
+				if (first) processedEventIds.delete(first);
+			}
+		}
 
 		// Detect webhook format: Event API (wrapped) vs Call Control (direct)
 		const isEventAPI = body.data?.event_type;
@@ -676,7 +703,7 @@ export const POST: RequestHandler = async ({ request }) => {
 				const match = keyPrompts.find((p) => String(p.key).trim() === digit);
 				
 				// --- GAP 6: EMERGENCY BYPASS & FLAG ---
-				const isEmergency = digit === '3' || match?.name?.toLowerCase().includes('emergency');
+				const isEmergency = !!match?.name?.toLowerCase().includes('emergency');
 				const callPriority = isEmergency ? 'emergency' : 'standard';
 
 				if (match) {
@@ -915,12 +942,9 @@ export const POST: RequestHandler = async ({ request }) => {
 						// Mark call as going to voicemail
 						await setVoicemail(originalCallControlId);
 
-						// Stop current recording
-						await fetch(`https://api.telnyx.com/v2/calls/${originalCallControlId}/actions/record_stop`, {
-							method: 'POST',
-							headers: TELNYX_HEADERS,
-							body: JSON.stringify({})
-						}).catch(() => null);
+						// NOTE: We intentionally do NOT stop the existing recording here.
+						// Stopping it would split the call into two recording segments and risk data loss.
+						// The recording will naturally end when the call completes.
 
 						const baseUrl = PUBLIC_BASE_URL || 'https://example.com';
 						const transferFlow = await prisma.callFlow.findUnique({
@@ -1392,7 +1416,10 @@ export const POST: RequestHandler = async ({ request }) => {
 								take: 20
 							});
 							const existingLog = existingLogs.find(
-								(l) => (l.metadata as Record<string, unknown>)?.call_control_id === targetCallControlId
+								(l) => {
+									const meta = l.metadata as Record<string, unknown>;
+									return meta?.call_control_id === targetCallControlId || meta?.call_control_id === callControlId;
+								}
 							);
 
 							let transcript = '';
@@ -1430,7 +1457,7 @@ export const POST: RequestHandler = async ({ request }) => {
 										const intentName = callState?.intentName || null;
 										const analysis = await analyzeCallLog(transcript, intentName);
 										summary = analysis.summary;
-										intent = analysis.intent;
+										intent = intentName || analysis.intent;
 										sub_intent = analysis.sub_intent;
 										urgency = analysis.urgency;
 										sentiment = analysis.sentiment;
