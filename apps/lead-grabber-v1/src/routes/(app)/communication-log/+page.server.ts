@@ -116,7 +116,7 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 			let displaySource = isOutbound 
 				? (log.status === 'pending_approval' ? customerNameOrPhone : companyNameOrPhone)
 				: customerNameOrPhone;
-			let displayDestination = isOutbound ? customerNameOrPhone : companyNameOrPhone;
+			let displayDestination = isOutbound ? (customerValue || '—') : companyNameOrPhone;
 			if (!isOutbound) {
 				let intentStr = '';
 				if (meta.ivr_digit && meta.ivr_intent) {
@@ -127,6 +127,11 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 					intentStr = ` (Ext ${meta.ivr_digit})`;
 				}
 				displayDestination = `${companyNameOrPhone}${intentStr}`;
+			}
+
+			// Hide endpoint for drafted/pending stuff
+			if (log.status === 'pending_approval') {
+				displayDestination = '';
 			}
 
 			return {
