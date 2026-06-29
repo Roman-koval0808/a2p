@@ -1077,13 +1077,24 @@ export const POST: RequestHandler = async ({ request }) => {
 							}
 						});
 
+						let finalDestination = companyNumber || '';
+						if (direction === 'incoming' || directionFromMeta === 'incoming') {
+							if (intentInfo?.digit && intentInfo?.intentName) {
+								finalDestination = `${companyNumber} (Ext ${intentInfo.digit} - ${intentInfo.intentName})`;
+							} else if (intentInfo?.intentName) {
+								finalDestination = `${companyNumber} (${intentInfo.intentName})`;
+							} else if (intentInfo?.digit) {
+								finalDestination = `${companyNumber} (Ext ${intentInfo.digit})`;
+							}
+						}
+
 						const createdLog = await prisma.communicationLog.create({
 							data: {
 								type: 'voice',
 								direction: direction as 'inbound' | 'outbound',
 								status: isDropCall ? 'failed' : 'completed',
 								source: contactNumber,
-								destination: companyNumber,
+								destination: finalDestination,
 								companyId: numberInfo.companyId,
 								customerId: contact.id,
 								callTrackingCategoryId: numberRow?.callTrackingCategoryId ?? undefined,
@@ -1728,13 +1739,24 @@ export const POST: RequestHandler = async ({ request }) => {
 										}
 									});
 
+									let finalDestination = companyNumber || '';
+									if (direction === 'incoming') {
+										if (callState?.intentDigit && callState?.intentName) {
+											finalDestination = `${companyNumber} (Ext ${callState.intentDigit} - ${callState.intentName})`;
+										} else if (callState?.intentName) {
+											finalDestination = `${companyNumber} (${callState.intentName})`;
+										} else if (callState?.intentDigit) {
+											finalDestination = `${companyNumber} (Ext ${callState.intentDigit})`;
+										}
+									}
+
 									const createdLog = await prisma.communicationLog.create({
 										data: {
 											type: 'voice',
 											direction: direction === 'incoming' ? 'inbound' : 'outbound',
 											status: 'completed',
 											source: contactNumber,
-											destination: companyNumber,
+											destination: finalDestination,
 											companyId: numberInfo.companyId,
 											customerId: contact.id,
 											communicationThreadId: commThread.id,
