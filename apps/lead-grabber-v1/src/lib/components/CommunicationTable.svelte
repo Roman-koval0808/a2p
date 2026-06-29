@@ -276,7 +276,7 @@
 								class="max-w-[160px] truncate px-3 py-2.5 text-sm text-gray-700"
 							>
 								<div class="font-semibold text-gray-900" title={comm.source}>{comm.source || '—'}</div>
-								{#const contactDetail = comm.raw?.customer?.phone || comm.raw?.customer?.email || comm.raw?.communicationThread?.contact?.phone || comm.raw?.communicationThread?.contact?.email || (comm.direction === 'In' ? comm.raw?.source : comm.raw?.destination)}
+								{@const contactDetail = comm.raw?.customer?.phone || comm.raw?.customer?.email || comm.raw?.communicationThread?.contact?.phone || comm.raw?.communicationThread?.contact?.email || (comm.direction === 'In' ? comm.raw?.source : comm.raw?.destination)}
 								{#if contactDetail && contactDetail !== comm.source}
 									<div class="text-xs text-gray-500 mt-0.5 truncate" title={contactDetail}>{contactDetail}</div>
 								{/if}
