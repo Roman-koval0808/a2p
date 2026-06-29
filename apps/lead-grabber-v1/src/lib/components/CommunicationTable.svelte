@@ -283,9 +283,8 @@
 								{/if}
 							</td>
 							<td class="max-w-[180px] px-3 py-2.5 text-sm text-gray-700">
-								<div class="font-semibold text-gray-900" title={comm.endpoint}>{comm.endpoint || '—'}</div>
 								{#if showAssignButton && onAssignClick}
-									<div class="mt-1">
+									<div>
 										<button
 											type="button"
 											class="text-left text-xs text-blue-600 underline hover:no-underline"
@@ -296,7 +295,7 @@
 									</div>
 								{/if}
 								{#if comm.assignedMemberNames && comm.assignedMemberNames.length > 0}
-									<div class="text-xs text-gray-500 mt-1" title={comm.assignedMemberNames.join(', ')}>
+									<div class="text-xs text-gray-500 mt-1 font-semibold text-gray-900" title={comm.assignedMemberNames.join(', ')}>
 										{comm.assignedMemberNames.join(', ')}
 									</div>
 								{/if}
