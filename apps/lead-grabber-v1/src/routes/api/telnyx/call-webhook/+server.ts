@@ -835,19 +835,7 @@ export const POST: RequestHandler = async ({ request }) => {
 						break;
 					}
 					if (decoded.isVoicemailPrompt) {
-						console.log('🎙️ Voicemail prompt ended, now playing beep before recording');
-						const beepState = Buffer.from(
-							JSON.stringify({
-								isVoicemailBeep: true,
-								ivrFlowId: decoded.ivrFlowId,
-								ivrRuleId: decoded.ivrRuleId
-							})
-						).toString('base64');
-						await telnyxPlayback(callControlId, defaultBeepAudio, beepState);
-						break;
-					}
-					if (decoded.isVoicemailBeep) {
-						console.log('🎙️ Beep ended, starting voicemail recording');
+						console.log('🎙️ Voicemail prompt ended, starting voicemail recording with beep');
 						const recordState = Buffer.from(
 							JSON.stringify({
 								isVoicemailRecording: true,
@@ -863,6 +851,7 @@ export const POST: RequestHandler = async ({ request }) => {
 								body: JSON.stringify({
 									format: 'mp3',
 									channels: 'single',
+									play_beep: true,
 									client_state: recordState
 								})
 							});
