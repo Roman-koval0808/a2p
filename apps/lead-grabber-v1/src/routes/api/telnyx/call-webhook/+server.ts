@@ -1419,7 +1419,7 @@ export const POST: RequestHandler = async ({ request }) => {
 									const { transcribeAudio, analyzeCallLog } = await import('$lib/server/openai');
 									transcript = await transcribeAudio(audioUrl);
 									if (transcript) {
-										const analysis = await analyzeCallLog(transcript);
+										const analysis = await analyzeCallLog(transcript, callState?.intentName);
 										summary = analysis.summary;
 										intent = analysis.intent;
 										sub_intent = analysis.sub_intent;
@@ -1643,7 +1643,9 @@ export const POST: RequestHandler = async ({ request }) => {
 								datetime: datetime || undefined,
 								actionItems,
 								origin: direction,
-								estimatedPrice
+								estimatedPrice,
+								ivr_intent: callState?.intentName || undefined,
+								ivr_digit: callState?.intentDigit || undefined
 							};
 
 							let finalLogId: string | null = null;

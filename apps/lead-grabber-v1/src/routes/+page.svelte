@@ -241,21 +241,25 @@
 
 			<!-- 11. Buttons Section -->
 			<section class="flex flex-col items-center gap-4 px-4 py-12">
-				<button
-					class="w-full max-w-sm rounded-[18px] bg-[#F54900] py-4 text-center text-sm font-extrabold uppercase text-white shadow-lg transition-transform hover:scale-105"
+				<a
+					href="/signup"
+					class="w-full max-w-sm rounded-[18px] bg-[#F54900] py-4 text-center text-sm font-extrabold uppercase text-white shadow-lg transition-transform hover:scale-105 block"
 				>
 					CHECK AVAILABILITY
-				</button>
-				<button
-					class="w-full max-w-sm rounded-[18px] bg-[#F54900] py-4 text-center text-sm font-extrabold uppercase text-white shadow-lg transition-transform hover:scale-105"
+				</a>
+				<a
+					href="/clearsky-scoring-reference.html"
+					target="_blank"
+					class="w-full max-w-sm rounded-[18px] bg-[#F54900] py-4 text-center text-sm font-extrabold uppercase text-white shadow-lg transition-transform hover:scale-105 block"
 				>
 					PDF
-				</button>
-				<button
-					class="w-full max-w-sm rounded-[18px] bg-[#14AA14] py-4 text-center text-sm font-extrabold uppercase text-white shadow-lg transition-transform hover:scale-105"
+				</a>
+				<a
+					href="/signup"
+					class="w-full max-w-sm rounded-[18px] bg-[#14AA14] py-4 text-center text-sm font-extrabold uppercase text-white shadow-lg transition-transform hover:scale-105 block"
 				>
 					Book a demo
-				</button>
+				</a>
 			</section>
 
 			<!-- 12. Footer / Contact -->

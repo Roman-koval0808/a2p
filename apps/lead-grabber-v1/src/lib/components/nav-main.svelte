@@ -3,7 +3,7 @@
 	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
 	import { useSidebar } from '$lib/components/ui/sidebar/index.js';
 	import {
-		Home,
+			Home,
 		ChartColumnBig,
 		Smartphone,
 		BookOpen,
@@ -24,7 +24,11 @@
 		Headphones,
 		UserCheck,
 		MapPin,
-		PhoneOff
+		PhoneOff,
+		Globe,
+		Share2,
+		Megaphone,
+		Sparkles
 	} from 'lucide-svelte';
 	import { page } from '$app/state';
 	import { Button } from '$lib/components/ui/button/index';
@@ -56,6 +60,11 @@
 		{ title: 'Inbox', url: '/inbox', icon: Home, href: '/inbox' },
 		{ title: 'Profiles', url: '/profiles', icon: UserCircle, href: '/profiles' },
 		{ title: 'Dialer', url: '/dialer', icon: Phone, href: '/dialer' },
+		{ title: 'AI Summaries', url: '/ai-summaries', icon: Sparkles, href: '/ai-summaries' },
+		{ title: 'Blogs', url: '/blogs', icon: BookOpen, href: '/blogs' },
+		{ title: 'Social Content', url: '/social', icon: Share2, href: '/social' },
+		{ title: 'Website Management', url: '/website', icon: Globe, href: '/website' },
+		{ title: 'Marketing Tools', url: '/marketing', icon: Megaphone, href: '/marketing' },
 		{ title: 'Analytics', url: '/analytics', icon: ChartLineIcon, href: '/analytics' }
 	];
 
@@ -71,6 +80,11 @@
 		{ title: 'Inbox', url: '/inbox', icon: Home, href: '/inbox' },
 		{ title: 'Profiles', url: '/profiles', icon: UserCircle, href: '/profiles' },
 		{ title: 'Dialer', url: '/dialer', icon: Phone, href: '/dialer' },
+		{ title: 'AI Summaries', url: '/ai-summaries', icon: Sparkles, href: '/ai-summaries' },
+		{ title: 'Blogs', url: '/blogs', icon: BookOpen, href: '/blogs' },
+		{ title: 'Social Content', url: '/social', icon: Share2, href: '/social' },
+		{ title: 'Website Management', url: '/website', icon: Globe, href: '/website' },
+		{ title: 'Marketing Tools', url: '/marketing', icon: Megaphone, href: '/marketing' },
 		{
 			title: 'Buy Number',
 			url: '/buy-number',
@@ -83,7 +97,6 @@
 			]
 		},
 		{ title: 'IVR', url: '/ivr', icon: Headphones, href: '/ivr' },
-		{ title: 'Representatives', url: '/representatives', icon: UserCheck, href: '/representatives' },
 		{ title: 'Locations', url: '/locations', icon: MapPin, href: '/locations' },
 		{ title: 'Analytics', url: '/analytics', icon: ChartLineIcon, href: '/analytics' },
 		{

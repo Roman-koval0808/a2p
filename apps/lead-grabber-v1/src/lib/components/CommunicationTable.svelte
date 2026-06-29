@@ -340,8 +340,16 @@
 							>
 								{#if comm.direction === 'In' && !comm.raw?.metadata?.orchestrator_processed && !comm.raw?.isDropCall}
 									<span class="text-gray-400 italic">Processing...</span>
+								{:else if comm.commId}
+									<button
+										type="button"
+										class="text-left text-indigo-600 hover:text-indigo-800 underline font-mono text-xs cursor-pointer p-0 bg-transparent border-none"
+										onclick={() => handleSummaryClick(comm)}
+									>
+										{comm.commId.startsWith('DROP-') ? comm.commId : 'COM-' + comm.commId.slice(-5).toUpperCase()}
+									</button>
 								{:else}
-									{comm.commId ? (comm.commId.startsWith('DROP-') ? comm.commId : 'COM-' + comm.commId.slice(-5).toUpperCase()) : '—'}
+									—
 								{/if}
 							</td>
 							<!-- Pipeline hidden -->
@@ -395,14 +403,30 @@
 												class="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
 												onclick={() => handleActionClick('view', comm)}
 											>
-												View Details
+												Review AI Summary
 											</button>
+											<button
+												type="button"
+												class="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 font-semibold"
+												onclick={() => handleActionClick('reply', comm)}
+											>
+												Reply
+											</button>
+											{#if comm.purpose === 'Confirm' || comm.status === 'blue'}
+												<button
+													type="button"
+													class="w-full px-3 py-2 text-left text-sm text-emerald-600 font-bold hover:bg-gray-100"
+													onclick={() => handleActionClick('confirm', comm)}
+												>
+													Approve Message
+												</button>
+											{/if}
 											<button
 												type="button"
 												class="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
 												onclick={() => handleActionClick('call', comm)}
 											>
-												Call
+												Call Back
 											</button>
 											<button
 												type="button"
