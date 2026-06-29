@@ -208,7 +208,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	}
 
 	// --- 3. Post-Processing: Thread Similarity Matching ---
-	const customerPhone = commLog.source?.startsWith('+1') ? commLog.source : (commLog.destination || '');
+	const matchPhone = commLog.source?.startsWith('+1') ? commLog.source : (commLog.destination || '');
 	if (commLog.content) {
 		const recentComms = await prisma.communicationLog.findMany({
 			where: {
@@ -216,9 +216,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				id: { not: commId },
 				status: { in: ['completed', 'success', 'pending_approval'] },
 				content: { not: null },
-				OR: customerPhone ? [
-					{ source: customerPhone },
-					{ destination: customerPhone }
+				OR: matchPhone ? [
+					{ source: matchPhone },
+					{ destination: matchPhone }
 				] : undefined
 			},
 			orderBy: { created: 'desc' },
