@@ -53,7 +53,7 @@ setInterval(() => {
 const processedEventIds = new Set<string>();
 const MAX_EVENT_IDS = 10000;
 
-const defaultBeepAudio = `${PUBLIC_BASE_URL || 'https://a2p.viewroom.ca'}/beep.wav`;
+const defaultBeepAudio = `${(PUBLIC_BASE_URL || 'https://a2p.viewroom.ca').replace(/\/$/, '')}/beep.wav`;
 
 /**
  * Decodes a client state payload safely.
