@@ -112,10 +112,7 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 
 			// If inbound: customer sent it (source), company received it (destination)
 			// If outbound: company sent it (source), customer received it (destination)
-			// For drafts/pending approval, the source should also display as the customer name.
-			let displaySource = isOutbound 
-				? (log.status === 'pending_approval' ? customerNameOrPhone : companyNameOrPhone)
-				: customerNameOrPhone;
+			let displaySource = isOutbound ? companyNameOrPhone : customerNameOrPhone;
 			let displayDestination = isOutbound ? customerNameOrPhone : companyNameOrPhone;
 
 
