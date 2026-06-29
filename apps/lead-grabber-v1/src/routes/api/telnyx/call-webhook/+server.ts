@@ -958,6 +958,9 @@ export const POST: RequestHandler = async ({ request }) => {
 				} else if (pendingTransfer) {
 					// Transfer leg hung up for another reason (e.g. answered then caller hung up) — clean up
 					pendingTransfers.delete(callControlId);
+					console.log('📞 Transfer leg hung up (detected via pendingTransfers), skipping CommunicationLog creation:', callControlId);
+					await deleteState(callControlId);
+					break;
 				}
 
 				// Create call record with duration on hangup (recording link added later in call.recording.saved)
@@ -970,6 +973,12 @@ export const POST: RequestHandler = async ({ request }) => {
 					(callLog?.metadata as { direction?: string })?.direction ?? 'incoming';
 				const direction = directionFromMeta === 'incoming' ? 'inbound' : 'outbound';
 				if (callLog) {
+					const parentId = (callLog.metadata as any)?.parent_call_control_id || payload?.parent_call_control_id;
+					if (parentId) {
+						console.log('📞 Transfer leg hung up (detected via parent ID), skipping CommunicationLog creation:', callControlId);
+						await deleteState(callControlId);
+						break;
+					}
 					const toInfo = callLog.to
 						? await getCompanyAndFlowByPhoneNumber(prisma, callLog.to)
 						: null;
@@ -1317,6 +1326,17 @@ export const POST: RequestHandler = async ({ request }) => {
 					});
 
 					if (callLog) {
+						let decoded: any = null;
+						if (payload?.client_state) {
+							try {
+								decoded = safeDecodeClientState(payload.client_state);
+							} catch (e) {}
+						}
+						const parentId = (callLog.metadata as any)?.parent_call_control_id || 
+						                 payload?.parent_call_control_id || 
+						                 decoded?.originalCallControlId;
+						const targetCallControlId = parentId || callControlId;
+
 						// Resolve company by which number is the company's IVR (in CompanyPhoneNumber). The other is the contact.
 						const toInfo = callLog.to
 							? await getCompanyAndFlowByPhoneNumber(prisma, callLog.to)
@@ -1376,7 +1396,7 @@ export const POST: RequestHandler = async ({ request }) => {
 								take: 20
 							});
 							const existingLog = existingLogs.find(
-								(l) => (l.metadata as Record<string, unknown>)?.call_control_id === callControlId
+								(l) => (l.metadata as Record<string, unknown>)?.call_control_id === targetCallControlId
 							);
 
 							let transcript = '';
@@ -1388,14 +1408,6 @@ export const POST: RequestHandler = async ({ request }) => {
 							let actionItems: string[] = [];
 							let estimatedPrice: number | null = null;
 							let datetime: string | null = null;
-
-							let decoded: any = null;
-							if (payload?.client_state) {
-								try {
-									decoded = safeDecodeClientState(payload.client_state);
-								} catch (e) {}
-							}
-
 							const recordingCount = await prisma.callRecording.count({
 								where: { callId: callControlId }
 							});
@@ -1636,7 +1648,7 @@ export const POST: RequestHandler = async ({ request }) => {
 							const recordingMetadata = {
 								recording_urls: recUrls as Record<string, unknown>,
 								recording_id: recId,
-								call_control_id: callControlId,
+								call_control_id: targetCallControlId,
 								urgency,
 								sentiment,
 								intent: intent || undefined,
