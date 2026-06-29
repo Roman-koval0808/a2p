@@ -75,24 +75,6 @@
 	let loading = $state(false);
 	let previewUrl: string | null = $state(null);
 								
-	// Define roles
-	const roles = [
-		{ value: 'admin', label: 'Super Admin' },
-		{ value: 'member', label: 'Representative' }
-	];
-
-	// Derived store for trigger content
-	const roleTriggerContent = $derived(
-		roles.find((role) => role.value === selectedRole)?.label ?? 'Select a role'
-	);
-
-	// Add this new derived store for invite role trigger content
-	const inviteRoleTriggerContent = $derived(
-		roles.find((role) => role.value === selectedInviteRole)?.label ?? 'Select a role'
-	);
-
-	// Derived store for edit member role trigger content
-	
 	$effect(() => {
 		if (form?.success) {
 			toast.success('Company settings updated successfully');
@@ -125,25 +107,6 @@
 			URL.revokeObjectURL(previewUrl);
 		}
 	});
-
-		// Update pendingInvites when data changes
-	$effect(() => {
-		if (data.pendingInvites) {
-			pendingInvites = data.pendingInvites;
-		}
-	});
-
-	onMount(() => {
-		loadPendingInvites();
-	});
-
-						} catch (error) {
-			console.error('Error updating member:', error);
-			toast.error('Failed to update member');
-		} finally {
-			editMemberDialog = false;
-		}
-	}
 </script>
 
 {#if !company}
