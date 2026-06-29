@@ -129,10 +129,7 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 				displayDestination = `${companyNameOrPhone}${intentStr}`;
 			}
 
-			// Hide endpoint for drafted/pending stuff
-			if (log.status === 'pending_approval') {
-				displayDestination = '';
-			}
+
 
 			return {
 				id: log.id,
