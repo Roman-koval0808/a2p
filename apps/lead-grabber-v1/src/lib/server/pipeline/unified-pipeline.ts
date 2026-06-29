@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { prisma } from '$lib/db';
 import { performAiExtraction } from './ai-extraction';
 import { SignalEngine } from './signal-engine';
@@ -53,15 +54,6 @@ export class UnifiedPipeline {
 			let company = null;
 			if (payload.companyId) {
 				company = await prisma.company.findUnique({ where: { id: payload.companyId } });
-			} 
-			
-			if (!company) {
-				company = await prisma.company.findFirst();
-				if (company) {
-					log(`[Step 3] Identification: Using fallback company: ${company.name} (${company.id})`);
-				} else {
-					log(`[Step 3] Identification: WARNING - No companies found in database!`);
-				}
 			}
 			
 			if (!company) {
@@ -185,7 +177,7 @@ export class UnifiedPipeline {
 				const evt = await tx.pipelineEvent.create({
 					data: {
 						id: eventInternalId,
-						eventId: `evt_${Math.floor(Math.random() * 90000) + 10000}`,
+						eventId: `evt_${randomUUID()}`,
 						traceId: traceId,
 						provider: payload.provider,
 						providerEventName: payload.eventType,

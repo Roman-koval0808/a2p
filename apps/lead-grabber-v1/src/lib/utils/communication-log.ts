@@ -12,7 +12,7 @@ export type CommunicationType =
 	| 'leadform'
 	| 'leadbox';
 export type CommunicationDirection = 'inbound' | 'outbound';
-export type CommunicationStatus = 'success' | 'failed' | 'pending' | 'missed' | 'completed';
+export type CommunicationStatus = 'success' | 'failed' | 'pending' | 'missed' | 'completed' | 'pending_approval';
 
 export interface CommunicationLogEntry {
 	type: CommunicationType;
@@ -41,76 +41,82 @@ export interface CommunicationLogEntry {
  */
 export async function logCommunication(entry: CommunicationLogEntry) {
 	try {
-		// Convert assigned_members array to relation if provided
-		const data: any = {
-			type: entry.type,
-			direction: entry.direction,
-			status: entry.status,
-			source: entry.source || null,
-			destination: entry.destination || null,
-			customerId: entry.customer_id || null,
-			companyId: entry.company_id || null,
-			userId: entry.user_id || null,
-			summary: entry.summary || null,
-			content: entry.content || null,
-			duration: entry.duration || null,
-			metadata: entry.metadata || null
-		};
-
-		// We separate the concept of a UI message thread (phone number) from the logical CommunicationThread (context/intent).
-		// Only use an explicit commId for the CommunicationThread if provided.
-		let threadId = (entry.metadata as { commId?: string })?.commId;
-		if (threadId && entry.company_id) {
-			// Ensure thread exists if an ID was passed in
-			await prisma.communicationThread.upsert({
-				where: { id: threadId },
-				create: {
-					id: threadId,
-					companyId: entry.company_id,
-					contactId: entry.customer_id || null,
-					status: 'open',
-					summary: entry.summary || null
-				},
-				update: {}
-			});
-		} else if (!threadId && entry.company_id) {
-			const newThread = await prisma.communicationThread.create({
-				data: {
-					companyId: entry.company_id,
-					contactId: entry.customer_id || null,
-					status: 'open',
-					summary: entry.summary || null
-				}
-			});
-			threadId = newThread.id;
+		if (!entry.company_id) {
+			console.error('logCommunication failed: company_id is required');
+			return null;
 		}
 
-		if (threadId) {
-			data.communicationThreadId = threadId;
-			let metaObj = entry.metadata || {};
-			if (typeof metaObj === 'object' && !Array.isArray(metaObj)) {
-				metaObj = {
-					...metaObj,
-					commId: threadId
-				};
+		// Use a transaction to ensure log and thread are created together
+		const record = await prisma.$transaction(async (tx) => {
+			let threadId = (entry.metadata as { commId?: string })?.commId;
+			if (threadId && entry.company_id) {
+				// Ensure thread exists if an ID was passed in
+				await tx.communicationThread.upsert({
+					where: { id: threadId },
+					create: {
+						id: threadId,
+						companyId: entry.company_id,
+						contactId: entry.customer_id || null,
+						status: 'open',
+						summary: entry.summary || null
+					},
+					update: {}
+				});
+			} else if (!threadId && entry.company_id) {
+				const newThread = await tx.communicationThread.create({
+					data: {
+						companyId: entry.company_id,
+						contactId: entry.customer_id || null,
+						status: 'open',
+						summary: entry.summary || null
+					}
+				});
+				threadId = newThread.id;
 			}
-			data.metadata = metaObj;
-		}
 
-		const record = await prisma.communicationLog.create({
-			data
-		});
+			const data: any = {
+				type: entry.type,
+				direction: entry.direction,
+				status: entry.status,
+				source: entry.source || null,
+				destination: entry.destination || null,
+				customerId: entry.customer_id || null,
+				companyId: entry.company_id,
+				userId: entry.user_id || null,
+				summary: entry.summary || null,
+				content: entry.content || null,
+				duration: entry.duration ?? null,
+				metadata: entry.metadata || null
+			};
 
-		// Handle assigned members if provided
-		if (entry.assigned_members && entry.assigned_members.length > 0) {
-			await prisma.communicationLogAssignedMember.createMany({
-				data: entry.assigned_members.map((userId) => ({
-					communicationLogId: record.id,
-					userId
-				})),
-				skipDuplicates: true
+			if (threadId) {
+				data.communicationThreadId = threadId;
+				let metaObj = entry.metadata || {};
+				if (typeof metaObj === 'object' && !Array.isArray(metaObj)) {
+					metaObj = {
+						...metaObj,
+						commId: threadId
+					};
+				}
+				data.metadata = metaObj;
+			}
+
+			const newRecord = await tx.communicationLog.create({
+				data
 			});
-		}
+
+			// Handle assigned members if provided
+			if (entry.assigned_members && entry.assigned_members.length > 0) {
+				await tx.communicationLogAssignedMember.createMany({
+					data: entry.assigned_members.map((userId) => ({
+						communicationLogId: newRecord.id,
+						userId
+					})),
+					skipDuplicates: true
+				});
+			}
+			return newRecord;
+		});
 
 		// Show notification for every communication log
 		if (entry.company_id) {
@@ -125,7 +131,7 @@ export async function logCommunication(entry: CommunicationLogEntry) {
 					((entry.summary ?? entry.content ?? '').length > 120 ? '...' : ''),
 				content: entry.content ?? undefined,
 				communication_log_id: record.id,
-				communication_thread_id: data.communicationThreadId,
+				communication_thread_id: record.communicationThreadId,
 				thread_id: (entry.metadata as { thread_id?: string })?.thread_id || entry.thread_id
 			} as any); // using as any since we added communication_thread_id in DB but types might not be updated yet
 		}
