@@ -806,6 +806,7 @@ export const POST: RequestHandler = async ({ request }) => {
 				break;
 			}
 
+			case 'call.speak.ended':
 			case 'call.playback.ended': {
 				if (!callControlId || !payload?.client_state) break;
 				const decoded = safeDecodeClientState(payload.client_state);
