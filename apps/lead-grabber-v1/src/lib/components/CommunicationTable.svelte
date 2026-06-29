@@ -255,6 +255,8 @@
 					{#each filteredCommunications as comm}
 						{@const commType = getTypeDisplay(comm)}
 						{@const IconComponent = getTypeIcon(commType)}
+						{@const contactDetail = comm.raw?.customer?.phone || comm.raw?.customer?.email || comm.raw?.communicationThread?.contact?.phone || comm.raw?.communicationThread?.contact?.email || (comm.direction === 'In' ? comm.raw?.source : comm.raw?.destination)}
+						{@const dept = comm.raw?.metadata?.ivr_intent || comm.raw?.metadata?.intent}
 						<tr class="border-b border-gray-200 bg-white transition-colors hover:bg-gray-50/80">
 							<td class="px-3 py-2.5 pt-4 align-top">
 								<div
@@ -276,7 +278,6 @@
 								class="max-w-[160px] truncate px-3 py-2.5 text-sm text-gray-700"
 							>
 								<div class="font-semibold text-gray-900" title={comm.source}>{comm.source || '—'}</div>
-								{@const contactDetail = comm.raw?.customer?.phone || comm.raw?.customer?.email || comm.raw?.communicationThread?.contact?.phone || comm.raw?.communicationThread?.contact?.email || (comm.direction === 'In' ? comm.raw?.source : comm.raw?.destination)}
 								{#if contactDetail && contactDetail !== comm.source}
 									<div class="text-xs text-gray-500 mt-0.5 truncate" title={contactDetail}>{contactDetail}</div>
 								{/if}
@@ -311,7 +312,6 @@
 										{:else}
 											<span>—</span>
 										{/if}
-										{@const dept = comm.raw?.metadata?.ivr_intent || comm.raw?.metadata?.intent}
 										{#if dept && ['sales', 'billing', 'support', 'emergency', 'general'].some(d => dept.toLowerCase().includes(d))}
 											<span class="inline-flex items-center rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 leading-none">
 												Dept: {dept}
