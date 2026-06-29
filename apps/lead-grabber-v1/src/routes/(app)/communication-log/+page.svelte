@@ -124,6 +124,8 @@
 				purpose = 'Confirm';
 			} else if (meta.category_gpt) {
 				purpose = urgentPrefix + cap(meta.category_gpt);
+			} else if (meta.ivr_intent) {
+				purpose = urgentPrefix + cap(meta.ivr_intent);
 			} else if (meta.intent || meta.sentiment) {
 				const word = meta.intent
 					? cap(meta.intent)
