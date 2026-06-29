@@ -346,7 +346,9 @@
 								class="max-w-[120px] truncate px-3 py-2.5 text-gray-700 text-sm"
 								title={comm.commId ?? ''}
 							>
-								{#if comm.commId}
+								{#if comm.direction === 'In' && !comm.raw?.metadata?.orchestrator_processed && !comm.raw?.isDropCall}
+									<span class="text-gray-400 italic">Processing...</span>
+								{:else if comm.commId}
 									<button
 										type="button"
 										class="text-left text-blue-600 hover:underline font-medium hover:text-blue-800"

@@ -292,16 +292,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				}
 			});
 
-			// Mark as processed
-			await prisma.communicationLog.update({
-				where: { id: commId },
-				data: {
-					metadata: {
-						...metadata,
-						orchestrator_processed: true
-					}
-				}
-			});
+			// Mark as processed is now done below outside the if-statement
 		} catch (err) {
 			console.error('[Orchestrator] Failed to log pending SMS:', err);
 		}
@@ -309,4 +300,18 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		console.log('[Orchestrator] No action taken for this intent.');
 	}
 
+	// ALWAYS mark as processed at the very end so UI stops showing "Processing..."
+	try {
+		await prisma.communicationLog.update({
+			where: { id: commId },
+			data: {
+				metadata: {
+					...metadata,
+					orchestrator_processed: true
+				}
+			}
+		});
+	} catch (err) {
+		console.error('[Orchestrator] Failed to update orchestrator_processed flag:', err);
+	}
 }
