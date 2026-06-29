@@ -285,7 +285,7 @@
 								{/if}
 							</td>
 							<td class="max-w-[180px] px-3 py-2.5 text-sm text-gray-700">
-								{#if showAssignButton && onAssignClick}
+								{#if showAssignButton && onAssignClick && !comm.raw?.isDropCall && comm.summary !== 'Dropped Call' && comm.commId && !comm.commId.startsWith('DROP-')}
 									<div>
 										<button
 											type="button"

@@ -47,6 +47,7 @@
 	// Reply panel state
 	let replyPanelOpen = $state(false);
 	let replyComm = $state<any>(null);
+	let replyType = $state<'sms' | 'email'>('sms');
 
 	let { data } = $props<{
 		data: {
@@ -180,8 +181,9 @@
 	}
 
 	function handleActionClick(action: string, comm: any) {
-		if (action === 'sms' || action === 'reply') {
+		if (action === 'sms' || action === 'reply' || action === 'email') {
 			replyComm = comm;
+			replyType = action === 'email' ? 'email' : 'sms';
 			replyPanelOpen = true;
 		} else if (action === 'call') {
 			let phone = '';
@@ -240,7 +242,7 @@
 			const result = await res.json();
 			if (result.success) {
 				toast.success('Agent assigned successfully', { id: loadingId });
-				await invalidate('app:communication-log');
+				await invalidateAll();
 			} else {
 				toast.error(result.error || 'Failed to assign agent', { id: loadingId });
 			}
@@ -452,6 +454,7 @@
 	bind:open={replyPanelOpen}
 	comm={replyComm}
 	user={data.user}
+	{replyType}
 	onClose={() => {
 		replyPanelOpen = false;
 		replyComm = null;

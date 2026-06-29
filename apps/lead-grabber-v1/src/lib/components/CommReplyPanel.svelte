@@ -20,6 +20,7 @@
 		open?: boolean;
 		comm: any;
 		user: any;
+		replyType?: 'sms' | 'email';
 		onClose?: () => void;
 	}
 
@@ -27,6 +28,7 @@
 		open = $bindable(false),
 		comm,
 		user,
+		replyType = 'sms',
 		onClose
 	}: Props = $props();
 
@@ -64,9 +66,17 @@
 		comm?.raw?.payload?.phone ||
 			comm?.raw?.payload?.customer_phone ||
 			comm?.raw?.customerProfile?.phone ||
-			comm?.source ||
+			(comm?.type === 'voice' || comm?.typeIcon === 'sms' ? comm?.source : null) ||
 			null
 	);
+	const customerEmail = $derived(
+		comm?.raw?.payload?.email ||
+			comm?.raw?.customerProfile?.email ||
+			(comm?.typeIcon === 'email' || replyType === 'email' ? comm?.source : null) ||
+			null
+	);
+	const targetContact = $derived(replyType === 'email' ? customerEmail : customerPhone);
+	
 	const customerName = $derived(
 		comm?.raw?.customerProfile?.name || comm?.source || 'Customer'
 	);
@@ -191,25 +201,43 @@
 	async function sendMessage(e: Event) {
 		e.preventDefault();
 		const message = messageInput.trim();
-		if (!message || !customerPhone) return;
+		if (!message || !targetContact) return;
 
 		isSending = true;
 		try {
-			// Send via Telnyx
-			const telnyxResponse = await fetch('/api/telnyx', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					message,
-					phoneNumber: customerPhone,
-					threadId: threadId || undefined
-				})
-			});
+			if (replyType === 'email') {
+				const response = await fetch('/api/email/send', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						recipients: [targetContact],
+						subject: 'Reply to your inquiry',
+						body: message,
+						fromName: user?.name
+					})
+				});
+				const result = await response.json();
+				if (!result.success) {
+					toast.error('Failed to send Email: ' + result.error);
+					return;
+				}
+			} else {
+				// Send via Telnyx
+				const telnyxResponse = await fetch('/api/telnyx', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						message,
+						phoneNumber: targetContact,
+						threadId: threadId || undefined
+					})
+				});
 
-			const telnyxResult = await telnyxResponse.json();
-			if (!telnyxResult.success) {
-				toast.error('Failed to send SMS: ' + telnyxResult.error);
-				return;
+				const telnyxResult = await telnyxResponse.json();
+				if (!telnyxResult.success) {
+					toast.error('Failed to send SMS: ' + telnyxResult.error);
+					return;
+				}
 			}
 
 			// If we have a threadId, update the thread
@@ -275,25 +303,43 @@
 		}
 	}
 
-	async function sendDraftSms() {
-		if (!customerPhone || !draftValue.trim()) return;
+	async function sendDraft() {
+		if (!targetContact || !draftValue.trim()) return;
 
 		isSendingDraft = true;
 		try {
-			const telnyxResponse = await fetch('/api/telnyx', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					message: draftValue,
-					phoneNumber: customerPhone,
-					threadId: threadId || undefined
-				})
-			});
+			if (replyType === 'email') {
+				const response = await fetch('/api/email/send', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						recipients: [targetContact],
+						subject: 'Reply to your inquiry',
+						body: draftValue,
+						fromName: user?.name
+					})
+				});
+				const result = await response.json();
+				if (!result.success) {
+					toast.error('Failed to send Email: ' + result.error);
+					return;
+				}
+			} else {
+				const telnyxResponse = await fetch('/api/telnyx', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						message: draftValue,
+						phoneNumber: targetContact,
+						threadId: threadId || undefined
+					})
+				});
 
-			const telnyxResult = await telnyxResponse.json();
-			if (!telnyxResult.success) {
-				toast.error('Failed to send SMS: ' + telnyxResult.error);
-				return;
+				const telnyxResult = await telnyxResponse.json();
+				if (!telnyxResult.success) {
+					toast.error('Failed to send SMS: ' + telnyxResult.error);
+					return;
+				}
 			}
 
 			// Update thread if exists
@@ -349,11 +395,11 @@
 				}
 			];
 
-			toast.success('Draft SMS sent!');
+			toast.success(replyType === 'email' ? 'Draft Email sent!' : 'Draft SMS sent!');
 			draftValue = '';
 		} catch (err) {
-			console.error('Error sending draft SMS:', err);
-			toast.error('Failed to send draft SMS');
+			console.error('Error sending draft:', err);
+			toast.error(replyType === 'email' ? 'Failed to send draft Email' : 'Failed to send draft SMS');
 		} finally {
 			isSendingDraft = false;
 		}
@@ -398,9 +444,10 @@
 				</div>
 				<div>
 					<h3 class="text-sm font-semibold text-gray-900">{customerName}</h3>
-					{#if customerPhone}
+					{#if targetContact}
 						<div class="flex items-center gap-2">
-							<span class="text-xs text-gray-500">{customerPhone}</span>
+							<span class="text-xs text-gray-500">{targetContact}</span>
+							{#if replyType === 'sms'}
 							<button
 								type="button"
 								class="inline-flex items-center justify-center rounded-full bg-emerald-50 p-1 text-emerald-600 transition-all duration-200 hover:bg-emerald-500 hover:text-white"
@@ -409,6 +456,7 @@
 							>
 								<Phone class="h-3 w-3" />
 							</button>
+							{/if}
 						</div>
 					{/if}
 				</div>
@@ -515,7 +563,7 @@
 
 		<!-- Reply area -->
 		<div class="border-t border-gray-200 p-4">
-			{#if customerPhone}
+			{#if targetContact}
 				<!-- Quick draft reply (Mockup-matched Gmail Card) -->
 				{#if draftValue}
 					<div class="mb-4 flex gap-3 border border-gray-200 rounded-xl bg-white shadow-sm overflow-hidden p-4">
@@ -533,8 +581,8 @@
 								<Reply class="h-3.5 w-3.5 text-gray-500" />
 								<span class="text-xs font-sans font-medium text-gray-700">
 									{customerName}
-									{#if customerPhone}
-										<span class="text-gray-500 font-normal">({customerPhone})</span>
+									{#if targetContact}
+										<span class="text-gray-500 font-normal">({targetContact})</span>
 									{/if}
 								</span>
 							</div>
@@ -557,7 +605,7 @@
 										<span class="font-bold text-gray-700 font-sans">Confirm Appointment:</span>
 										<button 
 											type="button"
-											onclick={sendDraftSms}
+											onclick={sendDraft}
 											class="bg-[#4CAF50] hover:bg-[#43A047] text-white text-[10px] font-semibold px-2 py-0.5 rounded transition-colors shadow-sm"
 										>
 											Yes
@@ -579,7 +627,7 @@
 								<div class="flex items-center bg-[#0C58D1] rounded-full overflow-hidden shadow-sm">
 									<button
 										type="button"
-										onclick={sendDraftSms}
+										onclick={sendDraft}
 										disabled={isSendingDraft}
 										class="px-4 py-1.5 text-xs font-medium text-white hover:bg-[#0b51c1] transition-colors"
 									>
@@ -640,7 +688,11 @@
 				</form>
 			{:else}
 				<div class="rounded-lg bg-gray-50 p-3 text-center text-xs text-gray-500">
+					{#if replyType === 'email'}
+					No email address available for this contact. Email reply is not available.
+					{:else}
 					No phone number available for this contact. SMS reply is not available.
+					{/if}
 				</div>
 			{/if}
 		</div>
