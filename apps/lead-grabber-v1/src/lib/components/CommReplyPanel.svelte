@@ -415,6 +415,16 @@
 			goto(`/dialer?phone=${encodeURIComponent(customerPhone)}&call=true`);
 		}
 	}
+
+	function getInitials(name: string) {
+		if (!name) return '?';
+		return name
+			.split(' ')
+			.map((n) => n[0])
+			.join('')
+			.slice(0, 2)
+			.toUpperCase();
+	}
 </script>
 
 {#if open && comm}

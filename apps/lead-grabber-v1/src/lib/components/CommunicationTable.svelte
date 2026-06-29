@@ -259,6 +259,7 @@
 						{@const IconComponent = getTypeIcon(commType)}
 						{@const contactDetail = comm.raw?.raw?.customer?.phone || comm.raw?.raw?.customer?.email || comm.raw?.raw?.communicationThread?.contact?.phone || comm.raw?.raw?.communicationThread?.contact?.email || comm.raw?.raw?.phoneNumber || (comm.direction === 'In' ? comm.raw?.raw?.source : comm.raw?.raw?.destination)}
 						{@const dept = comm.raw?.metadata?.ivr_intent || comm.raw?.metadata?.intent}
+						{@const hasEmail = Boolean(comm.type === 'email' || comm.typeIcon === 'email' || comm.raw?.payload?.email || comm.raw?.customerProfile?.email || (contactDetail && typeof contactDetail === 'string' && contactDetail.includes('@')) || (comm.source && comm.source.includes('@')))}
 						<tr class="border-b border-gray-200 bg-white transition-colors hover:bg-gray-50/80">
 							<td class="px-3 py-2.5 pt-4 align-top">
 								<div
@@ -423,9 +424,11 @@
 										<DropdownMenu.Item onclick={() => handleActionClick('sms', comm)}>
 											SMS
 										</DropdownMenu.Item>
+										{#if hasEmail}
 										<DropdownMenu.Item class="text-red-600 focus:text-red-600 focus:bg-red-50" onclick={() => handleActionClick('email', comm)}>
 											Email
 										</DropdownMenu.Item>
+										{/if}
 									</DropdownMenu.Content>
 								</DropdownMenu.Root>
 							</td>
