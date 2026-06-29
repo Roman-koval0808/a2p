@@ -575,7 +575,7 @@
 		<div class="border-t border-gray-200 p-4">
 			{#if targetContact}
 				<!-- Quick draft reply (Mockup-matched Gmail Card) -->
-				{#if draftValue}
+				{#if false && draftValue}
 					<div class="mb-4 flex gap-3 border border-gray-200 rounded-xl bg-white shadow-sm overflow-hidden p-4">
 						<!-- User avatar on the left -->
 						<div
