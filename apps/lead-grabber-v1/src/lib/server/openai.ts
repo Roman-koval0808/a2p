@@ -67,7 +67,7 @@ Reference Calendar for resolving relative days (like "saturday", "tomorrow", "ne
  * Analyze call transcript using OpenAI GPT-4o-mini to generate summary, intent, urgency,
  * action items, caller name, and buying signals.
  */
-export async function analyzeCallLog(transcript: string): Promise<{
+export async function analyzeCallLog(transcript: string, ivrSelection?: string | null): Promise<{
 	summary: string;
 	intent: string;
 	sub_intent: string | null;
@@ -81,10 +81,16 @@ export async function analyzeCallLog(transcript: string): Promise<{
 }> {
 	try {
 		const calendarReference = getReferenceCalendar();
-		const prompt = `
+		let prompt = `
     Analyze the following phone call transcript / voicemail message.
     ${calendarReference}
-    Provide the output in valid JSON format with the following keys:
+    `;
+
+		if (ivrSelection) {
+			prompt += `\nThe caller went through an IVR phone menu and selected the department/option: "${ivrSelection}". Use this selected department as an additional context signal when determining the priority, intent, sentiment, suggested response, and emergency likelihood. For example, if they selected "Emergency", the urgency is more likely to be "high" and the intent is likely "Emergency".\n`;
+		}
+
+		prompt += `\nProvide the output in valid JSON format with the following keys:
     - "summary": A concise summary of the call (2-3 sentences).
     - "intent": The main purpose or intent of the call (e.g., "Billing", "Sales", "Support", "Emergency").
     - "sub_intent": A more specific category. E.g. if Billing, is it "Accounts Receivable" or "Accounts Payable"? If not applicable, return null.

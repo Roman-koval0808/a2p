@@ -477,8 +477,8 @@
 				</div>
 			</div>
 
-			<!-- Representative Assignment (Super Admin Only) -->
-			{#if data.userRole === 'admin' && data.representatives?.length > 0}
+			<!-- Representative Assignment (Super Admin Only) - Hidden for single-user prototype -->
+			{#if false && data.userRole === 'admin' && data.representatives?.length > 0}
 			<div class="bg-white rounded-lg border border-[#e2e8f0] overflow-hidden mb-5 shadow-sm">
 				<div class="bg-[#edf2f7] px-3 py-2 border-b border-[#e2e8f0]">
 					<h3 class="text-xs font-bold text-[#4a5568] uppercase tracking-wider">Assigned Representative</h3>

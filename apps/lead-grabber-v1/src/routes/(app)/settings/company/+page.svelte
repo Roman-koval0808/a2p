@@ -265,7 +265,9 @@
 								<Tabs.Trigger value="customization">Customization</Tabs.Trigger>
 								<Tabs.Trigger value="danger" class="text-red-500 data-[state=active]:text-red-600">Danger</Tabs.Trigger>
 							{/if}
-							<Tabs.Trigger value="members">Team Members</Tabs.Trigger>
+							{#if false}
+								<Tabs.Trigger value="members">Team Members</Tabs.Trigger>
+							{/if}
 						</Tabs.List>
 					</div>
 				</div>

@@ -185,15 +185,18 @@
 			replyPanelOpen = true;
 		} else if (action === 'call') {
 			const phone =
+				comm.raw?.customer?.phone ||
 				comm.raw?.payload?.phone ||
 				comm.raw?.payload?.customer_phone ||
 				comm.raw?.customerProfile?.phone ||
-				comm.source;
+				(comm.type === 'In' ? comm.source : comm.endpoint);
 			if (phone) {
 				goto(`/dialer?phone=${encodeURIComponent(phone)}&call=true`);
 			} else {
 				toast.error('No phone number available');
 			}
+		} else if (action === 'confirm') {
+			handleConfirmClick(comm);
 		} else if (action === 'view') {
 			handleSummaryClick(comm);
 		} else {
@@ -402,6 +405,8 @@
 		{recordingUrl}
 		estimatedPrice={meta.estimatedPrice ?? null}
 		draftedMessage={selectedComm.raw?.draftResponse || selectedComm.raw?.payload?.draftResponse || selectedComm.raw?.payload?.draft_reply || null}
+		ivrIntent={meta.ivr_intent || null}
+		onApprove={(selectedComm.purpose === 'Confirm' || selectedComm.status === 'blue') ? () => handleConfirmClick(selectedComm) : undefined}
 	/>
 {/if}
 
