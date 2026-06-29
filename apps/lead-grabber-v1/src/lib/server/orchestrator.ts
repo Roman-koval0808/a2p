@@ -271,10 +271,19 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		if (matchedThreadId) {
 			console.log(`[Orchestrator] Found similar thread (${matchReason}). Merging threads.`);
 			
+			const oldThreadId = commLog.communicationThreadId;
+
 			await prisma.communicationLog.update({
 				where: { id: commId },
 				data: { communicationThreadId: matchedThreadId }
 			});
+
+			if (oldThreadId && oldThreadId !== matchedThreadId) {
+				await prisma.communicationLog.updateMany({
+					where: { communicationThreadId: oldThreadId },
+					data: { communicationThreadId: matchedThreadId }
+				});
+			}
 			
 			// Update in-memory so draft SMS gets the new merged thread ID
 			commLog.communicationThreadId = matchedThreadId;
