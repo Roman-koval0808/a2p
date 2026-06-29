@@ -194,14 +194,28 @@ ${recentMessages.map((m, i) => `[${i}] (ID: ${m.id}): "${m.content}"`).join('\n'
 
 Output a JSON object with a single key "matched_id". If the new message belongs to one of the recent message threads, set "matched_id" to its ID. If it is a completely new and unrelated topic, set "matched_id" to null.
 `;
-		const response = await openai.chat.completions.create({
-			model: 'gpt-4o-mini',
-			messages: [{ role: 'user', content: prompt }],
-			response_format: { type: 'json_object' },
-			temperature: 0.1
+		const response = await fetch(`${OPENAI_API_URL}/chat/completions`, {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${OPEN_AI_KEY}`,
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({
+				model: 'gpt-4o-mini',
+				messages: [{ role: 'user', content: prompt }],
+				response_format: { type: 'json_object' },
+				temperature: 0.1
+			})
 		});
 
-		const content = response.choices[0]?.message?.content || '{}';
+		if (!response.ok) {
+			const errorText = await response.text();
+			console.error('OpenAI Thread Matching Error:', errorText);
+			return null;
+		}
+
+		const data = await response.json();
+		const content = data.choices[0]?.message?.content || '{}';
 		const result = JSON.parse(content);
 		return result.matched_id || null;
 	} catch (error) {
