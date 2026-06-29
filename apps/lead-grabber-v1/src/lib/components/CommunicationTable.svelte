@@ -12,6 +12,7 @@
 		MessageCircle,
 		Reply
 	} from 'lucide-svelte';
+	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
 
 	export interface Communication {
 		id: string;
@@ -345,16 +346,16 @@
 								class="max-w-[120px] truncate px-3 py-2.5 text-gray-700 text-sm"
 								title={comm.commId ?? ''}
 							>
-								{#if comm.direction === 'In' && !comm.raw?.metadata?.orchestrator_processed && !comm.raw?.isDropCall}
-									<span class="text-gray-400 italic">Processing...</span>
-								{:else}
+								{#if comm.commId}
 									<button
 										type="button"
 										class="text-left text-blue-600 hover:underline font-medium hover:text-blue-800"
 										onclick={() => handleSummaryClick(comm)}
 									>
-										{comm.commId ? (comm.commId.startsWith('DROP-') ? comm.commId : 'COM-' + comm.commId.slice(-5).toUpperCase()) : '—'}
+										{comm.commId.startsWith('DROP-') ? comm.commId : 'COM-' + comm.commId.slice(-5).toUpperCase()}
 									</button>
+								{:else}
+									<span class="text-gray-400 italic">Processing...</span>
 								{/if}
 							</td>
 							<!-- Pipeline hidden -->
@@ -381,59 +382,30 @@
 							</td>
 							-->
 							<td class="px-3 py-2.5 text-right align-middle">
-								<div class="relative inline-block">
-									<button
-										type="button"
-										class="flex h-7 w-7 items-center justify-center rounded-full border border-gray-400 hover:bg-gray-100"
-										aria-label="Actions"
-										onclick={(e) => {
-											e.stopPropagation();
-											openOptionsMenu = openOptionsMenu === comm.id ? null : comm.id;
-										}}
-									>
+								<DropdownMenu.Root>
+									<DropdownMenu.Trigger class="inline-flex h-7 w-7 items-center justify-center rounded-full border border-gray-400 hover:bg-gray-100">
 										<span class="sr-only">Actions</span>
 										<span class="flex gap-0.5">
 											<span class="h-1 w-1 rounded-full bg-gray-500"></span>
 											<span class="h-1 w-1 rounded-full bg-gray-500"></span>
 											<span class="h-1 w-1 rounded-full bg-gray-500"></span>
 										</span>
-									</button>
-									{#if openOptionsMenu === comm.id}
-										<div
-											class="absolute right-0 top-9 z-50 min-w-[160px] rounded-md border border-gray-200 bg-white py-1 shadow-lg"
-											role="menu"
-										>
-											<button
-												type="button"
-												class="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
-												onclick={() => handleActionClick('view', comm)}
-											>
-												View Details
-											</button>
-											<button
-												type="button"
-												class="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
-												onclick={() => handleActionClick('call', comm)}
-											>
-												Call
-											</button>
-											<button
-												type="button"
-												class="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
-												onclick={() => handleActionClick('sms', comm)}
-											>
-												SMS
-											</button>
-											<button
-												type="button"
-												class="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-gray-100"
-												onclick={() => handleActionClick('email', comm)}
-											>
-												Email
-											</button>
-										</div>
-									{/if}
-								</div>
+									</DropdownMenu.Trigger>
+									<DropdownMenu.Content align="end" class="w-40">
+										<DropdownMenu.Item onclick={() => handleActionClick('view', comm)}>
+											View Details
+										</DropdownMenu.Item>
+										<DropdownMenu.Item onclick={() => handleActionClick('call', comm)}>
+											Call
+										</DropdownMenu.Item>
+										<DropdownMenu.Item onclick={() => handleActionClick('sms', comm)}>
+											SMS
+										</DropdownMenu.Item>
+										<DropdownMenu.Item class="text-red-600 focus:text-red-600 focus:bg-red-50" onclick={() => handleActionClick('email', comm)}>
+											Email
+										</DropdownMenu.Item>
+									</DropdownMenu.Content>
+								</DropdownMenu.Root>
 							</td>
 						</tr>
 					{/each}
