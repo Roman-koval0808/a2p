@@ -1685,50 +1685,57 @@ export const POST: RequestHandler = async ({ request }) => {
 									thread_id: contactNumber
 								});
 							} else {
-								let commThread = await prisma.communicationThread.create({
-									data: {
-										companyId: numberInfo.companyId,
-										contactId: contact.id,
-										status: 'open',
-										summary: 'Voice Call'
-									}
-								});
+								const hasIntent = !!callState?.intentDigit;
+								const isDropCall = !hasIntent && !hasVoicemail && direction === 'incoming';
+								
+								if (isDropCall) {
+									console.log('🎥 Recording saved for drop call - skipping CommunicationLog creation to prevent duplicate', callControlId);
+								} else {
+									let commThread = await prisma.communicationThread.create({
+										data: {
+											companyId: numberInfo.companyId,
+											contactId: contact.id,
+											status: 'open',
+											summary: 'Voice Call'
+										}
+									});
 
-								const createdLog = await prisma.communicationLog.create({
-									data: {
+									const createdLog = await prisma.communicationLog.create({
+										data: {
+											type: 'voice',
+											direction: direction === 'incoming' ? 'inbound' : 'outbound',
+											status: 'completed',
+											source: contactNumber,
+											destination: companyNumber,
+											companyId: numberInfo.companyId,
+											customerId: contact.id,
+											communicationThreadId: commThread.id,
+											callTrackingCategoryId: numberRow?.callTrackingCategoryId ?? undefined,
+											duration: recDurationSeconds > 0 ? recDurationSeconds : null,
+											content: transcript || `Call recording available (${recDurationSeconds}s)`,
+											summary: summary || null,
+											metadata: recordingMetadata as any
+										}
+									});
+									console.log(
+										'📝 Created CommunicationLog for call (no hangup log found)',
+										callControlId
+									);
+
+									// Create notification for new call log with recording/voicemail
+									await createNotification({
+										company_id: numberInfo.companyId,
 										type: 'voice',
 										direction: direction === 'incoming' ? 'inbound' : 'outbound',
-										status: 'completed',
-										source: contactNumber,
-										destination: companyNumber,
-										companyId: numberInfo.companyId,
-										customerId: contact.id,
-										communicationThreadId: commThread.id,
-										callTrackingCategoryId: numberRow?.callTrackingCategoryId ?? undefined,
-										duration: recDurationSeconds > 0 ? recDurationSeconds : null,
+										source_name: contact?.name || contactNumber,
+										source_identifier: contactNumber,
+										message_preview: summary || transcript || `Call recording available (${recDurationSeconds}s)`,
 										content: transcript || `Call recording available (${recDurationSeconds}s)`,
-										summary: summary || null,
-										metadata: recordingMetadata as any
-									}
-								});
-								console.log(
-									'📝 Created CommunicationLog for call (no hangup log found)',
-									callControlId
-								);
-
-								// Create notification for new call log with recording/voicemail
-								await createNotification({
-									company_id: numberInfo.companyId,
-									type: 'voice',
-									direction: direction === 'incoming' ? 'inbound' : 'outbound',
-									source_name: contact?.name || contactNumber,
-									source_identifier: contactNumber,
-									message_preview: summary || transcript || `Call recording available (${recDurationSeconds}s)`,
-									content: transcript || `Call recording available (${recDurationSeconds}s)`,
-									communication_log_id: createdLog.id,
-									thread_id: contactNumber
-								});
-								finalLogId = createdLog.id;
+										communication_log_id: createdLog.id,
+										thread_id: contactNumber
+									});
+									finalLogId = createdLog.id;
+								}
 							}
 
 							if (finalLogId) {
