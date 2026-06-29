@@ -311,7 +311,7 @@
 										{:else}
 											<span>—</span>
 										{/if}
-										{#const dept = comm.raw?.metadata?.ivr_intent || comm.raw?.metadata?.intent}
+										{@const dept = comm.raw?.metadata?.ivr_intent || comm.raw?.metadata?.intent}
 										{#if dept && ['sales', 'billing', 'support', 'emergency', 'general'].some(d => dept.toLowerCase().includes(d))}
 											<span class="inline-flex items-center rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 leading-none">
 												Dept: {dept}
