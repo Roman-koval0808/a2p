@@ -1,7 +1,6 @@
 import { prisma } from '$lib/db';
 import { logCommunication } from '$lib/utils/communication-log';
 import { toE164 } from '$lib/company-numbers';
-import { UnifiedPipeline } from '$lib/server/pipeline/unified-pipeline';
 // Checks if a requested datetime is within business hours of any location, fallback to 9-5 M-F
 function checkCalendarAvailability(datetimeStr: string, locations: any[]): boolean {
 	const lower = datetimeStr.toLowerCase();
@@ -208,59 +207,50 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	}
 
 	// --- 3. Post-Processing: Thread Similarity Matching ---
-	const matchPhone = commLog.source?.startsWith('+1') ? commLog.source : (commLog.destination || '');
-	if (commLog.content) {
+	// Match on the caller's phone (whichever leg is NOT the company number)
+	const callerPhone = commLog.source || '';
+	const companyDest = commLog.destination || '';
+	const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+	if (commLog.content && (callerPhone || companyDest)) {
 		const recentComms = await prisma.communicationLog.findMany({
 			where: {
 				companyId: commLog.companyId,
 				id: { not: commId },
 				status: { in: ['completed', 'success', 'pending_approval'] },
 				content: { not: null },
-				OR: matchPhone ? [
-					{ source: matchPhone },
-					{ destination: matchPhone }
-				] : undefined
+				created: { gte: sevenDaysAgo },
+				// Match comms involving the same caller phone on either leg
+				OR: [
+					...(callerPhone ? [{ source: callerPhone }, { destination: callerPhone }] : []),
+					...(companyDest ? [{ source: companyDest }, { destination: companyDest }] : [])
+				]
 			},
 			orderBy: { created: 'desc' },
-			take: 5
+			take: 10
 		});
 
 		let matchedThreadId: string | null = null;
 		let matchReason = '';
 
-		for (const pastComm of recentComms) {
-			if (!pastComm.content) continue;
-			
-			const similarity = UnifiedPipeline.calculateSimilarity(commLog.content, pastComm.content);
-			
-			const currentMetadata = (commLog.metadata as { intent?: string }) || {};
-			const pastMetadata = (pastComm.metadata as { intent?: string }) || {};
-			
-			const hasSemanticMatch = 
-				currentMetadata.intent && 
-				pastMetadata.intent && 
-				currentMetadata.intent.toLowerCase() === pastMetadata.intent.toLowerCase();
-
-			if (similarity >= 0.8 || hasSemanticMatch) {
-				matchedThreadId = pastComm.communicationThreadId || pastComm.id;
-				matchReason = hasSemanticMatch ? `Semantic match: ${currentMetadata.intent}` : `${Math.round(similarity * 100)}% text match`;
-				break;
-			}
-		}
-
-		if (!matchedThreadId && commLog.content) {
+		// Use OpenAI as the sole matching engine — pass unique comm IDs
+		if (recentComms.length > 0 && commLog.content) {
 			try {
 				const { matchThreadOpenAI } = await import('./openai');
 				const messagesForAi = recentComms
 					.filter(c => c.content)
-					.map(c => ({ id: c.communicationThreadId || c.id, content: c.content as string }));
-				
+					.map(c => ({ id: c.id, content: c.content as string }));
+
 				if (messagesForAi.length > 0) {
-					console.log(`[Orchestrator] No basic match. Asking OpenAI to find matching thread...`);
-					const aiMatchedId = await matchThreadOpenAI(commLog.content, messagesForAi);
-					if (aiMatchedId) {
-						matchedThreadId = aiMatchedId;
-						matchReason = `OpenAI conceptual match`;
+					console.log(`[Orchestrator] Asking OpenAI to match thread (${messagesForAi.length} candidates within 7 days)...`);
+					const aiMatchedCommId = await matchThreadOpenAI(commLog.content, messagesForAi);
+					if (aiMatchedCommId) {
+						// Resolve the matched comm's thread ID (or use its own ID as the thread)
+						const matchedComm = recentComms.find(c => c.id === aiMatchedCommId);
+						if (matchedComm) {
+							matchedThreadId = matchedComm.communicationThreadId || matchedComm.id;
+							matchReason = 'OpenAI semantic match';
+						}
 					}
 				}
 			} catch (e) {
@@ -269,23 +259,28 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		}
 
 		if (matchedThreadId) {
-			console.log(`[Orchestrator] Found similar thread (${matchReason}). Merging threads.`);
-			
+			console.log(`[Orchestrator] Found similar thread (${matchReason}). Linking current comm.`);
+
 			const oldThreadId = commLog.communicationThreadId;
 
+			// Only update the current comm — don't bulk-reassign old threads
 			await prisma.communicationLog.update({
 				where: { id: commId },
-				data: { communicationThreadId: matchedThreadId }
+				data: {
+					communicationThreadId: matchedThreadId,
+					metadata: {
+						...metadata,
+						thread_merge: {
+							previousThreadId: oldThreadId || null,
+							mergedInto: matchedThreadId,
+							reason: matchReason,
+							mergedAt: new Date().toISOString()
+						}
+					}
+				}
 			});
 
-			if (oldThreadId && oldThreadId !== matchedThreadId) {
-				await prisma.communicationLog.updateMany({
-					where: { communicationThreadId: oldThreadId },
-					data: { communicationThreadId: matchedThreadId }
-				});
-			}
-			
-			// Update in-memory so draft SMS gets the new merged thread ID
+			// Update in-memory so draft SMS gets the new thread ID
 			commLog.communicationThreadId = matchedThreadId;
 		}
 	}
