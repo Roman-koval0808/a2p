@@ -293,19 +293,26 @@
 									<span class="inline-flex items-center rounded bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800">
 										Dropped Call
 									</span>
-								{:else if comm.purpose}
-									{#if comm.purpose === 'Confirm'}
-										<button
-											onclick={() => onConfirmClick ? onConfirmClick(comm) : onReplyClick?.(comm)}
-											class="inline-block rounded bg-[#4A72B2] hover:bg-[#3b5d95] px-3.5 py-1 text-xs font-semibold text-white transition-colors"
-										>
-											Confirm
-										</button>
-									{:else}
-										{comm.purpose}
-									{/if}
 								{:else}
-									—
+									<div class="flex flex-col items-start gap-1">
+										{#if comm.purpose === 'Confirm'}
+											<button
+												onclick={() => onConfirmClick ? onConfirmClick(comm) : onReplyClick?.(comm)}
+												class="inline-block rounded bg-[#4A72B2] hover:bg-[#3b5d95] px-3.5 py-1 text-xs font-semibold text-white transition-colors"
+											>
+												Confirm
+											</button>
+										{:else if comm.purpose}
+											<span>{comm.purpose}</span>
+										{:else}
+											<span>—</span>
+										{/if}
+										{#if comm.raw?.metadata?.ivr_intent}
+											<span class="inline-flex items-center rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 leading-none">
+												Dept: {comm.raw.metadata.ivr_intent}
+											</span>
+										{/if}
+									</div>
 								{/if}
 							</td>
 							<!-- Score hidden -->
@@ -340,16 +347,14 @@
 							>
 								{#if comm.direction === 'In' && !comm.raw?.metadata?.orchestrator_processed && !comm.raw?.isDropCall}
 									<span class="text-gray-400 italic">Processing...</span>
-								{:else if comm.commId}
+								{:else}
 									<button
 										type="button"
-										class="text-left text-indigo-600 hover:text-indigo-800 underline font-mono text-xs cursor-pointer p-0 bg-transparent border-none"
+										class="text-left text-blue-600 hover:underline font-medium hover:text-blue-800"
 										onclick={() => handleSummaryClick(comm)}
 									>
-										{comm.commId.startsWith('DROP-') ? comm.commId : 'COM-' + comm.commId.slice(-5).toUpperCase()}
+										{comm.commId ? (comm.commId.startsWith('DROP-') ? comm.commId : 'COM-' + comm.commId.slice(-5).toUpperCase()) : '—'}
 									</button>
-								{:else}
-									—
 								{/if}
 							</td>
 							<!-- Pipeline hidden -->
@@ -403,30 +408,14 @@
 												class="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
 												onclick={() => handleActionClick('view', comm)}
 											>
-												Review AI Summary
+												View Details
 											</button>
-											<button
-												type="button"
-												class="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 font-semibold"
-												onclick={() => handleActionClick('reply', comm)}
-											>
-												Reply
-											</button>
-											{#if comm.purpose === 'Confirm' || comm.status === 'blue'}
-												<button
-													type="button"
-													class="w-full px-3 py-2 text-left text-sm text-emerald-600 font-bold hover:bg-gray-100"
-													onclick={() => handleActionClick('confirm', comm)}
-												>
-													Approve Message
-												</button>
-											{/if}
 											<button
 												type="button"
 												class="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
 												onclick={() => handleActionClick('call', comm)}
 											>
-												Call Back
+												Call
 											</button>
 											<button
 												type="button"

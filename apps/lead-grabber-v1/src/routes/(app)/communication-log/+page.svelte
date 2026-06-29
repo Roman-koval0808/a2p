@@ -184,19 +184,27 @@
 			replyComm = comm;
 			replyPanelOpen = true;
 		} else if (action === 'call') {
-			const phone =
-				comm.raw?.customer?.phone ||
-				comm.raw?.payload?.phone ||
-				comm.raw?.payload?.customer_phone ||
-				comm.raw?.customerProfile?.phone ||
-				(comm.type === 'In' ? comm.source : comm.endpoint);
+			let phone = '';
+			if (comm.raw?.direction === 'inbound') {
+				phone = comm.raw?.source;
+			} else {
+				phone = comm.raw?.destination;
+			}
+			
+			// Fallback if direction logic doesn't catch it
+			if (!phone) {
+				phone =
+					comm.raw?.payload?.phone ||
+					comm.raw?.payload?.customer_phone ||
+					comm.raw?.customerProfile?.phone ||
+					comm.source;
+			}
+			
 			if (phone) {
 				goto(`/dialer?phone=${encodeURIComponent(phone)}&call=true`);
 			} else {
 				toast.error('No phone number available');
 			}
-		} else if (action === 'confirm') {
-			handleConfirmClick(comm);
 		} else if (action === 'view') {
 			handleSummaryClick(comm);
 		} else {
@@ -405,8 +413,7 @@
 		{recordingUrl}
 		estimatedPrice={meta.estimatedPrice ?? null}
 		draftedMessage={selectedComm.raw?.draftResponse || selectedComm.raw?.payload?.draftResponse || selectedComm.raw?.payload?.draft_reply || null}
-		ivrIntent={meta.ivr_intent || null}
-		onApprove={(selectedComm.purpose === 'Confirm' || selectedComm.status === 'blue') ? () => handleConfirmClick(selectedComm) : undefined}
+		department={meta.ivr_intent ?? null}
 	/>
 {/if}
 
