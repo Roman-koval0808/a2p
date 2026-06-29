@@ -410,7 +410,7 @@
 		{recordingUrl}
 		estimatedPrice={meta.estimatedPrice ?? null}
 		draftedMessage={selectedComm.raw?.draftResponse || selectedComm.raw?.payload?.draftResponse || selectedComm.raw?.payload?.draft_reply || null}
-		department={meta.ivr_intent ?? null}
+		department={meta.ivr_intent || meta.intent || null}
 	/>
 {/if}
 
