@@ -178,3 +178,34 @@ export async function analyzeCallLog(
 		};
 	}
 }
+
+export async function matchThreadOpenAI(currentMessage: string, recentMessages: { id: string; content: string }[]): Promise<string | null> {
+	if (!recentMessages || recentMessages.length === 0) return null;
+
+	try {
+		const prompt = `
+You are an AI assistant determining if a new message belongs to the same conversation thread as any of the recent past messages.
+Compare the new message against the list of recent messages and determine if it conceptually belongs to the same ongoing issue, inquiry, or topic.
+
+New Message: "${currentMessage}"
+
+Recent Messages:
+${recentMessages.map((m, i) => `[${i}] (ID: ${m.id}): "${m.content}"`).join('\n')}
+
+Output a JSON object with a single key "matched_id". If the new message belongs to one of the recent message threads, set "matched_id" to its ID. If it is a completely new and unrelated topic, set "matched_id" to null.
+`;
+		const response = await openai.chat.completions.create({
+			model: 'gpt-4o-mini',
+			messages: [{ role: 'user', content: prompt }],
+			response_format: { type: 'json_object' },
+			temperature: 0.1
+		});
+
+		const content = response.choices[0]?.message?.content || '{}';
+		const result = JSON.parse(content);
+		return result.matched_id || null;
+	} catch (error) {
+		console.error('Error in matchThreadOpenAI:', error);
+		return null;
+	}
+}

@@ -221,6 +221,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			take: 5
 		});
 
+		let matchedThreadId: string | null = null;
+		let matchReason = '';
+
 		for (const pastComm of recentComms) {
 			if (!pastComm.content) continue;
 			
@@ -235,18 +238,42 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				currentMetadata.intent.toLowerCase() === pastMetadata.intent.toLowerCase();
 
 			if (similarity >= 0.8 || hasSemanticMatch) {
-				const matchType = hasSemanticMatch ? `Semantic match: ${currentMetadata.intent}` : `${Math.round(similarity * 100)}% text match`;
-				console.log(`[Orchestrator] Found similar thread (${matchType}). Merging threads.`);
-				
-				await prisma.communicationLog.update({
-					where: { id: commId },
-					data: { communicationThreadId: pastComm.communicationThreadId }
-				});
-				
-				// Update in-memory so draft SMS gets the new merged thread ID
-				commLog.communicationThreadId = pastComm.communicationThreadId;
+				matchedThreadId = pastComm.communicationThreadId || pastComm.id;
+				matchReason = hasSemanticMatch ? `Semantic match: ${currentMetadata.intent}` : `${Math.round(similarity * 100)}% text match`;
 				break;
 			}
+		}
+
+		if (!matchedThreadId && commLog.content) {
+			try {
+				const { matchThreadOpenAI } = await import('./openai');
+				const messagesForAi = recentComms
+					.filter(c => c.content)
+					.map(c => ({ id: c.communicationThreadId || c.id, content: c.content as string }));
+				
+				if (messagesForAi.length > 0) {
+					console.log(`[Orchestrator] No basic match. Asking OpenAI to find matching thread...`);
+					const aiMatchedId = await matchThreadOpenAI(commLog.content, messagesForAi);
+					if (aiMatchedId) {
+						matchedThreadId = aiMatchedId;
+						matchReason = `OpenAI conceptual match`;
+					}
+				}
+			} catch (e) {
+				console.error('[Orchestrator] OpenAI thread matching failed:', e);
+			}
+		}
+
+		if (matchedThreadId) {
+			console.log(`[Orchestrator] Found similar thread (${matchReason}). Merging threads.`);
+			
+			await prisma.communicationLog.update({
+				where: { id: commId },
+				data: { communicationThreadId: matchedThreadId }
+			});
+			
+			// Update in-memory so draft SMS gets the new merged thread ID
+			commLog.communicationThreadId = matchedThreadId;
 		}
 	}
 
@@ -292,7 +319,16 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				}
 			});
 
-			// Mark as processed is now done below outside the if-statement
+			// Mark as processed
+			await prisma.communicationLog.update({
+				where: { id: commId },
+				data: {
+					metadata: {
+						...metadata,
+						orchestrator_processed: true
+					}
+				}
+			});
 		} catch (err) {
 			console.error('[Orchestrator] Failed to log pending SMS:', err);
 		}
@@ -300,18 +336,4 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		console.log('[Orchestrator] No action taken for this intent.');
 	}
 
-	// ALWAYS mark as processed at the very end so UI stops showing "Processing..."
-	try {
-		await prisma.communicationLog.update({
-			where: { id: commId },
-			data: {
-				metadata: {
-					...metadata,
-					orchestrator_processed: true
-				}
-			}
-		});
-	} catch (err) {
-		console.error('[Orchestrator] Failed to update orchestrator_processed flag:', err);
-	}
 }
