@@ -7,6 +7,7 @@
 	import NotificationsDialog from '$lib/components/notifications/notifications-dialog.svelte';
 		import PipelineModal from '$lib/components/PipelineModal.svelte';
 	import CommReplyPanel from '$lib/components/CommReplyPanel.svelte';
+	import AssignAgentDialog from '$lib/components/assign-agent-dialog.svelte';
 	import { toast } from 'svelte-sonner';
 	import { invalidateAll, goto } from '$app/navigation';
 
@@ -40,6 +41,8 @@
 	let selectedPipelineEvent = $state<any>(null);
 	let selectedEndpoint = $state<string | null>(null);
 	let selectedCommId = $state<string | null>(null);
+	let assignDialogOpen = $state(false);
+	let preSelectedAgents = $state<string[]>([]);
 	
 	// Reply panel state
 	let replyPanelOpen = $state(false);
@@ -221,6 +224,32 @@
 		assignDialogOpen = true;
 	}
 
+	async function handleAssign(selectedAgents: string[]) {
+		if (!selectedCommId) return;
+		const loadingId = toast.loading('Assigning agent...');
+		try {
+			const agent = selectedAgents[0] ?? null;
+			const res = await fetch(`/api/communication-logs/${selectedCommId}/assign`, {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					status: agent ? 'assigned_to_agent' : 'unassigned',
+					assignedAgent: agent
+				})
+			});
+			const result = await res.json();
+			if (result.success) {
+				toast.success('Agent assigned successfully', { id: loadingId });
+				await invalidateAll();
+			} else {
+				toast.error(result.error || 'Failed to assign agent', { id: loadingId });
+			}
+		} catch (e) {
+			console.error(e);
+			toast.error('Failed to assign agent', { id: loadingId });
+		}
+	}
+
 	function handlePipelineClick(comm: any) {
 		selectedPipelineEvent = comm.raw;
 		pipelineDialogOpen = true;
@@ -318,7 +347,7 @@
 			onPipelineClick={handlePipelineClick}
 			onReplyClick={handleReplyClick}
 			onConfirmClick={handleConfirmClick}
-			showAssignButton={false}
+			showAssignButton={true}
 			showSearch={false}
 		/>
 		<!-- Pagination -->
@@ -427,4 +456,12 @@
 		replyPanelOpen = false;
 		replyComm = null;
 	}}
+/>
+
+<AssignAgentDialog
+	bind:open={assignDialogOpen}
+	endpointName={selectedEndpoint || 'Conversation'}
+	agents={members.map(m => m.name)}
+	preSelectedAgents={preSelectedAgents}
+	onAssign={handleAssign}
 />
