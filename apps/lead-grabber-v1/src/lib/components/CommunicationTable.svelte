@@ -255,7 +255,7 @@
 					{#each filteredCommunications as comm}
 						{@const commType = getTypeDisplay(comm)}
 						{@const IconComponent = getTypeIcon(commType)}
-						{@const contactDetail = comm.raw?.customer?.phone || comm.raw?.customer?.email || comm.raw?.communicationThread?.contact?.phone || comm.raw?.communicationThread?.contact?.email || (comm.direction === 'In' ? comm.raw?.source : comm.raw?.destination)}
+						{@const contactDetail = comm.raw?.raw?.customer?.phone || comm.raw?.raw?.customer?.email || comm.raw?.raw?.communicationThread?.contact?.phone || comm.raw?.raw?.communicationThread?.contact?.email || comm.raw?.raw?.phoneNumber || (comm.direction === 'In' ? comm.raw?.raw?.source : comm.raw?.raw?.destination)}
 						{@const dept = comm.raw?.metadata?.ivr_intent || comm.raw?.metadata?.intent}
 						<tr class="border-b border-gray-200 bg-white transition-colors hover:bg-gray-50/80">
 							<td class="px-3 py-2.5 pt-4 align-top">
