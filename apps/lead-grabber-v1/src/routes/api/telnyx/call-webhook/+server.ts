@@ -1026,12 +1026,8 @@ export const POST: RequestHandler = async ({ request }) => {
 							});
 							console.log('📞 Logged as DropCall (no intent/voicemail captured)');
 
-							if (!contactExisted) {
-								// Unknown caller -> stop processing here. No CRM pollution.
-								await deleteState(callControlId);
-								// callsWithVoicemail.delete(callControlId); - handled by deleteState
-								break;
-							}
+							await deleteState(callControlId);
+							break;
 						}
 
 						if (!contact) {
