@@ -74,15 +74,7 @@
 	let form: any;
 	let loading = $state(false);
 	let previewUrl: string | null = $state(null);
-	let showInviteDialog = $state(false);
-	let showInviteLinkDialog = $state(false);
-	let inviteLink = $state<string>('');
-	let pendingInvites = $state(data.pendingInvites || []);
-	let editMemberDialog = $state(false);
-	let selectedMember = $state<Member | null>(null);
-	let selectedRole = $state<string>('');
-	let selectedInviteRole = $state('member');
-
+								
 	// Define roles
 	const roles = [
 		{ value: 'admin', label: 'Super Admin' },
@@ -100,10 +92,7 @@
 	);
 
 	// Derived store for edit member role trigger content
-	const editRoleTriggerContent = $derived(
-		roles.find((role) => role.value === selectedRole)?.label ?? 'Select a role'
-	);
-
+	
 	$effect(() => {
 		if (form?.success) {
 			toast.success('Company settings updated successfully');
@@ -137,21 +126,7 @@
 		}
 	});
 
-	async function loadPendingInvites() {
-		if (!company?.id) return;
-		try {
-			const response = await fetch(`/api/invites?companyId=${company.id}`);
-			if (response.ok) {
-				const data = await response.json();
-				pendingInvites = data.invites || [];
-			}
-		} catch (err) {
-			console.error('Error loading invites:', err);
-			toast.error('Failed to load invites');
-		}
-	}
-
-	// Update pendingInvites when data changes
+		// Update pendingInvites when data changes
 	$effect(() => {
 		if (data.pendingInvites) {
 			pendingInvites = data.pendingInvites;
@@ -162,76 +137,7 @@
 		loadPendingInvites();
 	});
 
-	async function cancelInvite(inviteId: string) {
-		try {
-			const response = await fetch(`/api/invites/${inviteId}`, { method: 'DELETE' });
-			if (response.ok) {
-				toast.success('Invite cancelled');
-				// Remove from local state
-				pendingInvites = pendingInvites.filter((inv) => inv.id !== inviteId);
-				// Also reload from server
-				await loadPendingInvites();
-			} else {
-				const error = await response.json();
-				toast.error(error.error || 'Failed to cancel invite');
-			}
-		} catch (err) {
-			console.error('Error cancelling invite:', err);
-			toast.error('Failed to cancel invite');
-		}
-	}
-
-	async function resendInvite(inviteId: string) {
-		try {
-			const response = await fetch(`/api/invites/${inviteId}/resend`, { method: 'POST' });
-			if (response.ok) {
-				const data = await response.json();
-				if (data.inviteLink) {
-					inviteLink = data.inviteLink;
-					showInviteLinkDialog = true;
-					// Copy to clipboard
-					try {
-						await navigator.clipboard.writeText(data.inviteLink);
-					} catch (err) {
-						console.error('Failed to copy to clipboard:', err);
-					}
-				} else {
-					toast.success('Invitation resent successfully');
-				}
-				await loadPendingInvites();
-			} else {
-				const error = await response.json();
-				toast.error(error.error || 'Failed to resend invitation');
-			}
-		} catch (error) {
-			console.error('Error resending invite:', error);
-			toast.error('Failed to resend invitation');
-		}
-	}
-
-	async function handleEditMember(member: Member) {
-		selectedMember = member;
-		selectedRole = member.role;
-		editMemberDialog = true;
-	}
-
-	async function handleRoleUpdate() {
-		if (!selectedMember || !selectedRole) return;
-
-		try {
-			const response = await fetch(`/api/company-members/${selectedMember.id}`, {
-				method: 'PATCH',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ role: selectedRole })
-			});
-			if (response.ok) {
-				toast.success('Member role updated');
-				// Refresh the page to show updated data
-				window.location.reload();
-			} else {
-				toast.error('Failed to update member');
-			}
-		} catch (error) {
+						} catch (error) {
 			console.error('Error updating member:', error);
 			toast.error('Failed to update member');
 		} finally {
@@ -254,7 +160,7 @@
 
 		<div class="w-full flex-1 overflow-hidden rounded-xl bg-white p-6">
 			<Tabs.Root
-				value={data.isAdminOrOwner ? 'customization' : 'members'}
+				value="customization"
 				class="flex h-full flex-col"
 			>
 				<div class="mb-6 flex items-center gap-4">
@@ -265,12 +171,11 @@
 								<Tabs.Trigger value="customization">Customization</Tabs.Trigger>
 								<Tabs.Trigger value="danger" class="text-red-500 data-[state=active]:text-red-600">Danger</Tabs.Trigger>
 							{/if}
-							<Tabs.Trigger value="members">Team Members</Tabs.Trigger>
 						</Tabs.List>
 					</div>
 				</div>
 
-				<p class="mb-8 text-gray-500">Manage your company profile and team members</p>
+				<p class="mb-8 text-gray-500">Manage your company profile</p>
 
 				{#if data.isAdminOrOwner}
 					<Tabs.Content value="customization" class="flex-1 overflow-y-auto">
@@ -492,328 +397,7 @@
 					</div>
 				</Tabs.Content>
 
-				<Tabs.Content value="members" class="flex-1 overflow-y-auto">
-					<div class="space-y-6">
-						<div class="flex items-center justify-end">
-							{#if data.isAdminOrOwner}
-								<Button variant="outline" class="gap-2" onclick={() => (showInviteDialog = true)}>
-									<Users class="h-4 w-4" />
-									Invite Member
-								</Button>
-							{/if}
-						</div>
-
-						<div class="space-y-4">
-							<h3 class="text-lg font-medium">Active Members</h3>
-							<div class="rounded-lg bg-white shadow">
-								<div class="p-6">
-									<h2 class="mb-4 text-lg font-semibold">Active Members</h2>
-
-									<div class="overflow-x-auto">
-										<table class="min-w-full divide-y divide-gray-200">
-											<thead>
-												<tr>
-													<th
-														class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
-													>
-														Member
-													</th>
-													<th
-														class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
-													>
-														Role
-													</th>
-													<th
-														class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
-													>
-														Joined
-													</th>
-													<th
-														class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
-													>
-														Actions
-													</th>
-												</tr>
-											</thead>
-											<tbody class="divide-y divide-gray-200 bg-white">
-												{#each data.members as member}
-													<tr>
-														<td class="whitespace-nowrap px-6 py-4">
-															<div class="flex items-center">
-																<div class="h-10 w-10 flex-shrink-0">
-																	{#if member.user?.avatar}
-																		<img
-																			class="h-10 w-10 rounded-full"
-																			src={member.user.avatar}
-																			alt=""
-																		/>
-																	{:else}
-																		<div
-																			class="flex h-10 w-10 items-center justify-center rounded-full bg-gray-200"
-																		>
-																			<span class="font-medium text-gray-500">
-																				{member.user?.name?.charAt(0).toUpperCase() ?? '?'}
-																			</span>
-																		</div>
-																	{/if}
-																</div>
-																<div class="ml-4">
-																	<button
-																		class="text-left text-sm font-medium text-gray-900 hover:text-blue-600 hover:underline"
-																		onclick={(e) => {
-																			e.stopPropagation();
-																			goto(`/users/${member.user?.id}`);
-																		}}
-																	>
-																		{member.user?.name ?? 'Unknown'}
-																	</button>
-																	<div class="text-sm text-gray-500">
-																		{member.user?.email ?? 'No email'}
-																	</div>
-																</div>
-															</div>
-														</td>
-														<td class="whitespace-nowrap px-6 py-4">
-															<RoleBadge role={member.role} />
-														</td>
-														<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-															{formatDate(member.joined_at)}
-														</td>
-														<td class="whitespace-nowrap px-6 py-4 text-right text-sm font-medium">
-															{#if data.isAdminOrOwner}
-																<button
-																	class="text-indigo-600 hover:text-indigo-900"
-																	onclick={() => handleEditMember(member)}
-																>
-																	Edit
-																</button>
-																{#if member.role !== 'owner' && member.user?.id !== data.user?.id}
-																	<button
-																		class="ml-4 text-red-600 hover:text-red-900"
-																		onclick={async () => {
-																			if (confirm('Are you sure you want to remove this member?')) {
-																				try {
-																					const res = await fetch(`/api/company-members/${member.id}`, {
-																						method: 'DELETE'
-																					});
-																					if (res.ok) {
-																						toast.success('Member removed successfully');
-																						window.location.reload();
-																					} else {
-																						toast.error('Failed to remove member');
-																					}
-																				} catch (e) {
-																					toast.error('Failed to remove member');
-																				}
-																			}
-																		}}
-																	>
-																		Delete
-																	</button>
-																{/if}
-															{/if}
-														</td>
-													</tr>
-												{/each}
-											</tbody>
-										</table>
-									</div>
-								</div>
-							</div>
-						</div>
-
-						{#if pendingInvites.length > 0}
-							<div class="space-y-4">
-								<h3 class="text-lg font-medium">Invitations</h3>
-								<div class="space-y-2">
-									{#each pendingInvites as invite}
-										<div class="flex items-center justify-between rounded-lg bg-gray-50 p-4">
-											<div>
-												<p class="font-medium">{invite.email || 'No email'}</p>
-												<div class="flex items-center gap-2">
-													<p class="text-sm text-gray-500">Role: {invite.role || 'member'}</p>
-													<span
-														class="rounded-full px-2 py-0.5 text-sm {invite.status === 'pending'
-															? 'bg-yellow-100 text-yellow-800'
-															: invite.status === 'accepted'
-																? 'bg-green-100 text-green-800'
-																: 'bg-red-100 text-red-800'}"
-													>
-														{invite.status}
-													</span>
-												</div>
-											</div>
-											{#if invite.status === 'pending'}
-												<div class="flex items-center gap-2">
-													<Button variant="ghost" size="sm" onclick={() => cancelInvite(invite.id)}>
-														Cancel
-													</Button>
-													<Button variant="ghost" size="sm" onclick={() => resendInvite(invite.id)}>
-														Resend
-													</Button>
-												</div>
-											{/if}
-										</div>
-									{/each}
-								</div>
-							</div>
-						{/if}
-					</div>
-				</Tabs.Content>
 			</Tabs.Root>
 		</div>
 	</div>
-
-	<Dialog.Root bind:open={showInviteDialog}>
-		<Dialog.Content class="sm:max-w-[425px]">
-			<Dialog.Header>
-				<Dialog.Title>Invite Team Member</Dialog.Title>
-				<Dialog.Description>Invite a new member to join your team</Dialog.Description>
-			</Dialog.Header>
-
-			<form
-				method="POST"
-				action="?/inviteMember"
-				use:enhance={() => {
-					return async ({ result }) => {
-						if (result.type === 'success') {
-							const link = result.data?.inviteLink;
-							if (link) {
-								// Show dialog with invite link
-								inviteLink = link;
-								showInviteLinkDialog = true;
-								// Also log to console (always)
-								console.log(`Invite link: ${link}`);
-								// Copy to clipboard automatically
-								try {
-									await navigator.clipboard.writeText(link);
-								} catch (err) {
-									console.error('Failed to copy to clipboard:', err);
-								}
-							} else {
-								toast.success('Invitation sent successfully');
-							}
-							showInviteDialog = false;
-							await loadPendingInvites();
-						} else if (result.type === 'failure') {
-							toast.error(result.data?.error || 'Failed to send invitation');
-						}
-					};
-				}}
-			>
-				<input type="hidden" name="companyId" value={company.id} />
-				<div class="grid gap-4 py-4">
-					<div class="space-y-2">
-						<Label for="email">Email Address</Label>
-						<Input type="email" id="email" name="email" required placeholder="colleague@company.com" />
-					</div>
-					<div class="space-y-2">
-						<Label>Role</Label>
-						<Select.Root type="single" name="role" bind:value={selectedInviteRole}>
-							<Select.Trigger class="w-full">
-								{inviteRoleTriggerContent}
-							</Select.Trigger>
-							<Select.Content>
-								<Select.Group>
-									<Select.GroupHeading>Available Roles</Select.GroupHeading>
-									{#each roles as role}
-										<Select.Item value={role.value} label={role.label}>
-											{role.label}
-										</Select.Item>
-									{/each}
-								</Select.Group>
-							</Select.Content>
-						</Select.Root>
-					</div>
-				</div>
-
-				<div class="flex justify-end gap-2">
-					<Button type="button" variant="ghost" onclick={() => (showInviteDialog = false)}>
-						Cancel
-					</Button>
-					<Button type="submit">Send Invitation</Button>
-				</div>
-			</form>
-		</Dialog.Content>
-	</Dialog.Root>
-
-	<Dialog.Root bind:open={editMemberDialog}>
-		<Dialog.Content class="sm:max-w-[425px]">
-			<Dialog.Header>
-				<Dialog.Title>Edit Member Role</Dialog.Title>
-				<Dialog.Description>
-					Change the role for {selectedMember?.user?.name}
-				</Dialog.Description>
-			</Dialog.Header>
-
-			<div class="grid gap-4 py-4">
-				<div class="space-y-2">
-					<Label>Role</Label>
-					<Select.Root type="single" bind:value={selectedRole}>
-						<Select.Trigger class="w-full">
-							{editRoleTriggerContent}
-						</Select.Trigger>
-						<Select.Content>
-							<Select.Group>
-								{#each roles as role}
-									{#if selectedMember?.role === 'owner' || role.value !== 'owner'}
-										<Select.Item value={role.value} label={role.label}>
-											{role.label}
-										</Select.Item>
-									{/if}
-								{/each}
-							</Select.Group>
-						</Select.Content>
-					</Select.Root>
-				</div>
-			</div>
-
-			<Dialog.Footer>
-				<Button variant="outline" onclick={() => (editMemberDialog = false)}>Cancel</Button>
-				<Button
-					onclick={handleRoleUpdate}
-					disabled={!selectedRole || selectedRole === selectedMember?.role}
-				>
-					Save Changes
-				</Button>
-			</Dialog.Footer>
-		</Dialog.Content>
-	</Dialog.Root>
-
-	<Dialog.Root bind:open={showInviteLinkDialog}>
-		<Dialog.Content class="sm:max-w-[500px]">
-			<Dialog.Header>
-				<Dialog.Title>Invitation Sent Successfully</Dialog.Title>
-				<Dialog.Description>
-					Share this link with the invited member. The link has been copied to your clipboard.
-				</Dialog.Description>
-			</Dialog.Header>
-
-			<div class="grid gap-4 py-4">
-				<div class="space-y-2">
-					<Label>Invite Link</Label>
-					<div class="flex gap-2">
-						<Input value={inviteLink} readonly class="flex-1 font-mono text-sm" />
-						<Button
-							variant="outline"
-							onclick={async () => {
-								try {
-									await navigator.clipboard.writeText(inviteLink);
-									toast.success('Link copied to clipboard!');
-								} catch (err) {
-									toast.error('Failed to copy link');
-								}
-							}}
-						>
-							Copy
-						</Button>
-					</div>
-				</div>
-			</div>
-
-			<Dialog.Footer>
-				<Button onclick={() => (showInviteLinkDialog = false)}>Close</Button>
-			</Dialog.Footer>
-		</Dialog.Content>
-	</Dialog.Root>
 {/if}

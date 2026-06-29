@@ -5,8 +5,7 @@
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index';
 	import CommunicationSummaryDialog from '$lib/components/communication-summary-dialog.svelte';
 	import NotificationsDialog from '$lib/components/notifications/notifications-dialog.svelte';
-	import AssignAgentDialog from '$lib/components/assign-agent-dialog.svelte';
-	import PipelineModal from '$lib/components/PipelineModal.svelte';
+		import PipelineModal from '$lib/components/PipelineModal.svelte';
 	import CommReplyPanel from '$lib/components/CommReplyPanel.svelte';
 	import { toast } from 'svelte-sonner';
 	import { invalidateAll, goto } from '$app/navigation';
@@ -37,13 +36,11 @@
 	let summaryDialogOpen = $state(false);
 	let selectedComm = $state<(typeof communications)[0] | null>(null);
 	let notificationsDialogOpen = $state(false);
-	let assignDialogOpen = $state(false);
-	let pipelineDialogOpen = $state(false);
+		let pipelineDialogOpen = $state(false);
 	let selectedPipelineEvent = $state<any>(null);
 	let selectedEndpoint = $state<string | null>(null);
 	let selectedCommId = $state<string | null>(null);
-	let preSelectedAgents = $state<string[]>([]);
-
+	
 	// Reply panel state
 	let replyPanelOpen = $state(false);
 	let replyComm = $state<any>(null);
@@ -321,7 +318,7 @@
 			onPipelineClick={handlePipelineClick}
 			onReplyClick={handleReplyClick}
 			onConfirmClick={handleConfirmClick}
-			showAssignButton={true}
+			showAssignButton={false}
 			showSearch={false}
 		/>
 		<!-- Pagination -->
@@ -419,57 +416,6 @@
 
 <NotificationsDialog bind:open={notificationsDialogOpen} />
 
-<AssignAgentDialog
-	bind:open={assignDialogOpen}
-	endpointName={selectedEndpoint || ''}
-	agents={data.members?.map((m: { name: string }) => m.name) || []}
-	{preSelectedAgents}
-	onAssign={async (selectedAgentNames) => {
-		if (!data.members) return;
-
-		const selectedMemberIds = data.members
-			.filter((m: { name: string }) => selectedAgentNames.includes(m.name))
-			.map((m: { id: string }) => m.id);
-
-		if (selectedMemberIds.length === 0) {
-			toast.error('No members selected');
-			return;
-		}
-
-		try {
-			// If a specific log ID is selected, assign only that log
-			// Otherwise, fall back to endpoint-based assignment
-			const requestBody = selectedCommId
-				? { logIds: [selectedCommId], memberIds: selectedMemberIds }
-				: selectedEndpoint
-					? { endpoint: selectedEndpoint, memberIds: selectedMemberIds }
-					: null;
-
-			if (!requestBody) {
-				toast.error('No log or endpoint selected');
-				return;
-			}
-
-			const response = await fetch('/api/communication-logs/assign', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(requestBody)
-			});
-
-			const result = await response.json();
-
-			if (result.success) {
-				toast.success(result.message || 'Members assigned successfully');
-				await invalidateAll();
-			} else {
-				toast.error(result.error || 'Failed to assign members');
-			}
-		} catch (error) {
-			console.error('Error assigning members:', error);
-			toast.error('Failed to assign members');
-		}
-	}}
-/>
 
 <PipelineModal bind:open={pipelineDialogOpen} event={selectedPipelineEvent} />
 
