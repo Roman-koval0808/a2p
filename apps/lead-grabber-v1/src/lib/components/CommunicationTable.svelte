@@ -286,8 +286,11 @@
 								{/if}
 							</td>
 							<td class="max-w-[180px] px-3 py-2.5 text-sm text-gray-700">
+								{#if comm.endpoint}
+									<div class="font-medium text-gray-900 truncate" title={comm.endpoint}>{comm.endpoint}</div>
+								{/if}
 								{#if showAssignButton && onAssignClick && !comm.raw?.isDropCall && comm.summary !== 'Dropped Call' && comm.commId && !comm.commId.startsWith('DROP-')}
-									<div>
+									<div class="mt-0.5">
 										<button
 											type="button"
 											class="text-left text-xs text-blue-600 underline hover:no-underline"
@@ -298,7 +301,7 @@
 									</div>
 								{/if}
 								{#if comm.assignedMemberNames && comm.assignedMemberNames.length > 0}
-									<div class="text-xs text-gray-500 mt-1 font-semibold text-gray-900" title={comm.assignedMemberNames.join(', ')}>
+									<div class="text-xs text-gray-500 mt-0.5 font-semibold text-gray-900" title={comm.assignedMemberNames.join(', ')}>
 										{comm.assignedMemberNames.join(', ')}
 									</div>
 								{/if}
