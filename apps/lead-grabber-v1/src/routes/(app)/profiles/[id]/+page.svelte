@@ -134,6 +134,9 @@
 			: null
 	);
 
+	const hasEmail = $derived(selectedProfile?.clearEmail && selectedProfile.clearEmail !== '—');
+	const hasPhone = $derived(selectedProfile?.clearPhone && selectedProfile.clearPhone !== '—');
+
 	let connectionsExpanded = $state(true);
 	let selectedSummary = $state<Communication | null>(null);
 	let showEditDialog = $state(false);
@@ -648,7 +651,6 @@
 				<!-- Action Buttons Card -->
 				<div class="w-[391px] rounded-lg bg-white p-4 shadow-[0px_0px_4px_rgba(0,0,0,0.25)]">
 					<div class="grid grid-cols-2 gap-3">
-						{@const hasEmail = selectedProfile.clearEmail && selectedProfile.clearEmail !== '—'}
 						<button
 							onclick={() => hasEmail && openReplyPanel('email')}
 							disabled={!hasEmail}
@@ -657,7 +659,6 @@
 							<Mail class="h-4 w-4 text-white" />
 							<span class="font-sans text-xs font-semibold leading-[16px] text-white">New Email</span>
 						</button>
-						{@const hasPhone = selectedProfile.clearPhone && selectedProfile.clearPhone !== '—'}
 						<button
 							onclick={handleNewCall}
 							disabled={!hasPhone}
