@@ -549,7 +549,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 			});
 
 			if (!thread || thread.companyId !== locals.user.company.id) {
-				return json({ success: false, error: 'Thread not found' }, { status: 404 });
+				return json({ success: true, data: null });
 			}
 
 			return json({ success: true, data: thread });

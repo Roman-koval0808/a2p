@@ -128,13 +128,20 @@
 			const response = await fetch(
 				`/api/messages?threadId=${encodeURIComponent(threadId)}`
 			);
-			if (!response.ok) throw new Error('Failed to fetch thread');
+			
+			// If not found or error, fall back gracefully without spamming console
+			if (!response.ok) {
+				if (response.status !== 404) {
+					console.error(`Failed to fetch thread: ${response.status}`);
+				}
+				throw new Error('Fallback');
+			}
+			
 			const resJson = await response.json();
 			const thread = resJson.data;
 
 			if (!thread || !thread.messages || thread.messages.length === 0) {
-				chatMessages = [];
-				return;
+				throw new Error('Fallback');
 			}
 
 			const messagesArray =
@@ -177,8 +184,10 @@
 				}
 				draftInitialized = true;
 			}
-		} catch (err) {
-			console.error('Error loading thread:', err);
+		} catch (err: any) {
+			if (err.message !== 'Fallback') {
+				console.error('Error loading thread:', err);
+			}
 			// Fall back to single comm entry
 			chatMessages = [
 				{

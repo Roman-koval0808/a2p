@@ -27,6 +27,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import PipelineModal from '$lib/components/PipelineModal.svelte';
+	import CommReplyPanel from '$lib/components/CommReplyPanel.svelte';
 	import { toast } from 'svelte-sonner';
 
 	interface Connection {
@@ -141,6 +142,10 @@
 	let selectedPipelineEvent = $state<any>(null);
 	let assignFormState = $state({ loading: false });
 
+	let replyPanelOpen = $state(false);
+	let replyComm = $state<any>(null);
+	let replyType = $state<'sms' | 'email'>('sms');
+
 	function openEdit() {
 		if (data.profile) {
 			editForm = {
@@ -221,8 +226,44 @@
 	}
 
 	function handleActionClick(action: string, comm: Communication) {
-		console.log('Action:', action, 'for comm:', comm);
-		// Handle actions like call, sms, email
+		if (action === 'sms' || action === 'email') {
+			replyType = action === 'email' ? 'email' : 'sms';
+			replyComm = comm;
+			replyPanelOpen = true;
+		} else if (action === 'call') {
+			let phone = comm.raw?.direction === 'inbound' ? comm.raw?.source : comm.raw?.destination;
+			if (!phone) phone = comm.raw?.payload?.phone || comm.raw?.customerProfile?.phone || comm.source;
+			if (phone) {
+				goto(`/dialer?phone=${encodeURIComponent(phone)}&call=true`);
+			} else {
+				toast.error('No phone number available');
+			}
+		} else if (action === 'view') {
+			handleSummaryClick(comm);
+		}
+	}
+
+	function openReplyPanel(type: 'email' | 'sms') {
+		replyType = type;
+		replyComm = {
+			source: type === 'email' ? selectedProfile?.clearEmail : selectedProfile?.clearPhone,
+			type: type,
+			typeIcon: type,
+			raw: {
+				customerProfile: {
+					name: selectedProfile?.name,
+					email: selectedProfile?.clearEmail,
+					phone: selectedProfile?.clearPhone
+				}
+			}
+		};
+		replyPanelOpen = true;
+	}
+
+	function handleNewCall() {
+		if (selectedProfile?.clearPhone && selectedProfile.clearPhone !== '—') {
+			goto(`/dialer?phone=${encodeURIComponent(selectedProfile.clearPhone)}&call=true`);
+		}
 	}
 
 	function handlePipelineClick(comm: any) {
@@ -607,26 +648,31 @@
 				<!-- Action Buttons Card -->
 				<div class="w-[391px] rounded-lg bg-white p-4 shadow-[0px_0px_4px_rgba(0,0,0,0.25)]">
 					<div class="grid grid-cols-2 gap-3">
+						{@const hasEmail = selectedProfile.clearEmail && selectedProfile.clearEmail !== '—'}
 						<button
-							class="flex h-[63px] items-center justify-center gap-2 rounded-sm bg-[#577AB7] transition-colors hover:bg-[#4a6aa0]"
+							onclick={() => hasEmail && openReplyPanel('email')}
+							disabled={!hasEmail}
+							class="flex h-[63px] items-center justify-center gap-2 rounded-sm transition-colors {hasEmail ? 'bg-[#577AB7] hover:bg-[#4a6aa0]' : 'bg-gray-300 cursor-not-allowed opacity-50'}"
 						>
 							<Mail class="h-4 w-4 text-white" />
-							<span class="font-sans text-xs font-semibold leading-[16px] text-white"
-								>New Email</span
-							>
+							<span class="font-sans text-xs font-semibold leading-[16px] text-white">New Email</span>
 						</button>
+						{@const hasPhone = selectedProfile.clearPhone && selectedProfile.clearPhone !== '—'}
 						<button
-							class="flex h-[63px] items-center justify-center gap-2 rounded-sm bg-[#F2AE5E] transition-colors hover:bg-[#e09d4d]"
+							onclick={handleNewCall}
+							disabled={!hasPhone}
+							class="flex h-[63px] items-center justify-center gap-2 rounded-sm transition-colors {hasPhone ? 'bg-[#F2AE5E] hover:bg-[#e09d4d]' : 'bg-gray-300 cursor-not-allowed opacity-50'}"
 						>
 							<Phone class="h-4 w-4 text-white" />
-							<span class="font-sans text-xs font-semibold leading-[16px] text-white">New Call</span
-							>
+							<span class="font-sans text-xs font-semibold leading-[16px] text-white">New Call</span>
 						</button>
 						<button
-							class="flex h-[63px] items-center justify-center gap-2 rounded-sm bg-[#B5C2DA] transition-colors hover:bg-[#a3b3cf]"
+							onclick={() => hasPhone && openReplyPanel('sms')}
+							disabled={!hasPhone}
+							class="flex h-[63px] items-center justify-center gap-2 rounded-sm transition-colors {hasPhone ? 'bg-[#B5C2DA] hover:bg-[#a3b3cf]' : 'bg-gray-200 cursor-not-allowed opacity-50'}"
 						>
 							<svg
-								class="h-5 w-5 text-[#577AB7]"
+								class="h-5 w-5 {hasPhone ? 'text-[#577AB7]' : 'text-gray-400'}"
 								viewBox="0 0 24 24"
 								fill="none"
 								stroke="currentColor"
@@ -634,17 +680,13 @@
 							>
 								<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
 							</svg>
-							<span class="font-sans text-xs font-semibold leading-[16px] text-[#577AB7]"
-								>New SMS</span
-							>
+							<span class="font-sans text-xs font-semibold leading-[16px] {hasPhone ? 'text-[#577AB7]' : 'text-gray-400'}">New SMS</span>
 						</button>
 						<button
 							class="flex h-[63px] items-center justify-center gap-2 rounded-sm bg-[#B5C2DA] transition-colors hover:bg-[#a3b3cf]"
 						>
 							<SquarePen class="h-5 w-5 text-[#577AB7]" />
-							<span class="font-sans text-xs font-semibold leading-[16px] text-[#577AB7]"
-								>Add Task</span
-							>
+							<span class="font-sans text-xs font-semibold leading-[16px] text-[#577AB7]">Add Task</span>
 						</button>
 					</div>
 				</div>
@@ -959,6 +1001,18 @@
 
 	<!-- Pipeline Modal -->
 	<PipelineModal bind:open={pipelineDialogOpen} eventData={selectedPipelineEvent} />
+	
+	<!-- Comm Reply Panel -->
+	<CommReplyPanel
+		bind:open={replyPanelOpen}
+		comm={replyComm}
+		user={data.user}
+		{replyType}
+		onClose={() => {
+			replyPanelOpen = false;
+			replyComm = null;
+		}}
+	/>
 {:else}
 	<EmptyState
 		title="Profile not found"
