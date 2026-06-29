@@ -1742,7 +1742,14 @@ export const POST: RequestHandler = async ({ request }) => {
 											duration: recDurationSeconds > 0 ? recDurationSeconds : null,
 											content: transcript || `Call recording available (${recDurationSeconds}s)`,
 											summary: summary || null,
-											metadata: recordingMetadata as any
+											metadata: {
+												...recordingMetadata,
+												call_control_id: callControlId,
+												origin: direction,
+												ivr_intent: callState?.intentName,
+												ivr_digit: callState?.intentDigit,
+												ivr_confidence: callState?.intentConfidence
+											} as any
 										}
 									});
 									console.log(
