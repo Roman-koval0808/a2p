@@ -71,7 +71,7 @@
 		comm?.raw?.customerProfile?.name || comm?.source || 'Customer'
 	);
 	const threadId = $derived(
-		comm?.raw?.payload?.threadId || comm?.raw?.threadId || customerPhone || null
+		comm?.commId || comm?.raw?.communicationThreadId || comm?.raw?.payload?.threadId || comm?.raw?.threadId || null
 	);
 
 	// Load thread messages when comm changes, and poll on interval when open

@@ -154,9 +154,10 @@
 		onSummaryClick?.(comm);
 	}
 
-	function handleActionClick(action: string, comm: Communication) {
+	function handleActionClick(action: string, comm: any) {
 		onActionClick?.(action, comm);
 		openOptionsMenu = null;
+		comm._dropdownOpen = false;
 	}
 </script>
 
@@ -393,7 +394,7 @@
 							</td>
 							-->
 							<td class="px-3 py-2.5 text-right align-middle">
-								<DropdownMenu.Root>
+								<DropdownMenu.Root bind:open={comm._dropdownOpen}>
 									<DropdownMenu.Trigger class="inline-flex h-7 w-7 items-center justify-center rounded-full border border-gray-400 hover:bg-gray-100">
 										<span class="sr-only">Actions</span>
 										<span class="flex gap-0.5">

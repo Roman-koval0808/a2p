@@ -5,11 +5,11 @@
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index';
 	import CommunicationSummaryDialog from '$lib/components/communication-summary-dialog.svelte';
 	import NotificationsDialog from '$lib/components/notifications/notifications-dialog.svelte';
-		import PipelineModal from '$lib/components/PipelineModal.svelte';
+	import PipelineModal from '$lib/components/PipelineModal.svelte';
 	import CommReplyPanel from '$lib/components/CommReplyPanel.svelte';
 	import AssignAgentDialog from '$lib/components/assign-agent-dialog.svelte';
 	import { toast } from 'svelte-sonner';
-	import { invalidateAll, goto } from '$app/navigation';
+	import { invalidate, invalidateAll, goto } from '$app/navigation';
 
 	onMount(() => {
 		const interval = setInterval(() => {
@@ -240,7 +240,7 @@
 			const result = await res.json();
 			if (result.success) {
 				toast.success('Agent assigned successfully', { id: loadingId });
-				await invalidateAll();
+				await invalidate('app:communication-log');
 			} else {
 				toast.error(result.error || 'Failed to assign agent', { id: loadingId });
 			}
