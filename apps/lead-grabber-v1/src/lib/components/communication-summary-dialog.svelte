@@ -19,8 +19,7 @@
 		recordingUrl?: string | null;
 		estimatedPrice?: number | null;
 		draftedMessage?: string | null;
-		ivrIntent?: string | null;
-		onApprove?: () => void;
+		department?: string | null;
 	}
 
 	let {
@@ -39,8 +38,7 @@
 		recordingUrl = null,
 		estimatedPrice = null,
 		draftedMessage = null,
-		ivrIntent = null,
-		onApprove = null
+		department = null
 	}: Props = $props();
 </script>
 
@@ -61,7 +59,7 @@
 					</span>
 				</div>
 
-				<!-- Right side: Comm ID, Category, Sub-Category, Department -->
+				<!-- Right side: Comm ID, Category, Sub-Category -->
 				<div class="flex flex-col items-end gap-1">
 					<span class="font-sans text-base font-medium leading-[1.29] text-[rgba(86,86,86,0.78)]">
 						Comm ID - {commId ? (commId.startsWith('DROP-') ? commId : 'COM-' + commId.slice(-5).toUpperCase()) : '—'}
@@ -74,11 +72,11 @@
 					>
 						Sub-Category: {subCategory}
 					</span>
-					{#if ivrIntent}
+					{#if department}
 						<span
-							class="text-right font-sans text-sm font-bold leading-[1.29] text-[#F54900]"
+							class="text-right font-sans text-base font-medium leading-[1.29] text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded mt-1"
 						>
-							Department: {ivrIntent}
+							Department: {department}
 						</span>
 					{/if}
 				</div>
@@ -208,20 +206,8 @@
 				</div>
 			</div>
 
-			<!-- Footer: Close / Approve Buttons -->
-			<div class="mt-4 flex flex-shrink-0 justify-end gap-3">
-				{#if onApprove}
-					<button
-						type="button"
-						onclick={() => {
-							onApprove?.();
-							open = false;
-						}}
-						class="flex h-[33px] px-4 items-center justify-center rounded bg-emerald-600 font-sans text-sm font-medium leading-[141%] text-white transition-colors hover:bg-emerald-700 cursor-pointer"
-					>
-						Approve Message
-					</button>
-				{/if}
+			<!-- Footer: Close Button -->
+			<div class="mt-4 flex flex-shrink-0 justify-end">
 				<Dialog.Close>
 					<button
 						class="flex h-[33px] w-[85px] items-center justify-center rounded bg-[#577AB7] font-sans text-lg font-medium leading-[141%] text-white transition-colors hover:bg-[#577AB7]/90"

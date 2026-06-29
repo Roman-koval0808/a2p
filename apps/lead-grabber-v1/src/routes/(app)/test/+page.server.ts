@@ -245,8 +245,7 @@ export const actions: Actions = {
 					// Force the AI analysis on the transcript just like the old triggerCall did
 					try {
 						const { analyzeCallLog } = await import('$lib/server/openai');
-						const callState = await prisma.callState.findUnique({ where: { callId } });
-						const analysis = await analyzeCallLog(comment, callState?.intentName);
+						const analysis = await analyzeCallLog(comment);
 						
 						await prisma.communicationLog.update({
 							where: { id: cLog.id },
@@ -261,9 +260,7 @@ export const actions: Actions = {
 									sub_intent: analysis?.sub_intent,
 									actionItems: analysis?.actionItems,
 									estimatedPrice: analysis?.estimatedPrice,
-									datetime: analysis?.datetime,
-									ivr_intent: callState?.intentName || undefined,
-									ivr_digit: callState?.intentDigit || undefined
+									datetime: analysis?.datetime
 								}
 							}
 						});

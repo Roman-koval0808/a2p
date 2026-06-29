@@ -3,7 +3,7 @@
 	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
 	import { useSidebar } from '$lib/components/ui/sidebar/index.js';
 	import {
-			Home,
+		Home,
 		ChartColumnBig,
 		Smartphone,
 		BookOpen,
@@ -24,11 +24,7 @@
 		Headphones,
 		UserCheck,
 		MapPin,
-		PhoneOff,
-		Globe,
-		Share2,
-		Megaphone,
-		Sparkles
+		PhoneOff
 	} from 'lucide-svelte';
 	import { page } from '$app/state';
 	import { Button } from '$lib/components/ui/button/index';
@@ -44,28 +40,38 @@
 			icon: FileText,
 			href: '/communication-log'
 		},
-		{ title: 'Profiles', url: '/profiles', icon: UserCircle, href: '/profiles' },
-		{ title: 'Analytics', url: '/analytics', icon: ChartLineIcon, href: '/analytics' }
-	];
-
-	const tenantRepItems = [
-		{ title: 'Dashboard', url: '/dashboard', icon: LayoutDashboard, href: '/dashboard' },
-		{
-			title: 'Communication Logs',
-			url: '/communication-log',
-			icon: FileText,
-			href: '/communication-log'
-		},
 		{ title: 'Important Notifications', url: '/notifications', icon: Bell, href: '/notifications' },
 		{ title: 'Inbox', url: '/inbox', icon: Home, href: '/inbox' },
 		{ title: 'Profiles', url: '/profiles', icon: UserCircle, href: '/profiles' },
 		{ title: 'Dialer', url: '/dialer', icon: Phone, href: '/dialer' },
-		{ title: 'AI Summaries', url: '/ai-summaries', icon: Sparkles, href: '/ai-summaries' },
-		{ title: 'Blogs', url: '/blogs', icon: BookOpen, href: '/blogs' },
-		{ title: 'Social Content', url: '/social', icon: Share2, href: '/social' },
-		{ title: 'Website Management', url: '/website', icon: Globe, href: '/website' },
-		{ title: 'Marketing Tools', url: '/marketing', icon: Megaphone, href: '/marketing' },
-		{ title: 'Analytics', url: '/analytics', icon: ChartLineIcon, href: '/analytics' }
+		{
+			title: 'Buy Number',
+			url: '/buy-number',
+			icon: ShoppingCart,
+			href: '/buy-number',
+			subItems: [
+				{ title: 'Buy Numbers', url: '/buy-number', icon: ShoppingCart, href: '/buy-number' },
+				{ title: 'Manage Numbers', url: '/manage-numbers', icon: ShoppingCart, href: '/manage-numbers' },
+				{ title: 'Port Numbers', url: '/port-numbers', icon: ShoppingCart, href: '/port-numbers' }
+			]
+		},
+		{ title: 'IVR', url: '/ivr', icon: Headphones, href: '/ivr' },
+		{ title: 'Locations', url: '/locations', icon: MapPin, href: '/locations' },
+		{ title: 'Analytics', url: '/analytics', icon: ChartLineIcon, href: '/analytics' },
+		{
+			title: 'Settings',
+			url: '/settings',
+			icon: Settings,
+			href: '/settings',
+			subItems: [
+				{ title: 'Lead Box', url: '/leadbox', icon: Smartphone, href: '/leadbox' },
+				{ title: 'Lead Form', url: '/leadform', icon: BookOpen, href: '/leadform' },
+				{ title: 'Auto Replies', url: '/settings/auto-replies', icon: Reply, href: '/settings/auto-replies' },
+				{ title: 'Shortcuts', url: '/settings/shortcuts', icon: SquareSlash, href: '/settings/shortcuts' },
+				...(!isCompany ? [{ title: 'Create Company', url: '/create-company', icon: Building, href: '/create-company' }] : []),
+				...(isCompany ? [{ title: 'Company Settings', url: '/settings/company', icon: Building, href: '/settings/company' }] : [])
+			]
+		}
 	];
 
 	const tenantAdminItems = [
@@ -80,11 +86,6 @@
 		{ title: 'Inbox', url: '/inbox', icon: Home, href: '/inbox' },
 		{ title: 'Profiles', url: '/profiles', icon: UserCircle, href: '/profiles' },
 		{ title: 'Dialer', url: '/dialer', icon: Phone, href: '/dialer' },
-		{ title: 'AI Summaries', url: '/ai-summaries', icon: Sparkles, href: '/ai-summaries' },
-		{ title: 'Blogs', url: '/blogs', icon: BookOpen, href: '/blogs' },
-		{ title: 'Social Content', url: '/social', icon: Share2, href: '/social' },
-		{ title: 'Website Management', url: '/website', icon: Globe, href: '/website' },
-		{ title: 'Marketing Tools', url: '/marketing', icon: Megaphone, href: '/marketing' },
 		{
 			title: 'Buy Number',
 			url: '/buy-number',
@@ -116,13 +117,9 @@
 	];
 
 	let items = $derived.by(() => {
-		const activeMembership = user?.teamMemberships?.find((m: any) => m.companyId === user?.companyId);
-		const tenantRole = activeMembership?.role || 'member'; 
 		const platformRole = user?.platformRole || 'TENANT_USER';
-
 		if (platformRole === 'CLEARSKY_ADMIN') return adminItems;
-		if (tenantRole === 'owner' || tenantRole === 'admin') return tenantAdminItems;
-		return tenantRepItems;
+		return tenantAdminItems;
 	});
 
 	const sidebar = useSidebar();
