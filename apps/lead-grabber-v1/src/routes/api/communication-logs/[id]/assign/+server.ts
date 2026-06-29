@@ -34,15 +34,19 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
 
 	// If assigned_to_agent, resolve user by name and add to assignedMembers
 	if (status === 'assigned_to_agent' && assignedAgent) {
-		const user = await prisma.user.findFirst({
+		const member = await prisma.companyMember.findFirst({
 			where: {
 				companyId: auth.companyId,
-				OR: [
-					{ name: { equals: assignedAgent, mode: 'insensitive' } },
-					{ email: { equals: assignedAgent, mode: 'insensitive' } }
-				]
-			}
+				user: {
+					OR: [
+						{ name: { equals: assignedAgent, mode: 'insensitive' } },
+						{ email: { equals: assignedAgent, mode: 'insensitive' } }
+					]
+				}
+			},
+			include: { user: true }
 		});
+		const user = member?.user;
 		if (user) {
 			await prisma.communicationLogAssignedMember.deleteMany({
 				where: { communicationLogId: log.id }
