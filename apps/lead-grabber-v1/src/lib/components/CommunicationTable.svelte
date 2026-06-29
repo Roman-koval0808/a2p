@@ -288,8 +288,7 @@
 							<td class="max-w-[180px] px-3 py-2.5 text-sm text-gray-700">
 								{#if comm.endpoint}
 									<div class="font-medium text-gray-900 truncate" title={comm.endpoint}>{comm.endpoint}</div>
-								{/if}
-								{#if showAssignButton && onAssignClick && !comm.raw?.isDropCall && comm.summary !== 'Dropped Call' && comm.commId && !comm.commId.startsWith('DROP-')}
+								{:else if showAssignButton && onAssignClick && !comm.raw?.isDropCall && comm.summary !== 'Dropped Call' && comm.commId && !comm.commId.startsWith('DROP-')}
 									<div class="mt-0.5">
 										<button
 											type="button"
