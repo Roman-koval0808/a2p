@@ -185,20 +185,22 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			
 			let balance = customer.accountBalance;
 			if (balance === null || balance === undefined) {
-				// The inbound webhook may have created a fresh contact for this caller while
-				// an existing record holds the balance. Match the SAME person by phone only —
-				// matching by name alone could surface a different person's balance.
-				if (customer.phone) {
-					const altContact = await prisma.contact.findFirst({
-						where: {
-							companyId: company.id,
-							id: { not: customer.id },
-							accountBalance: { not: null },
-							phone: customer.phone
-						}
+				// The inbound webhook may have created a fresh contact for this caller while an
+				// older/duplicate record holds the balance — and it may be stored in a different
+				// phone format (e.g. "(905) 705-5234" vs "+19097055234"). Match the SAME person by
+				// normalized digits (last 10), never by name (that could leak another's balance).
+				const digitsOf = (p: string | null | undefined) => (p || '').replace(/\D/g, '').slice(-10);
+				const callerDigits = digitsOf(customer.phone);
+				if (callerDigits) {
+					const candidates = await prisma.contact.findMany({
+						where: { companyId: company.id, accountBalance: { not: null } },
+						select: { id: true, phone: true, accountBalance: true }
 					});
-					if (altContact) {
-						balance = altContact.accountBalance;
+					const alt = candidates.find(
+						(c) => c.id !== customer.id && digitsOf(c.phone) === callerDigits
+					);
+					if (alt) {
+						balance = alt.accountBalance;
 					}
 				}
 			}
@@ -317,8 +319,26 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 	// If we drafted a response, save it as pending_approval
 	if (draftedResponse && companyNumber && customerPhone) {
+		// De-dup: Telnyx re-delivers/retries webhooks (and a sibling comm log can trigger us
+		// too), which would otherwise create a second identical "Confirm" draft. If a pending
+		// draft to this customer already exists, don't create another.
+		const existingDraft = await prisma.communicationLog.findFirst({
+			where: {
+				companyId: company.id,
+				type: 'sms',
+				direction: 'outbound',
+				status: 'pending_approval',
+				destination: customerPhone,
+				created: { gte: new Date(Date.now() - 10 * 60 * 1000) }
+			}
+		});
+		if (existingDraft) {
+			console.log('[Orchestrator] A pending draft already exists for this customer — skipping duplicate.');
+			return;
+		}
+
 		console.log(`[Orchestrator] Drafting SMS response: "${draftedResponse}"`);
-		
+
 		const now = new Date();
 		let shouldDefer = false;
 		if (company.locations && company.locations.length > 0) {

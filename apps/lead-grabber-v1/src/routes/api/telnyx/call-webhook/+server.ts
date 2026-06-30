@@ -53,6 +53,22 @@ setInterval(() => {
 const processedEventIds = new Set<string>();
 const MAX_EVENT_IDS = 10000;
 
+// Tracks call_control_ids for which a CommunicationLog has already been created, so the
+// several events one call fires (hangup + each recording.saved) can't each create a log.
+// The DB "find existing log" check races (both queries run before either insert commits);
+// this in-memory claim is synchronous (no await between has() and add()), so within this
+// single process it cannot race. Returns true if THIS call won the claim.
+const callsWithLogCreated = new Set<string>();
+function claimLogForCall(callControlId: string): boolean {
+	if (!callControlId || callsWithLogCreated.has(callControlId)) return false;
+	callsWithLogCreated.add(callControlId);
+	if (callsWithLogCreated.size > MAX_EVENT_IDS) {
+		const first = callsWithLogCreated.values().next().value;
+		if (first) callsWithLogCreated.delete(first);
+	}
+	return true;
+}
+
 const defaultBeepAudio = `${(PUBLIC_BASE_URL || 'https://a2p.viewroom.ca').replace(/\/$/, '')}/beep.wav`;
 
 /**
@@ -1108,6 +1124,14 @@ export const POST: RequestHandler = async ({ request }) => {
 							break;
 						}
 
+						// Race-safe in-memory claim (the DB check above can race with a concurrent
+						// recording.saved event). Whoever claims this call first creates the log.
+						if (!claimLogForCall(callControlId)) {
+							console.log('📝 Another event is already logging this call — skipping duplicate on hangup');
+							await deleteState(callControlId);
+							break;
+						}
+
 						const companyNumberE164 = toE164(companyNumber);
 						const numberRow = companyNumberE164
 							? await prisma.companyPhoneNumber.findUnique({
@@ -1784,6 +1808,10 @@ export const POST: RequestHandler = async ({ request }) => {
 								
 								if (isDropCall) {
 									console.log('🎥 Recording saved for drop call - skipping CommunicationLog creation to prevent duplicate', callControlId);
+								} else if (!claimLogForCall(callControlId)) {
+									// One call records from answer AND records the voicemail → two
+									// recording.saved events; without this they'd each create a log.
+									console.log('🎥 Recording saved but this call is already logged — skipping duplicate', callControlId);
 								} else {
 									let commThread = await prisma.communicationThread.create({
 										data: {
