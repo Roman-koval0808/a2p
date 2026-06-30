@@ -465,20 +465,27 @@ export class UnifiedPipeline {
 
 	public static calculateSimilarity(s1: string, s2: string): number {
 		if (!s1 || !s2) return 0;
-		const prepare = (s: string) => s.toLowerCase()
-			.replace(/[^\w\s]/g, '')
-			.split(/\s+/)
-			.filter(v => v.length >= 2);
-		
-		const w1 = prepare(s1);
-		const w2 = prepare(s2);
-		
-		if (w1.length === 0 || w2.length === 0) {
+		// Sørensen–Dice coefficient over unique word sets. Using sets (not raw arrays)
+		// keeps the result in [0, 1] — counting duplicate words from one side against
+		// the other inflates the score past 1.0 and breaks the threshold check.
+		const prepare = (s: string) =>
+			new Set(
+				s
+					.toLowerCase()
+					.replace(/[^\w\s]/g, '')
+					.split(/\s+/)
+					.filter((v) => v.length >= 2)
+			);
+
+		const set1 = prepare(s1);
+		const set2 = prepare(s2);
+
+		if (set1.size === 0 || set2.size === 0) {
 			return s1.trim().toLowerCase() === s2.trim().toLowerCase() ? 1.0 : 0;
 		}
 
-		const set2 = new Set(w2);
-		const intersect = w1.filter(w => set2.has(w));
-		return (intersect.length * 2) / (w1.length + w2.length);
+		let intersect = 0;
+		for (const w of set1) if (set2.has(w)) intersect++;
+		return (intersect * 2) / (set1.size + set2.size);
 	}
 }

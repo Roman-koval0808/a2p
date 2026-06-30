@@ -82,7 +82,16 @@ function checkCalendarAvailability(datetimeStr: string, locations: any[]): boole
 		return isAvailableInAnyLocation;
 	}
 
-	// Strictly require explicit location availability - no fallbacks
+	// No location hours configured: fall back to standard business hours (9-5, Mon-Fri)
+	// so booking still works for companies that haven't set up locations yet. This mirrors
+	// the after-hours deferral fallback below.
+	if (reqDay) {
+		if (reqDay === 'Sat' || reqDay === 'Sun') return false;
+		if (reqHour24 === -1) return true; // weekday, no specific time requested
+		return reqHour24 >= 9 && reqHour24 < 17;
+	}
+
+	// Couldn't determine the requested day → don't claim availability.
 	return false;
 }
 
@@ -154,20 +163,21 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			
 			let balance = customer.accountBalance;
 			if (balance === null || balance === undefined) {
-				const crypto = await import('crypto');
-				const hashedPhone = customer.phone ? crypto.createHash('sha256').update(customer.phone).digest('hex') : null;
-				const altContact = await prisma.contact.findFirst({
-					where: {
-						companyId: company.id,
-						accountBalance: { not: null },
-						OR: [
-							...(hashedPhone ? [{ phone: hashedPhone }] : []),
-							...(customer.name ? [{ name: customer.name }] : [])
-						]
+				// The inbound webhook may have created a fresh contact for this caller while
+				// an existing record holds the balance. Match the SAME person by phone only —
+				// matching by name alone could surface a different person's balance.
+				if (customer.phone) {
+					const altContact = await prisma.contact.findFirst({
+						where: {
+							companyId: company.id,
+							id: { not: customer.id },
+							accountBalance: { not: null },
+							phone: customer.phone
+						}
+					});
+					if (altContact) {
+						balance = altContact.accountBalance;
 					}
-				});
-				if (altContact) {
-					balance = altContact.accountBalance;
 				}
 			}
 
