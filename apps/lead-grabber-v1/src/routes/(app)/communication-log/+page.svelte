@@ -140,6 +140,7 @@
 
 			let status: string;
 			if (log.isDropCall || meta.drop_call) status = 'red';
+			else if (meta.message_category === 'emergency') status = 'red';
 			else if (urgencyGpt !== null && urgencyGpt >= 4) status = 'red';
 			else if (urgencyGpt !== null && urgencyGpt >= 3) status = 'blue';
 			else if (isSalesIntent) status = 'blue';
@@ -156,6 +157,14 @@
 				purpose = 'Missed Call';
 			} else if (log.raw?.status === 'pending_approval') {
 				purpose = 'Confirm';
+			} else if (meta.message_category) {
+				// The orchestrator reclassifies the call by what was actually said; show that.
+				purpose =
+					meta.message_category === 'emergency'
+						? 'Urgent Support'
+						: meta.message_category === 'sales'
+							? 'Sales Opportunity'
+							: cap(meta.message_category);
 			} else if (meta.category_gpt) {
 				purpose = urgentPrefix + cap(meta.category_gpt);
 			} else if (meta.ivr_intent) {

@@ -157,6 +157,43 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		return;
 	}
 
+	// --- Reclassify by the MESSAGE, not the IVR digit ---
+	// The caller may press the wrong key (or the menu is limited — in the demo the greeting
+	// routes billing AND sales to "1"). We follow what they actually SAID: classify the
+	// transcript + AI summary, and if it doesn't match the digit's department, reclassify and
+	// follow the message. An emergency always wins, whatever digit was pressed.
+	const messageText = `${commLog.content || ''} ${commLog.summary || metadata.summary || ''}`
+		.toLowerCase()
+		.trim();
+	const urgencyStr = (metadata.urgency ?? '').toString().toLowerCase();
+	const hasAny = (kw: string[]) => kw.some((k) => messageText.includes(k));
+	const EMERGENCY_KW = ['emergency', 'urgent', 'burst', 'flood', 'leak', 'gas leak', 'fire', 'no water', 'no heat', 'right away', 'immediately', 'asap'];
+	const BILLING_KW = ['balance', 'owe', 'invoice', 'my bill', 'pay my bill', 'account balance', 'outstanding', 'how much do i'];
+	const SALES_KW = ['appointment', 'book', 'schedule', 'quote', 'estimate', 'interested in', 'pricing', 'install'];
+
+	const digitCategory: 'billing' | 'sales' | 'support' | null =
+		digit === '1' ? 'billing' : digit === '2' ? 'sales' : digit === '3' ? 'support' : null;
+
+	// Classify by what they actually SAID. Only when there's no usable message do we fall
+	// back to the digit they pressed.
+	const hasMessage = messageText.length > 3;
+	let messageCategory: 'emergency' | 'billing' | 'sales' | 'support';
+	if (urgencyStr === 'high' || hasAny(EMERGENCY_KW)) messageCategory = 'emergency';
+	else if (hasAny(BILLING_KW)) messageCategory = 'billing';
+	else if (hasAny(SALES_KW)) messageCategory = 'sales';
+	else if (hasMessage) messageCategory = 'support';
+	else messageCategory = digitCategory ?? 'support';
+
+	const reclassified = !!(digitCategory && digitCategory !== messageCategory);
+	if (reclassified) {
+		console.log(
+			`[Orchestrator] Reclassified: caller pressed ${digit} (${digitCategory}) but the message is "${messageCategory}" — following the message.`
+		);
+	}
+	metadata.message_category = messageCategory;
+	metadata.reclassified = reclassified;
+	if (digitCategory) metadata.ivr_pressed_category = digitCategory;
+
 	// Claim this comm up-front so a retried or concurrent webhook (Telnyx can re-deliver
 	// recording.saved) can't double-increment the engagement score or draft the SMS twice.
 	// Marking before the work — not after — means a failed run won't auto-retry, which is
@@ -177,12 +214,17 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 	console.log(`[Orchestrator] Debug -> digit: "${digit}", intent: "${intent}", sub_intent: "${sub_intent}"`);
 
-	// --- SCENARIO 1: BILLING ---
-	// Trigger: Caller presses 1 (or intent is Billing). Always attempt balance lookup.
-	if (digit === '1' || intent?.toLowerCase().includes('billing')) {
+	// --- EMERGENCY: always wins, regardless of the digit pressed ---
+	if (messageCategory === 'emergency') {
+		console.log('[Orchestrator] EMERGENCY detected from the message — overriding IVR routing.');
+		draftedResponse = `Hi ${customer.name || 'there'}, we received your urgent message and someone from ${company.name || 'our team'} will call you back right away.`;
+	}
+
+	// --- SCENARIO 1: BILLING (only when the MESSAGE is actually about billing) ---
+	else if (messageCategory === 'billing') {
 		{
 			console.log('[Orchestrator] Detected Scenario 1: Billing');
-			
+
 			let balance = customer.accountBalance;
 			if (balance === null || balance === undefined) {
 				// The inbound webhook may have created a fresh contact for this caller while an
@@ -213,12 +255,11 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		}
 	}
 
-	// --- SCENARIO 2: SALES (Booking Appointment) ---
-	// Trigger: Caller presses 2 (or intent is Sales/Booking) AND requested datetime.
-	else if (digit === '2' || intent?.toLowerCase().includes('sales') || intent?.toLowerCase().includes('booking')) {
+	// --- SCENARIO 2: SALES / BOOKING (message is about sales/booking) ---
+	else if (messageCategory === 'sales') {
 		console.log('[Orchestrator] Detected Scenario 2: Sales / Booking');
-		
-		// 1. Increase engagement score
+
+		// 1. Increase engagement score (only when it's a genuine sales/booking message)
 		await prisma.contact.update({
 			where: { id: customer.id },
 			data: { engagementScore: { increment: 10 } }
@@ -233,11 +274,15 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			} else {
 				draftedResponse = `Hi! Thanks for reaching out to ${company.name || 'us'}. Unfortunately, ${formattedDatetime} is outside our normal business hours or unavailable. What other day or time works best for you?`;
 			}
-		} else if (intent?.toLowerCase().includes('booking') || sub_intent?.toLowerCase().includes('appointment') || digit === '2') {
-			draftedResponse = `Hi! Thanks for contacting ${company.name || 'us'}. We received your booking request. What day and time works best for you?`;
 		} else {
-			draftedResponse = `Hi! Thanks for contacting ${company.name || 'us'}. We received your inquiry and an agent will review it and reach out shortly.`;
+			draftedResponse = `Hi! Thanks for contacting ${company.name || 'us'}. We received your booking request. What day and time works best for you?`;
 		}
+	}
+
+	// --- SUPPORT (default — and where reclassified non-billing/non-sales calls land) ---
+	else {
+		console.log('[Orchestrator] Detected Support request.');
+		draftedResponse = `Hi ${customer.name || 'there'}, thanks for reaching out to ${company.name || 'us'}. We received your message and a support agent will get back to you shortly.`;
 	}
 
 	// --- 3. Post-Processing: Thread Similarity Matching ---

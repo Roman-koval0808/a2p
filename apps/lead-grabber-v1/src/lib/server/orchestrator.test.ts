@@ -124,4 +124,33 @@ describe('process_orchestrator', () => {
         expect(prisma.contact.update).not.toHaveBeenCalled();
         expect(logCommunication).not.toHaveBeenCalled();
     });
+
+    it('should follow the message and reclassify: pressed Billing but message is support -> no balance reply', async () => {
+        // Arrange: caller pressed 1 (Billing) but the voicemail is a support request.
+        const mockCommLog = {
+            id: 'mock_id4',
+            direction: 'inbound',
+            companyId: 'company_id',
+            customerId: 'customer_id',
+            source: '+15551234567',
+            destination: '+18005550000',
+            content: 'Hello, I need some support with my roof.',
+            metadata: { ivr_digit: '1' },
+            company: { id: 'company_id', name: 'TestCo' },
+            // A balance IS set — it must NOT be used, because the message isn't about billing.
+            customer: { id: 'customer_id', name: 'Roof Guy', phone: '+15551234567', accountBalance: 1130.0 }
+        };
+        (prisma.communicationLog.findUnique as any).mockResolvedValue(mockCommLog);
+        (logCommunication as any).mockResolvedValue(true);
+
+        // Act
+        await process_orchestrator('mock_id4', 'ai_ready');
+
+        // Assert: drafted a support reply, not a balance reply; engagement untouched.
+        const smsCall = (logCommunication as any).mock.calls.find((c: any[]) => c[0]?.type === 'sms');
+        expect(smsCall).toBeTruthy();
+        expect(smsCall[0].content).not.toContain('1130');
+        expect(smsCall[0].content.toLowerCase()).toContain('support');
+        expect(prisma.contact.update).not.toHaveBeenCalled();
+    });
 });
