@@ -212,19 +212,38 @@ export const load: PageServerLoad = async ({ params, locals, fetch }) => {
 				hour12: true
 			});
 
+			const meta = (log.metadata as any) || {};
+			const summary = log.summary || log.content || '';
+			const cap = (s: string) =>
+				(s ?? '').charAt(0).toUpperCase() + (s ?? '').slice(1).toLowerCase();
+
 			let status = 'green';
-			if (log.status === 'pending_approval') status = 'blue';
+			if (meta.drop_call || meta.message_category === 'emergency') status = 'red';
+			else if (log.status === 'pending_approval') status = 'blue';
 			else if (log.direction === 'inbound') status = 'in';
 			else status = 'out';
 
-			let summary = log.summary || log.content || '';
-			const meta = (log.metadata as any) || {};
-			
+			// Same purpose logic as the communication log
 			let purpose = 'General';
-			if (log.status === 'pending_approval') {
+			if (meta.drop_call) {
+				purpose = 'Missed Call';
+			} else if (log.status === 'pending_approval') {
 				purpose = 'Confirm';
+			} else if (meta.message_category) {
+				purpose =
+					meta.message_category === 'emergency'
+						? 'Urgent Support'
+						: meta.message_category === 'sales'
+							? 'Sales Opportunity'
+							: cap(meta.message_category);
 			} else if (meta.category_gpt) {
-				purpose = meta.category_gpt;
+				purpose = cap(meta.category_gpt);
+			} else if (meta.ivr_intent) {
+				purpose = cap(meta.ivr_intent);
+			} else if (meta.intent || meta.sentiment) {
+				purpose = cap(meta.intent || meta.sentiment);
+			} else if (summary) {
+				purpose = 'See Summary';
 			}
 
 			return {
