@@ -139,7 +139,7 @@
 				ivrDigit === '2' || ivrIntentLower.includes('sales') || ivrIntentLower.includes('booking');
 
 			let status: string;
-			if (log.isDropCall) status = 'red';
+			if (log.isDropCall || meta.drop_call) status = 'red';
 			else if (urgencyGpt !== null && urgencyGpt >= 4) status = 'red';
 			else if (urgencyGpt !== null && urgencyGpt >= 3) status = 'blue';
 			else if (isSalesIntent) status = 'blue';
@@ -152,6 +152,8 @@
 			let purpose: string;
 			if (log.isDropCall) {
 				purpose = 'Dropped Call';
+			} else if (meta.drop_call) {
+				purpose = 'Missed Call';
 			} else if (log.raw?.status === 'pending_approval') {
 				purpose = 'Confirm';
 			} else if (meta.category_gpt) {
