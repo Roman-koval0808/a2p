@@ -8,10 +8,13 @@ vi.mock('$lib/db', () => ({
     prisma: {
         communicationLog: {
             findUnique: vi.fn(),
+            findFirst: vi.fn().mockResolvedValue(null), // draft de-dup lookup → none existing
+            findMany: vi.fn().mockResolvedValue([]), // thread-matching lookup → none
             update: vi.fn(),
         },
         contact: {
             update: vi.fn(),
+            findMany: vi.fn().mockResolvedValue([]), // balance alt-contact lookup → none
         }
     }
 }));
