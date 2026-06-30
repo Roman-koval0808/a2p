@@ -452,6 +452,25 @@
 					(v) => typeof v === 'string' && v.startsWith('http')
 				))
 			: (meta.voicemail_url ?? null)}
+	{@const ivrDigit = meta.ivr_digit != null ? String(meta.ivr_digit) : ''}
+	{@const ivrIntentLabel = (meta.ivr_intent ?? '').toString()}
+	{@const calledNumber = (selectedComm.raw?.raw?.destination ?? selectedComm.endpoint ?? '')
+		.toString()
+		.replace(/\s*\([^)]*\)\s*$/, '')
+		.trim()}
+	{@const leftMessage = Boolean(recordingUrl || meta.recording_id || meta.recording_urls)}
+	{@const ivrPath =
+		selectedComm.raw?.type === 'voice' && selectedComm.raw?.direction === 'inbound'
+			? [
+					calledNumber ? `Called ${calledNumber}` : null,
+					ivrDigit
+						? `Pressed ${ivrDigit}${ivrIntentLabel ? ` (${ivrIntentLabel})` : ''}`
+						: ivrIntentLabel || null,
+					leftMessage ? 'Voicemail left' : null
+				]
+					.filter(Boolean)
+					.join(' · ') || null
+			: null}
 	<CommunicationSummaryDialog
 		bind:open={summaryDialogOpen}
 		commId={selectedComm.commId || selectedComm.raw?.id || ''}
@@ -475,6 +494,7 @@
 		estimatedPrice={meta.estimatedPrice ?? null}
 		draftedMessage={selectedComm.raw?.draftResponse || selectedComm.raw?.payload?.draftResponse || selectedComm.raw?.payload?.draft_reply || null}
 		department={meta.ivr_intent || meta.intent || null}
+		{ivrPath}
 	/>
 {/if}
 

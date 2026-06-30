@@ -20,6 +20,8 @@
 		estimatedPrice?: number | null;
 		draftedMessage?: string | null;
 		department?: string | null;
+		/** For voice: the IVR path, e.g. "Called …5691 · Pressed 3 (Support) · Voicemail left" */
+		ivrPath?: string | null;
 	}
 
 	let {
@@ -38,7 +40,8 @@
 		recordingUrl = null,
 		estimatedPrice = null,
 		draftedMessage = null,
-		department = null
+		department = null,
+		ivrPath = null
 	}: Props = $props();
 </script>
 
@@ -50,13 +53,24 @@
 			<!-- Header Section -->
 			<div class="mb-4 flex items-start justify-between">
 				<!-- Left side: AI Summary and Date/Time -->
-				<div class="flex items-center gap-2">
-					<span class="font-sans text-base font-semibold leading-[1.29] text-[rgba(86,86,86,0.94)]">
-						AI Summary:
-					</span>
-					<span class="font-sans text-base font-normal leading-[1.29] text-[rgba(86,86,86,0.78)]">
-						{date} | {time}
-					</span>
+				<div class="flex flex-col gap-1">
+					<div class="flex items-center gap-2">
+						<span
+							class="font-sans text-base font-semibold leading-[1.29] text-[rgba(86,86,86,0.94)]"
+						>
+							AI Summary:
+						</span>
+						<span
+							class="font-sans text-base font-normal leading-[1.29] text-[rgba(86,86,86,0.78)]"
+						>
+							{date} | {time}
+						</span>
+					</div>
+					{#if ivrPath}
+						<span class="font-sans text-xs font-medium leading-tight text-[#4A72B2]">
+							{ivrPath}
+						</span>
+					{/if}
 				</div>
 
 				<!-- Right side: Comm ID, Category, Sub-Category -->
