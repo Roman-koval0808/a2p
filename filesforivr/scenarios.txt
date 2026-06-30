@@ -1,0 +1,25 @@
+CLEARSKY A2P — CALL SCENARIOS
+
+Setup: Customer calls our business number and hears the menu:
+Press 1 = Billing, 2 = Sales, 3 = Support.
+
+
+SCENARIO 1 — BILLING (Press 1)
+Customer presses 1 and leaves a voicemail asking for their balance.
+The system looks up their balance ($1,130) and drafts a reply text.
+You approve it, and the text sends.
+
+
+SCENARIO 2 — SALES (Press 2)
+A new customer presses 2 and leaves a voicemail asking to book July 1 at 2pm.
+The system creates their profile, flags it as a sales opportunity, checks the
+time is open, and drafts a confirmation text. You approve it, and the text sends.
+
+
+SCENARIO 3 — DROP CALL (no input)
+Customer hangs up without pressing anything.
+The system logs it as a dropped call (time, date, number). Nothing else.
+
+
+Every call shows up in one communication log, with a summary, the digit they
+pressed, and whether they left a message. Nothing goes out without your approval.

@@ -476,14 +476,21 @@
 		commId={selectedComm.commId || selectedComm.raw?.id || ''}
 		date={selectedComm.date}
 		time={selectedComm.time}
-		category={meta.category_gpt
-			? (meta.category_gpt as string).charAt(0).toUpperCase() +
-				(meta.category_gpt as string).slice(1)
-			: (meta.sentiment ?? 'sales').charAt(0).toUpperCase() + (meta.sentiment ?? 'sales').slice(1)}
-		subCategory={meta.subcat_gpt
-			? (meta.subcat_gpt as string).charAt(0).toUpperCase() + (meta.subcat_gpt as string).slice(1)
-			: ((meta.intent as string) ?? 'Inquiry').charAt(0).toUpperCase() +
-				((meta.intent as string) ?? 'Inquiry').slice(1)}
+		category={selectedComm.isDropCall
+			? ''
+			: meta.category_gpt
+				? (meta.category_gpt as string).charAt(0).toUpperCase() +
+					(meta.category_gpt as string).slice(1)
+				: meta.sentiment
+					? (meta.sentiment as string).charAt(0).toUpperCase() + (meta.sentiment as string).slice(1)
+					: ''}
+		subCategory={selectedComm.isDropCall
+			? ''
+			: meta.subcat_gpt
+				? (meta.subcat_gpt as string).charAt(0).toUpperCase() + (meta.subcat_gpt as string).slice(1)
+				: meta.intent
+					? (meta.intent as string).charAt(0).toUpperCase() + (meta.intent as string).slice(1)
+					: ''}
 		sourceLabel={selectedComm.raw?.type === 'voice' ? 'Phone' : 'Email Address'}
 		email={selectedComm.source ?? ''}
 		subject={selectedComm.raw?.metadata?.subject || selectedComm.raw?.subject || 'No subject'}
