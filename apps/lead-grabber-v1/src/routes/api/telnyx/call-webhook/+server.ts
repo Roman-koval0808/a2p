@@ -1388,24 +1388,13 @@ export const POST: RequestHandler = async ({ request }) => {
 								from: callLog.from
 							});
 						} else if (companyNumber && contactNumber) {
-							// Find or create contact (caller) for this company
+							// Find contact (caller) for this company; defer creation to avoid storing profiles of drop call users
 							let contact = await prisma.contact.findFirst({
 								where: {
 									companyId: numberInfo.companyId,
 									phone: contactNumber
 								}
 							});
-
-							if (!contact) {
-								console.log('👤 Creating new contact for', contactNumber);
-								contact = await prisma.contact.create({
-									data: {
-										companyId: numberInfo.companyId,
-										phone: contactNumber,
-										name: null
-									}
-								});
-							}
 
 							// Call tracking: get category from the number that received the call
 							const companyNumberE164 = toE164(companyNumber);
@@ -1448,6 +1437,20 @@ export const POST: RequestHandler = async ({ request }) => {
 							});
 							const callState = await getState(callControlId);
 							const hasVoicemail = callState?.hasVoicemail || false;
+							const hasIntent = !!callState?.intentDigit;
+							const isDropCall = !hasIntent && !hasVoicemail && direction === 'incoming';
+
+							if (!contact && !isDropCall) {
+								console.log('👤 Creating new contact for non-dropped call:', contactNumber);
+								contact = await prisma.contact.create({
+									data: {
+										companyId: numberInfo.companyId,
+										phone: contactNumber,
+										name: null
+									}
+								});
+							}
+
 							const hasVmRecId = recId ? await hasVoicemailRecordingId(callControlId, recId) : false;
 							const isVoicemailRecording = hasVmRecId || (hasVoicemail && recordingCount >= 2);
 
