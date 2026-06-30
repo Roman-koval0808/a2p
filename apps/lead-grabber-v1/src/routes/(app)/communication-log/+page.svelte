@@ -129,17 +129,22 @@
 					: typeof meta.urgency === 'string'
 						? (legacyUrgency[meta.urgency.toLowerCase()] ?? null)
 						: null;
-			const status: string = log.isDropCall
-				? 'red'
-				: urgencyGpt !== null
-					? urgencyGpt >= 4
-						? 'red'
-						: urgencyGpt >= 3
-							? 'blue'
-							: 'green'
-					: log.direction === 'inbound'
-						? 'in'
-						: 'out';
+
+			// The IVR digit the caller pressed is a deliberate signal: 2 = Sales (an
+			// opportunity to act on fast), 1 = Billing, 3 = Support. Flag Sales as an
+			// opportunity (blue) even when the transcript urgency is low.
+			const ivrDigit = meta.ivr_digit != null ? String(meta.ivr_digit) : '';
+			const ivrIntentLower = (meta.ivr_intent ?? '').toString().toLowerCase();
+			const isSalesIntent =
+				ivrDigit === '2' || ivrIntentLower.includes('sales') || ivrIntentLower.includes('booking');
+
+			let status: string;
+			if (log.isDropCall) status = 'red';
+			else if (urgencyGpt !== null && urgencyGpt >= 4) status = 'red';
+			else if (urgencyGpt !== null && urgencyGpt >= 3) status = 'blue';
+			else if (isSalesIntent) status = 'blue';
+			else if (urgencyGpt !== null) status = 'green';
+			else status = log.direction === 'inbound' ? 'in' : 'out';
 			// Purpose: category_gpt or legacy intent/sentiment; prefix "Urgent " when urgency_gpt >= 4
 			const cap = (s: string) =>
 				(s ?? '').charAt(0).toUpperCase() + (s ?? '').slice(1).toLowerCase();
@@ -152,7 +157,7 @@
 			} else if (meta.category_gpt) {
 				purpose = urgentPrefix + cap(meta.category_gpt);
 			} else if (meta.ivr_intent) {
-				purpose = urgentPrefix + cap(meta.ivr_intent);
+				purpose = urgentPrefix + (isSalesIntent ? 'Sales Opportunity' : cap(meta.ivr_intent));
 			} else if (meta.intent || meta.sentiment) {
 				const word = meta.intent
 					? cap(meta.intent)
