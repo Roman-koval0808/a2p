@@ -1086,6 +1086,28 @@ export const POST: RequestHandler = async ({ request }) => {
 								data: { companyId: numberInfo.companyId, phone: contactNumber, name: null }
 							});
 						}
+
+						// De-dup: the recording.saved handler may have already created this call's log
+						// (Telnyx webhook ordering isn't guaranteed). If a log already exists for this
+						// call_control_id, don't create a duplicate thread + log here on hangup.
+						const dupSince = new Date(Date.now() - 10 * 60 * 1000);
+						const existingForCall = (
+							await prisma.communicationLog.findMany({
+								where: { companyId: numberInfo.companyId, type: 'voice', created: { gte: dupSince } },
+								orderBy: { created: 'desc' },
+								take: 20
+							})
+						).find(
+							(l) => (l.metadata as Record<string, unknown>)?.call_control_id === callControlId
+						);
+						if (existingForCall) {
+							console.log(
+								'📝 CommunicationLog already exists for this call (recording.saved) — skipping duplicate on hangup'
+							);
+							await deleteState(callControlId);
+							break;
+						}
+
 						const companyNumberE164 = toE164(companyNumber);
 						const numberRow = companyNumberE164
 							? await prisma.companyPhoneNumber.findUnique({

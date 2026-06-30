@@ -124,7 +124,13 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		}
 	});
 
-	if (!commLog || !commLog.companyId || !commLog.customerId) {
+	if (
+		!commLog ||
+		!commLog.companyId ||
+		!commLog.customerId ||
+		!commLog.customer ||
+		!commLog.company
+	) {
 		console.log('[Orchestrator] Missing commLog, company, or customer. Aborting.');
 		return;
 	}
@@ -148,6 +154,22 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 	// Wait, is it inbound?
 	if (commLog.direction !== 'inbound') {
+		return;
+	}
+
+	// Claim this comm up-front so a retried or concurrent webhook (Telnyx can re-deliver
+	// recording.saved) can't double-increment the engagement score or draft the SMS twice.
+	// Marking before the work — not after — means a failed run won't auto-retry, which is
+	// the right trade-off here: better to under-process than to double-charge engagement.
+	// Mutating the local metadata too keeps later `{ ...metadata }` writes consistent.
+	metadata.orchestrator_processed = true;
+	try {
+		await prisma.communicationLog.update({
+			where: { id: commId },
+			data: { metadata: { ...metadata } }
+		});
+	} catch (err) {
+		console.error('[Orchestrator] Failed to claim comm for processing:', err);
 		return;
 	}
 
@@ -219,10 +241,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// --- 3. Post-Processing: Thread Similarity Matching ---
 	// Match on the caller's phone (whichever leg is NOT the company number)
 	const callerPhone = commLog.source || '';
-	const companyDest = commLog.destination || '';
 	const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-	if (commLog.content && (callerPhone || companyDest)) {
+	if (commLog.content && callerPhone) {
 		const recentComms = await prisma.communicationLog.findMany({
 			where: {
 				companyId: commLog.companyId,
@@ -230,11 +251,10 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				status: { in: ['completed', 'success', 'pending_approval'] },
 				content: { not: null },
 				created: { gte: sevenDaysAgo },
-				// Match comms involving the same caller phone on either leg
-				OR: [
-					...(callerPhone ? [{ source: callerPhone }, { destination: callerPhone }] : []),
-					...(companyDest ? [{ source: companyDest }, { destination: companyDest }] : [])
-				]
+				// Match ONLY the same caller's recent comms (their phone on either leg).
+				// Do NOT match on the company number — it is on every business call and would
+				// merge unrelated callers' conversations into one thread.
+				OR: [{ source: callerPhone }, { destination: callerPhone }]
 			},
 			orderBy: { created: 'desc' },
 			take: 10
