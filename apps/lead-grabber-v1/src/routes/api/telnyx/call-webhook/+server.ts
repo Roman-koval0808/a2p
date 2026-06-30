@@ -1538,7 +1538,8 @@ export const POST: RequestHandler = async ({ request }) => {
 										}
 
 										// RUN SVELTEKIT INTERNAL AI SIGNALS PIPELINE:
-										PipelineSimulator.run({
+										if (!isDropCall) {
+											PipelineSimulator.run({
 											author_name: contact?.name || callerName || contactNumber || 'Unknown Caller',
 											customer_phone: contactNumber || undefined,
 											rating: 0,
@@ -1677,6 +1678,9 @@ export const POST: RequestHandler = async ({ request }) => {
 												}
 											}
 										}).catch(err => console.error('[Voice Pipeline Error]', err));
+										} else {
+											console.log('🎥 Skipping PipelineSimulator run for drop call');
+										}
 									}
 								} catch (err) {
 									console.error('❌ OpenAI processing failed:', err);
