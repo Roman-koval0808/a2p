@@ -1041,15 +1041,41 @@ export const POST: RequestHandler = async ({ request }) => {
 						const isDropCall = !hasIntent && !hasVoicemail && direction === 'inbound';
 
 						if (isDropCall) {
-							await prisma.dropCall.create({
-								data: {
-									phoneNumber: contactNumber,
-									duration: hangupDuration ?? 0,
-									knownContact: contactExisted,
-									companyId: numberInfo.companyId
-								}
-							});
-							console.log('📞 Logged as DropCall (no intent/voicemail captured)');
+							if (contactExisted && contact) {
+								// Known caller hung up early: record a failed call attempt on their
+								// EXISTING profile (a line item in their communication history). Don't
+								// create a duplicate profile, and leave the engagement score unchanged.
+								await logCommunication({
+									type: 'voice',
+									direction: 'inbound',
+									status: 'missed',
+									source: contactNumber,
+									destination: companyNumber,
+									company_id: numberInfo.companyId,
+									customer_id: contact.id,
+									summary: `Missed call attempt (${Math.round(hangupDuration ?? 0)}s)`,
+									content: `Caller hung up in the IVR after ${Math.round(
+										hangupDuration ?? 0
+									)}s without pressing a key or leaving a message.`,
+									// Deliberately NOT under `call_control_id`: the recording.saved handler
+									// matches that key and would overwrite this clean attempt with the
+									// menu-audio transcript for numbers that record-from-answer.
+									metadata: { drop_attempt_call_id: callControlId, drop_call: true, known_contact: true }
+								});
+								console.log('📞 Known caller drop — logged failed attempt on existing profile');
+							} else {
+								// Unknown number + quick hang-up → log to the DropCall table only.
+								// No profile, no thread (keeps the dashboard clean).
+								await prisma.dropCall.create({
+									data: {
+										phoneNumber: contactNumber,
+										duration: hangupDuration ?? 0,
+										knownContact: false,
+										companyId: numberInfo.companyId
+									}
+								});
+								console.log('📞 Unknown caller drop — logged to DropCall table only');
+							}
 
 							await deleteState(callControlId);
 							break;
