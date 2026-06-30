@@ -1437,7 +1437,7 @@ export const POST: RequestHandler = async ({ request }) => {
 							});
 							const callState = await getState(callControlId);
 							const hasVoicemail = callState?.hasVoicemail || false;
-							const hasIntent = !!callState?.intentDigit;
+							const hasIntent = !!callState?.intentDigit || !!decoded?.ivrDigit || !!decoded?.callPriority;
 							const isDropCall = !hasIntent && !hasVoicemail && direction === 'incoming';
 
 							if (!contact && !isDropCall) {
@@ -1731,7 +1731,7 @@ export const POST: RequestHandler = async ({ request }) => {
 									thread_id: contactNumber
 								});
 							} else {
-								const hasIntent = !!callState?.intentDigit;
+								const hasIntent = !!callState?.intentDigit || !!decoded?.ivrDigit || !!decoded?.callPriority;
 								const isDropCall = !hasIntent && !hasVoicemail && direction === 'incoming';
 								
 								if (isDropCall) {
