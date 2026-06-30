@@ -42,6 +42,34 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 		console.error('Failed to load profiles from ProfileDB:', err);
 	}
 
+	// Always merge in local contacts so every caller with a profile shows here — even when
+	// ProfileDB is unreachable or hasn't ingested a freshly-created caller yet.
+	try {
+		const last10 = (p: string | null | undefined) => (p || '').replace(/\D/g, '').slice(-10);
+		const seen = new Set(profiles.map((p: any) => last10(p.phone || p.clearPhone)).filter(Boolean));
+		const contacts = (await getContactsByCompany(user.company.id, 200)) as any[];
+		for (const c of contacts) {
+			const d = last10(c.phone);
+			if (d && seen.has(d)) continue;
+			if (d) seen.add(d);
+			profiles.push({
+				id: c.id,
+				name: c.name || '',
+				phone: c.phone || '',
+				clearPhone: c.phone || '—',
+				email: c.email || '',
+				clearEmail: c.email || '—',
+				isAnonymous: !c.name,
+				tier: 'T3',
+				scoreLive: c.engagementScore ?? 0,
+				intentBucket: 'research',
+				lastSeen: c.updated ?? c.created ?? null
+			});
+		}
+	} catch (err) {
+		console.error('Failed to merge local contacts into profiles:', err);
+	}
+
 	return { profiles };
 };
 
