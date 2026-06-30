@@ -13,7 +13,20 @@
 
 	onMount(() => {
 		const interval = setInterval(() => {
-			invalidateAll();
+			// Pause the background refresh while the user is interacting with a dialog
+			// or panel (e.g. typing a reply) so we don't disrupt input or clobber state.
+			if (
+				summaryDialogOpen ||
+				replyPanelOpen ||
+				assignDialogOpen ||
+				pipelineDialogOpen ||
+				notificationsDialogOpen
+			) {
+				return;
+			}
+			// Only re-run this page's loader (it calls depends('app:communication-log')),
+			// not every loader in the app as invalidateAll() would.
+			invalidate('app:communication-log');
 		}, 4000);
 		return () => clearInterval(interval);
 	});
@@ -78,6 +91,11 @@
 		totalPages != null ? page < totalPages : (data.logs?.length ?? 0) >= limit
 	);
 
+	const greeting = $derived.by(() => {
+		const h = new Date().getHours();
+		return h < 12 ? 'Good Morning' : h < 18 ? 'Good Afternoon' : 'Good Evening';
+	});
+
 	function goToPage(p: number, l?: number) {
 		const params = new URLSearchParams();
 		params.set('limit', String(l ?? limit));
@@ -99,9 +117,18 @@
 			// Get assigned member names from the pre-mapped property provided by +page.server.ts
 			const assignedMemberNames = log.assignedMemberNames || [];
 
-			// Urgency: use urgency_gpt (1–5) only; high → red, mid → blue, low → green
+			// Urgency (1–5): high → red, mid → blue, low → green.
+			// Prefer the numeric urgency_gpt from the a2p pipeline; fall back to the legacy
+			// analyzeCallLog string urgency (low/medium/high) that voice & SMS logs store, so
+			// those also get urgency coloring instead of always falling through to in/out.
 			const meta = log.metadata || {};
-			const urgencyGpt = typeof meta.urgency_gpt === 'number' ? meta.urgency_gpt : null;
+			const legacyUrgency: Record<string, number> = { low: 2, medium: 3, high: 5 };
+			const urgencyGpt =
+				typeof meta.urgency_gpt === 'number'
+					? meta.urgency_gpt
+					: typeof meta.urgency === 'string'
+						? (legacyUrgency[meta.urgency.toLowerCase()] ?? null)
+						: null;
 			const status: string = log.isDropCall
 				? 'red'
 				: urgencyGpt !== null
@@ -120,7 +147,7 @@
 			let purpose: string;
 			if (log.isDropCall) {
 				purpose = 'Dropped Call';
-			} else if (log.raw?.status === 'pending_approval' || log.status === 'pending_approval') {
+			} else if (log.raw?.status === 'pending_approval') {
 				purpose = 'Confirm';
 			} else if (meta.category_gpt) {
 				purpose = urgentPrefix + cap(meta.category_gpt);
@@ -145,7 +172,6 @@
 				source: log.source,
 				endpoint: log.destination,
 				purpose,
-				purposeIsButton: false,
 				summary: log.summary || log.content || 'No content',
 				commId: log.commId,
 				id: log.id,
@@ -188,22 +214,22 @@
 			replyType = action === 'email' ? 'email' : 'sms';
 			replyPanelOpen = true;
 		} else if (action === 'call') {
-			let phone = '';
-			if (comm.raw?.direction === 'inbound') {
-				phone = comm.raw?.source;
-			} else {
-				phone = comm.raw?.destination;
-			}
-			
-			// Fallback if direction logic doesn't catch it
-			if (!phone) {
-				phone =
-					comm.raw?.payload?.phone ||
-					comm.raw?.payload?.customer_phone ||
-					comm.raw?.customerProfile?.phone ||
-					comm.source;
-			}
-			
+			// comm.raw is the mapped log; comm.raw.source/destination have been remapped to a
+			// display *name* for known contacts, so resolve the real phone number from the
+			// underlying record (comm.raw.raw) instead.
+			const log = comm.raw?.raw ?? comm.raw ?? {};
+			const isInbound = (comm.raw?.direction ?? log.direction) === 'inbound';
+			let phone =
+				log.customer?.phone ||
+				(isInbound ? log.source : log.destination) ||
+				comm.raw?.payload?.phone ||
+				comm.raw?.payload?.customer_phone ||
+				comm.raw?.customerProfile?.phone ||
+				'';
+
+			// Guard against dialing a display name (no digits) that slipped through.
+			if (phone && !/\d/.test(phone)) phone = '';
+
 			if (phone) {
 				goto(`/dialer?phone=${encodeURIComponent(phone)}&call=true`);
 			} else {
@@ -288,7 +314,7 @@
 			<img src="/img/profile.png" alt="" class="h-12 w-12 rounded-full object-cover" />
 			<div>
 				<h2 class="text-lg font-semibold text-gray-900">
-					Good Morning, {data.user?.name ?? 'User'}!
+					{greeting}, {data.user?.name ?? 'User'}!
 				</h2>
 				<p class="text-sm text-gray-500">Simplify how you manage calls and messages.</p>
 			</div>
@@ -466,7 +492,7 @@
 <AssignAgentDialog
 	bind:open={assignDialogOpen}
 	endpointName={selectedEndpoint || 'Conversation'}
-	agents={members.map(m => m.name)}
+	agents={members.map((m: { name: string }) => m.name)}
 	preSelectedAgents={preSelectedAgents}
 	onAssign={handleAssign}
 />

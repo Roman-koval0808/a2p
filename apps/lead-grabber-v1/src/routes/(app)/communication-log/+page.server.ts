@@ -95,13 +95,7 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 				status = 'out';
 			}
 
-			let purpose = 'General';
 			const meta = (log.metadata as any) || {};
-			if (log.status === 'pending_approval') {
-				purpose = 'Confirm';
-			} else if (meta.category_gpt) {
-				purpose = meta.category_gpt;
-			}
 
 			const isOutbound = log.direction === 'outbound';
 			let customerValue = isOutbound ? log.destination : log.source;
