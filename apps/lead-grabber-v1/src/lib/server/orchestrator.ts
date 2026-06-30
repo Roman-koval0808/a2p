@@ -214,6 +214,17 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 	console.log(`[Orchestrator] Debug -> digit: "${digit}", intent: "${intent}", sub_intent: "${sub_intent}"`);
 
+	// Engagement score: a sales/booking message is a hot opportunity; an emergency is urgent
+	// and high-value to retain. Billing (already a paying customer) and plain support don't move it.
+	const scoreDelta = messageCategory === 'emergency' ? 25 : messageCategory === 'sales' ? 10 : 0;
+	if (scoreDelta > 0) {
+		await prisma.contact.update({
+			where: { id: customer.id },
+			data: { engagementScore: { increment: scoreDelta } }
+		});
+		console.log(`[Orchestrator] Engagement score +${scoreDelta} (${messageCategory}).`);
+	}
+
 	// --- EMERGENCY: always wins, regardless of the digit pressed ---
 	if (messageCategory === 'emergency') {
 		console.log('[Orchestrator] EMERGENCY detected from the message — overriding IVR routing.');
@@ -259,13 +270,8 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	else if (messageCategory === 'sales') {
 		console.log('[Orchestrator] Detected Scenario 2: Sales / Booking');
 
-		// 1. Increase engagement score (only when it's a genuine sales/booking message)
-		await prisma.contact.update({
-			where: { id: customer.id },
-			data: { engagementScore: { increment: 10 } }
-		});
-
-		// 2. Check calendar for availability (mocked: check if datetime is within 9-5 or location hours)
+		// (Engagement score is bumped centrally above based on the reclassified category.)
+		// Check calendar for availability (mocked: check if datetime is within 9-5 or location hours)
 		if (datetime) {
 			const formattedDatetime = formatDatetime(datetime);
 			const isAvailable = checkCalendarAvailability(datetime, company.locations || []);

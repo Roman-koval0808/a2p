@@ -52,6 +52,7 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 			const d = last10(c.phone);
 			if (d && seen.has(d)) continue;
 			if (d) seen.add(d);
+			const score = c.engagementScore ?? 0;
 			profiles.push({
 				id: c.id,
 				name: c.name || '',
@@ -60,9 +61,9 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 				email: c.email || '',
 				clearEmail: c.email || '—',
 				isAnonymous: !c.name,
-				tier: 'T3',
-				scoreLive: c.engagementScore ?? 0,
-				intentBucket: 'research',
+				tier: score >= 50 ? 'T1' : score >= 20 ? 'T2A' : score >= 10 ? 'T2B' : 'T3',
+				scoreLive: score,
+				intentBucket: score >= 20 ? 'active' : 'research',
 				lastSeen: c.updated ?? c.created ?? null
 			});
 		}
