@@ -10,6 +10,8 @@
 //
 // The key is passed in (not read from $env) so this module stays a plain, testable unit.
 
+import { claudeJSON, CLAUDE_FAST } from './anthropic';
+
 export type IntentBucket =
 	| 'emergency'
 	| 'booking'
@@ -73,49 +75,42 @@ Output: {"intent_bucket":"billing","urgency":"low","sentiment":"neutral","wants_
 Input: "I just want to inquire. I want to book an appointment to come down and pay my bill."
 Output: {"intent_bucket":"booking","urgency":"low","sentiment":"neutral","wants_appointment":true,"wants_balance":true,"confidence":0.9,"needs_human_review":false,"reason":"Primary ask is to book an appointment to come in; paying is secondary."}`;
 
-const RESPONSE_FORMAT = {
-	type: 'json_schema',
-	json_schema: {
-		name: 'message_intent',
-		strict: true,
-		schema: {
-			type: 'object',
-			additionalProperties: false,
-			properties: {
-				intent_bucket: {
-					type: 'string',
-					enum: [
-						'emergency',
-						'booking',
-						'billing',
-						'complaint',
-						'cancellation',
-						'follow_up',
-						'inquiry',
-						'sales',
-						'other'
-					]
-				},
-				urgency: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
-				sentiment: { type: 'string', enum: ['positive', 'neutral', 'negative'] },
-				wants_appointment: { type: 'boolean' },
-				wants_balance: { type: 'boolean' },
-				confidence: { type: 'number' },
-				needs_human_review: { type: 'boolean' },
-				reason: { type: 'string' }
-			},
-			required: [
-				'intent_bucket',
-				'urgency',
-				'sentiment',
-				'wants_appointment',
-				'wants_balance',
-				'confidence',
-				'needs_human_review',
-				'reason'
+const INTENT_SCHEMA = {
+	type: 'object',
+	additionalProperties: false,
+	properties: {
+		intent_bucket: {
+			type: 'string',
+			enum: [
+				'emergency',
+				'booking',
+				'billing',
+				'complaint',
+				'cancellation',
+				'follow_up',
+				'inquiry',
+				'sales',
+				'other'
 			]
-		}
-	}
+		},
+		urgency: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
+		sentiment: { type: 'string', enum: ['positive', 'neutral', 'negative'] },
+		wants_appointment: { type: 'boolean' },
+		wants_balance: { type: 'boolean' },
+		confidence: { type: 'number' },
+		needs_human_review: { type: 'boolean' },
+		reason: { type: 'string' }
+	},
+	required: [
+		'intent_bucket',
+		'urgency',
+		'sentiment',
+		'wants_appointment',
+		'wants_balance',
+		'confidence',
+		'needs_human_review',
+		'reason'
+	]
 };
 
 /**
@@ -125,41 +120,20 @@ const RESPONSE_FORMAT = {
 export async function classifyMessageIntent(
 	message: string,
 	apiKey: string,
-	model = 'gpt-4o-mini'
+	model = CLAUDE_FAST
 ): Promise<MessageIntent | null> {
 	const text = (message || '').trim();
 	if (!text) return null;
-	try {
-		const res = await fetch('https://api.openai.com/v1/chat/completions', {
-			method: 'POST',
-			headers: {
-				Authorization: `Bearer ${apiKey}`,
-				'Content-Type': 'application/json'
-			},
-			body: JSON.stringify({
-				model,
-				temperature: 0,
-				top_p: 1,
-				response_format: RESPONSE_FORMAT,
-				messages: [
-					{ role: 'system', content: SYSTEM_PROMPT },
-					{ role: 'user', content: `Analyze this customer message:\n\n${text}` }
-				]
-			}),
-			signal: AbortSignal.timeout(20000)
-		});
-		if (!res.ok) {
-			console.error('[classifyMessageIntent] OpenAI error:', await res.text());
-			return null;
-		}
-		const data = await res.json();
-		const content = data?.choices?.[0]?.message?.content;
-		if (!content) return null;
-		return JSON.parse(content) as MessageIntent;
-	} catch (e) {
-		console.error('[classifyMessageIntent] failed:', e);
-		return null;
-	}
+	return await claudeJSON<MessageIntent>({
+		apiKey,
+		system: SYSTEM_PROMPT,
+		user: `Analyze this customer message:\n\n${text}`,
+		schema: INTENT_SCHEMA,
+		toolName: 'classify_message',
+		model,
+		temperature: 0,
+		maxTokens: 512
+	});
 }
 
 /** Map the AI intent bucket to the orchestrator's routing category. */
