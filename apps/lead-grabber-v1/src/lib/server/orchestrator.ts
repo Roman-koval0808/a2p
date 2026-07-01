@@ -1,6 +1,8 @@
 import { prisma } from '$lib/db';
 import { logCommunication } from '$lib/utils/communication-log';
 import { toE164 } from '$lib/company-numbers';
+import { classifyMessageIntent, bucketToCategory } from './message-intent';
+import { OPEN_AI_KEY } from '$env/static/private';
 // Checks if a requested datetime is within business hours of any location, fallback to 9-5 M-F
 function checkCalendarAvailability(datetimeStr: string, locations: any[]): boolean {
 	const lower = datetimeStr.toLowerCase();
@@ -162,27 +164,27 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// routes billing AND sales to "1"). We follow what they actually SAID: classify the
 	// transcript + AI summary, and if it doesn't match the digit's department, reclassify and
 	// follow the message. An emergency always wins, whatever digit was pressed.
-	const messageText = `${commLog.content || ''} ${commLog.summary || metadata.summary || ''}`
-		.toLowerCase()
-		.trim();
-	const urgencyStr = (metadata.urgency ?? '').toString().toLowerCase();
-	const hasAny = (kw: string[]) => kw.some((k) => messageText.includes(k));
-	const EMERGENCY_KW = ['emergency', 'urgent', 'burst', 'flood', 'leak', 'gas leak', 'fire', 'no water', 'no heat', 'right away', 'immediately', 'asap'];
-	const BILLING_KW = ['balance', 'owe', 'invoice', 'my bill', 'pay my bill', 'account balance', 'outstanding', 'how much do i'];
-	const SALES_KW = ['appointment', 'book', 'schedule', 'quote', 'estimate', 'interested in', 'pricing', 'install'];
-
+	const rawMessage = (commLog.content || metadata.summary || commLog.summary || '').toString();
 	const digitCategory: 'billing' | 'sales' | 'support' | null =
 		digit === '1' ? 'billing' : digit === '2' ? 'sales' : digit === '3' ? 'support' : null;
 
-	// Classify by what they actually SAID. Only when there's no usable message do we fall
-	// back to the digit they pressed.
-	const hasMessage = messageText.length > 3;
+	// The AI classifier is the ONLY thing that decides the category — no keyword or digit
+	// fallbacks. We always follow what the caller actually SAID. e.g. "book an appointment to
+	// come down and pay my bill" -> booking (ask for a time), not a balance reply.
+	const aiIntent = await classifyMessageIntent(rawMessage, OPEN_AI_KEY);
 	let messageCategory: 'emergency' | 'billing' | 'sales' | 'support';
-	if (urgencyStr === 'high' || hasAny(EMERGENCY_KW)) messageCategory = 'emergency';
-	else if (hasAny(BILLING_KW)) messageCategory = 'billing';
-	else if (hasAny(SALES_KW)) messageCategory = 'sales';
-	else if (hasMessage) messageCategory = 'support';
-	else messageCategory = digitCategory ?? 'support';
+	if (aiIntent) {
+		messageCategory = bucketToCategory(aiIntent);
+		metadata.ai_intent = aiIntent;
+		console.log(
+			`[Orchestrator] AI intent: ${aiIntent.intent_bucket} (urgency ${aiIntent.urgency}, appt ${aiIntent.wants_appointment}, conf ${aiIntent.confidence}) -> ${messageCategory}`
+		);
+	} else {
+		// Classification unavailable (empty message or AI error): route to a human, never guess.
+		messageCategory = 'support';
+		metadata.ai_intent = null;
+		console.log('[Orchestrator] No AI classification available; routing to support for human review.');
+	}
 
 	const reclassified = !!(digitCategory && digitCategory !== messageCategory);
 	if (reclassified) {
