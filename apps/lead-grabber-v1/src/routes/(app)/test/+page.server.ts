@@ -128,210 +128,200 @@ export const actions: Actions = {
 		}
 	},
 
+	// Reproduces a real inbound voice call's OUTCOME exactly: same Contact lookup, same
+	// analyzeCallLog on the transcript, the same CommunicationLog shape the recording.saved
+	// webhook creates, and the same process_orchestrator run — so what you see here is what a
+	// real call produces. (We run the pipeline directly instead of firing synthetic Telnyx
+	// webhooks, which is faithful in outcome and free of media/timing flakiness.)
 	triggerCall: async ({ request, locals }) => {
 		const user = locals.user;
 		if (!user || !user.companyId) {
 			return { success: false, error: 'Unauthorized' };
 		}
-
 		const companyId = user.companyId;
 
 		const data = await request.formData();
 		const caller = String(data.get('caller') || '+15550001111').trim();
-		const called = String(data.get('called') || '+17059986143').trim();
-		const digit = String(data.get('digit') || '1').trim();
-		const comment = String(data.get('comment') || '').trim();
+		const called = String(data.get('called') || '').trim();
+		const digit = String(data.get('digit') || '').trim();
+		const transcript = String(data.get('comment') || '').trim();
 
-		const callId = `v3:sim_${Date.now()}`;
-		const sessionId = `sim_session_${Date.now()}`;
-		const legId = `sim_leg_${Date.now()}`;
 		const logs: string[] = [];
-
-		const sendWebhook = async (eventType: string, payloadOverrides: any) => {
-			logs.push(`\n▶️ Sending simulated webhook: ${eventType}`);
-			const payload = {
-				data: {
-					event_type: eventType,
-					payload: {
-						call_control_id: callId,
-						call_session_id: sessionId,
-						call_leg_id: legId,
-						direction: 'incoming',
-						state: 'parked',
-						from: caller,
-						to: called,
-						...payloadOverrides
-					}
-				}
-			};
-
-			const { POST: handleCallPost } = await import('../../api/telnyx/call-webhook/+server');
-
-			try {
-				const response = await handleCallPost({
-					request: new Request('http://localhost/api/telnyx/call-webhook', {
-						method: 'POST',
-						headers: { 'Content-Type': 'application/json' },
-						body: JSON.stringify(payload)
-					})
-				} as any);
-				
-				// Webhook returns empty 200 JSON usually
-				logs.push(`✅ Webhook processed ${eventType} successfully (Status: ${response.status})`);
-			} catch (e: any) {
-				logs.push(`❌ Webhook error on ${eventType}: ${e.message}`);
-			}
-		};
+		const callId = `v3:sim_${Date.now()}`;
 
 		try {
-			// Find active IVR
-			const companyNum = await prisma.companyPhoneNumber.findUnique({ where: { phoneNumber: called } });
-			const callFlowId = companyNum?.callFlowId;
-			let ivrFlowId = callFlowId;
-			let ivrRuleId = null;
-
-			if (callFlowId) {
-				const { getActiveCallFlow } = await import('$lib/ivr');
-				const active = await getActiveCallFlow(prisma, companyId, new Date(), { timezone: 'America/New_York', flowId: callFlowId });
-				if (active) {
-					ivrFlowId = active.flow.id;
-					ivrRuleId = active.rule.id;
-				}
+			if (!transcript) {
+				return { success: false, error: 'Voicemail transcript is required' };
 			}
 
-			// 1. Initiated
-			await sendWebhook('call.initiated', { state: 'parked' });
-			await new Promise(r => setTimeout(r, 200));
-
-			// 2. Answered
-			const answeredState = Buffer.from(JSON.stringify({ ivrFlowId, ivrRuleId, ivrPath: 'Simulated Path' })).toString('base64');
-			await sendWebhook('call.answered', { state: 'answered', start_time: new Date().toISOString(), client_state: answeredState });
-			await new Promise(r => setTimeout(r, 200));
-
-			// 3. Playback Started
-			const playbackState = Buffer.from(JSON.stringify({ ivrFlowId, ivrRuleId, afterGreetingGather: true })).toString('base64');
-			await sendWebhook('call.playback.started', { client_state: playbackState });
-			await new Promise(r => setTimeout(r, 200));
-
-			// 4. Gather Ended (Injecting the test digit)
-			if (digit) {
-				await sendWebhook('call.gather.ended', { digits: digit, status: 'valid', client_state: playbackState });
-				await new Promise(r => setTimeout(r, 200));
-			}
-
-			// 5. Playback Ended (Assuming it hit the voicemail prompt, this simulates the prompt finishing)
-			const voicemailState = Buffer.from(JSON.stringify({ isVoicemailPrompt: true, ivrFlowId, ivrRuleId })).toString('base64');
-			await sendWebhook('call.playback.ended', { client_state: voicemailState });
-			await new Promise(r => setTimeout(r, 200));
-
-			// Force voicemail state so hangup doesn't count it as a drop call
-			if (comment) {
-				const { setVoicemail } = await import('$lib/server/call-state');
-				await setVoicemail(callId);
-			}
-
-			// 6. Hangup FIRST
-			await sendWebhook('call.hangup', { hangup_cause: 'normal_clearing', start_time: new Date(Date.now() - 60000).toISOString(), end_time: new Date().toISOString() });
-			await new Promise(r => setTimeout(r, 500)); // wait for hangup to process and create the log
-
-			// 7. Simulating the Voicemail being saved (without hitting the real webhook which would transcribe a fake MP3)
-			if (comment) {
-				const cLog = await prisma.communicationLog.findFirst({
-					where: { companyId, source: caller, type: 'voice' },
-					orderBy: { created: 'desc' }
+			// 1. Resolve the IVR intent name for the pressed digit from the REAL flow's key prompts
+			//    (falls back to the standard menu mapping).
+			let intentName: string | null = null;
+			try {
+				const companyNum = await prisma.companyPhoneNumber.findUnique({
+					where: { phoneNumber: called }
 				});
+				if (companyNum?.callFlowId && digit) {
+					const { getActiveCallFlow } = await import('$lib/ivr');
+					const active = await getActiveCallFlow(prisma, companyId, new Date(), {
+						timezone: 'America/New_York',
+						flowId: companyNum.callFlowId
+					});
+					const prompts = ((active?.rule as any)?.keyPrompts as any[]) || [];
+					const match = prompts.find((p) => String(p.key).trim() === digit);
+					intentName = match?.name || null;
+				}
+			} catch {
+				/* fall through to default map */
+			}
+			if (!intentName && digit) {
+				intentName =
+					(({ '1': 'Billing', '2': 'Sales', '3': 'Support', '0': 'Operator' }) as Record<string, string>)[
+						digit
+					] || null;
+			}
+			logs.push(
+				`📞 Inbound call from ${caller} → ${called}${digit ? `, pressed ${digit} (${intentName || '?'})` : ' (no digit)'}`
+			);
 
-				if (cLog) {
-					// Force the AI analysis on the transcript just like the old triggerCall did
-					try {
-						const { analyzeCallLog } = await import('$lib/server/openai');
-						const analysis = await analyzeCallLog(comment);
-						
-						await prisma.communicationLog.update({
-							where: { id: cLog.id },
-							data: { 
-								content: `Transcription: ${comment}`,
-								summary: analysis?.summary || cLog.summary,
-								metadata: {
-									...((cLog.metadata as object) || {}),
-									urgency: analysis?.urgency,
-									sentiment: analysis?.sentiment,
-									intent: analysis?.intent,
-									sub_intent: analysis?.sub_intent,
-									actionItems: analysis?.actionItems,
-									estimatedPrice: analysis?.estimatedPrice,
-									datetime: analysis?.datetime
-								}
-							}
-						});
+			// 2. Find/create the caller Contact (exactly as the webhook does).
+			let contact = await prisma.contact.findFirst({ where: { companyId, phone: caller } });
+			if (!contact) {
+				contact = await prisma.contact.create({ data: { companyId, phone: caller, name: null } });
+				logs.push(`👤 Created new contact profile ${contact.id}`);
+			} else {
+				logs.push(`👤 Matched existing contact ${contact.id}`);
+			}
 
-						// Update contact name if resolved from AI analysis
-						const resolvedName = analysis?.callerName || null;
-						if (resolvedName) {
-							// Update Svelte Contact
-							await prisma.contact.updateMany({
-								where: { companyId, phone: caller },
-								data: { name: resolvedName }
-							});
+			// 3. AI analysis on the transcript — the same call the recording.saved path makes.
+			const { analyzeCallLog } = await import('$lib/server/openai');
+			const analysis = await analyzeCallLog(transcript, intentName || undefined);
+			logs.push(
+				`🧠 analyzeCallLog → intent=${analysis?.intent}, urgency=${analysis?.urgency}, sentiment=${analysis?.sentiment}`
+			);
 
-							// Update Pipeline Customer Profile
-							await prisma.pipelineCustomerProfile.updateMany({
-								where: { companyId, phoneNumber: caller },
-								data: { displayName: resolvedName, firstName: resolvedName.split(' ')[0] }
-							});
-						}
+			// Resolve the caller name from the transcript, as the real path does.
+			if (
+				analysis?.callerName &&
+				(!contact.name ||
+					['Unknown Caller', 'Anonymous', 'Valued Customer', 'Unknown'].includes(contact.name))
+			) {
+				await prisma.contact.update({
+					where: { id: contact.id },
+					data: { name: analysis.callerName }
+				});
+				contact = { ...contact, name: analysis.callerName };
+				logs.push(`👤 Resolved caller name from voicemail: ${analysis.callerName}`);
+			}
 
-						// Also run the pipeline
-						await PipelineSimulator.run({
-							author_name: resolvedName || 'Unknown Caller',
-							customer_phone: caller,
-							rating: 0,
-							comment: comment,
-							mode: 'call',
-							sessionId: callId,
-							companyId: companyId
-						});
-
-						// CRITICAL: Manually trigger the Orchestrator since we bypassed the recording.saved webhook!
-						import('$lib/server/orchestrator').then(({ process_orchestrator }) => {
-							process_orchestrator(cLog.id, 'ai_ready').catch(e => console.error('[Orchestrator] Error:', e));
-						});
-
-					} catch (e) {
-						logs.push(`Warning: Mock analysis failed ${e}`);
+			// 4. Create the thread + CommunicationLog with the EXACT recording.saved shape.
+			const thread = await prisma.communicationThread.create({
+				data: { companyId, contactId: contact.id, status: 'open', summary: 'Voice Call' }
+			});
+			const finalDestination =
+				intentName && digit ? `${called} (Ext ${digit} - ${intentName})` : called;
+			const commLog = await prisma.communicationLog.create({
+				data: {
+					type: 'voice',
+					direction: 'inbound',
+					status: 'completed',
+					source: caller,
+					destination: finalDestination,
+					companyId,
+					customerId: contact.id,
+					communicationThreadId: thread.id,
+					duration: 45,
+					content: transcript,
+					summary: analysis?.summary || null,
+					metadata: {
+						call_control_id: callId,
+						origin: 'incoming',
+						ivr_intent: intentName || undefined,
+						ivr_digit: digit || undefined,
+						ivr_confidence: digit ? 'high' : undefined,
+						urgency: analysis?.urgency,
+						sentiment: analysis?.sentiment,
+						intent: analysis?.intent,
+						sub_intent: analysis?.sub_intent,
+						datetime: analysis?.datetime,
+						actionItems: analysis?.actionItems,
+						estimatedPrice: analysis?.estimatedPrice,
+						simulated: true
 					}
 				}
-
-				logs.push('⏱️ Waiting 3 seconds for Orchestrator to draft SMS...');
-				await new Promise(r => setTimeout(r, 3000));
-			}
-
-			// 8. Fetch the final resulting log to show the UI
-			const finalCommLog = await prisma.communicationLog.findFirst({
-				where: { companyId, source: caller, type: 'voice' },
-				orderBy: { created: 'desc' },
-				include: { communicationThread: { include: { logs: true } } }
 			});
-			
-			if (finalCommLog) {
-				logs.push(`✅ Located DB Log: ${finalCommLog.id}`);
-				// Show any drafted SMS that got created by the orchestrator
-				const latestSms = finalCommLog.communicationThread?.logs.find(l => l.type === 'sms' && l.created > finalCommLog.created);
-				if (latestSms) {
-					logs.push(`🎉 Orchestrator drafted SMS: "${latestSms.content}" (Status: ${latestSms.status})`);
-				}
+			logs.push(`📝 Created CommunicationLog ${commLog.id} (dest: ${finalDestination})`);
+
+			// 5. Run the orchestrator — the same call the real recording.saved path fires (there it
+			//    is fire-and-forget; here we await it so the drafted reply is ready to show).
+			const { process_orchestrator } = await import('$lib/server/orchestrator');
+			await process_orchestrator(commLog.id, 'ai_ready');
+			logs.push('🤖 Orchestrator ran: AI-classified the message and drafted a reply if applicable.');
+
+			// 6. Also run the ProfileDB signals pipeline like a real call (non-fatal if it is down).
+			try {
+				await PipelineSimulator.run({
+					author_name: contact.name || 'Unknown Caller',
+					customer_phone: caller,
+					rating: 0,
+					comment: transcript,
+					mode: 'call',
+					sessionId: callId,
+					companyId
+				});
+			} catch (e: any) {
+				logs.push(`⚠️ ProfileDB pipeline skipped (service unavailable): ${e?.message}`);
 			}
 
-			return { 
-				success: true, 
-				mode: 'call', 
-				pipelineResult: { success: true },
-				dbRecord: finalCommLog ? JSON.parse(JSON.stringify(finalCommLog)) : null,
-				logs 
+			// 7. Read back the outcome: the log (with ai_intent), the drafted reply, the contact.
+			const finalLog = await prisma.communicationLog.findUnique({ where: { id: commLog.id } });
+			const draft = await prisma.communicationLog.findFirst({
+				where: {
+					companyId,
+					type: 'sms',
+					direction: 'outbound',
+					status: 'pending_approval',
+					destination: caller
+				},
+				orderBy: { created: 'desc' }
+			});
+			const updatedContact = await prisma.contact.findUnique({
+				where: { id: contact.id },
+				select: { name: true, engagementScore: true, accountBalance: true }
+			});
+			const meta = ((finalLog?.metadata as any) || {}) as Record<string, any>;
+
+			if (draft) logs.push(`🎉 Drafted reply (pending approval): "${draft.content}"`);
+			else logs.push('ℹ️ No automated reply drafted (routed to a human / support).');
+
+			return {
+				success: true,
+				mode: 'call',
+				call: {
+					caller,
+					called: finalDestination,
+					digitPressed: digit || null,
+					ivrIntent: intentName || null,
+					transcript,
+					summary: finalLog?.summary || null,
+					aiIntent: meta.ai_intent || null,
+					messageCategory: meta.message_category || null,
+					reclassified: !!meta.reclassified,
+					pressedCategory: meta.ivr_pressed_category || null,
+					draftedReply: draft?.content || null,
+					draftStatus: draft?.status || null,
+					commLogId: commLog.id,
+					contactId: contact.id,
+					contactName: updatedContact?.name || null,
+					engagementScore: updatedContact?.engagementScore ?? 0,
+					accountBalance: updatedContact?.accountBalance ?? null
+				},
+				dbRecord: finalLog ? JSON.parse(JSON.stringify(finalLog)) : null,
+				logs
 			};
 		} catch (err: any) {
 			console.error('Test Call Trigger failed:', err);
-			return { success: false, error: err.message || 'Internal processing error' };
+			return { success: false, error: err.message || 'Internal processing error', logs };
 		}
 	}
 };
