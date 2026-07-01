@@ -1,12 +1,10 @@
-import { OPEN_AI_KEY } from '$env/static/private';
-
-const OPENAI_API_URL = 'https://api.openai.com/v1';
-const OPENAI_MODEL = 'gpt-4o-mini';
+import { ANTHROPIC_AI_KEY } from '$env/static/private';
+import { claudeText, claudeJSON, type ClaudeMessage } from '$lib/server/anthropic';
 
 function getApiKey(): string | null {
-	const key = OPEN_AI_KEY || process.env.OPEN_AI_KEY;
+	const key = ANTHROPIC_AI_KEY || process.env.ANTHROPIC_AI_KEY;
 	if (!key?.trim()) {
-		console.warn('[openai] OPEN_AI_KEY not set — AI classification/summary skipped');
+		console.warn('[ai] ANTHROPIC_AI_KEY not set — AI classification/summary skipped');
 		return null;
 	}
 	return key;
@@ -22,6 +20,20 @@ export interface ClassificationResult {
 	intent: string;
 }
 
+const CLASSIFY_SCHEMA = {
+	type: 'object',
+	additionalProperties: false,
+	properties: {
+		urgencyLevel: { type: 'integer', description: '1 (lowest) to 5 (urgent/critical)' },
+		sentiment: { type: 'string', enum: ['sales', 'support'] },
+		intent: {
+			type: 'string',
+			enum: ['inquiry', 'booking', 'complaint', 'follow-up', 'feedback', 'request', 'other']
+		}
+	},
+	required: ['urgencyLevel', 'sentiment', 'intent']
+};
+
 function levelToUrgency(level: number): UrgencyColor {
 	if (level === 1) return 'green';
 	if (level >= 4) return 'red';
@@ -29,40 +41,19 @@ function levelToUrgency(level: number): UrgencyColor {
 }
 
 /**
- * Helper to call OpenAI Chat Completions API
+ * Helper to call Claude with an OpenAI-style messages array (the system message is split out).
  */
-async function callOpenAI(messages: any[], maxTokens = 150, temperature = 0.2, responseFormat?: any) {
+async function callClaude(messages: any[], maxTokens = 150, temperature = 0.2): Promise<string | null> {
 	const apiKey = getApiKey();
 	if (!apiKey) return null;
-
-	try {
-		const response = await fetch(`${OPENAI_API_URL}/chat/completions`, {
-			method: 'POST',
-			headers: {
-				Authorization: `Bearer ${apiKey}`,
-				'Content-Type': 'application/json'
-			},
-			body: JSON.stringify({
-				model: OPENAI_MODEL,
-				messages,
-				max_tokens: maxTokens,
-				temperature,
-				...(responseFormat && { response_format: responseFormat })
-			})
-		});
-
-		if (!response.ok) {
-			const errorText = await response.text();
-			console.error('[openai] API error:', errorText);
-			return null;
-		}
-
-		const data = await response.json();
-		return data.choices?.[0]?.message?.content?.trim() || null;
-	} catch (e) {
-		console.error('[openai] fetch error:', e);
-		return null;
-	}
+	const system = messages.find((m) => m.role === 'system')?.content;
+	const rest: ClaudeMessage[] = messages
+		.filter((m) => m.role !== 'system')
+		.map((m) => ({
+			role: m.role === 'assistant' ? 'assistant' : 'user',
+			content: String(m.content ?? '')
+		}));
+	return await claudeText({ apiKey, system, messages: rest, temperature, maxTokens });
 }
 
 /**
@@ -70,36 +61,24 @@ async function callOpenAI(messages: any[], maxTokens = 150, temperature = 0.2, r
  * Pre-configured categories: Sales vs Support; subcategories like inquiry, booking, complaint, follow-up.
  */
 export async function classifyMessage(content: string): Promise<ClassificationResult | null> {
+	const apiKey = getApiKey();
+	if (!apiKey) return null;
 	try {
-		const raw = await callOpenAI(
-			[
-				{
-					role: 'system',
-					content: `You are a classifier for customer communications. Respond with ONLY valid JSON, no markdown.
-Rules:
+		const parsed = await claudeJSON<{ urgencyLevel?: number; sentiment?: string; intent?: string }>({
+			apiKey,
+			system: `You are a classifier for customer communications.
 - urgencyLevel: integer 1-5 (1=lowest, 5=urgent/critical).
 - sentiment: one of "sales" or "support".
-- intent: one of "inquiry", "booking", "complaint", "follow-up", "feedback", "request", "other".
+- intent: one of "inquiry", "booking", "complaint", "follow-up", "feedback", "request", "other".`,
+			user: content.slice(0, 4000),
+			schema: CLASSIFY_SCHEMA,
+			toolName: 'classify',
+			temperature: 0.1,
+			maxTokens: 128
+		});
 
-Output format: {"urgencyLevel": N, "sentiment": "...", "intent": "..."}`
-				},
-				{
-					role: 'user',
-					content: content.slice(0, 4000)
-				}
-			],
-			128,
-			0.1,
-			{ type: 'json_object' }
-		);
+		if (!parsed) return null;
 
-		if (!raw) return null;
-
-		const parsed = JSON.parse(raw.replace(/^```\w*\n?|\n?```$/g, '').trim()) as {
-			urgencyLevel?: number;
-			sentiment?: string;
-			intent?: string;
-		};
 		const level = Math.min(5, Math.max(1, Number(parsed.urgencyLevel) || 1)) as UrgencyLevel;
 		const result = {
 			urgencyLevel: level,
@@ -131,7 +110,7 @@ export async function summarizeMessage(
 					.join('\n')
 			: '';
 
-		const summary = await callOpenAI(
+		const summary = await callClaude(
 			[
 				{
 					role: 'system',
@@ -174,7 +153,7 @@ export async function draftResponse(
 						.join('\n')
 				: '';
 
-		const draft = await callOpenAI(
+		const draft = await callClaude(
 			[
 				{
 					role: 'system',

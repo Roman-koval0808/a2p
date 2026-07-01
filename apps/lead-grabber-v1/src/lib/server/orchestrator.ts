@@ -3,7 +3,7 @@ import { logCommunication } from '$lib/utils/communication-log';
 import { toE164 } from '$lib/company-numbers';
 import { classifyMessageIntent, bucketToCategory } from './message-intent';
 import { checkCalendarAvailability, formatDatetime } from './calendar';
-import { OPEN_AI_KEY } from '$env/static/private';
+import { ANTHROPIC_AI_KEY } from '$env/static/private';
 
 export async function process_orchestrator(commId: string, trigger: string) {
 	console.log(`[Orchestrator] Processing commId: ${commId} with trigger: ${trigger}`);
@@ -67,7 +67,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// The AI classifier is the ONLY thing that decides the category — no keyword or digit
 	// fallbacks. We always follow what the caller actually SAID. e.g. "book an appointment to
 	// come down and pay my bill" -> booking (ask for a time), not a balance reply.
-	const aiIntent = await classifyMessageIntent(rawMessage, OPEN_AI_KEY);
+	const aiIntent = await classifyMessageIntent(rawMessage, ANTHROPIC_AI_KEY);
 	let messageCategory: 'emergency' | 'billing' | 'sales' | 'support';
 	if (aiIntent) {
 		messageCategory = bucketToCategory(aiIntent);
@@ -230,7 +230,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						customerName: customer.name || null,
 						locations: (company as any).locations || [],
 						accountBalance: customer.accountBalance ?? null,
-						apiKey: OPEN_AI_KEY
+						apiKey: ANTHROPIC_AI_KEY
 					});
 					if (conv?.reply) {
 						draftedResponse = conv.reply;

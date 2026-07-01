@@ -1,7 +1,7 @@
-import OpenAI from 'openai';
 import { env } from '$env/dynamic/private';
 import { z } from 'zod';
 import { getReferenceCalendar } from '../openai';
+import { claudeJSON } from '$lib/server/anthropic';
 
 export const ExtractionResultSchema = z.object({
 	contains_problem: z.boolean().describe("True if the customer mentions a specific issue, complaint, or problem with service."),
@@ -25,14 +25,48 @@ export const ExtractionResultSchema = z.object({
 
 export type ExtractionResult = z.infer<typeof ExtractionResultSchema>;
 
-let _openai: OpenAI | null = null;
-function getOpenAIClient(): OpenAI {
-	const apiKey = env.OPENAI_API_KEY || env.OPEN_AI_KEY || (typeof process !== 'undefined' ? (process.env.OPENAI_API_KEY || process.env.OPEN_AI_KEY) : undefined);
-	if (!apiKey) throw new Error('Missing OPENAI_API_KEY');
-	if (_openai) return _openai;
-	_openai = new OpenAI({ apiKey, timeout: 12000, maxRetries: 0 });
-	return _openai;
-}
+const EXTRACTION_SCHEMA = {
+	type: 'object',
+	additionalProperties: false,
+	required: [
+		'contains_problem',
+		'contains_quote_request',
+		'contains_callback_request',
+		'contains_emergency_keywords',
+		'requested_contact_method',
+		'requested_action',
+		'detected_keywords',
+		'service_requested',
+		'sentiment',
+		'praise_topics',
+		'complaint_topics',
+		'summary',
+		'confidence_score',
+		'urgency_level',
+		'customer_name',
+		'has_name',
+		'datetime'
+	],
+	properties: {
+		contains_problem: { type: 'boolean' },
+		contains_quote_request: { type: 'boolean' },
+		contains_callback_request: { type: 'boolean' },
+		contains_emergency_keywords: { type: 'boolean' },
+		requested_contact_method: { type: 'string', enum: ['phone', 'email', 'text', 'none'] },
+		requested_action: { type: 'string' },
+		detected_keywords: { type: 'array', items: { type: 'string' } },
+		service_requested: { type: 'string' },
+		sentiment: { type: 'string', enum: ['positive', 'neutral', 'negative'] },
+		praise_topics: { type: 'array', items: { type: 'string' } },
+		complaint_topics: { type: 'array', items: { type: 'string' } },
+		summary: { type: 'string' },
+		confidence_score: { type: 'number' },
+		urgency_level: { type: 'string', enum: ['low', 'medium', 'high'] },
+		customer_name: { type: 'string', description: "customer's name if stated, otherwise an empty string" },
+		has_name: { type: 'boolean' },
+		datetime: { type: 'string', description: 'YYYY-MM-DDTHH:mm:ss if an appointment time is given, otherwise an empty string' }
+	}
+};
 
 export const AI_EXTRACTION_PROTOCOL = {
 	name: 'clearsky_extraction',
@@ -62,8 +96,8 @@ export async function performAiExtraction(text: string): Promise<ExtractionResul
 	let useFallback = false;
 
 	try {
-		const openai = getOpenAIClient();
-		if (!openai) {
+		const apiKey = env.ANTHROPIC_AI_KEY;
+		if (!apiKey) {
 			useFallback = true;
 		} else {
 			const calendarReference = getReferenceCalendar();
@@ -82,9 +116,9 @@ Fields:
 - requested_contact_method: What specific contact method did they ask for?
 - requested_action: What is the single most important action the customer wants us to take?
 - detected_keywords: List all important nouns/verbs related to business (e.g. quote, call, roof, leak, pricing). If the user mentions their name, include it here.
-- customer_name: The name of the customer if explicitly mentioned in message, e.g. 'sam' from 'sam here', otherwise null.
+- customer_name: The name of the customer if explicitly mentioned in message, e.g. 'sam' from 'sam here', otherwise an empty string.
 - has_name: True if customer name is explicitly mentioned in message, otherwise false.
-- datetime: If the customer mentions a specific date or time they want to book an appointment for (e.g. "saturday at 8am"), resolve it to the exact date using the Reference Calendar and output it in YYYY-MM-DDTHH:mm:ss format. If no time is specified but a day is, set time to "12:00:00". Otherwise null.
+- datetime: If the customer mentions a specific date or time they want to book an appointment for (e.g. "saturday at 8am"), resolve it to the exact date using the Reference Calendar and output it in YYYY-MM-DDTHH:mm:ss format. If no time is specified but a day is, set time to "12:00:00". Otherwise an empty string.
 
 For 'complaint_topics' and 'praise_topics': Use concise phrases. 
 CRITICAL: If the communication mentions ANY safety concerns or dangerous behavior, include 'safety_violation' in complaint_topics.
@@ -92,69 +126,27 @@ CRITICAL: If the communication mentions ANY safety concerns or dangerous behavio
 Urgency mapping (Internal hint): 
 Set urgency_level to 'high' ONLY if contains_emergency_keywords is true OR (contains_quote_request is true AND contains_callback_request is true).`;
 
-			const response = await openai.responses.parse({
-				model: env.OPENAI_MODEL || 'gpt-4o-mini',
-				input: [
-					{ role: 'system', content: systemPrompt },
-					{ role: 'user', content: text }
-				],
+			const parsed = await claudeJSON<any>({
+				apiKey,
+				system: systemPrompt,
+				user: text,
+				schema: EXTRACTION_SCHEMA,
+				toolName: AI_EXTRACTION_PROTOCOL.name,
 				temperature: 0,
-				text: {
-					format: {
-						type: 'json_schema',
-						name: AI_EXTRACTION_PROTOCOL.name,
-						strict: true,
-						schema: {
-							type: 'object',
-							additionalProperties: false,
-							required: [
-								'contains_problem',
-								'contains_quote_request',
-								'contains_callback_request',
-								'contains_emergency_keywords',
-								'requested_contact_method',
-								'requested_action',
-								'detected_keywords',
-								'service_requested',
-								'sentiment',
-								'praise_topics',
-								'complaint_topics',
-								'summary',
-								'confidence_score',
-								'urgency_level',
-								'customer_name',
-								'has_name',
-								'datetime'
-							],
-							properties: {
-								contains_problem: { type: 'boolean' },
-								contains_quote_request: { type: 'boolean' },
-								contains_callback_request: { type: 'boolean' },
-								contains_emergency_keywords: { type: 'boolean' },
-								requested_contact_method: { type: 'string', enum: ['phone', 'email', 'text', 'none'] },
-								requested_action: { type: 'string' },
-								detected_keywords: { type: 'array', items: { type: 'string' } },
-								service_requested: { type: 'string' },
-								sentiment: { type: 'string', enum: ['positive', 'neutral', 'negative'] },
-								praise_topics: { type: 'array', items: { type: 'string' } },
-								complaint_topics: { type: 'array', items: { type: 'string' } },
-								summary: { type: 'string' },
-								confidence_score: { type: 'number' },
-								urgency_level: { type: 'string', enum: ['low', 'medium', 'high'] },
-								customer_name: { type: ['string', 'null'] },
-								has_name: { type: 'boolean' },
-								datetime: { type: ['string', 'null'] }
-							}
-						}
-					}
-				}
+				maxTokens: 1024
 			});
 
-			const parsed = (response as any).output_parsed;
-			extraction = ExtractionResultSchema.parse(parsed);
+			if (!parsed) {
+				useFallback = true;
+			} else {
+				// The schema uses empty strings for "none"; map them back to null for the zod shape.
+				if (parsed.customer_name === '') parsed.customer_name = null;
+				if (parsed.datetime === '') parsed.datetime = null;
+				extraction = ExtractionResultSchema.parse(parsed);
+			}
 		}
 	} catch (err) {
-		console.warn('OpenAI extraction failed, falling back to heuristics:', err);
+		console.warn('Claude extraction failed, falling back to heuristics:', err);
 		useFallback = true;
 	}
 

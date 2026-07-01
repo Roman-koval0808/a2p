@@ -10,7 +10,7 @@ import { isA2pEnabled, forwardSmsWebhook } from '$lib/server/a2p-client';
 import { PipelineSimulator } from '$lib/server/pipeline-simulator';
 import { draftResponse } from '$lib/ai/openai';
 import { draftConversationalReply } from '$lib/server/conversation';
-import { TELNYX_API_KEY, TELNYX_MESSAGING_PROFILE_ID, OPEN_AI_KEY } from '$env/static/private';
+import { TELNYX_API_KEY, TELNYX_MESSAGING_PROFILE_ID, ANTHROPIC_AI_KEY } from '$env/static/private';
 import { PUBLIC_BASE_URL } from '$env/static/public';
 import { normalizeUrl } from '$lib/utils';
 
@@ -269,7 +269,7 @@ export const POST: RequestHandler = async ({ request }) => {
 							customerName: contact?.name || extractedName || null,
 							locations: (company as any)?.locations || [],
 							accountBalance: contact?.accountBalance ?? null,
-							apiKey: OPEN_AI_KEY
+							apiKey: ANTHROPIC_AI_KEY
 						});
 						if (conv?.reply) {
 							draftText = conv.reply;
