@@ -189,6 +189,60 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		draftedResponse = `Hi ${customer.name || 'there'}, thanks for reaching out to ${company.name || 'us'}. We received your message and a support agent will get back to you shortly.`;
 	}
 
+	// If this caller has prior cross-channel history (past calls OR SMS), make the reply
+	// conversational and context-aware — carrying the earlier thread into this new call —
+	// instead of the first-touch scenario template above. (Emergencies keep the urgent template.)
+	if (draftedResponse && messageCategory !== 'emergency') {
+		try {
+			const last10 = (p: string | null | undefined) => (p || '').replace(/\D/g, '').slice(-10);
+			const callerDigits = last10(commLog.source);
+			if (callerDigits) {
+				const recent = await prisma.communicationLog.findMany({
+					where: {
+						companyId: commLog.companyId,
+						id: { not: commId },
+						created: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
+					},
+					orderBy: { created: 'asc' },
+					take: 100
+				});
+				const history = recent
+					.filter(
+						(l) => last10(l.source) === callerDigits || last10(l.destination) === callerDigits
+					)
+					.map((l) => {
+						const m = (l.metadata as any) || {};
+						const isVoice = l.type === 'voice';
+						const body = isVoice ? l.content || l.summary || m.summary || '' : l.content || '';
+						const prefix = isVoice ? (l.direction === 'inbound' ? '[Voicemail] ' : '[Call] ') : '';
+						return {
+							from: (l.direction === 'inbound' ? 'customer' : 'business') as 'customer' | 'business',
+							text: `${prefix}${body}`.trim()
+						};
+					})
+					.filter((t) => t.text);
+				if (history.length > 0) {
+					const { draftConversationalReply } = await import('./conversation');
+					const conv = await draftConversationalReply({
+						message: commLog.content || rawMessage,
+						history,
+						companyName: company.name || 'us',
+						customerName: customer.name || null,
+						locations: (company as any).locations || [],
+						accountBalance: customer.accountBalance ?? null,
+						apiKey: OPEN_AI_KEY
+					});
+					if (conv?.reply) {
+						draftedResponse = conv.reply;
+						console.log('[Orchestrator] Used conversational cross-channel reply (returning caller).');
+					}
+				}
+			}
+		} catch (e) {
+			console.error('[Orchestrator] Conversational override failed:', e);
+		}
+	}
+
 	// --- 3. Post-Processing: Thread Similarity Matching ---
 	// Match on the caller's phone (whichever leg is NOT the company number)
 	const callerPhone = commLog.source || '';
