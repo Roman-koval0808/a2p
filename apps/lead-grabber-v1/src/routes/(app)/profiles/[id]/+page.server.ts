@@ -1,6 +1,7 @@
 import { prisma } from '$lib/db';
 import { redirect, error } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
+import { conversationCode } from '$lib/utils/comm-id';
 
 export const load: PageServerLoad = async ({ params, locals, fetch }) => {
 	const user = locals.user;
@@ -246,10 +247,10 @@ export const load: PageServerLoad = async ({ params, locals, fetch }) => {
 				purpose = 'See Summary';
 			}
 
-			// Stable per-conversation COM ID derived from the customer's phone (same code across
-			// all calls/SMS with this customer), matching the communication-log page.
+			// Stable, random-looking per-conversation COM ID (hashed from the phone, not the raw
+			// digits) — same code across all calls/SMS with this customer, matching the comm-log page.
 			const custVal = log.direction === 'inbound' ? log.source : log.destination;
-			const convoDigits = (custVal || '').replace(/\D/g, '').slice(-10);
+			const convoCode = conversationCode(custVal);
 
 			return {
 				id: log.id,
@@ -261,7 +262,7 @@ export const load: PageServerLoad = async ({ params, locals, fetch }) => {
 				endpoint: log.destination || locals.user.company.id,
 				purpose: purpose,
 				summary: summary,
-				commId: convoDigits || log.communicationThreadId || log.id,
+				commId: convoCode || log.communicationThreadId || log.id,
 				status,
 				raw: log
 			};

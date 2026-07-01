@@ -1,6 +1,7 @@
 import { prisma } from '$lib/db';
 import type { PageServerLoad } from './$types';
 import { isA2pCommLogEnabled } from '$lib/server/a2p-client';
+import { conversationCode } from '$lib/utils/comm-id';
 
 const PAGE_SIZES = [10, 20, 50, 100] as const;
 
@@ -115,9 +116,9 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 			let displayDestination = isOutbound ? customerNameOrPhone : companyNameOrPhone;
 
 			// COM ID identifies the CONVERSATION: every call/SMS with the same customer shares one
-			// stable code, derived from the customer's phone — independent of the fragile
-			// thread-linking (which was giving each turn a different id).
-			const convoDigits = (customerValue || '').replace(/\D/g, '').slice(-10);
+			// stable, random-LOOKING code (hashed from the phone — never the raw digits), while
+			// different conversations get different codes.
+			const convoCode = conversationCode(customerValue);
 
 
 
@@ -133,7 +134,7 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 				metadata: meta,
 				created: log.created,
 				updated: log.updated.toISOString(),
-				commId: convoDigits || log.communicationThread?.id || log.communicationThreadId || log.id,
+				commId: convoCode || log.communicationThread?.id || log.communicationThreadId || log.id,
 				threadStatus: log.communicationThread?.status,
 				threadSummary: log.communicationThread?.summary,
 				assignedMemberNames,
@@ -156,7 +157,7 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 				metadata: { isDropCall: true, duration: dc.duration, knownContact: dc.knownContact },
 				created: dc.created,
 				updated: dc.updated.toISOString(),
-				commId: `DROP-${dc.id.slice(-6).toUpperCase()}`,
+				commId: conversationCode(dc.phoneNumber) || `DROP-${dc.id.slice(-6).toUpperCase()}`,
 				threadStatus: 'failed',
 				threadSummary: 'Dropped in IVR',
 				assignedMemberNames: [],
