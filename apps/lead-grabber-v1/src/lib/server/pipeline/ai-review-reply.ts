@@ -1,5 +1,5 @@
-import OpenAI from 'openai';
 import { env } from '$env/dynamic/private';
+import { claudeText } from '$lib/server/anthropic';
 
 export interface ReviewReplyDraftInput {
 	review_text: string;
@@ -12,18 +12,9 @@ export interface ReviewReplyDraftInput {
 	max_words?: number;
 }
 
-let _openai: OpenAI | null = null;
-function getOpenAIClient(): OpenAI | null {
-	const apiKey = env.AI_SEARCH_API_KEY ?? env.OPENAI_API_KEY;
-	if (!apiKey) return null;
-	if (_openai) return _openai;
-	_openai = new OpenAI({ apiKey, timeout: 12000, maxRetries: 0 });
-	return _openai;
-}
-
 export async function generateReviewReplyDraft(input: ReviewReplyDraftInput, mockMode: boolean): Promise<string> {
-	const openai = getOpenAIClient();
-	if (mockMode || !openai) {
+	const apiKey = env.ANTHROPIC_AI_KEY;
+	if (mockMode || !apiKey) {
 		return `Dear ${input.customer_name || 'Customer'},\n\nThank you for the thoughtful review. We are glad the work met your expectations, and we appreciate the note about communication before the appointment. We are improving our scheduling updates and would love to serve you again.\n- ${input.business_name || 'The Team'}`;
 	}
 
@@ -41,15 +32,13 @@ export async function generateReviewReplyDraft(input: ReviewReplyDraftInput, moc
 		`Review text: ${input.review_text}`
 	].filter(Boolean).join('\n');
 
-	const response = await openai.chat.completions.create({
-		model: env.OPENAI_MODEL || 'gpt-4o-mini',
-		messages: [
-			{ role: 'system', content: 'You are a helpful assistant that writes concise, professional business review replies.' },
-			{ role: 'user', content: prompt }
-		],
-		temperature: 0.3
+	const outputText = await claudeText({
+		apiKey,
+		system: 'You are a helpful assistant that writes concise, professional business review replies.',
+		messages: [{ role: 'user', content: prompt }],
+		temperature: 0.3,
+		maxTokens: 400
 	});
 
-	const outputText = response.choices?.[0]?.message?.content || '';
-	return outputText.trim();
+	return (outputText || '').trim();
 }

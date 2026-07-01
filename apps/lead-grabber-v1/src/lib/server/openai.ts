@@ -1,6 +1,56 @@
-import { OPEN_AI_KEY } from '$env/static/private';
+import { OPEN_AI_KEY, ANTHROPIC_AI_KEY } from '$env/static/private';
+import { claudeJSON } from './anthropic';
 
+// OpenAI is kept ONLY for Whisper audio transcription (Anthropic has no audio API).
+// All text analysis/classification uses Anthropic (Claude) via ./anthropic.
 const OPENAI_API_URL = 'https://api.openai.com/v1';
+
+const ANALYSIS_SCHEMA = {
+	type: 'object',
+	additionalProperties: false,
+	properties: {
+		summary: { type: 'string', description: 'concise 2-3 sentence summary' },
+		intent: { type: 'string', description: 'e.g. Billing, Sales, Support, Emergency' },
+		sub_intent: { type: 'string', description: 'more specific category, or empty string if N/A' },
+		urgency: { type: 'string', enum: ['low', 'medium', 'high'] },
+		actionItems: { type: 'array', items: { type: 'string' } },
+		sentiment: {
+			type: 'string',
+			enum: ['Positive', 'Negative', 'Neutral', 'Angry', 'Anxious']
+		},
+		callerName: { type: 'string', description: "caller's full name, or empty string if not stated" },
+		buyingSignals: { type: 'array', items: { type: 'string' } },
+		estimatedPrice: { type: 'number', description: 'estimated dollar value, or 0 if none' },
+		datetime: {
+			type: 'string',
+			description: 'appointment time as YYYY-MM-DDTHH:mm:ss, or empty string if none'
+		}
+	},
+	required: [
+		'summary',
+		'intent',
+		'sub_intent',
+		'urgency',
+		'actionItems',
+		'sentiment',
+		'callerName',
+		'buyingSignals',
+		'estimatedPrice',
+		'datetime'
+	]
+};
+
+const THREAD_MATCH_SCHEMA = {
+	type: 'object',
+	additionalProperties: false,
+	properties: {
+		matched_id: {
+			type: 'string',
+			description: 'ID of the recent message this belongs to, or empty string if unrelated'
+		}
+	},
+	required: ['matched_id']
+};
 
 /**
  * Transcribe audio using OpenAI's whisper-1 model.
@@ -93,11 +143,11 @@ export async function analyzeCallLog(
     Provide the output in valid JSON format with the following keys:
     - "summary": A concise summary of the call (2-3 sentences).
     - "intent": The main purpose or intent of the call (e.g., "Billing", "Sales", "Support", "Emergency").
-    - "sub_intent": A more specific category. E.g. if Billing, is it "Accounts Receivable" or "Accounts Payable"? If not applicable, return null.
+    - "sub_intent": A more specific category. E.g. if Billing, is it "Accounts Receivable" or "Accounts Payable"? If not applicable, return an empty string.
     - "urgency": One of "low", "medium", "high" based on the customer's tone and request.
     - "actionItems": A list of action items or next steps.
     - "sentiment": One of "Positive", "Negative", "Neutral", "Angry", "Anxious" based on the overall tone.
-    - "callerName": Extract the caller's full name if they introduce themselves (e.g., "Hi, this is John Smith" → "John Smith"). If no name is mentioned, return null.
+    - "callerName": Extract the caller's full name if they introduce themselves (e.g., "Hi, this is John Smith" → "John Smith"). If no name is mentioned, return an empty string.
     - "buyingSignals": An array of detected buying intent signals. Look for phrases like:
       - Wanting to book an appointment → "appointment_request"
       - Wanting to speak to a representative → "rep_request"
@@ -107,50 +157,28 @@ export async function analyzeCallLog(
       - Asking about pricing or availability → "pricing_inquiry"
       - Mentioning a competitor or comparison → "comparison_shopping"
       Return an empty array if no buying signals are detected.
-    - "estimatedPrice": A number representing the estimated dollar value or price for the job if discussed or can be reasonably estimated based on the type of work described (e.g., water heater replacement: 1500, repair burst pipe: 500, simple leak: 200, faucet install: 150, standard inspection: 99). If the caller mentions a specific budget, price, or quote amount, use that value. If no specific service is described to estimate a price, return null.
-    - "datetime": If the caller mentions a specific date or time they want to book an appointment for (e.g. "July 1 at 2pm" or "Saturday at 8am"), resolve it to the exact date using the Reference Calendar and output it in YYYY-MM-DDTHH:mm:ss format (e.g. "2026-06-27T08:00:00"). If no time is specified but a day is, set time to "12:00:00". If no appointment datetime is mentioned, return null.
+    - "estimatedPrice": A number representing the estimated dollar value or price for the job if discussed or can be reasonably estimated based on the type of work described (e.g., water heater replacement: 1500, repair burst pipe: 500, simple leak: 200, faucet install: 150, standard inspection: 99). If the caller mentions a specific budget, price, or quote amount, use that value. If no specific service is described to estimate a price, return 0.
+    - "datetime": If the caller mentions a specific date or time they want to book an appointment for (e.g. "July 1 at 2pm" or "Saturday at 8am"), resolve it to the exact date using the Reference Calendar and output it in YYYY-MM-DDTHH:mm:ss format (e.g. "2026-06-27T08:00:00"). If no time is specified but a day is, set time to "12:00:00". If no appointment datetime is mentioned, return an empty string.
 
     Transcript:
     "${transcript}"
     `;
 
-		console.log('🧠 Sending to OpenAI for analysis...');
-		const response = await fetch(`${OPENAI_API_URL}/chat/completions`, {
-			method: 'POST',
-			headers: {
-				Authorization: `Bearer ${OPEN_AI_KEY}`,
-				'Content-Type': 'application/json'
-			},
-			body: JSON.stringify({
-				model: 'gpt-4o-mini',
-				messages: [
-					{
-						role: 'system',
-						content:
-							'You are an expert customer service analyst. You analyze phone calls and voicemails to extract the caller identity, sentiment, buying intent, sub-intent, and requested appointment datetime. Return only valid JSON.'
-					},
-					{ role: 'user', content: prompt }
-				],
-				temperature: 0.1, // Low temperature for deterministic output
-				response_format: { type: 'json_object' }
-			}),
-			signal: AbortSignal.timeout(30000)
+		console.log('🧠 Sending to Claude for analysis...');
+		const result = await claudeJSON<any>({
+			apiKey: ANTHROPIC_AI_KEY,
+			system:
+				'You are an expert customer service analyst. You analyze phone calls and voicemails to extract the caller identity, sentiment, buying intent, sub-intent, and requested appointment datetime.',
+			user: prompt,
+			schema: ANALYSIS_SCHEMA,
+			toolName: 'analyze_call',
+			temperature: 0.1,
+			maxTokens: 1024
 		});
 
-		if (!response.ok) {
-			const errorText = await response.text();
-			console.error('OpenAI Analysis Error:', errorText);
-			throw new Error(`OpenAI Analysis Failed: ${response.status} ${response.statusText}`);
+		if (!result) {
+			throw new Error('No content received from Claude analysis');
 		}
-
-		const data = await response.json();
-		const content = data.choices[0]?.message?.content;
-
-		if (!content) {
-			throw new Error('No content received from OpenAI analysis');
-		}
-
-		const result = JSON.parse(content);
 		console.log('✅ Analysis complete:', result);
 
 		const validUrgencies = ['low', 'medium', 'high'];
@@ -165,7 +193,10 @@ export async function analyzeCallLog(
 			sentiment: result.sentiment || 'Neutral',
 			callerName: result.callerName || null,
 			buyingSignals: result.buyingSignals || [],
-			estimatedPrice: typeof result.estimatedPrice === 'number' ? result.estimatedPrice : null,
+			estimatedPrice:
+				typeof result.estimatedPrice === 'number' && result.estimatedPrice > 0
+					? result.estimatedPrice
+					: null,
 			datetime: result.datetime || null,
 			analysisSucceeded: true
 		};
@@ -200,33 +231,17 @@ New Message: "${currentMessage}"
 Recent Messages:
 ${recentMessages.map((m, i) => `[${i}] (ID: ${m.id}): "${m.content}"`).join('\n')}
 
-Output a JSON object with a single key "matched_id". If the new message belongs to one of the recent message threads, set "matched_id" to its ID. If it is a completely new and unrelated topic, set "matched_id" to null.
+Set "matched_id" to the ID of the recent message this belongs to. If it is a completely new and unrelated topic, set "matched_id" to an empty string.
 `;
-		const response = await fetch(`${OPENAI_API_URL}/chat/completions`, {
-			method: 'POST',
-			headers: {
-				Authorization: `Bearer ${OPEN_AI_KEY}`,
-				'Content-Type': 'application/json'
-			},
-			body: JSON.stringify({
-				model: 'gpt-4o-mini',
-				messages: [{ role: 'user', content: prompt }],
-				response_format: { type: 'json_object' },
-				temperature: 0.1
-			}),
-			signal: AbortSignal.timeout(30000)
+		const result = await claudeJSON<{ matched_id: string }>({
+			apiKey: ANTHROPIC_AI_KEY,
+			user: prompt,
+			schema: THREAD_MATCH_SCHEMA,
+			toolName: 'match_thread',
+			temperature: 0.1,
+			maxTokens: 128
 		});
-
-		if (!response.ok) {
-			const errorText = await response.text();
-			console.error('OpenAI Thread Matching Error:', errorText);
-			return null;
-		}
-
-		const data = await response.json();
-		const content = data.choices[0]?.message?.content || '{}';
-		const result = JSON.parse(content);
-		return result.matched_id || null;
+		return result?.matched_id || null;
 	} catch (error) {
 		console.error('Error in matchThreadOpenAI:', error);
 		return null;
