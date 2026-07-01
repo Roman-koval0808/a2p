@@ -21,6 +21,7 @@
 	import { enhance } from '$app/forms';
 	import { page } from '$app/state';
 	import CommunicationTable from '$lib/components/CommunicationTable.svelte';
+	import CommunicationSummaryDialog from '$lib/components/communication-summary-dialog.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
@@ -64,6 +65,7 @@
 		summary: string | null;
 		commId: string | null;
 		status: 'red' | 'green' | 'blue';
+		raw?: any;
 	}
 
 	interface CommSummary {
@@ -139,6 +141,7 @@
 
 	let connectionsExpanded = $state(true);
 	let selectedSummary = $state<Communication | null>(null);
+	let summaryDialogOpen = $state(false);
 	let showEditDialog = $state(false);
 	let editForm = $state({ name: '', email: '', phone: '' });
 	let pipelineDialogOpen = $state(false);
@@ -226,6 +229,7 @@
 
 	function handleSummaryClick(comm: Communication) {
 		selectedSummary = comm;
+		summaryDialogOpen = true;
 	}
 
 	function handleActionClick(action: string, comm: Communication) {
@@ -734,271 +738,76 @@
 		</Dialog.Content>
 	</Dialog.Root>
 
-	<!-- Summary Modal -->
-	{#if selectedSummary}
-		<div
-			class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50"
-			onclick={() => (selectedSummary = null)}
-			role="button"
-			tabindex="0"
-			onkeydown={(e) => {
-				if (e.key === 'Escape') selectedSummary = null;
-			}}
-		>
-			{#if selectedSummary.type === 'voice' && selectedSummary.direction === 'In'}
-				<!-- Incoming Call Modal -->
-				<div
-					class="relative h-[452px] w-[742px] rounded bg-white p-6 shadow-[0px_4px_4px_rgba(0,0,0,0.25)]"
-					onclick={(e) => e.stopPropagation()}
-				>
-					<!-- Close button -->
-					<button
-						onclick={() => (selectedSummary = null)}
-						class="absolute right-4 top-4 text-gray-500 hover:text-gray-700"
-						aria-label="Close"
-					>
-						<X class="h-5 w-5" />
-					</button>
-
-					<!-- Header -->
-					<div class="mb-4 flex items-start justify-between">
-						<div>
-							<p
-								class="mb-1 font-sans text-lg font-semibold leading-[1.29] tracking-normal text-[rgba(86,86,86,0.88)]"
-							>
-								AI Summary:
-							</p>
-							<p
-								class="font-sans text-lg font-normal leading-[1.29] tracking-normal text-[rgba(86,86,86,0.78)]"
-							>
-								{selectedSummary.date} | {selectedSummary.time}
-							</p>
-						</div>
-						<div class="text-right">
-							<p
-								class="mb-1 font-sans text-lg font-bold leading-[1.29] tracking-normal text-[rgba(86,86,86,0.78)]"
-							>
-								Comm ID - {selectedSummary.commId || 'N/A'}
-							</p>
-							<p
-								class="font-sans text-lg font-semibold leading-[1.29] tracking-normal text-[rgba(86,86,86,0.88)]"
-							>
-								Category: Sales
-							</p>
-							<p
-								class="text-right font-sans text-lg font-semibold leading-[1.29] tracking-normal text-[rgba(86,86,86,0.88)]"
-							>
-								Sub-Category: Inquiry/Demo
-							</p>
-						</div>
-					</div>
-
-					<!-- Summary Section -->
-					<div class="mb-4">
-						<p
-							class="mb-3 font-sans text-lg font-semibold leading-[1.29] tracking-normal text-[rgba(86,86,86,0.88)]"
-						>
-							Summary:
-						</p>
-						<div class="h-[133px] w-full rounded border-b border-[#BEBEBE] bg-[#F7F7F7] p-4">
-							<p
-								class="font-sans text-lg font-normal leading-[131%] tracking-normal text-[rgba(86,86,86,0.78)]"
-							>
-								Sarah Lee called regarding the new AI-powered roofing estimator. Mark explained the
-								features and offered to send a demo link. and will send a appointment time fo early
-								Friday morning.
-							</p>
-						</div>
-					</div>
-
-					<!-- Tasks -->
-					<div class="space-y-2">
-						<p
-							class="font-sans text-lg font-normal leading-[1.29] tracking-normal text-[rgba(86,86,86,0.78)]"
-						>
-							1st Task: Check Mark's Schedule for opening Friday morning
-						</p>
-						<p
-							class="font-sans text-lg font-normal leading-[1.29] tracking-normal text-[rgba(86,86,86,0.78)]"
-						>
-							2nd Task: Book appointment
-						</p>
-						<p
-							class="font-sans text-lg font-normal leading-[1.29] tracking-normal text-[rgba(86,86,86,0.78)]"
-						>
-							3rd Task: Send email demo link and appointment time
-						</p>
-					</div>
-				</div>
-			{:else if selectedSummary.type === 'email'}
-				<!-- Email Modal (Scaled Down) -->
-				<div
-					class="relative w-[600px] rounded bg-white p-5 shadow-[0px_4px_4px_rgba(0,0,0,0.25)]"
-					onclick={(e) => e.stopPropagation()}
-				>
-					<!-- Close button -->
-					<button
-						onclick={() => (selectedSummary = null)}
-						class="absolute right-4 top-4 text-gray-500 hover:text-gray-700"
-						aria-label="Close"
-					>
-						<X class="h-5 w-5" />
-					</button>
-
-					<!-- Header -->
-					<div class="mb-3 flex items-start justify-between">
-						<div>
-							<p
-								class="mb-1 font-sans text-base font-semibold leading-[1.29] tracking-normal text-[rgba(86,86,86,0.88)]"
-							>
-								AI Summary:
-							</p>
-							<p
-								class="font-sans text-base font-normal leading-[1.29] tracking-normal text-[rgba(86,86,86,0.78)]"
-							>
-								{selectedSummary.date} | {selectedSummary.time}
-							</p>
-						</div>
-						<div class="text-right">
-							<p
-								class="mb-1 font-sans text-base font-bold leading-[1.29] tracking-normal text-[rgba(86,86,86,0.78)]"
-							>
-								Comm ID - {selectedSummary.commId || 'N/A'}
-							</p>
-							<p
-								class="font-sans text-base font-semibold leading-[1.29] tracking-normal text-[rgba(86,86,86,0.88)]"
-							>
-								Category: Sales
-							</p>
-							<p
-								class="text-right font-sans text-base font-semibold leading-[1.29] tracking-normal text-[rgba(86,86,86,0.88)]"
-							>
-								Sub-Category: Book/Demo
-							</p>
-						</div>
-					</div>
-
-					<!-- Summary Section -->
-					<div class="mb-3">
-						<p
-							class="mb-2 font-sans text-base font-semibold leading-[1.29] tracking-normal text-[rgba(86,86,86,0.88)]"
-						>
-							Summary:
-						</p>
-						<div class="w-full rounded border-b border-[#BEBEBE] bg-[#F7F7F7] p-3">
-							<div class="space-y-2">
-								<div>
-									<span
-										class="font-sans text-sm font-normal leading-[141%] tracking-normal text-[rgba(86,86,86,0.78)]"
-									>
-										Email Address:
-									</span>
-									<span
-										class="font-sans text-sm font-medium leading-[141%] tracking-normal text-[rgba(86,86,86,0.78)]"
-									>
-										sarahlee@gmail.com
-									</span>
-								</div>
-								<div>
-									<span
-										class="font-sans text-sm font-normal leading-[141%] tracking-normal text-[rgba(86,86,86,0.78)]"
-									>
-										Subject Line:
-									</span>
-									<span
-										class="font-sans text-sm font-medium leading-[141%] tracking-normal text-[rgba(86,86,86,0.78)]"
-									>
-										Demo Link and Appointment time
-									</span>
-								</div>
-								<div>
-									<span
-										class="font-sans text-sm font-normal leading-[141%] tracking-normal text-[rgba(86,86,86,0.78)]"
-									>
-										Body:
-									</span>
-									<div class="mt-2 w-full rounded border-b border-[#BEBEBE] bg-[#FFFDFD] p-3">
-										<p
-											class="mb-2 font-sans text-sm font-medium leading-[141%] tracking-normal text-[rgba(86,86,86,0.78)]"
-										>
-											Hello Sarah,<br />
-											As per our conversation see demo link and as we discuss i book a appointment at
-											10am at the office.
-										</p>
-										<p
-											class="mb-2 font-sans text-sm font-normal italic leading-[141%] tracking-normal text-[rgba(123,132,249,0.78)] underline"
-										>
-											httpss://demolink1344/csag.com
-										</p>
-										<p
-											class="font-sans text-sm font-medium leading-[141%] tracking-normal text-[rgba(86,86,86,0.78)]"
-										>
-											Looking forward to see you<br />
-											if you have any question just five me a shout
-										</p>
-									</div>
-								</div>
-							</div>
-						</div>
-					</div>
-
-					<!-- Footer -->
-					<div>
-						<p
-							class="font-sans text-base font-normal leading-[1.29] tracking-normal text-[rgba(86,86,86,0.78)]"
-						>
-							Task: AI has to update the CRM & Engagement Score
-						</p>
-					</div>
-				</div>
-			{:else}
-				<!-- Default Modal for other types -->
-				<div
-					class="relative w-[600px] rounded bg-white p-5 shadow-[0px_4px_4px_rgba(0,0,0,0.25)]"
-					onclick={(e) => e.stopPropagation()}
-				>
-					<button
-						onclick={() => (selectedSummary = null)}
-						class="absolute right-4 top-4 text-gray-500 hover:text-gray-700"
-						aria-label="Close"
-					>
-						<X class="h-5 w-5" />
-					</button>
-					<div class="mb-3">
-						<p
-							class="mb-1 font-sans text-base font-semibold leading-[1.29] tracking-normal text-[rgba(86,86,86,0.88)]"
-						>
-							AI Summary:
-						</p>
-						<p
-							class="font-sans text-base font-normal leading-[1.29] tracking-normal text-[rgba(86,86,86,0.78)]"
-						>
-							{selectedSummary.date} | {selectedSummary.time}
-						</p>
-					</div>
-					<div class="mb-3 text-right">
-						<p
-							class="mb-1 font-sans text-base font-bold leading-[1.29] tracking-normal text-[rgba(86,86,86,0.78)]"
-						>
-							Comm ID - {selectedSummary.commId || 'N/A'}
-						</p>
-						<p
-							class="font-sans text-base font-semibold leading-[1.29] tracking-normal text-[rgba(86,86,86,0.88)]"
-						>
-							Category: Sales
-						</p>
-					</div>
-					<div class="w-full rounded border-b border-[#BEBEBE] bg-[#F7F7F7] p-3">
-						<p
-							class="font-sans text-sm font-normal leading-[131%] tracking-normal text-[rgba(86,86,86,0.78)]"
-						>
-							{selectedSummary.summary || 'No summary available.'}
-						</p>
-					</div>
-				</div>
-			{/if}
-		</div>
-	{/if}
+		<!-- Summary Modal: shared component, same as the communication log -->
+		{#if selectedSummary}
+			{@const meta = selectedSummary.raw?.metadata ?? {}}
+			{@const isVoice = selectedSummary.type === 'voice'}
+			{@const cap2 = (s: string) => (s ?? '').charAt(0).toUpperCase() + (s ?? '').slice(1)}
+			{@const hasRecordingId = isVoice && meta.recording_id}
+			{@const recordingUrl = hasRecordingId
+				? `/api/recording/${selectedSummary.id}`
+				: typeof meta.recording_urls === 'object' && meta.recording_urls !== null
+					? (meta.recording_urls.mp3 ??
+						meta.recording_urls.m4a ??
+						Object.values(meta.recording_urls).find(
+							(v) => typeof v === 'string' && v.startsWith('http')
+						))
+					: (meta.voicemail_url ?? null)}
+			{@const ivrDigit = meta.ivr_digit != null ? String(meta.ivr_digit) : ''}
+			{@const ivrIntentLabel = (meta.ivr_intent ?? '').toString()}
+			{@const calledNumber = (selectedSummary.endpoint ?? '')
+				.toString()
+				.replace(/\s*\([^)]*\)\s*$/, '')
+				.trim()}
+			{@const leftMessage = Boolean(recordingUrl || meta.recording_id || meta.recording_urls)}
+			{@const ivrPath =
+				isVoice && selectedSummary.direction === 'In'
+					? [
+							calledNumber ? `Called ${calledNumber}` : null,
+							ivrDigit
+								? `Pressed ${ivrDigit}${ivrIntentLabel ? ` (${ivrIntentLabel})` : ''}`
+								: ivrIntentLabel || null,
+							leftMessage ? 'Voicemail left' : null
+						]
+							.filter(Boolean)
+							.join(' · ') || null
+					: null}
+			<CommunicationSummaryDialog
+				bind:open={summaryDialogOpen}
+				commId={selectedSummary.commId || selectedSummary.id || ''}
+				date={selectedSummary.date}
+				time={selectedSummary.time}
+				category={meta.drop_call
+					? ''
+					: meta.message_category
+						? cap2(meta.message_category)
+						: meta.category_gpt
+							? cap2(meta.category_gpt)
+							: meta.sentiment
+								? cap2(meta.sentiment)
+								: ''}
+				subCategory={meta.drop_call
+					? ''
+					: meta.subcat_gpt
+						? cap2(meta.subcat_gpt)
+						: meta.sub_intent
+							? cap2(meta.sub_intent)
+							: meta.intent
+								? cap2(meta.intent)
+								: ''}
+				sourceLabel={isVoice ? 'Phone' : 'Email Address'}
+				email={selectedSummary.source ?? ''}
+				subject={meta.subject || 'No subject'}
+				body={selectedSummary.raw?.content || selectedSummary.summary || ''}
+				summary={selectedSummary.summary ?? ''}
+				tasks={meta.actionItems ?? meta.tasks ?? []}
+				{recordingUrl}
+				estimatedPrice={meta.estimatedPrice ?? null}
+				draftedMessage={selectedSummary.raw?.draftResponse || null}
+				department={meta.message_category || meta.ivr_intent || meta.intent || null}
+				{ivrPath}
+			/>
+		{/if}
 
 	<!-- Pipeline Modal -->
 	<PipelineModal bind:open={pipelineDialogOpen} eventData={selectedPipelineEvent} />
