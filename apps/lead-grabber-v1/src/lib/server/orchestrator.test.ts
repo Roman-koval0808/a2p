@@ -34,7 +34,7 @@ vi.mock('./message-intent', async (importActual) => {
     return { ...actual, classifyMessageIntent: vi.fn() };
 });
 
-vi.mock('$env/static/private', () => ({ OPEN_AI_KEY: 'test-key' }));
+vi.mock('$env/static/private', () => ({ OPEN_AI_KEY: 'test-key', ANTHROPIC_AI_KEY: 'test-key' }));
 
 import { classifyMessageIntent } from './message-intent';
 

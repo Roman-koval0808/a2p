@@ -23,6 +23,7 @@ declare global {
 		A2P_COMMLOG_API_URL?: string;
 		GROQ_API_KEY: string;
 		OPEN_AI_KEY: string;
+		ANTHROPIC_AI_KEY: string;
 		POCKETBASE_URL: string;
 		NODE_ENV: string;
 		PUBLIC_BASE_URL: string;
