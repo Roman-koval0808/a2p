@@ -218,23 +218,49 @@ export const POST: RequestHandler = async ({ request }) => {
 				// generic pipeline draft above. Falls back to it if this fails.
 				try {
 					if (companyId) {
-						const thread = await prisma.message.findFirst({
+						const cid = companyId as string;
+						const last10 = (p: string | null | undefined) =>
+							(p || '').replace(/\D/g, '').slice(-10);
+						const callerDigits = last10(normalizedPhoneNumber || phoneNumber);
+
+						// Build history from the UNIFIED CommunicationLog so context follows across
+						// BOTH channels — the original call/voicemail AND the SMS thread — not just SMS.
+						// Match by normalized digits so different phone formats still stitch together.
+						const recentLogs = await prisma.communicationLog.findMany({
 							where: {
-								OR: [{ threadId: normalizedPhoneNumber }, { customerPhone: normalizedPhoneNumber }]
-							}
+								companyId: cid,
+								created: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
+							},
+							orderBy: { created: 'asc' },
+							take: 100
 						});
-						const history = (((thread?.messages as any[]) || [])
-							.map((m: any) => ({
-								from: m.is_agent_reply ? ('business' as const) : ('customer' as const),
-								text: String(m.content || '')
-							}))
-							.filter((t: { text: string }) => t.text));
+						const history = recentLogs
+							.filter(
+								(l) => last10(l.source) === callerDigits || last10(l.destination) === callerDigits
+							)
+							.map((l) => {
+								const meta = (l.metadata as any) || {};
+								const isVoice = l.type === 'voice';
+								const body = isVoice ? l.content || l.summary || meta.summary || '' : l.content || '';
+								const prefix = isVoice
+									? l.direction === 'inbound'
+										? '[Voicemail] '
+										: '[Call] '
+									: '';
+								return {
+									from: (l.direction === 'inbound' ? 'customer' : 'business') as
+										| 'customer'
+										| 'business',
+									text: `${prefix}${body}`.trim()
+								};
+							})
+							.filter((t) => t.text);
 						const company = await prisma.company.findUnique({
-							where: { id: companyId as string },
+							where: { id: cid },
 							include: { locations: true }
 						});
 						const contact = await prisma.contact.findFirst({
-							where: { companyId: companyId as string, phone: normalizedPhoneNumber }
+							where: { companyId: cid, phone: normalizedPhoneNumber }
 						});
 						const conv = await draftConversationalReply({
 							message: smsText,
