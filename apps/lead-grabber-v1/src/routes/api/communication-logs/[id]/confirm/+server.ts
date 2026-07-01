@@ -30,14 +30,17 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 
 		// If it's an outbound SMS, actually send it!
 		if (log.type === 'sms' && log.direction === 'outbound') {
-			let fromNumber = log.source;
-			if (!fromNumber || fromNumber === 'Inbox' || !fromNumber.startsWith('+')) {
-				const companyNumbers = await prisma.companyPhoneNumber.findMany({
-					where: { companyId: log.companyId },
-					select: { phoneNumber: true }
-				});
-				const validNumbers = companyNumbers.map(n => normalizePhoneNumber(n.phoneNumber)).filter(Boolean);
-				
+			// Strip any "(Ext 1 - Billing)" annotation, then normalize.
+			let fromNumber = normalizePhoneNumber((log.source || '').replace(/\s*\([^)]*\)\s*$/, '').trim());
+			const companyNumbers = await prisma.companyPhoneNumber.findMany({
+				where: { companyId: log.companyId },
+				select: { phoneNumber: true }
+			});
+			const validNumbers = companyNumbers.map((n) => normalizePhoneNumber(n.phoneNumber)).filter(Boolean);
+
+			// The draft's `from` must be one of THIS company's real numbers; otherwise Telnyx
+			// rejects it ("Invalid source number"). If it isn't, fall back to a valid one.
+			if (!fromNumber || !fromNumber.startsWith('+') || !validNumbers.includes(fromNumber)) {
 				const telnyxNorm = normalizePhoneNumber(TELNYX_PHONE_NUMBER);
 				if (validNumbers.includes(telnyxNorm)) {
 					fromNumber = TELNYX_PHONE_NUMBER;

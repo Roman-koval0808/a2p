@@ -9,7 +9,8 @@ import { getCompanyIdByPhoneNumber } from '$lib/company-numbers';
 import { isA2pEnabled, forwardSmsWebhook } from '$lib/server/a2p-client';
 import { PipelineSimulator } from '$lib/server/pipeline-simulator';
 import { draftResponse } from '$lib/ai/openai';
-import { TELNYX_API_KEY, TELNYX_MESSAGING_PROFILE_ID } from '$env/static/private';
+import { draftConversationalReply } from '$lib/server/conversation';
+import { TELNYX_API_KEY, TELNYX_MESSAGING_PROFILE_ID, OPEN_AI_KEY } from '$env/static/private';
 import { PUBLIC_BASE_URL } from '$env/static/public';
 import { normalizeUrl } from '$lib/utils';
 
@@ -209,6 +210,50 @@ export const POST: RequestHandler = async ({ request }) => {
 						}
 					}
 
+				}
+
+				// Conversational reply: draft a natural, context-aware response that continues the
+				// thread — and if the customer proposed an appointment time, check it against the
+				// company's business hours and confirm or suggest an alternative. Overrides the
+				// generic pipeline draft above. Falls back to it if this fails.
+				try {
+					if (companyId) {
+						const thread = await prisma.message.findFirst({
+							where: {
+								OR: [{ threadId: normalizedPhoneNumber }, { customerPhone: normalizedPhoneNumber }]
+							}
+						});
+						const history = (((thread?.messages as any[]) || [])
+							.map((m: any) => ({
+								from: m.is_agent_reply ? ('business' as const) : ('customer' as const),
+								text: String(m.content || '')
+							}))
+							.filter((t: { text: string }) => t.text));
+						const company = await prisma.company.findUnique({
+							where: { id: companyId as string },
+							include: { locations: true }
+						});
+						const contact = await prisma.contact.findFirst({
+							where: { companyId: companyId as string, phone: normalizedPhoneNumber }
+						});
+						const conv = await draftConversationalReply({
+							message: smsText,
+							history,
+							companyName: company?.name || 'us',
+							customerName: contact?.name || extractedName || null,
+							locations: (company as any)?.locations || [],
+							accountBalance: contact?.accountBalance ?? null,
+							apiKey: OPEN_AI_KEY
+						});
+						if (conv?.reply) {
+							draftText = conv.reply;
+							console.log(
+								`[Conversational reply] booked=${conv.booked} available=${conv.available} -> "${conv.reply}"`
+							);
+						}
+					}
+				} catch (convErr) {
+					console.error('[Conversational reply] failed:', convErr);
 				}
 
 				if (pipelineResult && pipelineResult.success) {
