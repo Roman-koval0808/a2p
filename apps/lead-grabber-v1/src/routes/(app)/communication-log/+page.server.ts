@@ -1,7 +1,7 @@
 import { prisma } from '$lib/db';
 import type { PageServerLoad } from './$types';
 import { isA2pCommLogEnabled } from '$lib/server/a2p-client';
-import { conversationCode } from '$lib/utils/comm-id';
+import { commCode } from '$lib/utils/comm-id';
 
 const PAGE_SIZES = [10, 20, 50, 100] as const;
 
@@ -115,10 +115,11 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 			let displaySource = isOutbound ? companyNameOrPhone : customerNameOrPhone;
 			let displayDestination = isOutbound ? customerNameOrPhone : companyNameOrPhone;
 
-			// COM ID identifies the CONVERSATION: every call/SMS with the same customer shares one
-			// stable, random-LOOKING code (hashed from the phone — never the raw digits), while
-			// different conversations get different codes.
-			const convoCode = conversationCode(customerValue);
+			// COM ID identifies the THREAD (topic/context): every message the thread-matcher linked
+			// into the same conversation shares one random-LOOKING code; a different context — even
+			// from the same customer — is a different thread and gets a different code. Unlinked
+			// (brand-new) messages anchor on their own id.
+			const convoCode = commCode(log.communicationThreadId, log.id);
 
 
 
@@ -134,7 +135,7 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 				metadata: meta,
 				created: log.created,
 				updated: log.updated.toISOString(),
-				commId: convoCode || log.communicationThread?.id || log.communicationThreadId || log.id,
+				commId: convoCode,
 				threadStatus: log.communicationThread?.status,
 				threadSummary: log.communicationThread?.summary,
 				assignedMemberNames,
@@ -157,7 +158,7 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 				metadata: { isDropCall: true, duration: dc.duration, knownContact: dc.knownContact },
 				created: dc.created,
 				updated: dc.updated.toISOString(),
-				commId: conversationCode(dc.phoneNumber) || `DROP-${dc.id.slice(-6).toUpperCase()}`,
+				commId: `DROP-${dc.id.slice(-6).toUpperCase()}`,
 				threadStatus: 'failed',
 				threadSummary: 'Dropped in IVR',
 				assignedMemberNames: [],
