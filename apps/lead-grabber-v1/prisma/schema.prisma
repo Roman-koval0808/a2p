@@ -161,8 +161,26 @@ model Company {
   pipelineBusinessConfig      PipelineBusinessConfig?
   pipelineOrchestratorProfile PipelineOrchestratorProfile?
   dropCalls                   DropCall[]
+  googleCalendar              GoogleCalendarConnection?
 
   @@map("companies")
+}
+
+// Per-company Google Calendar OAuth connection. Kept in its own table (NOT in Company.settings)
+// so refresh tokens are never returned to the browser by any settings loader.
+model GoogleCalendarConnection {
+  id           String    @id @default(cuid())
+  companyId    String    @unique
+  company      Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  email        String?
+  accessToken  String?
+  refreshToken String?
+  expiresAt    DateTime?
+  calendarId   String    @default("primary")
+  created      DateTime  @default(now())
+  updated      DateTime  @updatedAt
+
+  @@map("google_calendar_connections")
 }
 
 // Call tracking: company-defined categories (e.g. "Facebook", "Customer Care") for numbers
