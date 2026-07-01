@@ -42,18 +42,16 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 		console.error('Failed to load profiles from ProfileDB:', err);
 	}
 
-	// Always merge in local contacts so every caller with a profile shows here — even when
-	// ProfileDB is unreachable or hasn't ingested a freshly-created caller yet.
+	// One profile per caller: local Contacts are the source of truth (they hold the phone,
+	// name, engagement score and balance). We keep ProfileDB profiles ONLY for leads whose
+	// phone isn't already a local contact, or that have an email / real name — this drops the
+	// anonymous "Unknown Caller" ProfileDB twin that a call/SMS creates alongside the contact.
 	try {
 		const last10 = (p: string | null | undefined) => (p || '').replace(/\D/g, '').slice(-10);
-		const seen = new Set(profiles.map((p: any) => last10(p.phone || p.clearPhone)).filter(Boolean));
 		const contacts = (await getContactsByCompany(user.company.id, 200)) as any[];
-		for (const c of contacts) {
-			const d = last10(c.phone);
-			if (d && seen.has(d)) continue;
-			if (d) seen.add(d);
+		const localList = contacts.map((c) => {
 			const score = c.engagementScore ?? 0;
-			profiles.push({
+			return {
 				id: c.id,
 				name: c.name || '',
 				phone: c.phone || '',
@@ -65,8 +63,18 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 				scoreLive: score,
 				intentBucket: score >= 20 ? 'active' : 'research',
 				lastSeen: c.updated ?? c.created ?? null
-			});
-		}
+			};
+		});
+		const localPhones = new Set(localList.map((c) => last10(c.phone)).filter(Boolean));
+		const extraProfileDb = profiles.filter((p: any) => {
+			const d = last10(p.phone || p.clearPhone);
+			if (d) return !localPhones.has(d); // distinct-phone lead (e.g. web-only)
+			// No phone: keep only if it has a real email or a non-anonymous name.
+			const email = p.email || (p.clearEmail && p.clearEmail !== '—' ? p.clearEmail : '');
+			const named = p.name && !['Unknown Caller', 'Anonymous', 'Unknown'].includes(p.name);
+			return !!email || !!named;
+		});
+		profiles = [...localList, ...extraProfileDb];
 	} catch (err) {
 		console.error('Failed to merge local contacts into profiles:', err);
 	}
