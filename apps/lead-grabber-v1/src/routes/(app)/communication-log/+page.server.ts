@@ -114,6 +114,11 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 			let displaySource = isOutbound ? companyNameOrPhone : customerNameOrPhone;
 			let displayDestination = isOutbound ? customerNameOrPhone : companyNameOrPhone;
 
+			// COM ID identifies the CONVERSATION: every call/SMS with the same customer shares one
+			// stable code, derived from the customer's phone — independent of the fragile
+			// thread-linking (which was giving each turn a different id).
+			const convoDigits = (customerValue || '').replace(/\D/g, '').slice(-10);
+
 
 
 			return {
@@ -128,7 +133,7 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 				metadata: meta,
 				created: log.created,
 				updated: log.updated.toISOString(),
-				commId: log.communicationThread?.id || log.communicationThreadId,
+				commId: convoDigits || log.communicationThread?.id || log.communicationThreadId || log.id,
 				threadStatus: log.communicationThread?.status,
 				threadSummary: log.communicationThread?.summary,
 				assignedMemberNames,
