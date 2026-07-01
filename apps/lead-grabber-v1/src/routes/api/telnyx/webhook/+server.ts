@@ -11,6 +11,8 @@ import { PipelineSimulator } from '$lib/server/pipeline-simulator';
 import { draftResponse } from '$lib/ai/openai';
 import { draftConversationalReply } from '$lib/server/conversation';
 import { getBookingUrl } from '$lib/utils/booking';
+import { getConnectionInfo, bookAppointment } from '$lib/server/google-calendar';
+import { formatDatetime } from '$lib/server/calendar';
 import { TELNYX_API_KEY, TELNYX_MESSAGING_PROFILE_ID, ANTHROPIC_AI_KEY } from '$env/static/private';
 import { PUBLIC_BASE_URL } from '$env/static/public';
 import { normalizeUrl } from '$lib/utils';
@@ -263,6 +265,7 @@ export const POST: RequestHandler = async ({ request }) => {
 						const contact = await prisma.contact.findFirst({
 							where: { companyId: cid, phone: normalizedPhoneNumber }
 						});
+						const gconn = await getConnectionInfo(cid);
 						const conv = await draftConversationalReply({
 							message: smsText,
 							history,
@@ -270,7 +273,8 @@ export const POST: RequestHandler = async ({ request }) => {
 							customerName: contact?.name || extractedName || null,
 							locations: (company as any)?.locations || [],
 							accountBalance: contact?.accountBalance ?? null,
-							bookingUrl: getBookingUrl(company),
+							// Prefer Google auto-booking; only offer a paste-link when Google isn't connected.
+							bookingUrl: gconn.connected ? null : getBookingUrl(company),
 							apiKey: ANTHROPIC_AI_KEY
 						});
 						if (conv?.reply) {
@@ -278,6 +282,22 @@ export const POST: RequestHandler = async ({ request }) => {
 							console.log(
 								`[Conversational reply] booked=${conv.booked} available=${conv.available} -> "${conv.reply}"`
 							);
+						}
+						// If Google Calendar is connected and the customer named a time, book it and confirm.
+						if (gconn.connected && conv?.datetime) {
+							const when = formatDatetime(conv.datetime);
+							const r = await bookAppointment(cid, conv.datetime, {
+								summary: `Appointment — ${contact?.name || 'Customer'}`,
+								description: `Booked automatically from an SMS via ${company?.name || 'the AI assistant'}.`,
+								attendeeEmail: contact?.email || null
+							});
+							if (r.status === 'booked') {
+								draftText = r.meetLink
+									? `You're booked for ${when}! Here's your meeting link: ${r.meetLink}. See you then!`
+									: `You're all booked for ${when}! See you then.`;
+							} else if (r.status === 'busy') {
+								draftText = `Thanks! Unfortunately ${when} is already taken — what other day or time works for you?`;
+							}
 						}
 					}
 				} catch (convErr) {

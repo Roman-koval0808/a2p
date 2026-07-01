@@ -7,7 +7,7 @@
 	import { Switch } from '$lib/components/ui/switch/index';
 	import * as Tabs from '$lib/components/ui/tabs/index';
 	import { toast } from 'svelte-sonner';
-	import { Loader2, Users } from 'lucide-svelte';
+	import { Loader2, Users, Calendar } from 'lucide-svelte';
 	import { onDestroy, onMount } from 'svelte';
 	import * as Dialog from '$lib/components/ui/dialog/index';
 	import * as Select from '$lib/components/ui/select/index.js';
@@ -67,6 +67,8 @@
 			}>;
 			userRole?: string;
 			isAdminOrOwner?: boolean;
+			googleCalendar?: { connected: boolean; email: string | null };
+			googleConfigured?: boolean;
 		};
 	}>();
 	let company = data.company;
@@ -74,6 +76,28 @@
 	let form: any;
 	let loading = $state(false);
 	let previewUrl: string | null = $state(null);
+
+	// Toast the result of the Google Calendar OAuth round-trip (?calendar=connected|error|disconnected).
+	onMount(() => {
+		const status = new URLSearchParams(window.location.search).get('calendar');
+		if (status === 'connected') toast.success('Google Calendar connected!');
+		else if (status === 'disconnected') toast.success('Google Calendar disconnected.');
+		else if (status === 'error') toast.error('Could not connect Google Calendar. Please try again.');
+		if (status) {
+			const u = new URL(window.location.href);
+			u.searchParams.delete('calendar');
+			history.replaceState(null, '', u.toString());
+		}
+	});
+
+	async function disconnectCalendar() {
+		try {
+			await fetch('?/disconnectCalendar', { method: 'POST', body: new FormData() });
+		} catch (e) {
+			// ignore — we reload regardless
+		}
+		window.location.href = '/settings/company?calendar=disconnected';
+	}
 								
 	$effect(() => {
 		if (form?.success) {
@@ -180,7 +204,53 @@
 								</div>
 
 								<div class="space-y-2">
-									<Label for="bookingUrl">Booking Calendar Link</Label>
+									<Label>Booking Calendar</Label>
+									{#if data.googleCalendar?.connected}
+										<div
+											class="flex items-start justify-between gap-3 rounded-lg border border-green-200 bg-green-50 px-3 py-3"
+										>
+											<div class="flex items-start gap-2 text-sm">
+												<Calendar class="mt-0.5 h-4 w-4 shrink-0 text-green-600" />
+												<div>
+													<span class="font-medium text-green-800">Google Calendar connected</span>
+													{#if data.googleCalendar.email}
+														<span class="text-green-700"> · {data.googleCalendar.email}</span>
+													{/if}
+													<p class="mt-0.5 text-green-700">
+														When the AI agrees an appointment time, it checks your availability and books
+														it on your calendar (with a Google Meet link) automatically.
+													</p>
+												</div>
+											</div>
+											<button
+												type="button"
+												onclick={disconnectCalendar}
+												class="shrink-0 text-sm font-medium text-red-600 hover:underline"
+											>
+												Disconnect
+											</button>
+										</div>
+									{:else if data.googleConfigured}
+										<a
+											href="/api/google/calendar/connect"
+											class="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+										>
+											<Calendar class="h-4 w-4 text-blue-600" /> Connect Google Calendar
+										</a>
+										<p class="text-sm text-muted-foreground">
+											Connect once — when the AI agrees an appointment time over text, it books it on
+											your calendar automatically (with a Meet link). No booking page to manage.
+										</p>
+									{:else}
+										<p class="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700">
+											Google Calendar isn't configured on the server yet. You can still use a booking
+											link below.
+										</p>
+									{/if}
+								</div>
+
+								<div class="space-y-2">
+									<Label for="bookingUrl">Booking Calendar Link (optional)</Label>
 									<Input
 										id="bookingUrl"
 										name="bookingUrl"
@@ -189,9 +259,9 @@
 										placeholder="https://calendar.google.com/calendar/appointments/..."
 									/>
 									<p class="text-sm text-muted-foreground">
-										Paste your Google Calendar Appointment Schedule (or Calendly) booking page URL.
-										When a customer asks for an appointment, the AI reply invites them to pick an open
-										slot themselves — it books both sides and lets them cancel anytime.
+										Alternative to connecting above: paste a Google Appointment Schedule (or Calendly)
+										link and the AI will send it so customers can self-book. Used only when Google
+										Calendar isn't connected.
 									</p>
 								</div>
 

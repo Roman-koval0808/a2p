@@ -24,6 +24,8 @@ declare global {
 		GROQ_API_KEY: string;
 		OPEN_AI_KEY: string;
 		ANTHROPIC_AI_KEY: string;
+		GOOGLE_CLIENT_ID: string;
+		GOOGLE_CLIENT_SECRET: string;
 		POCKETBASE_URL: string;
 		NODE_ENV: string;
 		PUBLIC_BASE_URL: string;
