@@ -1,0 +1,384 @@
+==================================================================
+  AI COMMUNICATION HANDLING — TESTED SCENARIOS REPORT
+  Marie INC (demo) — plumbing / HVAC / roofing
+  Business hours used: Mon–Fri 10am–6pm, Sat 12pm–8pm, Sun closed
+  Every result below is a LIVE call to the production AI pipeline.
+==================================================================
+
+For each message the AI extracts: intent, urgency, whether the
+customer wants an appointment or their balance, a confidence score,
+and whether a human should review it. It then routes the message and
+drafts a reply — checking real business hours before offering a time.
+
+------------------------------------------------------------------
+SCENARIO 1: Burst pipe emergency
+Channel: Voicemail
+Customer: "Hi, this is Dave, my pipe just burst and water is pouring into my kitchen, I need someone right now!"
+
+AI Classification:
+  • Intent bucket ..... emergency
+  • Urgency ........... critical
+  • Wants appointment . no
+  • Wants balance ..... no
+  • Sentiment ......... negative
+  • Confidence ........ 0.95
+  • Needs human review  no
+  • Routed to ......... EMERGENCY
+  • Reason ............ Active flooding due to a burst pipe is an emergency.
+
+Action: OWNER ALERTED IMMEDIATELY (urgent SMS + email).
+AI Reply: "Hi there, we received your urgent message and someone from Marie INC will call you back right away."
+
+------------------------------------------------------------------
+SCENARIO 2: IVR conflict — pressed Billing but it is an emergency
+Channel: Voicemail (pressed 1 = Billing)
+Customer: "I pressed the billing option but honestly my basement is flooding, there's water everywhere, please help."
+
+AI Classification:
+  • Intent bucket ..... emergency
+  • Urgency ........... critical
+  • Wants appointment . no
+  • Wants balance ..... no
+  • Sentiment ......... negative
+  • Confidence ........ 0.95
+  • Needs human review  no
+  • Routed to ......... EMERGENCY
+  • Reason ............ Active flooding is an emergency.
+
+Action: OWNER ALERTED IMMEDIATELY (urgent SMS + email).
+AI Reply: "Hi there, we received your urgent message and someone from Marie INC will call you back right away."
+
+------------------------------------------------------------------
+SCENARIO 3: Book a service visit
+Channel: Voicemail
+Customer: "Hi, my furnace is making a weird noise, can someone come out and take a look at it sometime this week?"
+
+AI Classification:
+  • Intent bucket ..... booking
+  • Urgency ........... medium
+  • Wants appointment . yes
+  • Wants balance ..... no
+  • Sentiment ......... neutral
+  • Confidence ........ 0.92
+  • Needs human review  no
+  • Routed to ......... SALES
+  • Reason ............ Wants someone to come out to check the furnace — a scheduling request.
+
+AI Reply: "Hi! Thanks for contacting Marie INC. We received your booking request. What day and time works best for you?"
+
+------------------------------------------------------------------
+SCENARIO 4: Book an appointment to pay a bill
+Channel: Voicemail
+Customer: "I just want to inquire, I'd like to book an appointment to come down and pay my bill. My name is Marie."
+
+AI Classification:
+  • Intent bucket ..... booking
+  • Urgency ........... low
+  • Wants appointment . yes
+  • Wants balance ..... yes
+  • Sentiment ......... neutral
+  • Confidence ........ 0.9
+  • Needs human review  no
+  • Routed to ......... SALES
+  • Reason ............ Primary ask is to book an appointment to come in; paying is secondary.
+
+AI Reply: "Hi! Thanks for contacting Marie INC. We received your booking request. What day and time works best for you?"
+
+------------------------------------------------------------------
+SCENARIO 5: Balance inquiry only
+Channel: SMS
+Customer: "Hi what's my current balance? I think I owe you for the last job."
+
+AI Classification:
+  • Intent bucket ..... billing
+  • Urgency ........... low
+  • Wants appointment . no
+  • Wants balance ..... yes
+  • Sentiment ......... neutral
+  • Confidence ........ 0.94
+  • Needs human review  no
+  • Routed to ......... BILLING
+  • Reason ............ Asking about their outstanding balance only.
+
+AI Reply: "You currently owe $1130.00, Thank you for your business have a nice day."
+
+------------------------------------------------------------------
+SCENARIO 6: Follow-up balance question mid-thread
+Channel: SMS
+Customer: "wait, how much do I actually owe again?"
+
+AI Classification:
+  • Intent bucket ..... billing
+  • Urgency ........... low
+  • Wants appointment . no
+  • Wants balance ..... yes
+  • Sentiment ......... neutral
+  • Confidence ........ 0.95
+  • Needs human review  no
+  • Routed to ......... BILLING
+  • Reason ............ Asking about their outstanding balance only.
+
+AI Reply: "You currently have an outstanding balance of $1130.00. Let me know if you have any other questions or need help with anything else!"
+
+------------------------------------------------------------------
+SCENARIO 7: New sales prospect
+Channel: SMS
+Customer: "Hey, I'm interested in getting a quote for a whole new AC unit for my house."
+
+AI Classification:
+  • Intent bucket ..... sales
+  • Urgency ........... low
+  • Wants appointment . no
+  • Wants balance ..... no
+  • Sentiment ......... neutral
+  • Confidence ........ 0.92
+  • Needs human review  no
+  • Routed to ......... SALES
+  • Reason ............ Customer is interested in a quote for a new AC unit.
+
+AI Reply: "Hi! Thanks for contacting Marie INC. We received your booking request. What day and time works best for you?"
+
+------------------------------------------------------------------
+SCENARIO 8: Service complaint
+Channel: Voicemail
+Customer: "Your technician was supposed to show up yesterday and nobody came. This is really frustrating."
+
+AI Classification:
+  • Intent bucket ..... complaint
+  • Urgency ........... high
+  • Wants appointment . no
+  • Wants balance ..... no
+  • Sentiment ......... negative
+  • Confidence ........ 0.95
+  • Needs human review  no
+  • Routed to ......... SUPPORT
+  • Reason ............ Customer is frustrated due to a missed appointment.
+
+AI Reply: "Hi there, thanks for reaching out to Marie INC. We received your message and a support agent will get back to you shortly."
+
+------------------------------------------------------------------
+SCENARIO 9: Cancellation
+Channel: SMS
+Customer: "I need to cancel my appointment on Thursday, something came up."
+
+AI Classification:
+  • Intent bucket ..... cancellation
+  • Urgency ........... low
+  • Wants appointment . no
+  • Wants balance ..... no
+  • Sentiment ......... neutral
+  • Confidence ........ 0.95
+  • Needs human review  no
+  • Routed to ......... SUPPORT
+  • Reason ............ Customer wants to cancel their appointment.
+
+AI Reply: "Hi there, thanks for reaching out to Marie INC. We received your message and a support agent will get back to you shortly."
+
+------------------------------------------------------------------
+SCENARIO 10: Status follow-up
+Channel: SMS
+Customer: "Just checking on the status of the repair ticket I opened last week."
+
+AI Classification:
+  • Intent bucket ..... follow_up
+  • Urgency ........... low
+  • Wants appointment . no
+  • Wants balance ..... no
+  • Sentiment ......... neutral
+  • Confidence ........ 0.95
+  • Needs human review  no
+  • Routed to ......... SUPPORT
+  • Reason ............ Customer is inquiring about the status of an existing repair ticket.
+
+AI Reply: "Hi there, thanks for reaching out to Marie INC. We received your message and a support agent will get back to you shortly."
+
+------------------------------------------------------------------
+SCENARIO 11: Proposes an available time
+Channel: SMS
+Customer: "Can you do Wednesday at 2pm?"
+
+AI Classification:
+  • Intent bucket ..... booking
+  • Urgency ........... low
+  • Wants appointment . yes
+  • Wants balance ..... no
+  • Sentiment ......... neutral
+  • Confidence ........ 0.9
+  • Needs human review  no
+  • Routed to ......... SALES
+  • Reason ............ Customer is requesting to schedule an appointment.
+
+Appointment check: proposed time available → BOOKED
+AI Reply: "Absolutely, I’ve got you booked for Wednesday, July 1 at 2:00 PM! Looking forward to seeing you then!"
+
+------------------------------------------------------------------
+SCENARIO 12: Proposes a closed day (Sunday)
+Channel: SMS
+Customer: "How about Sunday at noon?"
+
+AI Classification:
+  • Intent bucket ..... booking
+  • Urgency ........... low
+  • Wants appointment . yes
+  • Wants balance ..... no
+  • Sentiment ......... neutral
+  • Confidence ........ 0.85
+  • Needs human review  no
+  • Routed to ......... SALES
+  • Reason ............ Customer is suggesting a specific time for an appointment.
+
+Appointment check: proposed time NOT available
+AI Reply: "I'm really sorry, but we're not open on Sundays. Our hours are Monday to Friday from 10am to 6pm, and Saturday from 12pm to 8pm. Would another time during those hours work for you?"
+
+------------------------------------------------------------------
+SCENARIO 13: Proposes an after-hours time
+Channel: SMS
+Customer: "Could someone come by at 11pm tonight?"
+
+AI Classification:
+  • Intent bucket ..... booking
+  • Urgency ........... high
+  • Wants appointment . yes
+  • Wants balance ..... no
+  • Sentiment ......... neutral
+  • Confidence ........ 0.85
+  • Needs human review  no
+  • Routed to ......... SALES
+  • Reason ............ Customer is requesting someone to come by, indicating a scheduling request.
+
+Appointment check: proposed time NOT available
+AI Reply: "I'm really sorry, but we close at 6pm. Would you be available for a visit tomorrow during our business hours, from 10am to 6pm?"
+
+------------------------------------------------------------------
+SCENARIO 14: Vague day only
+Channel: SMS
+Customer: "Sometime next Tuesday would be great."
+
+AI Classification:
+  • Intent bucket ..... booking
+  • Urgency ........... low
+  • Wants appointment . yes
+  • Wants balance ..... no
+  • Sentiment ......... neutral
+  • Confidence ........ 0.85
+  • Needs human review  no
+  • Routed to ......... SALES
+  • Reason ............ Customer is indicating a desire to schedule an appointment.
+
+Appointment check: proposed time NOT available
+AI Reply: "Thanks for getting back to us! We’re open Tuesday from 10 AM to 6 PM. Would 10 AM work for you?"
+
+------------------------------------------------------------------
+SCENARIO 15: Confirms the appointment
+Channel: SMS
+Customer: "Yes that works perfectly, thank you!"
+
+AI Classification:
+  • Intent bucket ..... other
+  • Urgency ........... low
+  • Wants appointment . no
+  • Wants balance ..... no
+  • Sentiment ......... positive
+  • Confidence ........ 0.85
+  • Needs human review  no
+  • Routed to ......... SUPPORT
+  • Reason ............ The message is positive but lacks specific intent.
+
+AI Reply: "You're very welcome! We're looking forward to seeing you on Wednesday at 2 PM. If you have any questions before then, just let me know!"
+
+------------------------------------------------------------------
+SCENARIO 16: General hours inquiry
+Channel: SMS
+Customer: "What are your hours?"
+
+AI Classification:
+  • Intent bucket ..... inquiry
+  • Urgency ........... low
+  • Wants appointment . no
+  • Wants balance ..... no
+  • Sentiment ......... neutral
+  • Confidence ........ 0.95
+  • Needs human review  no
+  • Routed to ......... SUPPORT
+  • Reason ............ Asking a general question about business hours.
+
+AI Reply: "Hi there, thanks for reaching out to Marie INC. We received your message and a support agent will get back to you shortly."
+
+------------------------------------------------------------------
+SCENARIO 17: No heat in winter (emergency)
+Channel: Voicemail
+Customer: "Our furnace completely died and it's freezing in here, we have a newborn baby, please help."
+
+AI Classification:
+  • Intent bucket ..... emergency
+  • Urgency ........... critical
+  • Wants appointment . no
+  • Wants balance ..... no
+  • Sentiment ......... negative
+  • Confidence ........ 0.95
+  • Needs human review  no
+  • Routed to ......... EMERGENCY
+  • Reason ............ No heat in freezing conditions with a newborn is an emergency.
+
+Action: OWNER ALERTED IMMEDIATELY (urgent SMS + email).
+AI Reply: "Hi there, we received your urgent message and someone from Marie INC will call you back right away."
+
+------------------------------------------------------------------
+SCENARIO 18: Reschedule request
+Channel: SMS
+Customer: "Can we move my appointment to Friday instead?"
+
+AI Classification:
+  • Intent bucket ..... booking
+  • Urgency ........... medium
+  • Wants appointment . yes
+  • Wants balance ..... no
+  • Sentiment ......... neutral
+  • Confidence ........ 0.95
+  • Needs human review  no
+  • Routed to ......... SALES
+  • Reason ............ Requesting to reschedule an existing appointment.
+
+Appointment check: proposed time NOT available
+AI Reply: "I’d love to help with that! However, we open at 10 AM on Fridays. Would you like to book for Friday at 10 AM instead?"
+
+------------------------------------------------------------------
+SCENARIO 19: Partial payment + schedule remaining work
+Channel: Voicemail
+Customer: "I'd like to pay $500 toward my balance and schedule someone to finish the rest of the job."
+
+AI Classification:
+  • Intent bucket ..... booking
+  • Urgency ........... low
+  • Wants appointment . yes
+  • Wants balance ..... yes
+  • Sentiment ......... neutral
+  • Confidence ........ 0.92
+  • Needs human review  no
+  • Routed to ......... SALES
+  • Reason ............ Wants to schedule someone to finish the job and also mentions payment.
+
+AI Reply: "Hi! Thanks for contacting Marie INC. We received your booking request. What day and time works best for you?"
+
+------------------------------------------------------------------
+SCENARIO 20: Saturday afternoon booking (available)
+Channel: SMS
+Customer: "Okay, Saturday at 1pm then?"
+
+AI Classification:
+  • Intent bucket ..... booking
+  • Urgency ........... low
+  • Wants appointment . yes
+  • Wants balance ..... no
+  • Sentiment ......... neutral
+  • Confidence ........ 0.85
+  • Needs human review  no
+  • Routed to ......... SALES
+  • Reason ............ Customer is confirming a scheduled appointment.
+
+Appointment check: proposed time available → BOOKED
+AI Reply: "Great choice! I’ve booked you for Saturday, July 4 at 1:00 PM. Looking forward to seeing you then!"
+
+==================================================================
+  END OF REPORT
+==================================================================
