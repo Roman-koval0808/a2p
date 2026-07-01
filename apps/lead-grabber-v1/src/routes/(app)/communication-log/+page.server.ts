@@ -101,7 +101,12 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 			let customerValue = isOutbound ? log.destination : log.source;
 			let companyValue = isOutbound ? log.source : log.destination;
 			
-			const customerNameOrPhone = log.customer?.name || log.communicationThread?.contact?.name || customerValue || '—';
+			// Treat placeholder names as "no name" so we show the phone number instead of
+			// a useless "Unknown Caller" for the source/endpoint.
+			const GENERIC_NAMES = ['Unknown Caller', 'Unknown Customer', 'Anonymous', 'Unknown', 'Valued Customer'];
+			const rawContactName = log.customer?.name || log.communicationThread?.contact?.name || '';
+			const realName = rawContactName && !GENERIC_NAMES.includes(rawContactName) ? rawContactName : '';
+			const customerNameOrPhone = realName || customerValue || '—';
 			const companyNameOrPhone = companyValue || companyId;
 
 			// If inbound: customer sent it (source), company received it (destination)
