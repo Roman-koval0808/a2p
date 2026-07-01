@@ -180,6 +180,22 @@
 								</div>
 
 								<div class="space-y-2">
+									<Label for="bookingUrl">Booking Calendar Link</Label>
+									<Input
+										id="bookingUrl"
+										name="bookingUrl"
+										value={company.settings?.booking_url || ''}
+										type="url"
+										placeholder="https://calendar.google.com/calendar/appointments/..."
+									/>
+									<p class="text-sm text-muted-foreground">
+										Paste your Google Calendar Appointment Schedule (or Calendly) booking page URL.
+										When a customer asks for an appointment, the AI reply invites them to pick an open
+										slot themselves — it books both sides and lets them cancel anytime.
+									</p>
+								</div>
+
+								<div class="space-y-2">
 									<Label for="primaryColor">Brand Color</Label>
 									<div class="flex gap-2">
 										<Input

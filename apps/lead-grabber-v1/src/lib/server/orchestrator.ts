@@ -3,6 +3,7 @@ import { logCommunication } from '$lib/utils/communication-log';
 import { toE164 } from '$lib/company-numbers';
 import { classifyMessageIntent, bucketToCategory } from './message-intent';
 import { checkCalendarAvailability, formatDatetime } from './calendar';
+import { getBookingUrl } from '$lib/utils/booking';
 import { ANTHROPIC_AI_KEY } from '$env/static/private';
 
 export async function process_orchestrator(commId: string, trigger: string) {
@@ -169,8 +170,19 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		console.log('[Orchestrator] Detected Scenario 2: Sales / Booking');
 
 		// (Engagement score is bumped centrally above based on the reclassified category.)
-		// Check calendar for availability (mocked: check if datetime is within 9-5 or location hours)
-		if (datetime) {
+		const bookingUrl = getBookingUrl(company);
+		if (bookingUrl) {
+			// Self-service scheduling: send the booking link so the customer picks an open slot
+			// themselves (it books both sides + allows cancellation) instead of the day/time back-and-forth.
+			console.log('[Orchestrator] Booking link configured — sending self-service link.');
+			if (datetime) {
+				const when = formatDatetime(datetime);
+				draftedResponse = `Hi! Thanks for reaching out to ${company.name || 'us'}. To lock in ${when} or pick another open time, book here: ${bookingUrl}`;
+			} else {
+				draftedResponse = `Hi! Thanks for contacting ${company.name || 'us'}. Book a time that works for you here: ${bookingUrl}`;
+			}
+		} else if (datetime) {
+			// Fallback (no booking link configured): the existing text-based flow.
 			const formattedDatetime = formatDatetime(datetime);
 			const isAvailable = checkCalendarAvailability(datetime, company.locations || []);
 			if (isAvailable) {
@@ -230,6 +242,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						customerName: customer.name || null,
 						locations: (company as any).locations || [],
 						accountBalance: customer.accountBalance ?? null,
+						bookingUrl: getBookingUrl(company),
 						apiKey: ANTHROPIC_AI_KEY
 					});
 					if (conv?.reply) {

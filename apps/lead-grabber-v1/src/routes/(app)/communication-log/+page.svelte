@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { Search, Mic, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-svelte';
+	import { Search, Mic, ChevronDown, ChevronLeft, ChevronRight, Calendar } from 'lucide-svelte';
 	import CommunicationTable from '$lib/components/CommunicationTable.svelte';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index';
 	import CommunicationSummaryDialog from '$lib/components/communication-summary-dialog.svelte';
@@ -8,6 +8,7 @@
 	import PipelineModal from '$lib/components/PipelineModal.svelte';
 	import CommReplyPanel from '$lib/components/CommReplyPanel.svelte';
 	import AssignAgentDialog from '$lib/components/assign-agent-dialog.svelte';
+	import BookingCalendarDialog from '$lib/components/booking-calendar-dialog.svelte';
 	import { toast } from 'svelte-sonner';
 	import { invalidate, invalidateAll, goto } from '$app/navigation';
 
@@ -20,7 +21,8 @@
 				replyPanelOpen ||
 				assignDialogOpen ||
 				pipelineDialogOpen ||
-				notificationsDialogOpen
+				notificationsDialogOpen ||
+				bookingDialogOpen
 			) {
 				return;
 			}
@@ -62,6 +64,9 @@
 	let replyComm = $state<any>(null);
 	let replyType = $state<'sms' | 'email'>('sms');
 
+	// Booking calendar popup
+	let bookingDialogOpen = $state(false);
+
 	let { data } = $props<{
 		data: {
 			user?: { name?: string | null } | null;
@@ -71,6 +76,7 @@
 			totalCount?: number | null;
 			limit?: number;
 			page?: number;
+			bookingUrl?: string | null;
 		};
 	}>();
 	const members = $derived(data.members ?? []);
@@ -348,6 +354,18 @@
 				/>
 				<Mic class="h-4 w-4 shrink-0 text-gray-500" />
 			</div>
+			<button
+				type="button"
+				onclick={() => (bookingDialogOpen = true)}
+				class="flex h-10 items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+				title="Booking calendar"
+			>
+				<Calendar class="h-4 w-4 shrink-0 text-blue-600" />
+				<span>Calendar</span>
+				{#if !data.bookingUrl}
+					<span class="h-2 w-2 rounded-full bg-yellow-400" title="Not set up"></span>
+				{/if}
+			</button>
 			{#if members.length > 0}
 				<DropdownMenu.Root>
 					<DropdownMenu.Trigger
@@ -382,6 +400,17 @@
 	</div>
 
 	<div class="flex min-w-0 flex-1 flex-col p-4">
+		{#if !data.bookingUrl}
+			<div
+				class="mb-4 flex items-center gap-2 rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm font-medium text-yellow-800"
+			>
+				<Calendar class="h-4 w-4 shrink-0" />
+				<span>
+					Booking calendar not set up — AI replies can't send a self-booking link yet.
+					<a class="underline" href="/settings/company">Add your booking link in Company settings.</a>
+				</span>
+			</div>
+		{/if}
 		<CommunicationTable
 			communications={tableCommunications}
 			{filters}
@@ -517,6 +546,8 @@
 {/if}
 
 <NotificationsDialog bind:open={notificationsDialogOpen} />
+
+<BookingCalendarDialog bind:open={bookingDialogOpen} bookingUrl={data.bookingUrl ?? ''} />
 
 
 <PipelineModal bind:open={pipelineDialogOpen} event={selectedPipelineEvent} />

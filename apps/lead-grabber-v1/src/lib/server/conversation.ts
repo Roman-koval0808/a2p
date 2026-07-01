@@ -23,6 +23,7 @@ export interface ConversationInput {
 	customerName?: string | null;
 	locations?: any[];
 	accountBalance?: number | null;
+	bookingUrl?: string | null;
 	apiKey: string;
 }
 
@@ -132,14 +133,28 @@ export async function draftConversationalReply(
 		factLines.push(`The customer's outstanding balance is $${Number(input.accountBalance).toFixed(2)}.`);
 	}
 
+	const bookingUrl = (input.bookingUrl || '').trim();
+
 	if (extracted?.contains_datetime && extracted.datetime_iso) {
 		datetime = extracted.datetime_iso;
 		available = checkCalendarAvailability(datetime, input.locations || []);
 		const pretty = formatDatetime(datetime);
+		if (bookingUrl) {
+			// Self-service booking is configured — never confirm a specific time; point them to the link.
+			factLines.push(
+				`The customer mentioned ${pretty}. Do NOT confirm or promise a specific time. Instead, warmly invite them to book their preferred slot themselves at this link (it shows real availability, books both sides and lets them cancel): ${bookingUrl}`
+			);
+		} else {
+			factLines.push(
+				available
+					? `The customer proposed ${pretty}, and that time IS available — confirm the appointment for ${pretty}.`
+					: `The customer proposed ${pretty}, but that is OUTSIDE our business hours — do not book it; suggest a time within our hours instead.`
+			);
+		}
+	} else if (bookingUrl) {
+		// No specific time given, but a booking link exists — offer it for any scheduling.
 		factLines.push(
-			available
-				? `The customer proposed ${pretty}, and that time IS available — confirm the appointment for ${pretty}.`
-				: `The customer proposed ${pretty}, but that is OUTSIDE our business hours — do not book it; suggest a time within our hours instead.`
+			`If the customer wants to book, reschedule, or asks about appointment availability, share this booking link so they can pick an open slot themselves (it books both sides and lets them cancel): ${bookingUrl}. Do not invent or promise specific times.`
 		);
 	}
 
@@ -147,8 +162,10 @@ export async function draftConversationalReply(
 	if (!reply) return null;
 
 	return {
+		// When a self-service booking link is used, the customer books it themselves — we don't
+		// auto-confirm a slot here.
 		reply,
-		booked: !!(available && datetime),
+		booked: !bookingUrl && !!(available && datetime),
 		datetime,
 		available
 	};
