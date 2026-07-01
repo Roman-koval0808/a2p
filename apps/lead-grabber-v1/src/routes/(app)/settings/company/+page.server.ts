@@ -5,6 +5,7 @@ import { sendInviteEmail } from '$lib/server/brevo';
 import { PUBLIC_BASE_URL, PUBLIC_ENV } from '$env/static/public';
 import { saveUploadedFile } from '$lib/utils/file-upload';
 import { normalizeUrl } from '$lib/utils';
+import { getConnectionInfo, isGoogleConfigured, disconnect } from '$lib/server/google-calendar';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const user = locals.user;
@@ -98,6 +99,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			take: 50
 		});
 
+		const googleCalendar = await getConnectionInfo(company.id);
+
 		return {
 			company: {
 				id: company.id,
@@ -110,6 +113,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 					notifications: { email: true, web: true, sms: false, phone_numbers: [] }
 				}
 			},
+			googleCalendar,
+			googleConfigured: isGoogleConfigured(),
 			members: members.map((member) => ({
 				id: member.id,
 				user: member.user,
@@ -230,6 +235,13 @@ export const actions: Actions = {
 			console.error('Error updating company:', error);
 			return fail(500, { error: 'Failed to update company' });
 		}
+	},
+
+	disconnectCalendar: async ({ locals }) => {
+		const companyId = locals.user?.company?.id;
+		if (!companyId) return fail(401, { error: 'Unauthorized' });
+		await disconnect(companyId);
+		return { success: true };
 	},
 
 	inviteMember: async ({ request, locals }) => {
