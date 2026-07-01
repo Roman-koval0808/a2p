@@ -55,33 +55,60 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 			
 			console.log(`[Confirm Outbound SMS] Sending from: ${fromNumber} to: ${formattedDest}`);
 
-			const response = await fetch('https://api.telnyx.com/v2/messages', {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					Authorization: `Bearer ${TELNYX_API_KEY}`
-				},
-				body: JSON.stringify({
-					from: fromNumber,
-					to: formattedDest,
-					text: log.content,
-					messaging_profile_id: TELNYX_MESSAGING_PROFILE_ID,
-					webhook_url: normalizeUrl(PUBLIC_BASE_URL, '/api/telnyx/webhook'),
-					webhook_failover_url: normalizeUrl(PUBLIC_BASE_URL, '/api/telnyx/webhook-backup'),
-					use_profile_webhooks: false,
-					type: 'SMS'
-				})
-			});
+			const doSend = (includeFrom: boolean) =>
+				fetch('https://api.telnyx.com/v2/messages', {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+						Authorization: `Bearer ${TELNYX_API_KEY}`
+					},
+					body: JSON.stringify({
+						...(includeFrom ? { from: fromNumber } : {}),
+						to: formattedDest,
+						text: log.content,
+						messaging_profile_id: TELNYX_MESSAGING_PROFILE_ID,
+						webhook_url: normalizeUrl(PUBLIC_BASE_URL, '/api/telnyx/webhook'),
+						webhook_failover_url: normalizeUrl(PUBLIC_BASE_URL, '/api/telnyx/webhook-backup'),
+						use_profile_webhooks: false,
+						type: 'SMS'
+					})
+				});
 
+			let response = await doSend(true);
 			if (!response.ok) {
-				const responseText = await response.text();
-				console.error('Telnyx send failed during confirmation:', responseText);
-				let result;
+				const firstText = await response.text();
+				let firstErr: any;
 				try {
-					result = JSON.parse(responseText);
+					firstErr = JSON.parse(firstText);
 				} catch (e) {}
-				const errorDetail = result?.errors?.[0]?.detail || 'Failed to send SMS via Telnyx';
-				return json({ success: false, error: errorDetail }, { status: 500 });
+				const code = firstErr?.errors?.[0]?.code;
+				const detail = (firstErr?.errors?.[0]?.detail || '').toLowerCase();
+				// If Telnyx rejects the `from` number (not on the account / messaging profile),
+				// retry letting the messaging profile's number pool pick a valid sender.
+				if (code === '10004' || detail.includes('source number') || detail.includes('from number')) {
+					console.warn(
+						`[Confirm Outbound SMS] from=${fromNumber} rejected (${firstErr?.errors?.[0]?.detail}); retrying via messaging profile ${TELNYX_MESSAGING_PROFILE_ID}`
+					);
+					response = await doSend(false);
+					if (!response.ok) {
+						const retryText = await response.text();
+						console.error('Telnyx send failed (retry via messaging profile):', retryText);
+						let r;
+						try {
+							r = JSON.parse(retryText);
+						} catch (e) {}
+						return json(
+							{ success: false, error: r?.errors?.[0]?.detail || 'Failed to send SMS via Telnyx' },
+							{ status: 500 }
+						);
+					}
+				} else {
+					console.error('Telnyx send failed during confirmation:', firstText);
+					return json(
+						{ success: false, error: firstErr?.errors?.[0]?.detail || 'Failed to send SMS via Telnyx' },
+						{ status: 500 }
+					);
+				}
 			}
 
 			// Update the message thread (inbox chat) in the local database
