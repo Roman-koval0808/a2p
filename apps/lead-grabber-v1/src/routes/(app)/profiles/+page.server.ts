@@ -42,12 +42,28 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 		console.error('Failed to load profiles from ProfileDB:', err);
 	}
 
-	// One profile per caller: local Contacts are the source of truth (they hold the phone,
-	// name, engagement score and balance). We keep ProfileDB profiles ONLY for leads whose
-	// phone isn't already a local contact, or that have an email / real name — this drops the
-	// anonymous "Unknown Caller" ProfileDB twin that a call/SMS creates alongside the contact.
+	// One profile per caller. Local Contacts are the source of truth (they hold the phone, name,
+	// engagement score and balance AND are the editable record). We merge them with ProfileDB
+	// leads, then collapse EVERYTHING by phone so each caller appears exactly once — keeping the
+	// best record for that phone (the local contact wins; otherwise the most complete profile).
 	try {
 		const last10 = (p: string | null | undefined) => (p || '').replace(/\D/g, '').slice(-10);
+		const GENERIC = ['Unknown Caller', 'Anonymous', 'Unknown', 'Unknown Customer'];
+		const isRealName = (n: any) => !!n && !GENERIC.includes(String(n));
+		// ProfileDB stores the phone under several possible keys — check them all.
+		const phoneOf = (p: any) =>
+			last10(p.phone || p.clearPhone || p.primaryPhone || p.phone_number || p.phoneNumber);
+		const hasEmail = (p: any) =>
+			!!(p.email || (p.clearEmail && p.clearEmail !== '—'));
+		const rank = (p: any) => {
+			let s = 0;
+			if (p._local) s += 1000; // prefer the actionable local contact
+			if (isRealName(p.name)) s += 100;
+			if (hasEmail(p)) s += 50;
+			s += Number(p.scoreLive ?? p.liveScore ?? 0);
+			return s;
+		};
+
 		const contacts = (await getContactsByCompany(user.company.id, 200)) as any[];
 		const localList = contacts.map((c) => {
 			const score = c.engagementScore ?? 0;
@@ -62,19 +78,25 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 				tier: score >= 50 ? 'T1' : score >= 20 ? 'T2A' : score >= 10 ? 'T2B' : 'T3',
 				scoreLive: score,
 				intentBucket: score >= 20 ? 'active' : 'research',
-				lastSeen: c.updated ?? c.created ?? null
+				lastSeen: c.updated ?? c.created ?? null,
+				_local: true
 			};
 		});
-		const localPhones = new Set(localList.map((c) => last10(c.phone)).filter(Boolean));
-		const extraProfileDb = profiles.filter((p: any) => {
-			const d = last10(p.phone || p.clearPhone);
-			if (d) return !localPhones.has(d); // distinct-phone lead (e.g. web-only)
-			// No phone: keep only if it has a real email or a non-anonymous name.
-			const email = p.email || (p.clearEmail && p.clearEmail !== '—' ? p.clearEmail : '');
-			const named = p.name && !['Unknown Caller', 'Anonymous', 'Unknown'].includes(p.name);
-			return !!email || !!named;
-		});
-		profiles = [...localList, ...extraProfileDb];
+
+		const byPhone = new Map<string, any>();
+		const noPhone: any[] = [];
+		for (const prof of [...localList, ...profiles]) {
+			const key = phoneOf(prof);
+			if (!key) {
+				// Phoneless: keep local contacts, and ProfileDB leads only if they have a real
+				// email or name (drops anonymous "Unknown Caller" twins with no phone).
+				if (prof._local || hasEmail(prof) || isRealName(prof.name)) noPhone.push(prof);
+				continue;
+			}
+			const existing = byPhone.get(key);
+			if (!existing || rank(prof) > rank(existing)) byPhone.set(key, prof);
+		}
+		profiles = [...byPhone.values(), ...noPhone];
 	} catch (err) {
 		console.error('Failed to merge local contacts into profiles:', err);
 	}
