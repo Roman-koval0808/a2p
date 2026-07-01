@@ -36,6 +36,12 @@ export async function getContactsByCompany(companyId: string, limit: number = 50
 }
 
 export async function createOrUpdateContact(data: ContactData) {
+	// Never store a placeholder as a real contact name — leave it blank so the UI shows the phone.
+	const GENERIC_NAMES = ['Anonymous', 'Unknown Caller', 'Unknown Customer', 'Unknown', 'Valued Customer'];
+	if (data.name && GENERIC_NAMES.includes(data.name.trim())) {
+		data = { ...data, name: undefined };
+	}
+
 	if (!data.name && !data.email && !data.phone) {
 		return null;
 	}
