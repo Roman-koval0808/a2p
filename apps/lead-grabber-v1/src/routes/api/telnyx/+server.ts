@@ -53,14 +53,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			if (matchedNumber) {
 				fromNumber = matchedNumber;
 				console.log(`[Outbound Route] Found matching company number from last communication: ${fromNumber}`);
-			} else {
-				const telnyxNorm = normalizePhoneNumber(TELNYX_PHONE_NUMBER);
-				if (validNumbers.includes(telnyxNorm)) {
-					fromNumber = TELNYX_PHONE_NUMBER;
-				} else if (validNumbers.length > 0) {
-					const allowedNum = validNumbers.find(n => n !== '+12016277128');
-					fromNumber = allowedNum || validNumbers[0];
-				}
+			} else if (validNumbers.length > 0) {
+				// Prefer the company's own bought number. The env TELNYX_PHONE_NUMBER is only a
+				// last resort (the default above) for companies with no numbers of their own.
+				const allowedNum = validNumbers.find((n) => n !== '+12016277128');
+				fromNumber = allowedNum || validNumbers[0];
 			}
 		}
 

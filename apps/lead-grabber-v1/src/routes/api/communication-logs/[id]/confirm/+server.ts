@@ -38,17 +38,11 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 			});
 			const validNumbers = companyNumbers.map((n) => normalizePhoneNumber(n.phoneNumber)).filter(Boolean);
 
-			// The draft's `from` must be one of THIS company's real numbers; otherwise Telnyx
-			// rejects it ("Invalid source number"). If it isn't, fall back to a valid one.
+			// The draft's `from` must be one of THIS company's real (bought) numbers; otherwise
+			// Telnyx rejects it ("Invalid source number"). If it isn't, use the company's own
+			// number. The env TELNYX_PHONE_NUMBER is only an absolute last resort (no company numbers).
 			if (!fromNumber || !fromNumber.startsWith('+') || !validNumbers.includes(fromNumber)) {
-				const telnyxNorm = normalizePhoneNumber(TELNYX_PHONE_NUMBER);
-				if (validNumbers.includes(telnyxNorm)) {
-					fromNumber = TELNYX_PHONE_NUMBER;
-				} else if (validNumbers.length > 0) {
-					fromNumber = validNumbers[0];
-				} else {
-					fromNumber = TELNYX_PHONE_NUMBER;
-				}
+				fromNumber = validNumbers[0] || TELNYX_PHONE_NUMBER;
 			}
 
 			const formattedDest = normalizePhoneNumber(log.destination || '');
