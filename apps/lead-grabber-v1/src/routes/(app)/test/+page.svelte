@@ -266,11 +266,11 @@
 								name="digit"
 								class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-sm bg-white"
 							>
-								<option value="1">1 (e.g. Sales)</option>
-								<option value="2">2 (e.g. Billing)</option>
-								<option value="3">3 (e.g. Emergency / Service)</option>
-								<option value="0">0 (e.g. Operator)</option>
-								<option value="">No Digit (Timeout / Drop Call)</option>
+								<option value="1">1 — Billing</option>
+								<option value="2">2 — Sales</option>
+								<option value="3">3 — Support</option>
+								<option value="0">0 — Operator</option>
+								<option value="">No digit pressed</option>
 							</select>
 						</div>
 
@@ -331,8 +331,70 @@
 							</div>
 						</div>
 
-						<!-- database objects inspector -->
-						{#if form.dbRecord}
+						<!-- Call outcome — reproduces exactly what a real call produces -->
+						{#if form.mode === 'call' && form.call}
+							{@const c = form.call}
+							<div class="space-y-3">
+								<div class="rounded-xl border border-indigo-100 bg-indigo-50/40 p-4">
+									<div class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Call</div>
+									<div class="mt-1 text-sm font-semibold text-slate-800">{c.caller} → {c.called}</div>
+									{#if c.digitPressed}
+										<div class="text-xs text-slate-500">Pressed {c.digitPressed}{c.ivrIntent ? ` (${c.ivrIntent})` : ''}</div>
+									{/if}
+									<div class="mt-2 text-xs italic text-slate-600">"{c.transcript}"</div>
+								</div>
+
+								{#if c.aiIntent}
+									<div class="space-y-1.5 rounded-xl border border-slate-200 bg-white p-4">
+										<div class="text-[11px] font-bold uppercase tracking-wider text-slate-500">AI classification (follows the message, not the digit)</div>
+										<div class="flex flex-wrap gap-1.5 text-xs">
+											<span class="rounded bg-slate-900 px-2 py-0.5 font-semibold text-white">{c.aiIntent.intent_bucket}</span>
+											<span class="rounded bg-slate-100 px-2 py-0.5">urgency: {c.aiIntent.urgency}</span>
+											{#if c.aiIntent.wants_appointment}<span class="rounded bg-emerald-100 px-2 py-0.5 text-emerald-800">wants appointment</span>{/if}
+											{#if c.aiIntent.wants_balance}<span class="rounded bg-amber-100 px-2 py-0.5 text-amber-800">wants balance</span>{/if}
+											<span class="rounded bg-slate-100 px-2 py-0.5">conf: {c.aiIntent.confidence}</span>
+											<span class="rounded bg-indigo-100 px-2 py-0.5 font-semibold text-indigo-800">→ {c.messageCategory}</span>
+										</div>
+										{#if c.reclassified}
+											<div class="text-xs text-amber-700">↻ Reclassified: pressed <b>{c.pressedCategory}</b> but the message is <b>{c.messageCategory}</b> — followed the message.</div>
+										{/if}
+										{#if c.aiIntent.needs_human_review}
+											<div class="text-xs text-red-600">⚠ Low confidence — flagged for human review.</div>
+										{/if}
+										{#if c.aiIntent.reason}<div class="text-[11px] text-slate-500">{c.aiIntent.reason}</div>{/if}
+									</div>
+								{/if}
+
+								{#if c.summary}
+									<div class="rounded-xl border border-slate-200 bg-white p-4">
+										<div class="text-[11px] font-bold uppercase tracking-wider text-slate-500">AI summary</div>
+										<div class="mt-1 text-sm text-slate-700">{c.summary}</div>
+									</div>
+								{/if}
+
+								<div class="rounded-xl border-2 {c.draftedReply ? 'border-blue-200 bg-blue-50/50' : 'border-slate-200 bg-slate-50'} p-4">
+									<div class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Drafted reply{c.draftStatus ? ` (${c.draftStatus})` : ''}</div>
+									{#if c.draftedReply}
+										<div class="mt-1 text-sm font-medium text-slate-800">"{c.draftedReply}"</div>
+									{:else}
+										<div class="mt-1 text-sm text-slate-500">No automated reply — routed to a human.</div>
+									{/if}
+								</div>
+
+								<div class="flex flex-wrap items-center gap-4 rounded-xl border border-slate-200 bg-white p-4 text-sm">
+									<div><span class="text-[11px] text-slate-500">Contact</span><br /><b>{c.contactName || 'Unknown'}</b></div>
+									<div><span class="text-[11px] text-slate-500">Engagement</span><br /><b>{c.engagementScore}</b></div>
+									{#if c.accountBalance != null}<div><span class="text-[11px] text-slate-500">Balance</span><br /><b>${c.accountBalance}</b></div>{/if}
+									<div class="ml-auto flex gap-2">
+										<a href={`/profiles/${c.contactId}`} class="rounded bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-200">View profile →</a>
+										<a href="/communication-log" class="rounded bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-200">Comm log →</a>
+									</div>
+								</div>
+							</div>
+						{/if}
+
+						<!-- database objects inspector (SMS pipeline) -->
+						{#if form.dbRecord && form.mode === 'sms'}
 							<div class="space-y-3">
 								<h3 class="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
 									<Database class="h-4 w-4 text-slate-400" />
