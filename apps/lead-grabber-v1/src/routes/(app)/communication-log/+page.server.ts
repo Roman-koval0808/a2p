@@ -2,6 +2,7 @@ import { prisma } from '$lib/db';
 import type { PageServerLoad } from './$types';
 import { isA2pCommLogEnabled } from '$lib/server/a2p-client';
 import { commCode } from '$lib/utils/comm-id';
+import { getBookingUrl } from '$lib/utils/booking';
 
 const PAGE_SIZES = [10, 20, 50, 100] as const;
 
@@ -9,7 +10,7 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 	depends('app:communication-log');
 
 	if (!locals.user || !locals.user.company) {
-		return { logs: [], members: [], useA2pCommLog: false, totalCount: 0, limit: 20, page: 1 };
+		return { logs: [], members: [], useA2pCommLog: false, totalCount: 0, limit: 20, page: 1, bookingUrl: null };
 	}
 
 	const limitParam = url.searchParams.get('limit');
@@ -48,6 +49,13 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 		}));
 
 		const companyId = locals.user.company.id;
+
+		// Booking link (for the Calendar popup + "not set up" warning on the page).
+		const companyRow = await prisma.company.findUnique({
+			where: { id: companyId },
+			select: { settings: true }
+		});
+		const bookingUrl = getBookingUrl(companyRow);
 
 		// Fetch both tables with size offset + limit to correctly paginate after sorting
 		const maxTake = offset + limit;
@@ -184,10 +192,11 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 			useA2pCommLog: true,
 			totalCount,
 			limit,
-			page
+			page,
+			bookingUrl
 		};
 	} catch (err) {
 		console.error('Error loading communication logs:', err);
-		return { logs: [], members: [], useA2pCommLog: false, totalCount: 0, limit: 20, page: 1 };
+		return { logs: [], members: [], useA2pCommLog: false, totalCount: 0, limit: 20, page: 1, bookingUrl: null };
 	}
 };

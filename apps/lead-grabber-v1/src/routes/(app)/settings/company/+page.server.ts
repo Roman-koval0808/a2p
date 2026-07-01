@@ -160,6 +160,7 @@ export const actions: Actions = {
 			const webNotifications = formData.get('webNotifications') === 'true';
 			const smsNotifications = formData.get('smsNotifications') === 'true';
 			const notificationPhonesRaw = formData.getAll('notificationPhones');
+			const bookingUrl = ((formData.get('bookingUrl') as string) || '').trim();
 
 			// Get current company
 			const company = await prisma.company.findUnique({
@@ -204,6 +205,7 @@ export const actions: Actions = {
 						sms: smsNotifications,
 						phone_numbers: notificationPhones
 					},
+					booking_url: bookingUrl && bookingUrl.startsWith('http') ? bookingUrl : null,
 					webhook_url: `${PUBLIC_BASE_URL}/api/telnyx/webhook`
 				}
 			};
