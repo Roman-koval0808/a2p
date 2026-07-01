@@ -246,6 +246,11 @@ export const load: PageServerLoad = async ({ params, locals, fetch }) => {
 				purpose = 'See Summary';
 			}
 
+			// Stable per-conversation COM ID derived from the customer's phone (same code across
+			// all calls/SMS with this customer), matching the communication-log page.
+			const custVal = log.direction === 'inbound' ? log.source : log.destination;
+			const convoDigits = (custVal || '').replace(/\D/g, '').slice(-10);
+
 			return {
 				id: log.id,
 				date,
@@ -256,7 +261,7 @@ export const load: PageServerLoad = async ({ params, locals, fetch }) => {
 				endpoint: log.destination || locals.user.company.id,
 				purpose: purpose,
 				summary: summary,
-				commId: log.communicationThreadId || log.id,
+				commId: convoDigits || log.communicationThreadId || log.id,
 				status,
 				raw: log
 			};
