@@ -1,7 +1,7 @@
 import { prisma } from '$lib/db';
 import { redirect, error } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
-import { conversationCode } from '$lib/utils/comm-id';
+import { commCode } from '$lib/utils/comm-id';
 
 export const load: PageServerLoad = async ({ params, locals, fetch }) => {
 	const user = locals.user;
@@ -247,10 +247,9 @@ export const load: PageServerLoad = async ({ params, locals, fetch }) => {
 				purpose = 'See Summary';
 			}
 
-			// Stable, random-looking per-conversation COM ID (hashed from the phone, not the raw
-			// digits) — same code across all calls/SMS with this customer, matching the comm-log page.
-			const custVal = log.direction === 'inbound' ? log.source : log.destination;
-			const convoCode = conversationCode(custVal);
+			// Random-looking per-THREAD COM ID (hash of the thread id, anchored on the message's own
+			// id when unlinked) — related messages share it, a different context gets a new one.
+			const convoCode = commCode(log.communicationThreadId, log.id);
 
 			return {
 				id: log.id,
@@ -262,7 +261,7 @@ export const load: PageServerLoad = async ({ params, locals, fetch }) => {
 				endpoint: log.destination || locals.user.company.id,
 				purpose: purpose,
 				summary: summary,
-				commId: convoCode || log.communicationThreadId || log.id,
+				commId: convoCode,
 				status,
 				raw: log
 			};
