@@ -6,10 +6,23 @@
 	interface Props {
 		open?: boolean;
 		bookingUrl?: string | null;
+		googleConnected?: boolean;
+		googleEmail?: string | null;
 	}
-	let { open = $bindable(false), bookingUrl = null }: Props = $props();
+	let {
+		open = $bindable(false),
+		bookingUrl = null,
+		googleConnected = false,
+		googleEmail = null
+	}: Props = $props();
 
 	const embedUrl = $derived(toEmbedUrl(bookingUrl));
+	// Embed the connected Google Calendar (only renders for a viewer signed in to that account).
+	const googleEmbed = $derived(
+		googleConnected && googleEmail
+			? `https://calendar.google.com/calendar/embed?src=${encodeURIComponent(googleEmail)}&mode=WEEK`
+			: ''
+	);
 </script>
 
 <Dialog.Root bind:open>
@@ -18,7 +31,16 @@
 			<div class="flex items-center gap-2 font-semibold text-gray-900">
 				<Calendar class="h-4 w-4 text-blue-600" /> Booking Calendar
 			</div>
-			{#if bookingUrl}
+			{#if googleConnected}
+				<a
+					href="https://calendar.google.com/calendar/u/0/r"
+					target="_blank"
+					rel="noopener noreferrer"
+					class="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
+				>
+					Open Google Calendar <ExternalLink class="h-3.5 w-3.5" />
+				</a>
+			{:else if bookingUrl}
 				<a
 					href={bookingUrl}
 					target="_blank"
@@ -30,14 +52,21 @@
 			{/if}
 		</div>
 
-		{#if embedUrl}
+		{#if googleConnected}
+			<div class="border-b bg-green-50 px-4 py-2 text-sm text-green-800">
+				<span class="font-medium">Google Calendar connected</span>
+				{#if googleEmail}<span class="text-green-700"> · {googleEmail}</span>{/if} — the AI books
+				agreed appointment times here automatically.
+			</div>
+			<iframe src={googleEmbed} title="Google Calendar" class="h-[560px] w-full border-0"></iframe>
+		{:else if embedUrl}
 			<iframe src={embedUrl} title="Booking Calendar" class="h-[600px] w-full border-0"></iframe>
 		{:else}
 			<div class="flex h-[600px] flex-col items-center justify-center gap-3 p-8 text-center">
 				<Calendar class="h-10 w-10 text-gray-300" />
 				<p class="max-w-sm text-sm text-gray-600">
-					No booking calendar is connected yet. Add your Google Calendar Appointment Schedule (or
-					Calendly) link so customers can self-book — it books both sides and lets them cancel anytime.
+					No booking calendar is connected yet. Connect Google Calendar (the AI books
+					appointments automatically) or add a booking link so customers can self-book.
 				</p>
 				<a
 					href="/settings/company"

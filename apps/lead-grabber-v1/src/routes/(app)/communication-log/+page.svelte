@@ -87,6 +87,7 @@
 			limit?: number;
 			page?: number;
 			bookingUrl?: string | null;
+			googleCalendar?: { connected: boolean; email: string | null };
 		};
 	}>();
 	const members = $derived(data.members ?? []);
@@ -372,7 +373,7 @@
 			>
 				<Calendar class="h-4 w-4 shrink-0 text-blue-600" />
 				<span>Calendar</span>
-				{#if !data.bookingUrl}
+				{#if !data.bookingUrl && !data.googleCalendar?.connected}
 					<span class="h-2 w-2 rounded-full bg-yellow-400" title="Not set up"></span>
 				{/if}
 			</button>
@@ -410,14 +411,14 @@
 	</div>
 
 	<div class="flex min-w-0 flex-1 flex-col p-4">
-		{#if !data.bookingUrl}
+		{#if !data.bookingUrl && !data.googleCalendar?.connected}
 			<div
 				class="mb-4 flex items-center gap-2 rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm font-medium text-yellow-800"
 			>
 				<Calendar class="h-4 w-4 shrink-0" />
 				<span>
-					Booking calendar not set up — AI replies can't send a self-booking link yet.
-					<a class="underline" href="/settings/company">Add your booking link in Company settings.</a>
+					Booking calendar not set up — the AI can't book appointments yet.
+					<a class="underline" href="/settings/company">Connect Google Calendar in Company settings.</a>
 				</span>
 			</div>
 		{/if}
@@ -548,7 +549,12 @@
 
 <NotificationsDialog bind:open={notificationsDialogOpen} />
 
-<BookingCalendarDialog bind:open={bookingDialogOpen} bookingUrl={data.bookingUrl ?? ''} />
+<BookingCalendarDialog
+	bind:open={bookingDialogOpen}
+	bookingUrl={data.bookingUrl ?? ''}
+	googleConnected={data.googleCalendar?.connected ?? false}
+	googleEmail={data.googleCalendar?.email ?? null}
+/>
 
 
 <PipelineModal bind:open={pipelineDialogOpen} event={selectedPipelineEvent} />
