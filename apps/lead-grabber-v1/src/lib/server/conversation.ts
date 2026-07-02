@@ -25,6 +25,8 @@ export interface ConversationInput {
 	locations?: any[];
 	accountBalance?: number | null;
 	bookingUrl?: string | null;
+	/** The customer's appointments on record (from the calendar). undefined = not looked up. */
+	appointments?: { startISO: string; title: string; isPast: boolean }[];
 	apiKey: string;
 }
 
@@ -132,6 +134,28 @@ export async function draftConversationalReply(
 	const factLines: string[] = [`Our business hours are: ${describeBusinessHours(input.locations || [])}.`];
 	if (input.accountBalance != null) {
 		factLines.push(`The customer's outstanding balance is $${Number(input.accountBalance).toFixed(2)}.`);
+	}
+
+	if (input.appointments !== undefined) {
+		if (input.appointments.length > 0) {
+			const sorted = [...input.appointments].sort(
+				(a, b) => new Date(a.startISO).getTime() - new Date(b.startISO).getTime()
+			);
+			const past = sorted.filter((a) => a.isPast);
+			const upcoming = sorted.filter((a) => !a.isPast);
+			const lines = sorted
+				.map((a) => `- ${formatDatetime(a.startISO)} — ${a.title}${a.isPast ? ' [past]' : ' [upcoming]'}`)
+				.join('\n');
+			const lastAppt = past.length ? formatDatetime(past[past.length - 1].startISO) : 'none';
+			const nextAppt = upcoming.length ? formatDatetime(upcoming[0].startISO) : 'none';
+			factLines.push(
+				`The customer's appointments on record:\n${lines}\nTheir LAST (most recent past) appointment was: ${lastAppt}. Their NEXT (soonest upcoming) appointment is: ${nextAppt}. When they ask about their appointment history (e.g. "when was my last appointment", "do I have anything on Tuesday", "what's my next appointment"), answer specifically and conversationally using these facts — give the exact date/time.`
+			);
+		} else {
+			factLines.push(
+				`The customer has NO appointments on record. If they ask about past or upcoming appointments, tell them you don't see any on file and offer to book one.`
+			);
+		}
 	}
 
 	const bookingUrl = (input.bookingUrl || '').trim();
