@@ -4,7 +4,7 @@ import { toE164 } from '$lib/company-numbers';
 import { classifyMessageIntent, bucketToCategory } from './message-intent';
 import { checkCalendarAvailability, formatDatetime } from './calendar';
 import { getBookingUrl } from '$lib/utils/booking';
-import { getConnectionInfo, bookAppointment } from './google-calendar';
+import { getBookingLinkIfConnected } from './google-calendar';
 import { ANTHROPIC_AI_KEY } from '$env/static/private';
 
 export async function process_orchestrator(commId: string, trigger: string) {
@@ -171,52 +171,23 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		console.log('[Orchestrator] Detected Scenario 2: Sales / Booking');
 
 		// (Engagement score is bumped centrally above based on the reclassified category.)
-		const bookingUrl = getBookingUrl(company);
-		const gcal = await getConnectionInfo(company.id);
+		// Prefer a self-service booking link: a pasted Appointment Schedule link, or — when Google
+		// Calendar is connected — our own booking page (shows live availability from her calendar,
+		// customer self-picks, event is written back with a Meet link).
+		const bookingLink = getBookingUrl(company) || (await getBookingLinkIfConnected(company.id));
 
-		if (gcal.connected && datetime) {
-			// Google Calendar connected + a specific time given → book it automatically.
-			const when = formatDatetime(datetime);
-			const r = await bookAppointment(company.id, datetime, {
-				summary: `Appointment — ${customer.name || 'Customer'}`,
-				description: `Booked automatically from a customer message via ${company.name || 'the AI assistant'}.`,
-				attendeeEmail: (customer as any).email || null
-			});
-			if (r.status === 'booked') {
-				console.log('[Orchestrator] Auto-booked appointment on Google Calendar.');
-				draftedResponse = r.meetLink
-					? `You're booked for ${when}! Here's your meeting link: ${r.meetLink}. See you then!`
-					: `You're all booked for ${when}! See you then.`;
-			} else if (r.status === 'busy') {
-				draftedResponse = `Thanks! Unfortunately ${when} is already taken — what other day or time works for you?`;
-			} else {
-				// Booking failed — fall back to a link or the text flow.
-				draftedResponse = bookingUrl
-					? `Hi! Thanks for reaching out to ${company.name || 'us'}. Book a time that works for you here: ${bookingUrl}`
-					: `Hi! Thanks for contacting ${company.name || 'us'}. What day and time works best for you?`;
-			}
-		} else if (gcal.connected) {
-			// Connected but no specific time yet — ask; we'll book once they name a time.
-			draftedResponse = `Hi! Thanks for contacting ${company.name || 'us'}. What day and time works best for you? I'll get you booked in.`;
-		} else if (bookingUrl) {
-			// Self-service scheduling: send the booking link so the customer picks an open slot
-			// themselves (it books both sides + allows cancellation) instead of the day/time back-and-forth.
-			console.log('[Orchestrator] Booking link configured — sending self-service link.');
-			if (datetime) {
-				const when = formatDatetime(datetime);
-				draftedResponse = `Hi! Thanks for reaching out to ${company.name || 'us'}. To lock in ${when} or pick another open time, book here: ${bookingUrl}`;
-			} else {
-				draftedResponse = `Hi! Thanks for contacting ${company.name || 'us'}. Book a time that works for you here: ${bookingUrl}`;
-			}
+		if (bookingLink) {
+			console.log('[Orchestrator] Sending self-service booking link.');
+			draftedResponse = datetime
+				? `Hi! Thanks for reaching out to ${company.name || 'us'}. Grab a time that works for you here — pick ${formatDatetime(datetime)} or any open slot: ${bookingLink}`
+				: `Hi! Thanks for contacting ${company.name || 'us'}. Book a time that works for you here: ${bookingLink}`;
 		} else if (datetime) {
-			// Fallback (no booking link configured): the existing text-based flow.
+			// No booking option configured — legacy text flow.
 			const formattedDatetime = formatDatetime(datetime);
 			const isAvailable = checkCalendarAvailability(datetime, company.locations || []);
-			if (isAvailable) {
-				draftedResponse = `Hi! Thanks for reaching out to ${company.name || 'us'}. We see you'd like to book an appointment for ${formattedDatetime}. A representative will confirm this time with you shortly.`;
-			} else {
-				draftedResponse = `Hi! Thanks for reaching out to ${company.name || 'us'}. Unfortunately, ${formattedDatetime} is outside our normal business hours or unavailable. What other day or time works best for you?`;
-			}
+			draftedResponse = isAvailable
+				? `Hi! Thanks for reaching out to ${company.name || 'us'}. We see you'd like to book an appointment for ${formattedDatetime}. A representative will confirm this time with you shortly.`
+				: `Hi! Thanks for reaching out to ${company.name || 'us'}. Unfortunately, ${formattedDatetime} is outside our normal business hours or unavailable. What other day or time works best for you?`;
 		} else {
 			draftedResponse = `Hi! Thanks for contacting ${company.name || 'us'}. We received your booking request. What day and time works best for you?`;
 		}
@@ -261,7 +232,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					})
 					.filter((t) => t.text);
 				if (history.length > 0) {
-					const gconn = await getConnectionInfo(company.id);
+					// Self-service link: pasted Appointment Schedule link, or our booking page when
+					// Google Calendar is connected — the customer picks a slot from live availability.
+					const bookingLink = getBookingUrl(company) || (await getBookingLinkIfConnected(company.id));
 					const { draftConversationalReply } = await import('./conversation');
 					const conv = await draftConversationalReply({
 						message: commLog.content || rawMessage,
@@ -270,29 +243,12 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						customerName: customer.name || null,
 						locations: (company as any).locations || [],
 						accountBalance: customer.accountBalance ?? null,
-						// Prefer Google auto-booking; only offer a paste-link when Google isn't connected.
-						bookingUrl: gconn.connected ? null : getBookingUrl(company),
+						bookingUrl: bookingLink,
 						apiKey: ANTHROPIC_AI_KEY
 					});
 					if (conv?.reply) {
 						draftedResponse = conv.reply;
 						console.log('[Orchestrator] Used conversational cross-channel reply (returning caller).');
-					}
-					// If connected and the customer named a time, actually book it and confirm.
-					if (gconn.connected && conv?.datetime) {
-						const when = formatDatetime(conv.datetime);
-						const r = await bookAppointment(company.id, conv.datetime, {
-							summary: `Appointment — ${customer.name || 'Customer'}`,
-							description: `Booked automatically from a customer message via ${company.name || 'the AI assistant'}.`,
-							attendeeEmail: (customer as any).email || null
-						});
-						if (r.status === 'booked') {
-							draftedResponse = r.meetLink
-								? `You're booked for ${when}! Here's your meeting link: ${r.meetLink}. See you then!`
-								: `You're all booked for ${when}! See you then.`;
-						} else if (r.status === 'busy') {
-							draftedResponse = `Thanks! Unfortunately ${when} is already taken — what other day or time works for you?`;
-						}
 					}
 				}
 			}
