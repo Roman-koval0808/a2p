@@ -82,6 +82,11 @@
 		const status = new URLSearchParams(window.location.search).get('calendar');
 		if (status === 'connected') toast.success('Google Calendar connected!');
 		else if (status === 'disconnected') toast.success('Google Calendar disconnected.');
+		else if (status === 'missing_scope')
+			toast.error(
+				'Calendar permission was not granted. Please click Connect again and allow access to your calendar (leave all the permission boxes checked).',
+				{ duration: 10000 }
+			);
 		else if (status === 'error') toast.error('Could not connect Google Calendar. Please try again.');
 		if (status) {
 			const u = new URL(window.location.href);
