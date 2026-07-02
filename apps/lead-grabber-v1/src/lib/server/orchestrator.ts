@@ -3,7 +3,7 @@ import { logCommunication } from '$lib/utils/communication-log';
 import { toE164 } from '$lib/company-numbers';
 import { classifyMessageIntent, bucketToCategory } from './message-intent';
 import { checkCalendarAvailability, formatDatetime } from './calendar';
-import { getBookingUrl, withRequestedTime } from '$lib/utils/booking';
+import { getBookingUrl, bookingLinkWith } from '$lib/utils/booking';
 import { getBookingLinkIfConnected } from './google-calendar';
 import { ANTHROPIC_AI_KEY } from '$env/static/private';
 
@@ -178,9 +178,10 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 		if (bookingLink) {
 			console.log('[Orchestrator] Sending self-service booking link.');
+			const link = bookingLinkWith(bookingLink, { time: datetime, name: customer.name });
 			draftedResponse = datetime
-				? `Hi! Thanks for reaching out to ${company.name || 'us'}. ${formatDatetime(datetime)} works — just confirm it here: ${withRequestedTime(bookingLink, datetime)}`
-				: `Hi! Thanks for contacting ${company.name || 'us'}. Book a time that works for you here: ${bookingLink}`;
+				? `Hi! Thanks for reaching out to ${company.name || 'us'}. ${formatDatetime(datetime)} works — just confirm it here: ${link}`
+				: `Hi! Thanks for contacting ${company.name || 'us'}. Book a time that works for you here: ${link}`;
 		} else if (datetime) {
 			// No booking option configured — legacy text flow.
 			const formattedDatetime = formatDatetime(datetime);
