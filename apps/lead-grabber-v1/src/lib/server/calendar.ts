@@ -95,6 +95,37 @@ export function checkCalendarAvailability(datetimeStr: string, locations: any[])
 	return false;
 }
 
+/**
+ * Open hours for a given weekday (0=Sun..6=Sat) as 24h start/end, or null if closed.
+ * Reads location hours (e.g. "10am-6pm"); falls back to Mon–Fri 9–5 when no locations.
+ */
+export function getDayHours(locations: any[], jsDay: number): { startH: number; endH: number } | null {
+	const DAY_KEYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thurs', 'Fri', 'Sat'];
+	const key = DAY_KEYS[jsDay];
+	if (locations && locations.length > 0) {
+		for (const loc of locations) {
+			const dayHours = loc?.hours?.[key];
+			if (!dayHours || String(dayHours).toLowerCase() === 'closed') continue;
+			const m = String(dayHours)
+				.toLowerCase()
+				.match(/(\d{1,2})(?::\d{2})?\s*(am|pm)\s*-\s*(\d{1,2})(?::\d{2})?\s*(am|pm)/);
+			if (m) {
+				let startH = parseInt(m[1]);
+				if (m[2] === 'pm' && startH < 12) startH += 12;
+				if (m[2] === 'am' && startH === 12) startH = 0;
+				let endH = parseInt(m[3]);
+				if (m[4] === 'pm' && endH < 12) endH += 12;
+				if (m[4] === 'am' && endH === 12) endH = 0;
+				if (endH > startH) return { startH, endH };
+			}
+		}
+		return null; // has locations but this day is closed/unparseable
+	}
+	// Default: Mon–Fri 9–5, closed weekends.
+	if (jsDay === 0 || jsDay === 6) return null;
+	return { startH: 9, endH: 17 };
+}
+
 /** Formats an ISO string into a readable date/time. Leaves relative strings alone. */
 export function formatDatetime(datetimeStr: string): string {
 	const d = new Date(datetimeStr);
