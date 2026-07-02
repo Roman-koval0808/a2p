@@ -8,6 +8,7 @@ import { runExecution } from './execution-engine';
 import { runOutcome } from './outcome-engine';
 import { runFeedback } from './feedback-engine';
 import { resolveAndMergeLocalProfile } from './profile-service';
+import { ingestTelemetryEvent } from '$lib/server/profiledb/telemetry';
 
 export interface PipelinePayload {
 	provider: string;
@@ -369,14 +370,8 @@ export class UnifiedPipeline {
 						scoreDelta = 8;
 					}
 
-					const profiledbUrl = process.env.PROFILEDB_URL || 'http://localhost:6277';
-					const res = await fetch(`${profiledbUrl}/api/v1/telemetry/events`, {
-						method: 'POST',
-						headers: {
-							'Content-Type': 'application/json',
-							'Authorization': 'Bearer clearsky_pixel_api_key'
-						},
-						body: JSON.stringify({
+					const result = await ingestTelemetryEvent({
+						body: {
 							tenantSlug: company?.id || payload.companyId || 'clearsky-demo',
 							fingerprintId,
 							eventType: payload.eventType,
@@ -399,13 +394,15 @@ export class UnifiedPipeline {
 								feedback: feedbackResult?.feedback_records || [],
 								ai_protocol: aiResult?._protocol || null
 							}
-						})
+						},
+						headers: {},
+						ip: null
 					});
 
-					if (res.ok) {
+					if (result.status >= 200 && result.status < 300) {
 						log(`[CDP] Logged event to ProfileDB successfully.`);
 					} else {
-						console.error('[CDP] ProfileDB return error:', res.statusText);
+						console.error('[CDP] ProfileDB return error:', result.body);
 					}
 				} catch (cdpErr) {
 					console.error('Failed to log event to ProfileDB:', cdpErr);

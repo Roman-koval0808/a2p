@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { prisma } from '$lib/db';
+import { clearTenantTelemetry } from '$lib/server/profiledb/telemetry';
 
 export const POST: RequestHandler = async ({ locals }) => {
 	if (!locals.user || !locals.user.company) {
@@ -20,13 +21,10 @@ export const POST: RequestHandler = async ({ locals }) => {
 		]);
 
 		// 2. Wipe ProfileDB (CDP) database
-		const profileDbUrl = process.env.PROFILEDB_URL || 'http://localhost:6277';
-		const profileDbRes = await fetch(`${profileDbUrl}/api/v1/tenants/${companyId}/clear`, {
-			method: 'POST'
-		});
+		const result = await clearTenantTelemetry({ tenantSlug: companyId });
 
-		if (!profileDbRes.ok) {
-			console.warn('ProfileDB wipe failed or returned non-ok status', await profileDbRes.text());
+		if (!(result.status >= 200 && result.status < 300)) {
+			console.warn('ProfileDB wipe failed or returned non-ok status', result.body);
 		}
 
 		return json({ success: true, message: 'All company profiles and messages wiped successfully.' });

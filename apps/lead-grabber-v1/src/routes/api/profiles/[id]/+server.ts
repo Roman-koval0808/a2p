@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { prisma } from '$lib/db';
 import { requireAuth, unauthorized } from '$lib/api/spec';
+import { getProfileDetails } from '$lib/server/profiledb/profiles';
 
 function toSpecProfile(c: {
 	id: string;
@@ -36,14 +37,13 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 	});
 
 	if (!contact) {
-		const PROFILEDB_URL = process.env.PROFILEDB_URL || 'http://localhost:6277';
 		let name = 'Unknown';
 		let phone = '';
 		let email = '';
 		try {
-			const res = await fetch(`${PROFILEDB_URL}/api/v1/tenants/${auth.companyId}/profiles/${params.id}`);
-			if (res.ok) {
-				const cdp = await res.json();
+			const result = await getProfileDetails(auth.companyId, params.id);
+			if (result.status >= 200 && result.status < 300) {
+				const cdp = result.body;
 				name = cdp.name || 'Unknown';
 				phone = cdp.phone || '';
 				email = cdp.email || '';
@@ -78,14 +78,13 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
 	});
 
 	if (!contact) {
-		const PROFILEDB_URL = process.env.PROFILEDB_URL || 'http://localhost:6277';
 		let name = 'Unknown';
 		let phone = '';
 		let email = '';
 		try {
-			const res = await fetch(`${PROFILEDB_URL}/api/v1/tenants/${auth.companyId}/profiles/${params.id}`);
-			if (res.ok) {
-				const cdp = await res.json();
+			const result = await getProfileDetails(auth.companyId, params.id);
+			if (result.status >= 200 && result.status < 300) {
+				const cdp = result.body;
 				name = cdp.name || 'Unknown';
 				phone = cdp.phone || '';
 				email = cdp.email || '';

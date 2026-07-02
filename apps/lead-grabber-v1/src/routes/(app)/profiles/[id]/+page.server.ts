@@ -2,8 +2,9 @@ import { prisma } from '$lib/db';
 import { redirect, error } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { commCode } from '$lib/utils/comm-id';
+import { getProfileDetails, getProfileHistory, assignRepresentative } from '$lib/server/profiledb/profiles';
 
-export const load: PageServerLoad = async ({ params, locals, fetch }) => {
+export const load: PageServerLoad = async ({ params, locals }) => {
 	const user = locals.user;
 
 	if (!user) {
@@ -15,7 +16,6 @@ export const load: PageServerLoad = async ({ params, locals, fetch }) => {
 	}
 
 	const companyId = user.company.id;
-	const PROFILEDB_URL = process.env.PROFILEDB_URL || 'http://localhost:6277';
 
 	// Get user's role
 	const companyMember = await prisma.companyMember.findFirst({
@@ -38,17 +38,17 @@ export const load: PageServerLoad = async ({ params, locals, fetch }) => {
 
 	try {
 		// 1. Fetch profile from ProfileDB
-		let profileRes = await fetch(`${PROFILEDB_URL}/api/v1/tenants/${locals.user.company.id}/profiles/${params.id}`);
+		const profileResult = await getProfileDetails(companyId, params.id);
 		let cdpProfile: any = null;
-		if (profileRes.ok) {
-			cdpProfile = await profileRes.json();
+		if (profileResult.status >= 200 && profileResult.status < 300) {
+			cdpProfile = profileResult.body;
 		}
 
 		// 2. Fetch history from ProfileDB
-		let historyRes = await fetch(`${PROFILEDB_URL}/api/v1/tenants/${locals.user.company.id}/profiles/${params.id}/history`);
+		const historyResult = await getProfileHistory(companyId, params.id);
 		let historyEvents: any[] = [];
-		if (historyRes.ok) {
-			historyEvents = await historyRes.json();
+		if (historyResult.status >= 200 && historyResult.status < 300) {
+			historyEvents = historyResult.body;
 		}
 
 		// Always fetch the contact from Prisma for accountBalance/engagementScore
@@ -350,15 +350,10 @@ export const actions: Actions = {
 		const representativeId = form.get('representativeId')?.toString() || null;
 		const id = params.id;
 
-		const PROFILEDB_URL = process.env.PROFILEDB_URL || 'http://localhost:6277';
 		try {
-			const res = await fetch(`${PROFILEDB_URL}/api/v1/tenants/${locals.user.company.id}/profiles/${id}/representative`, {
-				method: 'PUT',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ representativeId })
-			});
+			const result = await assignRepresentative(user.company.id, id, representativeId);
 
-			if (res.ok) {
+			if (result.status >= 200 && result.status < 300) {
 				return { success: true };
 			} else {
 				console.error('Failed to assign representative in ProfileDB');
