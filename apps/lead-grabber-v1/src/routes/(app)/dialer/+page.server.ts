@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { TELNYX_API_KEY } from '$env/static/private';
+import { getTenantProfiles } from '$lib/server/profiledb/profiles';
 
 export const load: PageServerLoad = async ({ locals, fetch }) => {
 	const user = locals.user;
@@ -10,12 +11,11 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 	}
 
 	// 1. Fetch profiles from ProfileDB (same as /profiles page)
-	const PROFILEDB_URL = process.env.PROFILEDB_URL || 'http://localhost:6277';
 	let contacts: any[] = [];
 	try {
-		const res = await fetch(`${PROFILEDB_URL}/api/v1/tenants/${locals.user.company.id}/profiles?limit=100`);
-		if (res.ok) {
-			const json = await res.json();
+		const result = await getTenantProfiles(locals.user.company.id, { limit: '100' });
+		if (result.status >= 200 && result.status < 300) {
+			const json = result.body;
 			if (json && Array.isArray(json.data)) {
 				contacts = json.data.map((p: any) => ({
 					name: p.isAnonymous ? (p.clearPhone && p.clearPhone !== '—' ? 'Caller (' + p.clearPhone + ')' : 'Anonymous Lead') : (p.name || 'Anonymous Lead'),

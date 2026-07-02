@@ -7,6 +7,8 @@ import { createNotification } from '$lib/utils/notifications';
 import { createOrUpdateContact } from '$lib/utils/contacts';
 import { analyzeIncomingMessage } from '$lib/ai/openai';
 import { UnifiedPipeline } from '$lib/server/pipeline/unified-pipeline';
+import { getProfileDetails, getProfileHistory } from '$lib/server/profiledb/profiles';
+import { getTenantEvents } from '$lib/server/profiledb/telemetry';
 
 const CORS_HEADERS = {
 	'Access-Control-Allow-Origin': '*',
@@ -231,11 +233,10 @@ async function syncEmergencyMessages(companyId: string) {
 	}
 	lastSyncTime = now;
 
-	const PROFILEDB_URL = process.env.PROFILEDB_URL || 'http://localhost:6277';
 	try {
-		const resEvents = await fetch(`${PROFILEDB_URL}/api/v1/tenants/${companyId}/events?limit=30`);
-		if (!resEvents.ok) return;
-		const jsonEvents = await resEvents.json();
+		const resEvents = await getTenantEvents({ tenantSlug: companyId, limit: '30' });
+		if (!(resEvents.status >= 200 && resEvents.status < 300)) return;
+		const jsonEvents = resEvents.body;
 		const events = (jsonEvents && Array.isArray(jsonEvents.data)) ? jsonEvents.data : [];
 		
 		const activeProfileIds = new Set(events.map((ev: any) => ev.customerProfileId).filter(Boolean));
@@ -280,14 +281,14 @@ async function syncEmergencyMessages(companyId: string) {
 		const profileIds = [...activeProfileIds];
 
 		for (const profileId of profileIds) {
-			const resHistory = await fetch(`${PROFILEDB_URL}/api/v1/tenants/${companyId}/profiles/${profileId}/history`);
-			if (!resHistory.ok) continue;
-			const history = await resHistory.json();
+			const resHistory = await getProfileHistory(companyId, profileId as string);
+			if (!(resHistory.status >= 200 && resHistory.status < 300)) continue;
+			const history = resHistory.body;
 			if (!Array.isArray(history) || history.length === 0) continue;
 
-			const resProfile = await fetch(`${PROFILEDB_URL}/api/v1/tenants/${companyId}/profiles/${profileId}`);
-			if (!resProfile.ok) continue;
-			const profile = await resProfile.json();
+			const resProfile = await getProfileDetails(companyId, profileId as string);
+			if (!(resProfile.status >= 200 && resProfile.status < 300)) continue;
+			const profile = resProfile.body;
 
 			const customerPhone = (profile.clearPhone && profile.clearPhone !== '—') 
 				? profile.clearPhone 
