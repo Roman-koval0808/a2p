@@ -12,6 +12,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 		'/login',
 		'/signup',
 		'/api',
+		'/book',
 		'/embed',
 		'/embed/leadform/[id]',
 		'/invite/accept/[id]',
