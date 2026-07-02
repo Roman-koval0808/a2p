@@ -12,6 +12,7 @@ import { draftResponse } from '$lib/ai/openai';
 import { draftConversationalReply } from '$lib/server/conversation';
 import { getBookingUrl } from '$lib/utils/booking';
 import { getBookingLinkIfConnected } from '$lib/server/google-calendar';
+import { ingestTelemetryEvent } from '$lib/server/profiledb/telemetry';
 import { TELNYX_API_KEY, TELNYX_MESSAGING_PROFILE_ID, ANTHROPIC_AI_KEY } from '$env/static/private';
 import { PUBLIC_BASE_URL } from '$env/static/public';
 import { normalizeUrl } from '$lib/utils';
@@ -293,14 +294,9 @@ export const POST: RequestHandler = async ({ request }) => {
 					if (companyId) {
 						const compId = companyId as string;
 						try {
-							const profiledbUrl = process.env.PROFILEDB_URL || 'http://localhost:6277';
-							const res = await fetch(`${profiledbUrl}/api/v1/telemetry/events`, {
-								method: 'POST',
-								headers: {
-									'Content-Type': 'application/json',
-									Authorization: 'Bearer clearsky_pixel_api_key'
-								},
-								body: JSON.stringify({
+							const result = await ingestTelemetryEvent({
+								body: {
+									isTest: true,
 									tenantSlug: compId,
 									fingerprintId: smsId,
 									eventType: 'sms_received',
@@ -327,12 +323,13 @@ export const POST: RequestHandler = async ({ request }) => {
 										ai_protocol: pipelineResult.ai_protocol,
 										externalEventId: smsId
 									}
-								})
+								},
+								headers: { authorization: 'Bearer clearsky_pixel_api_key' }
 							});
-							if (res.ok) {
+							if (result.status >= 200 && result.status < 300) {
 								console.log('📡 Pipeline executed and SMS event logged to ProfileDB successfully');
 							} else {
-								console.error('❌ Failed to log SMS event to ProfileDB:', res.statusText);
+								console.error('❌ Failed to log SMS event to ProfileDB:', result.body);
 							}
 						} catch (dbErr) {
 							console.error('❌ ProfileDB logging error:', dbErr);
@@ -485,14 +482,9 @@ export const POST: RequestHandler = async ({ request }) => {
 					if (draftText && effectiveCompanyId) {
 						const compId = effectiveCompanyId as string;
 						try {
-							const profiledbUrl = process.env.PROFILEDB_URL || 'http://localhost:6277';
-							const draftRes = await fetch(`${profiledbUrl}/api/v1/telemetry/events`, {
-								method: 'POST',
-								headers: {
-									'Content-Type': 'application/json',
-									Authorization: 'Bearer clearsky_pixel_api_key'
-								},
-								body: JSON.stringify({
+							const result = await ingestTelemetryEvent({
+								body: {
+									isTest: true,
 									tenantSlug: compId,
 									fingerprintId: `${smsId}_draft`,
 									eventType: hasEmergency ? 'sms_auto_reply' : 'sms_draft',
@@ -522,14 +514,15 @@ export const POST: RequestHandler = async ({ request }) => {
 										ai_protocol: pipelineResult?.ai_protocol || {},
 										externalEventId: `${smsId}_draft`
 									}
-								})
+								},
+								headers: { authorization: 'Bearer clearsky_pixel_api_key' }
 							});
-							if (draftRes.ok) {
+							if (result.status >= 200 && result.status < 300) {
 								console.log('📡 Outbound draft event logged to ProfileDB successfully');
 							} else {
 								console.error(
 									'❌ Failed to log Outbound draft event to ProfileDB:',
-									draftRes.statusText
+									result.body
 								);
 							}
 						} catch (dbErr) {

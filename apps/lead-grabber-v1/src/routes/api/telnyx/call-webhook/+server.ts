@@ -16,6 +16,7 @@ import { isA2pEnabled, forwardVoiceWebhook } from '$lib/server/a2p-client';
 import { createNotification } from '$lib/utils/notifications';
 import { setIntent, setVoicemail, removeVoicemail, getState, deleteState, addVoicemailRecordingId, hasVoicemailRecordingId, removeVoicemailRecordingId } from '$lib/server/call-state';
 import { logCommunication } from '$lib/utils/communication-log';
+import { ingestTelemetryEvent } from '$lib/server/profiledb/telemetry';
 const TELNYX_PUBLIC_KEY = process.env.TELNYX_PUBLIC_KEY;
 
 const playPublic = false;
@@ -1642,14 +1643,9 @@ export const POST: RequestHandler = async ({ request }) => {
 
 											// Persist the full pipeline package into ProfileDB
 											if (numberInfo?.companyId) {
-												const profiledbUrl = process.env.PROFILEDB_URL || 'http://localhost:6277';
-												const res = await fetch(`${profiledbUrl}/api/v1/telemetry/events`, {
-													method: 'POST',
-													headers: {
-														'Content-Type': 'application/json',
-														'Authorization': 'Bearer clearsky_pixel_api_key'
-													},
-													body: JSON.stringify({
+												const result = await ingestTelemetryEvent({
+													body: {
+														isTest: true,
 														tenantSlug: numberInfo.companyId,
 														fingerprintId: callControlId,
 													eventType: 'telnyx.voice.voicemail',
@@ -1674,13 +1670,14 @@ export const POST: RequestHandler = async ({ request }) => {
 														ai_protocol: pipelineResult.ai_protocol,
 													estimatedPrice: estimatedPrice
 												}
-											})
+											},
+											headers: { authorization: 'Bearer clearsky_pixel_api_key' }
 										});
 
-										if (res.ok) {
+										if (result.status >= 200 && result.status < 300) {
 											console.log('📡 Pipeline executed and Voice event logged to ProfileDB successfully');
 										} else {
-											console.error('❌ Failed to log Voice event to ProfileDB:', res.statusText);
+											console.error('❌ Failed to log Voice event to ProfileDB:', result.status);
 										}
 									} else {
 										console.log('📡 Skipping ProfileDB logging for unassigned number');
