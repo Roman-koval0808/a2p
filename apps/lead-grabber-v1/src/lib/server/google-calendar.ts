@@ -228,6 +228,9 @@ export async function createEvent(
 		attendeeEmail?: string | null;
 		addMeet?: boolean;
 		timeZone?: string;
+		/** Tag the event with the customer's phone/email for reliable later lookup (not name). */
+		phone?: string | null;
+		email?: string | null;
 	}
 ): Promise<CreatedEvent | null> {
 	const auth = await getAccessToken(companyId);
@@ -240,6 +243,13 @@ export async function createEvent(
 			end: { dateTime: opts.endISO, ...(opts.timeZone ? { timeZone: opts.timeZone } : {}) }
 		};
 		if (opts.attendeeEmail) body.attendees = [{ email: opts.attendeeEmail }];
+		// Stable identity tags for exact later lookup (phone is the reliable key, not the name).
+		const priv: Record<string, string> = {};
+		const pk = phoneKey(opts.phone);
+		if (pk) priv.customerPhone = pk;
+		const em = (opts.email || opts.attendeeEmail || '').trim().toLowerCase();
+		if (em) priv.customerEmail = em;
+		if (Object.keys(priv).length) body.extendedProperties = { private: priv };
 		if (opts.addMeet) {
 			body.conferenceData = {
 				createRequest: {
@@ -288,7 +298,13 @@ export interface BookResult {
 export async function bookAppointment(
 	companyId: string,
 	datetimeNaive: string,
-	opts: { summary: string; description?: string; attendeeEmail?: string | null; durationMin?: number }
+	opts: {
+		summary: string;
+		description?: string;
+		attendeeEmail?: string | null;
+		durationMin?: number;
+		phone?: string | null;
+	}
 ): Promise<BookResult> {
 	const start = new Date(datetimeNaive);
 	if (isNaN(start.getTime())) return { status: 'failed', meetLink: null, htmlLink: null };
@@ -304,6 +320,7 @@ export async function bookAppointment(
 		startISO,
 		endISO,
 		attendeeEmail: opts.attendeeEmail,
+		phone: opts.phone,
 		addMeet: true
 	});
 	if (!ev) return { status: 'failed', meetLink: null, htmlLink: null };
@@ -317,48 +334,78 @@ export interface AppointmentRecord {
 }
 
 /**
- * A customer's appointments on the connected calendar, matched by a free-text query (their name,
- * phone, or email — we put those in the event summary/description/attendees when booking). Returns
- * past + upcoming within the window, oldest-first. Empty if not connected or no query.
+ * A customer's appointments on the connected calendar. Matched RELIABLY by phone (the exact
+ * `customerPhone` tag we set when booking) and email, with the name only as a fuzzy fallback —
+ * so a customer giving a slightly different name still resolves. Returns past + upcoming within
+ * the window, oldest-first, de-duplicated. Empty if not connected or no identifiers.
  */
 export async function getCustomerAppointments(
 	companyId: string,
-	opts: { query: string; pastDays?: number; futureDays?: number; max?: number }
+	opts: {
+		phone?: string | null;
+		email?: string | null;
+		name?: string | null;
+		pastDays?: number;
+		futureDays?: number;
+		max?: number;
+	}
 ): Promise<AppointmentRecord[]> {
 	const auth = await getAccessToken(companyId);
-	const q = (opts.query || '').trim();
-	if (!auth || !q) return [];
+	if (!auth) return [];
 	const now = Date.now();
 	const timeMin = new Date(now - (opts.pastDays ?? 365) * 86400000).toISOString();
 	const timeMax = new Date(now + (opts.futureDays ?? 90) * 86400000).toISOString();
-	try {
-		const params = new URLSearchParams({
-			q,
-			timeMin,
-			timeMax,
-			singleEvents: 'true',
-			orderBy: 'startTime',
-			maxResults: String(opts.max ?? 25)
-		});
-		const res = await fetch(
-			`${CAL_API}/calendars/${encodeURIComponent(auth.calendarId)}/events?${params.toString()}`,
-			{ headers: { Authorization: `Bearer ${auth.token}` } }
-		);
-		if (!res.ok) {
-			console.error('[google-calendar] getCustomerAppointments failed:', await res.text());
+	const base = {
+		timeMin,
+		timeMax,
+		singleEvents: 'true',
+		orderBy: 'startTime',
+		maxResults: String(opts.max ?? 25)
+	};
+
+	const fetchEvents = async (extra: Record<string, string>): Promise<any[]> => {
+		try {
+			const params = new URLSearchParams({ ...base, ...extra });
+			const res = await fetch(
+				`${CAL_API}/calendars/${encodeURIComponent(auth.calendarId)}/events?${params.toString()}`,
+				{ headers: { Authorization: `Bearer ${auth.token}` } }
+			);
+			if (!res.ok) {
+				console.error('[google-calendar] getCustomerAppointments failed:', await res.text());
+				return [];
+			}
+			return (await res.json())?.items || [];
+		} catch (e) {
+			console.error('[google-calendar] getCustomerAppointments error:', e);
 			return [];
 		}
-		const data = await res.json();
-		return (data.items || [])
-			.filter((e: any) => e.status !== 'cancelled' && (e.start?.dateTime || e.start?.date))
-			.map((e: any) => {
-				const startISO = e.start.dateTime || e.start.date;
-				return { startISO, title: e.summary || 'Appointment', isPast: new Date(startISO).getTime() < now };
-			});
-	} catch (e) {
-		console.error('[google-calendar] getCustomerAppointments error:', e);
-		return [];
+	};
+
+	// Reliable exact-match queries first (phone tag, then email), then name as a fuzzy fallback.
+	const queries: Record<string, string>[] = [];
+	const pk = phoneKey(opts.phone);
+	if (pk) queries.push({ privateExtendedProperty: `customerPhone=${pk}` });
+	const em = (opts.email || '').trim().toLowerCase();
+	if (em) queries.push({ privateExtendedProperty: `customerEmail=${em}` });
+	const name = (opts.name || '').trim();
+	if (name) queries.push({ q: name });
+	if (queries.length === 0) return [];
+
+	const byId = new Map<string, any>();
+	for (const q of queries) {
+		for (const ev of await fetchEvents(q)) {
+			if (ev?.id && ev.status !== 'cancelled' && (ev.start?.dateTime || ev.start?.date)) {
+				byId.set(ev.id, ev);
+			}
+		}
 	}
+
+	return Array.from(byId.values())
+		.map((e: any) => {
+			const startISO = e.start.dateTime || e.start.date;
+			return { startISO, title: e.summary || 'Appointment', isPast: new Date(startISO).getTime() < now };
+		})
+		.sort((a, b) => new Date(a.startISO).getTime() - new Date(b.startISO).getTime());
 }
 
 /** Public URL of the self-service booking page for a company. */
@@ -374,6 +421,10 @@ export async function getBookingLinkIfConnected(companyId: string): Promise<stri
 
 function pad(n: number): string {
 	return String(n).padStart(2, '0');
+}
+/** Format-agnostic phone key (last 10 digits) used to tag + match events by phone. */
+function phoneKey(phone: string | null | undefined): string {
+	return (phone || '').replace(/\D/g, '').slice(-10);
 }
 function localNaive(d: Date): string {
 	return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
