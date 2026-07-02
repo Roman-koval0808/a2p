@@ -12,7 +12,8 @@
 import { prisma } from '$lib/db';
 import { env } from '$env/dynamic/private';
 import { PUBLIC_BASE_URL } from '$env/static/public';
-import { getDayHours } from './calendar';
+import { getDayHours, formatDatetime } from './calendar';
+import { bookingLinkWith } from '$lib/utils/booking';
 
 // Dynamic env so an unconfigured deployment still builds (feature simply stays off).
 const GOOGLE_CLIENT_ID = env.GOOGLE_CLIENT_ID || '';
@@ -328,9 +329,27 @@ export async function bookAppointment(
 }
 
 export interface AppointmentRecord {
+	id: string;
 	startISO: string;
 	title: string;
 	isPast: boolean;
+}
+
+/** Cancel/delete a specific event by id. Used for reschedules (deletes ONLY the given event). */
+export async function deleteEvent(companyId: string, eventId: string): Promise<boolean> {
+	const auth = await getAccessToken(companyId);
+	if (!auth || !eventId) return false;
+	try {
+		const res = await fetch(
+			`${CAL_API}/calendars/${encodeURIComponent(auth.calendarId)}/events/${encodeURIComponent(eventId)}?sendUpdates=all`,
+			{ method: 'DELETE', headers: { Authorization: `Bearer ${auth.token}` } }
+		);
+		// 200/204 = deleted; 410 = already gone (treat as success).
+		return res.ok || res.status === 410;
+	} catch (e) {
+		console.error('[google-calendar] deleteEvent error:', e);
+		return false;
+	}
 }
 
 /**
@@ -403,9 +422,75 @@ export async function getCustomerAppointments(
 	return Array.from(byId.values())
 		.map((e: any) => {
 			const startISO = e.start.dateTime || e.start.date;
-			return { startISO, title: e.summary || 'Appointment', isPast: new Date(startISO).getTime() < now };
+			return {
+				id: e.id,
+				startISO,
+				title: e.summary || 'Appointment',
+				isPast: new Date(startISO).getTime() < now
+			};
 		})
 		.sort((a, b) => new Date(a.startISO).getTime() - new Date(b.startISO).getTime());
+}
+
+/**
+ * Pick which upcoming appointment a reschedule request refers to — SAFELY:
+ *  - exactly one upcoming → that one;
+ *  - the message names a day/date that matches exactly one → that one;
+ *  - otherwise → null (ambiguous; the caller must ASK, never guess).
+ */
+function pickRescheduleTarget(message: string, upcoming: AppointmentRecord[]): AppointmentRecord | null {
+	if (upcoming.length === 0) return null;
+	if (upcoming.length === 1) return upcoming[0];
+	const lower = (message || '').toLowerCase();
+	const matched = upcoming.filter((a) => {
+		const d = new Date(a.startISO);
+		const weekday = d.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase(); // "friday"
+		const monthDay = d.toLocaleDateString('en-US', { month: 'long', day: 'numeric' }).toLowerCase(); // "july 4"
+		const dayNum = d.getDate();
+		return (
+			lower.includes(weekday) ||
+			lower.includes(monthDay) ||
+			new RegExp(`\\b${dayNum}(st|nd|rd|th)?\\b`).test(lower)
+		);
+	});
+	return matched.length === 1 ? matched[0] : null;
+}
+
+export interface RescheduleResult {
+	mode: 'link' | 'ask' | 'none';
+	link?: string;
+	targetLabel?: string;
+	options?: string[];
+}
+
+/**
+ * Resolve a reschedule request into an action. Matches the customer's UPCOMING appointments by
+ * phone (reliable), then decides the exact target. Returns a deep-link carrying the EXACT event id
+ * to cancel (mode 'link'), or asks which one when ambiguous (mode 'ask'), or 'none' if they have no
+ * upcoming appointment. Never targets "the latest" — so it can't move the wrong appointment.
+ */
+export async function resolveReschedule(
+	companyId: string,
+	opts: { message: string; phone?: string | null; name?: string | null; email?: string | null }
+): Promise<RescheduleResult> {
+	const appts = await getCustomerAppointments(companyId, {
+		phone: opts.phone,
+		email: opts.email,
+		name: opts.name
+	});
+	const upcoming = appts.filter((a) => !a.isPast);
+	if (upcoming.length === 0) return { mode: 'none' };
+
+	const target = pickRescheduleTarget(opts.message, upcoming);
+	if (!target) {
+		return { mode: 'ask', options: upcoming.map((a) => formatDatetime(a.startISO)) };
+	}
+	const link = bookingLinkWith(getBookingPageUrl(companyId), {
+		name: opts.name,
+		phone: opts.phone,
+		reschedule: target.id
+	});
+	return { mode: 'link', link, targetLabel: formatDatetime(target.startISO) };
 }
 
 /** Public URL of the self-service booking page for a company. */

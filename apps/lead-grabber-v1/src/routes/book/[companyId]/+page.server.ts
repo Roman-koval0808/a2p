@@ -1,7 +1,14 @@
 import { error, fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { prisma } from '$lib/db';
-import { getConnectionInfo, getAvailableSlots, bookAppointment } from '$lib/server/google-calendar';
+import {
+	getConnectionInfo,
+	getAvailableSlots,
+	bookAppointment,
+	getCustomerAppointments,
+	deleteEvent
+} from '$lib/server/google-calendar';
+import { formatDatetime } from '$lib/server/calendar';
 
 export const load: PageServerLoad = async ({ params, url }) => {
 	const companyId = params.companyId;
@@ -20,10 +27,25 @@ export const load: PageServerLoad = async ({ params, url }) => {
 			})
 		: [];
 
-	// Deep-link params from an AI reply: ?t= pre-selects the time, ?n= name, ?p= phone.
+	// Deep-link params from an AI reply: ?t= pre-selects the time, ?n= name, ?p= phone,
+	// ?reschedule= the EXACT event id being moved.
 	const requestedTime = (url.searchParams.get('t') || '').slice(0, 16); // YYYY-MM-DDTHH:mm
 	const requestedName = (url.searchParams.get('n') || '').slice(0, 80);
 	const requestedPhone = (url.searchParams.get('p') || '').slice(0, 30);
+	const rescheduleId = (url.searchParams.get('reschedule') || '').slice(0, 1024);
+
+	// Resolve the appointment being rescheduled (for a clear "moving your … appointment" banner).
+	// Verified against the phone-matched list so the id can only be one of THIS customer's events.
+	let rescheduleLabel = '';
+	let rescheduleValid = false;
+	if (rescheduleId && requestedPhone && conn.connected) {
+		const mine = await getCustomerAppointments(companyId, { phone: requestedPhone });
+		const match = mine.find((a) => a.id === rescheduleId);
+		if (match) {
+			rescheduleValid = true;
+			rescheduleLabel = formatDatetime(match.startISO);
+		}
+	}
 
 	return {
 		companyName: company.name || 'us',
@@ -31,7 +53,9 @@ export const load: PageServerLoad = async ({ params, url }) => {
 		days,
 		requestedTime,
 		requestedName,
-		requestedPhone
+		requestedPhone,
+		rescheduleId: rescheduleValid ? rescheduleId : '',
+		rescheduleLabel
 	};
 };
 
@@ -43,6 +67,7 @@ export const actions: Actions = {
 		const name = ((form.get('name') as string) || '').trim();
 		const email = ((form.get('email') as string) || '').trim();
 		const phone = ((form.get('phone') as string) || '').trim();
+		const rescheduleId = ((form.get('reschedule') as string) || '').trim();
 
 		if (!slot || !name) {
 			return fail(400, { error: 'Please pick a time and enter your name.' });
@@ -55,10 +80,29 @@ export const actions: Actions = {
 			phone: phone || null
 		});
 
-		if (r.status === 'booked') return { success: true, meetLink: r.meetLink };
 		if (r.status === 'busy') {
 			return fail(409, { error: 'Sorry, that time was just taken — please pick another.' });
 		}
-		return fail(500, { error: 'Could not book that time. Please try again.' });
+		if (r.status !== 'booked') {
+			return fail(500, { error: 'Could not book that time. Please try again.' });
+		}
+
+		// Reschedule: cancel the OLD appointment — but ONLY the exact event id, and ONLY after
+		// re-confirming it belongs to THIS customer's phone. Otherwise we never delete anything.
+		let rescheduled = false;
+		if (rescheduleId && phone) {
+			try {
+				const mine = await getCustomerAppointments(companyId, { phone });
+				if (mine.some((a) => a.id === rescheduleId)) {
+					rescheduled = await deleteEvent(companyId, rescheduleId);
+				} else {
+					console.warn('[book] reschedule id not among this phone’s appointments — not cancelling');
+				}
+			} catch (e) {
+				console.error('[book] reschedule cancel failed (new booking kept):', e);
+			}
+		}
+
+		return { success: true, meetLink: r.meetLink, rescheduled };
 	}
 };
