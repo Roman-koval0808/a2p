@@ -27,13 +27,15 @@ export function getBookingUrl(company: any): string | null {
  */
 export function bookingLinkWith(
 	url: string,
-	opts: { time?: string | null; name?: string | null; phone?: string | null }
+	opts: { time?: string | null; name?: string | null; phone?: string | null; reschedule?: string | null }
 ): string {
 	if (!url || !url.includes('/book/')) return url;
 	const params = new URLSearchParams();
 	if (opts.time && opts.time.trim()) params.set('t', opts.time.trim());
 	if (opts.name && opts.name.trim()) params.set('n', opts.name.trim());
 	if (opts.phone && opts.phone.trim()) params.set('p', opts.phone.trim());
+	// The EXACT event id to cancel on rebook — never "the latest"; carried end-to-end.
+	if (opts.reschedule && opts.reschedule.trim()) params.set('reschedule', opts.reschedule.trim());
 	const qs = params.toString();
 	if (!qs) return url;
 	return url + (url.includes('?') ? '&' : '?') + qs;
