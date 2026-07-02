@@ -11,7 +11,7 @@ import { PipelineSimulator } from '$lib/server/pipeline-simulator';
 import { draftResponse } from '$lib/ai/openai';
 import { draftConversationalReply } from '$lib/server/conversation';
 import { getBookingUrl } from '$lib/utils/booking';
-import { getBookingLinkIfConnected } from '$lib/server/google-calendar';
+import { getBookingLinkIfConnected, getConnectionInfo, getCustomerAppointments } from '$lib/server/google-calendar';
 import { ingestTelemetryEvent } from '$lib/server/profiledb/telemetry';
 import { TELNYX_API_KEY, TELNYX_MESSAGING_PROFILE_ID, ANTHROPIC_AI_KEY } from '$env/static/private';
 import { PUBLIC_BASE_URL } from '$env/static/public';
@@ -268,6 +268,20 @@ export const POST: RequestHandler = async ({ request }) => {
 						// Self-service link: pasted Appointment Schedule link, or our booking page when
 						// Google Calendar is connected — the customer self-picks from live availability.
 						const bookingLink = getBookingUrl(company) || (await getBookingLinkIfConnected(cid));
+						// If they ask about their appointment history, look it up on the calendar.
+						const asksAppointments =
+							/\b(appointment|appt|last (time|appointment|visit)|when .*(was|were|is|are|scheduled|booked)|history|scheduled|booked|come out|came out|visit|next (appointment|appt|visit))\b/i.test(
+								smsText
+							);
+						let appointments: { startISO: string; title: string; isPast: boolean }[] | undefined;
+						if (asksAppointments) {
+							const gconn = await getConnectionInfo(cid);
+							if (gconn.connected) {
+								appointments = await getCustomerAppointments(cid, {
+									query: contact?.name || contact?.phone || contact?.email || normalizedPhoneNumber || ''
+								});
+							}
+						}
 						const conv = await draftConversationalReply({
 							message: smsText,
 							history,
@@ -276,6 +290,7 @@ export const POST: RequestHandler = async ({ request }) => {
 							locations: (company as any)?.locations || [],
 							accountBalance: contact?.accountBalance ?? null,
 							bookingUrl: bookingLink,
+							appointments,
 							apiKey: ANTHROPIC_AI_KEY
 						});
 						if (conv?.reply) {
