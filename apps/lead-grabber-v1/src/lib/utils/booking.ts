@@ -21,13 +21,21 @@ export function getBookingUrl(company: any): string | null {
 }
 
 /**
- * Deep-link a booking URL to a specific requested time (?t=<iso>) so our /book page can open with
- * that slot pre-selected. Only applied to our own booking page; third-party links are left as-is.
+ * Deep-link our /book page with a requested time (?t=) and/or the customer's name (?n=) so the
+ * page opens pre-selected on that slot with the name prefilled. Only applied to our own booking
+ * page; third-party links (Calendly, Google) are left untouched.
  */
-export function withRequestedTime(url: string, iso: string | null | undefined): string {
-	const t = (iso || '').trim();
-	if (!t || !url.includes('/book/')) return url;
-	return url + (url.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(t);
+export function bookingLinkWith(
+	url: string,
+	opts: { time?: string | null; name?: string | null }
+): string {
+	if (!url || !url.includes('/book/')) return url;
+	const params = new URLSearchParams();
+	if (opts.time && opts.time.trim()) params.set('t', opts.time.trim());
+	if (opts.name && opts.name.trim()) params.set('n', opts.name.trim());
+	const qs = params.toString();
+	if (!qs) return url;
+	return url + (url.includes('?') ? '&' : '?') + qs;
 }
 
 /**
