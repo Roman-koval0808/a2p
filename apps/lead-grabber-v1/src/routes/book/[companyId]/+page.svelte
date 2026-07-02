@@ -159,7 +159,13 @@
 							</div>
 							<div class="grid gap-1.5">
 								<Label for="phone">Phone <span class="text-gray-400">(optional)</span></Label>
-								<Input id="phone" name="phone" type="tel" placeholder="(555) 555-5555" />
+								<Input
+									id="phone"
+									name="phone"
+									type="tel"
+									value={data.requestedPhone || ''}
+									placeholder="(555) 555-5555"
+								/>
 							</div>
 						</div>
 

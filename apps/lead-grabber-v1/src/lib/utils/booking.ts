@@ -27,12 +27,13 @@ export function getBookingUrl(company: any): string | null {
  */
 export function bookingLinkWith(
 	url: string,
-	opts: { time?: string | null; name?: string | null }
+	opts: { time?: string | null; name?: string | null; phone?: string | null }
 ): string {
 	if (!url || !url.includes('/book/')) return url;
 	const params = new URLSearchParams();
 	if (opts.time && opts.time.trim()) params.set('t', opts.time.trim());
 	if (opts.name && opts.name.trim()) params.set('n', opts.name.trim());
+	if (opts.phone && opts.phone.trim()) params.set('p', opts.phone.trim());
 	const qs = params.toString();
 	if (!qs) return url;
 	return url + (url.includes('?') ? '&' : '?') + qs;

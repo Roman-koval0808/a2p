@@ -20,16 +20,18 @@ export const load: PageServerLoad = async ({ params, url }) => {
 			})
 		: [];
 
-	// Deep-link params from an AI reply: ?t= pre-selects the time, ?n= prefills the name.
+	// Deep-link params from an AI reply: ?t= pre-selects the time, ?n= name, ?p= phone.
 	const requestedTime = (url.searchParams.get('t') || '').slice(0, 16); // YYYY-MM-DDTHH:mm
 	const requestedName = (url.searchParams.get('n') || '').slice(0, 80);
+	const requestedPhone = (url.searchParams.get('p') || '').slice(0, 30);
 
 	return {
 		companyName: company.name || 'us',
 		connected: conn.connected,
 		days,
 		requestedTime,
-		requestedName
+		requestedName,
+		requestedPhone
 	};
 };
 
@@ -49,7 +51,8 @@ export const actions: Actions = {
 		const r = await bookAppointment(companyId, slot, {
 			summary: `Appointment — ${name}`,
 			description: `Booked via self-service page.${phone ? ` Phone: ${phone}.` : ''}${email ? ` Email: ${email}.` : ''}`,
-			attendeeEmail: email || null
+			attendeeEmail: email || null,
+			phone: phone || null
 		});
 
 		if (r.status === 'booked') return { success: true, meetLink: r.meetLink };
