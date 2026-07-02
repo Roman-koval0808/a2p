@@ -28,4 +28,5 @@ logs/
 
 .pnpm-store/
 voip/
-clearsky-db-clientprofiledb-client
+clearsky-db-client
+profiledb-client
