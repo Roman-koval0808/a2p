@@ -11,13 +11,17 @@ export default defineConfig({
 	},
 	ssr: {
 		noExternal: ['lucide-svelte'],
-		external: ['firebase-admin', 'clearsky-db-client', '@telnyx/webrtc']
+		external: ['firebase-admin', 'clearsky-db-client', 'profiledb-client', '@telnyx/webrtc']
 	},
 	build: {
 		minify: true,
 		sourcemap: true,
 		rollupOptions: {
-			external: (id) => id.includes('clearsky-db-client') || id.includes('firebase-admin') || id.includes('@telnyx/webrtc'),
+			external: (id) =>
+				id.includes('clearsky-db-client') ||
+				id.includes('profiledb-client') ||
+				id.includes('firebase-admin') ||
+				id.includes('@telnyx/webrtc'),
 			output: {
 				manualChunks: {
 					vendor: ['svelte'],
