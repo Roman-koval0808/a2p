@@ -2,8 +2,19 @@
 	import { enhance } from '$app/forms';
 
 	let { data, form } = $props();
-	let selected = $state<{ value: string; label: string; day: string } | null>(null);
+
+	// If an AI reply deep-linked a requested time (?t=), pre-select that slot when it's open.
+	function findRequested() {
+		if (!data.requestedTime) return null;
+		for (const day of data.days) {
+			const slot = day.slots.find((s: any) => s.value.slice(0, 16) === data.requestedTime);
+			if (slot) return { value: slot.value, label: slot.label, day: day.label };
+		}
+		return null;
+	}
+	let selected = $state<{ value: string; label: string; day: string } | null>(findRequested());
 	let submitting = $state(false);
+	const requestedButUnavailable = !!data.requestedTime && data.connected && !selected;
 </script>
 
 <svelte:head>
@@ -38,6 +49,13 @@
 				No open times in the next two weeks — please reach out and we'll find a time that works.
 			</div>
 		{:else}
+			{#if requestedButUnavailable}
+				<div
+					class="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+				>
+					The exact time you asked for isn't open — please pick another below.
+				</div>
+			{/if}
 			<div class="grid gap-4">
 				{#each data.days as day}
 					<div class="rounded-xl border bg-white p-4">

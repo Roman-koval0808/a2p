@@ -10,6 +10,7 @@
 
 import { checkCalendarAvailability, formatDatetime, describeBusinessHours } from './calendar';
 import { claudeJSON, claudeText, CLAUDE_FAST } from './anthropic';
+import { withRequestedTime } from '$lib/utils/booking';
 
 export interface ConversationTurn {
 	from: 'customer' | 'business';
@@ -140,9 +141,11 @@ export async function draftConversationalReply(
 		available = checkCalendarAvailability(datetime, input.locations || []);
 		const pretty = formatDatetime(datetime);
 		if (bookingUrl) {
-			// Self-service booking is configured — never confirm a specific time; point them to the link.
+			// Self-service booking is configured — acknowledge their time, then deep-link the page to
+			// it (page opens pre-selected on that slot). Never claim it's booked; the link does that.
+			const link = withRequestedTime(bookingUrl, datetime);
 			factLines.push(
-				`The customer mentioned ${pretty}. Do NOT confirm or promise a specific time. Instead, warmly invite them to book their preferred slot themselves at this link (it shows real availability, books both sides and lets them cancel): ${bookingUrl}`
+				`The customer asked for ${pretty}. Warmly acknowledge that time, then give them THIS link to confirm it — the page opens on that time so they just tap confirm (they can also pick another slot or cancel there): ${link}. Do NOT say it's booked; the link does the booking.`
 			);
 		} else {
 			factLines.push(
