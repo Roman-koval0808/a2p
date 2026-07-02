@@ -277,8 +277,11 @@ export const POST: RequestHandler = async ({ request }) => {
 						if (asksAppointments) {
 							const gconn = await getConnectionInfo(cid);
 							if (gconn.connected) {
+								// Match by phone (their texting number — reliable), then email, then name.
 								appointments = await getCustomerAppointments(cid, {
-									query: contact?.name || contact?.phone || contact?.email || normalizedPhoneNumber || ''
+									phone: contact?.phone || normalizedPhoneNumber,
+									email: contact?.email,
+									name: contact?.name
 								});
 							}
 						}
@@ -287,6 +290,7 @@ export const POST: RequestHandler = async ({ request }) => {
 							history,
 							companyName: company?.name || 'us',
 							customerName: contact?.name || extractedName || null,
+							customerPhone: contact?.phone || normalizedPhoneNumber,
 							locations: (company as any)?.locations || [],
 							accountBalance: contact?.accountBalance ?? null,
 							bookingUrl: bookingLink,

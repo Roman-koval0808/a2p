@@ -22,6 +22,7 @@ export interface ConversationInput {
 	history: ConversationTurn[];
 	companyName: string;
 	customerName?: string | null;
+	customerPhone?: string | null;
 	locations?: any[];
 	accountBalance?: number | null;
 	bookingUrl?: string | null;
@@ -167,7 +168,11 @@ export async function draftConversationalReply(
 		if (bookingUrl) {
 			// Self-service booking is configured — acknowledge their time, then deep-link the page to
 			// it (page opens pre-selected on that slot). Never claim it's booked; the link does that.
-			const link = bookingLinkWith(bookingUrl, { time: datetime, name: input.customerName });
+			const link = bookingLinkWith(bookingUrl, {
+				time: datetime,
+				name: input.customerName,
+				phone: input.customerPhone
+			});
 			factLines.push(
 				`The customer asked for ${pretty}. Warmly acknowledge that time, then give them THIS link to confirm it — the page opens on that time so they just tap confirm (they can also pick another slot or cancel there): ${link}. Do NOT say it's booked; the link does the booking.`
 			);
@@ -180,7 +185,7 @@ export async function draftConversationalReply(
 		}
 	} else if (bookingUrl) {
 		// No specific time given, but a booking link exists — offer it for any scheduling.
-		const link = bookingLinkWith(bookingUrl, { name: input.customerName });
+		const link = bookingLinkWith(bookingUrl, { name: input.customerName, phone: input.customerPhone });
 		factLines.push(
 			`If the customer wants to book, reschedule, or asks about appointment availability, share this booking link so they can pick an open slot themselves (it books both sides and lets them cancel): ${link}. Do not invent or promise specific times.`
 		);
