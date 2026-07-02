@@ -4,7 +4,7 @@ import { toE164 } from '$lib/company-numbers';
 import { classifyMessageIntent, bucketToCategory } from './message-intent';
 import { checkCalendarAvailability, formatDatetime } from './calendar';
 import { getBookingUrl, bookingLinkWith } from '$lib/utils/booking';
-import { getBookingLinkIfConnected } from './google-calendar';
+import { getBookingLinkIfConnected, getConnectionInfo, getCustomerAppointments } from './google-calendar';
 import { ANTHROPIC_AI_KEY } from '$env/static/private';
 
 export async function process_orchestrator(commId: string, trigger: string) {
@@ -232,7 +232,22 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						};
 					})
 					.filter((t) => t.text);
-				if (history.length > 0) {
+				// Is the customer asking about their appointment history (past/next/a given day)?
+				const asksAppointments =
+					/\b(appointment|appt|last (time|appointment|visit)|when .*(was|were|is|are|scheduled|booked)|history|scheduled|booked|come out|came out|visit|next (appointment|appt|visit))\b/i.test(
+						rawMessage
+					);
+				let appointments: { startISO: string; title: string; isPast: boolean }[] | undefined;
+				if (asksAppointments) {
+					const gconn = await getConnectionInfo(company.id);
+					if (gconn.connected) {
+						appointments = await getCustomerAppointments(company.id, {
+							query: customer.name || customer.phone || customer.email || ''
+						});
+					}
+				}
+
+				if (history.length > 0 || appointments !== undefined) {
 					// Self-service link: pasted Appointment Schedule link, or our booking page when
 					// Google Calendar is connected — the customer picks a slot from live availability.
 					const bookingLink = getBookingUrl(company) || (await getBookingLinkIfConnected(company.id));
@@ -245,11 +260,16 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						locations: (company as any).locations || [],
 						accountBalance: customer.accountBalance ?? null,
 						bookingUrl: bookingLink,
+						appointments,
 						apiKey: ANTHROPIC_AI_KEY
 					});
 					if (conv?.reply) {
 						draftedResponse = conv.reply;
-						console.log('[Orchestrator] Used conversational cross-channel reply (returning caller).');
+						console.log(
+							appointments !== undefined
+								? '[Orchestrator] Answered appointment-history question from the calendar.'
+								: '[Orchestrator] Used conversational cross-channel reply (returning caller).'
+						);
 					}
 				}
 			}

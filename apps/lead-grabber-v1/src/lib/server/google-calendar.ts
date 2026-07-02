@@ -310,6 +310,57 @@ export async function bookAppointment(
 	return { status: 'booked', meetLink: ev.meetLink, htmlLink: ev.htmlLink };
 }
 
+export interface AppointmentRecord {
+	startISO: string;
+	title: string;
+	isPast: boolean;
+}
+
+/**
+ * A customer's appointments on the connected calendar, matched by a free-text query (their name,
+ * phone, or email — we put those in the event summary/description/attendees when booking). Returns
+ * past + upcoming within the window, oldest-first. Empty if not connected or no query.
+ */
+export async function getCustomerAppointments(
+	companyId: string,
+	opts: { query: string; pastDays?: number; futureDays?: number; max?: number }
+): Promise<AppointmentRecord[]> {
+	const auth = await getAccessToken(companyId);
+	const q = (opts.query || '').trim();
+	if (!auth || !q) return [];
+	const now = Date.now();
+	const timeMin = new Date(now - (opts.pastDays ?? 365) * 86400000).toISOString();
+	const timeMax = new Date(now + (opts.futureDays ?? 90) * 86400000).toISOString();
+	try {
+		const params = new URLSearchParams({
+			q,
+			timeMin,
+			timeMax,
+			singleEvents: 'true',
+			orderBy: 'startTime',
+			maxResults: String(opts.max ?? 25)
+		});
+		const res = await fetch(
+			`${CAL_API}/calendars/${encodeURIComponent(auth.calendarId)}/events?${params.toString()}`,
+			{ headers: { Authorization: `Bearer ${auth.token}` } }
+		);
+		if (!res.ok) {
+			console.error('[google-calendar] getCustomerAppointments failed:', await res.text());
+			return [];
+		}
+		const data = await res.json();
+		return (data.items || [])
+			.filter((e: any) => e.status !== 'cancelled' && (e.start?.dateTime || e.start?.date))
+			.map((e: any) => {
+				const startISO = e.start.dateTime || e.start.date;
+				return { startISO, title: e.summary || 'Appointment', isPast: new Date(startISO).getTime() < now };
+			});
+	} catch (e) {
+		console.error('[google-calendar] getCustomerAppointments error:', e);
+		return [];
+	}
+}
+
 /** Public URL of the self-service booking page for a company. */
 export function getBookingPageUrl(companyId: string): string {
 	return `${(PUBLIC_BASE_URL || '').replace(/\/$/, '')}/book/${companyId}`;
