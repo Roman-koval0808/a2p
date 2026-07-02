@@ -59,10 +59,44 @@ interface TokenResponse {
 	refresh_token?: string;
 	expires_in: number;
 	id_token?: string;
+	scope?: string;
+}
+
+const CAL_FULL = 'https://www.googleapis.com/auth/calendar';
+const CAL_EVENTS = 'https://www.googleapis.com/auth/calendar.events';
+const CAL_READONLY = 'https://www.googleapis.com/auth/calendar.readonly';
+
+/** True only if the granted scopes cover BOTH event creation and free/busy reads. */
+function hasCalendarScopes(scope: string | undefined): boolean {
+	const g = new Set((scope || '').split(/\s+/).filter(Boolean));
+	const canWrite = g.has(CAL_EVENTS) || g.has(CAL_FULL);
+	const canReadBusy = g.has(CAL_READONLY) || g.has(CAL_FULL);
+	return canWrite && canReadBusy;
+}
+
+export type ConnectResult = 'connected' | 'missing_scope' | 'error';
+
+/**
+ * If a calendar call fails with a "scopes insufficient" 403, the stored token can never work —
+ * clear the connection so the app degrades to "not connected" (and prompts a re-consent) instead
+ * of 403ing forever.
+ */
+async function clearIfScopeError(companyId: string, status: number, bodyText: string): Promise<void> {
+	if (
+		status === 403 &&
+		/ACCESS_TOKEN_SCOPE_INSUFFICIENT|insufficient authentication scopes|insufficientPermissions/i.test(
+			bodyText
+		)
+	) {
+		console.error(
+			'[google-calendar] token lacks calendar scopes — clearing connection so the user re-consents.'
+		);
+		await prisma.googleCalendarConnection.deleteMany({ where: { companyId } }).catch(() => {});
+	}
 }
 
 /** Exchange the auth code for tokens and persist the connection for a company. */
-export async function exchangeCodeAndSave(code: string, companyId: string): Promise<boolean> {
+export async function exchangeCodeAndSave(code: string, companyId: string): Promise<ConnectResult> {
 	try {
 		const res = await fetch(TOKEN_ENDPOINT, {
 			method: 'POST',
@@ -77,9 +111,18 @@ export async function exchangeCodeAndSave(code: string, companyId: string): Prom
 		});
 		if (!res.ok) {
 			console.error('[google-calendar] token exchange failed:', await res.text());
-			return false;
+			return 'error';
 		}
 		const tok = (await res.json()) as TokenResponse;
+
+		// The user must have granted the calendar permissions. If they un-checked them on the
+		// consent screen (or the scopes aren't in the Cloud config), the token can't touch the
+		// calendar — refuse the connection rather than saving a broken "connected" state.
+		if (!hasCalendarScopes(tok.scope)) {
+			console.error('[google-calendar] connect rejected — calendar scopes not granted:', tok.scope);
+			await prisma.googleCalendarConnection.deleteMany({ where: { companyId } }).catch(() => {});
+			return 'missing_scope';
+		}
 
 		// Fetch the connected account's email (nice to show in settings).
 		let email: string | null = null;
@@ -111,10 +154,10 @@ export async function exchangeCodeAndSave(code: string, companyId: string): Prom
 				expiresAt
 			}
 		});
-		return true;
+		return 'connected';
 	} catch (e) {
 		console.error('[google-calendar] exchangeCodeAndSave error:', e);
-		return false;
+		return 'error';
 	}
 }
 
@@ -200,7 +243,9 @@ export async function isTimeFree(
 			body: JSON.stringify({ timeMin: startISO, timeMax: endISO, items: [{ id: auth.calendarId }] })
 		});
 		if (!res.ok) {
-			console.error('[google-calendar] freeBusy failed:', await res.text());
+			const body = await res.text();
+			console.error('[google-calendar] freeBusy failed:', body);
+			await clearIfScopeError(companyId, res.status, body);
 			return null;
 		}
 		const data = await res.json();
@@ -270,7 +315,9 @@ export async function createEvent(
 			}
 		);
 		if (!res.ok) {
-			console.error('[google-calendar] createEvent failed:', await res.text());
+			const body = await res.text();
+			console.error('[google-calendar] createEvent failed:', body);
+			await clearIfScopeError(companyId, res.status, body);
 			return null;
 		}
 		const ev = await res.json();

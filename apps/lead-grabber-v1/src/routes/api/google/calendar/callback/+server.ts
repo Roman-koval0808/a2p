@@ -14,6 +14,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 		throw redirect(303, '/settings/company?calendar=error');
 	}
 
-	const ok = await exchangeCodeAndSave(code, companyId);
-	throw redirect(303, `/settings/company?calendar=${ok ? 'connected' : 'error'}`);
+	const result = await exchangeCodeAndSave(code, companyId);
+	// result: 'connected' | 'missing_scope' | 'error'
+	throw redirect(303, `/settings/company?calendar=${result}`);
 };
