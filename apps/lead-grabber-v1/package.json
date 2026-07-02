@@ -4,7 +4,7 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev --port 3005 --host 0.0.0.0",
-		"prebuild": "prisma generate && node -e \"const fs = require('fs'); const p = './clearsky-db-client/package.json'; const pkg = JSON.parse(fs.readFileSync(p)); pkg.type = 'commonjs'; fs.writeFileSync(p, JSON.stringify(pkg, null, 2));\"",
+		"prebuild": "prisma generate && prisma generate --schema=prisma/profiledb.schema.prisma && node -e \"const fs = require('fs'); for (const p of ['./clearsky-db-client/package.json','./profiledb-client/package.json']) { const pkg = JSON.parse(fs.readFileSync(p)); pkg.type = 'commonjs'; fs.writeFileSync(p, JSON.stringify(pkg, null, 2)); }\"",
 		"build": "vite build",
 		"postbuild": "pm2 delete lead-grabber-v1 2>/dev/null || true; pm2 start ecosystem.config.cjs",
 		"preview": "vite preview --port 3005 --host 0.0.0.0",
@@ -14,7 +14,7 @@
 		"lint": "prettier --check . && eslint .",
 		"test": "vitest run",
 		"test:watch": "vitest",
-		"db:generate": "prisma generate && node -e \"const fs = require('fs'); const p = './clearsky-db-client/package.json'; const pkg = JSON.parse(fs.readFileSync(p)); pkg.type = 'commonjs'; fs.writeFileSync(p, JSON.stringify(pkg, null, 2));\"",
+		"db:generate": "prisma generate && prisma generate --schema=prisma/profiledb.schema.prisma && node -e \"const fs = require('fs'); for (const p of ['./clearsky-db-client/package.json','./profiledb-client/package.json']) { const pkg = JSON.parse(fs.readFileSync(p)); pkg.type = 'commonjs'; fs.writeFileSync(p, JSON.stringify(pkg, null, 2)); }\"",
 		"db:push": "prisma db push",
 		"db:migrate": "prisma migrate dev",
 		"db:studio": "prisma studio"
@@ -69,6 +69,7 @@
 		"svelte-use-form": "^2.10.0",
 		"uuid": "^14.0.0",
 		"ws": "^8.18.3",
-		"zod": "^4.4.3"
+		"zod": "^4.4.3",
+		"profiledb-client": "link:./profiledb-client"
 	}
 }

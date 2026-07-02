@@ -1,0 +1,131 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("PROFILEDB_DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../profiledb-client"
+}
+
+/// Represents an individual business/client on the platform (e.g., Plumber A, Plumber B)
+model Tenant {
+  id          String            @id @default(uuid())
+  slug        String            @unique
+  name        String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  
+  // Relations
+  profiles    CustomerProfile[]
+  events      TelemetryEvent[]
+  users       User[]
+}
+
+/// Unified Customer profile representing either an identified lead or a tracked anonymous user
+model CustomerProfile {
+  id              String            @id @default(uuid())
+  tenantId        String
+  tenant          Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  // Unified Identity
+  email           String?
+  phone           String?
+  name            String?
+  
+  // Q2 Identity Tiers & Groups
+  group           Int               @default(2)
+  tier            String            @default("Tier 2B")
+  
+  // CL3 Immutable Sealed Context Package
+  sealedPackage   Json?
+  
+  // Provenance — how this profile was first created
+  profile_origin   String?           // e.g. "offline_rep_entry" | "pixel" | "webhook" | null (legacy)
+
+  // Scoring & Intent Classifications
+  scoreRaw        Int               @default(0)
+  scoreLive       Int               @default(0)
+  intentBucket    String            @default("unclassified") // unclassified, research, comparison, active, emergency
+  lastEventAt     DateTime          @default(now())
+  
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  // Relations
+  fingerprints    DeviceFingerprint[]
+  events          TelemetryEvent[]
+  
+  representativeId String?
+  representative   User?          @relation(fields: [representativeId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, email])
+  @@unique([tenantId, phone])
+  @@index([tenantId])
+  @@index([intentBucket])
+  @@index([representativeId])
+}
+
+/// Maps browser fingerprints or cookie IDs to a unified customer profile
+model DeviceFingerprint {
+  id                String          @id @default(uuid())
+  fingerprintId     String          @unique // Collected from browser fingerprinting libraries
+  customerProfileId String
+  customerProfile   CustomerProfile @relation(fields: [customerProfileId], references: [id], onDelete: Cascade)
+  
+  createdAt         DateTime        @default(now())
+  lastSeenAt        DateTime        @default(now()) @updatedAt
+
+  @@index([customerProfileId])
+}
+
+/// Unified telemetry store tracking all customer actions across channels
+model TelemetryEvent {
+  id                String          @id @default(uuid())
+  tenantId          String
+  tenant            Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerProfileId String
+  customerProfile   CustomerProfile @relation(fields: [customerProfileId], references: [id], onDelete: Cascade)
+  
+  // Event Metadata
+  eventType         String          // clearsky.web.click, clearsky.web.view, a2p.sms.received, form.submit
+  pageUrl           String?
+  referrer          String?
+  ipAddress         String?
+  userAgent         String?
+  
+  // Telemetry Payload
+  scoreDelta        Int             @default(0)
+  payload           Json            @default("{}") // Flexible storage for app-specific telemetry
+  occurredAt        DateTime        @default(now())
+
+  @@index([tenantId])
+  @@index([customerProfileId])
+  @@index([eventType])
+  @@index([occurredAt])
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  REPRESENTATIVE
+}
+
+/// Represents a platform user (staff, representatives) who logs into the system
+model User {
+  id            String            @id @default(uuid())
+  tenantId      String
+  tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  email         String            @unique
+  passwordHash  String?
+  name          String
+  role          UserRole          @default(REPRESENTATIVE)
+  
+  // A representative manages many customers
+  customers     CustomerProfile[]
+  
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@index([tenantId])
+}
