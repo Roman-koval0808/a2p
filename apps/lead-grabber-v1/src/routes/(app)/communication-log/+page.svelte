@@ -35,6 +35,16 @@
 
 	const PAGE_SIZES = [10, 20, 50, 100] as const;
 
+	// First non-empty candidate, capitalized. Used so the summary dialog always shows a meaningful
+	// Category / Sub-Category instead of a blank.
+	function capLabel(...vals: any[]): string {
+		for (const v of vals) {
+			const s = (v ?? '').toString().trim();
+			if (s) return s.charAt(0).toUpperCase() + s.slice(1);
+		}
+		return '';
+	}
+
 	const filters = [
 		'All',
 		'Email',
@@ -518,19 +528,10 @@
 		time={selectedComm.time}
 		category={selectedComm.isDropCall
 			? ''
-			: meta.category_gpt
-				? (meta.category_gpt as string).charAt(0).toUpperCase() +
-					(meta.category_gpt as string).slice(1)
-				: meta.sentiment
-					? (meta.sentiment as string).charAt(0).toUpperCase() + (meta.sentiment as string).slice(1)
-					: ''}
+			: capLabel(meta.message_category, meta.category_gpt, meta.intent, meta.sentiment) || 'General'}
 		subCategory={selectedComm.isDropCall
 			? ''
-			: meta.subcat_gpt
-				? (meta.subcat_gpt as string).charAt(0).toUpperCase() + (meta.subcat_gpt as string).slice(1)
-				: meta.intent
-					? (meta.intent as string).charAt(0).toUpperCase() + (meta.intent as string).slice(1)
-					: ''}
+			: capLabel(meta.subcat_gpt, meta.sub_intent, meta.urgency) || 'General'}
 		sourceLabel={selectedComm.raw?.type === 'voice' ? 'Phone' : 'Email Address'}
 		email={selectedComm.source ?? ''}
 		subject={selectedComm.raw?.metadata?.subject || selectedComm.raw?.subject || 'No subject'}
