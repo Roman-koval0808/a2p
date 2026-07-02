@@ -4,6 +4,7 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev --port 3005 --host 0.0.0.0",
+		"prebuild": "prisma generate && node -e \"const fs = require('fs'); const p = './clearsky-db-client/package.json'; const pkg = JSON.parse(fs.readFileSync(p)); pkg.type = 'commonjs'; fs.writeFileSync(p, JSON.stringify(pkg, null, 2));\"",
 		"build": "vite build",
 		"postbuild": "pm2 delete lead-grabber-v1 2>/dev/null || true; pm2 start ecosystem.config.cjs",
 		"preview": "vite preview --port 3005 --host 0.0.0.0",
