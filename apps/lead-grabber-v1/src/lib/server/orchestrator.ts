@@ -4,7 +4,13 @@ import { toE164 } from '$lib/company-numbers';
 import { classifyMessageIntent, bucketToCategory } from './message-intent';
 import { checkCalendarAvailability, formatDatetime } from './calendar';
 import { getBookingUrl, bookingLinkWith } from '$lib/utils/booking';
-import { getBookingLinkIfConnected, getConnectionInfo, getCustomerAppointments } from './google-calendar';
+import {
+	getBookingLinkIfConnected,
+	getConnectionInfo,
+	getCustomerAppointments,
+	resolveReschedule,
+	type RescheduleResult
+} from './google-calendar';
 import { ANTHROPIC_AI_KEY } from '$env/static/private';
 
 export async function process_orchestrator(commId: string, trigger: string) {
@@ -236,26 +242,35 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						};
 					})
 					.filter((t) => t.text);
-				// Is the customer asking about their appointment history (past/next/a given day)?
+				// Reschedule request, or a plain appointment-history question?
+				const asksReschedule =
+					/reschedul/i.test(rawMessage) ||
+					(/\b(move|change|switch|push)\b/i.test(rawMessage) &&
+						/\b(appointment|appt|booking|it|that|time)\b/i.test(rawMessage));
 				const asksAppointments =
 					/\b(appointment|appt|last (time|appointment|visit)|when .*(was|were|is|are|scheduled|booked)|history|scheduled|booked|come out|came out|visit|next (appointment|appt|visit))\b/i.test(
 						rawMessage
 					);
 				let appointments: { startISO: string; title: string; isPast: boolean }[] | undefined;
-				if (asksAppointments) {
+				let reschedule: RescheduleResult | undefined;
+				if (asksReschedule || asksAppointments) {
 					const gconn = await getConnectionInfo(company.id);
 					if (gconn.connected) {
-						// Match by phone (the number they called/texted from — reliable), then email,
-						// then name as a fuzzy fallback.
-						appointments = await getCustomerAppointments(company.id, {
+						// Match by phone (the number they called/texted from — reliable), then email, then name.
+						const ident = {
 							phone: customer.phone || commLog.source,
 							email: customer.email,
 							name: customer.name
-						});
+						};
+						if (asksReschedule) {
+							reschedule = await resolveReschedule(company.id, { message: rawMessage, ...ident });
+						} else {
+							appointments = await getCustomerAppointments(company.id, ident);
+						}
 					}
 				}
 
-				if (history.length > 0 || appointments !== undefined) {
+				if (history.length > 0 || appointments !== undefined || reschedule !== undefined) {
 					// Self-service link: pasted Appointment Schedule link, or our booking page when
 					// Google Calendar is connected — the customer picks a slot from live availability.
 					const bookingLink = getBookingUrl(company) || (await getBookingLinkIfConnected(company.id));
@@ -270,14 +285,17 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						accountBalance: customer.accountBalance ?? null,
 						bookingUrl: bookingLink,
 						appointments,
+						reschedule,
 						apiKey: ANTHROPIC_AI_KEY
 					});
 					if (conv?.reply) {
 						draftedResponse = conv.reply;
 						console.log(
-							appointments !== undefined
-								? '[Orchestrator] Answered appointment-history question from the calendar.'
-								: '[Orchestrator] Used conversational cross-channel reply (returning caller).'
+							reschedule !== undefined
+								? '[Orchestrator] Handled reschedule request.'
+								: appointments !== undefined
+									? '[Orchestrator] Answered appointment-history question from the calendar.'
+									: '[Orchestrator] Used conversational cross-channel reply (returning caller).'
 						);
 					}
 				}
