@@ -3,7 +3,7 @@ import type { PageServerLoad, Actions } from './$types';
 import { prisma } from '$lib/db';
 import { getConnectionInfo, getAvailableSlots, bookAppointment } from '$lib/server/google-calendar';
 
-export const load: PageServerLoad = async ({ params }) => {
+export const load: PageServerLoad = async ({ params, url }) => {
 	const companyId = params.companyId;
 	const company = await prisma.company.findUnique({
 		where: { id: companyId },
@@ -20,10 +20,14 @@ export const load: PageServerLoad = async ({ params }) => {
 			})
 		: [];
 
+	// A requested time (?t=...) deep-links from an AI reply so the page opens pre-selected on it.
+	const requestedTime = (url.searchParams.get('t') || '').slice(0, 16); // YYYY-MM-DDTHH:mm
+
 	return {
 		companyName: company.name || 'us',
 		connected: conn.connected,
-		days
+		days,
+		requestedTime
 	};
 };
 
