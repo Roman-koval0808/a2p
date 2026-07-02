@@ -138,6 +138,11 @@ export async function analyzeCallLog(
 		const calendarReference = getReferenceCalendar();
 		const prompt = `
     Analyze the following phone call transcript / voicemail message.
+    IMPORTANT: The transcript may START with an automated IVR system greeting or menu, e.g.
+    "Welcome to [Company], for billing press 1, for sales press 2..." or "Thank you for calling...".
+    This automated greeting is NOT part of what the caller said — IGNORE it entirely. Base the
+    summary, intent and every field ONLY on the caller's own words after the greeting. If the caller
+    said nothing meaningful beyond the greeting, say so in the summary.
     ${department ? `\nDepartment selected by caller via IVR: ${department}\nUse this as context for determining intent, priority, and response.\n` : ''}
     ${calendarReference}
     Provide the output in valid JSON format with the following keys:

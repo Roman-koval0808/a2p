@@ -434,7 +434,13 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					is_draft: true,
 					orchestrator_draft: true,
 					trigger_comm_id: commId,
-					deferred_after_hours: shouldDefer
+					deferred_after_hours: shouldDefer,
+					// Inherit the conversation's classification so the draft's summary shows a
+					// meaningful Category / Sub-Category instead of blanks.
+					message_category: messageCategory || null,
+					sentiment: aiIntent?.sentiment ?? null,
+					urgency: aiIntent?.urgency ?? null,
+					sub_intent: aiIntent?.intent_bucket ?? null
 				}
 			});
 		} catch (err) {

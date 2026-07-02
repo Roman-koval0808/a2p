@@ -779,22 +779,11 @@
 				time={selectedSummary.time}
 				category={meta.drop_call
 					? ''
-					: meta.message_category
-						? cap2(meta.message_category)
-						: meta.category_gpt
-							? cap2(meta.category_gpt)
-							: meta.sentiment
-								? cap2(meta.sentiment)
-								: ''}
+					: cap2(meta.message_category || meta.category_gpt || meta.intent || meta.sentiment || '') ||
+						'General'}
 				subCategory={meta.drop_call
 					? ''
-					: meta.subcat_gpt
-						? cap2(meta.subcat_gpt)
-						: meta.sub_intent
-							? cap2(meta.sub_intent)
-							: meta.intent
-								? cap2(meta.intent)
-								: ''}
+					: cap2(meta.subcat_gpt || meta.sub_intent || meta.urgency || '') || 'General'}
 				sourceLabel={isVoice ? 'Phone' : 'Email Address'}
 				email={selectedSummary.source ?? ''}
 				subject={meta.subject || 'No subject'}
