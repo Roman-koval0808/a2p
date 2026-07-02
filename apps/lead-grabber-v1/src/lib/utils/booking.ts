@@ -21,6 +21,16 @@ export function getBookingUrl(company: any): string | null {
 }
 
 /**
+ * Deep-link a booking URL to a specific requested time (?t=<iso>) so our /book page can open with
+ * that slot pre-selected. Only applied to our own booking page; third-party links are left as-is.
+ */
+export function withRequestedTime(url: string, iso: string | null | undefined): string {
+	const t = (iso || '').trim();
+	if (!t || !url.includes('/book/')) return url;
+	return url + (url.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(t);
+}
+
+/**
  * Google Appointment Schedule pages send X-Frame-Options/CSP that block a plain <iframe>; their
  * embeddable variant needs `?gv=true` (the same URL Google's "Get embed code" produces).
  */
