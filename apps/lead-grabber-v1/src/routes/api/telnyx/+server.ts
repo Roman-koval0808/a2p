@@ -11,6 +11,7 @@ import { normalizePhoneNumber } from '$lib/utils/phone';
 import { logCommunication } from '$lib/utils/communication-log';
 import { getFirstCompanyNumber } from '$lib/company-numbers';
 import { prisma } from '$lib/db';
+import { ingestTelemetryEvent } from '$lib/server/profiledb/telemetry';
 
 export const POST: RequestHandler = async ({ request, locals }) => {
 	const { message, phoneNumber, threadId } = await request.json();
@@ -126,15 +127,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		});
 
 		if (threadId && threadId.startsWith('emergency-')) {
-			const profiledbUrl = process.env.PROFILEDB_URL || 'http://localhost:6277';
 			try {
-				await fetch(`${profiledbUrl}/api/v1/telemetry/events`, {
-					method: 'POST',
-					headers: {
-						'Content-Type': 'application/json',
-						'Authorization': 'Bearer clearsky_pixel_api_key'
-					},
-					body: JSON.stringify({
+				await ingestTelemetryEvent({
+					body: {
+						isTest: true,
 						tenantSlug: companyId || 'clearsky-demo',
 						eventType: 'sms_sent',
 						phone: formattedPhoneNumber,
@@ -145,7 +141,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 							provider: 'telnyx_voice',
 							sessionId: 'sess_sms_inbox_reply'
 						}
-					})
+					},
+					headers: { authorization: 'Bearer clearsky_pixel_api_key' }
 				});
 				console.log('📡 Synced outbound emergency SMS to ProfileDB successfully');
 			} catch (e) {
