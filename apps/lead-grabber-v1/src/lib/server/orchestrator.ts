@@ -178,7 +178,11 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 		if (bookingLink) {
 			console.log('[Orchestrator] Sending self-service booking link.');
-			const link = bookingLinkWith(bookingLink, { time: datetime, name: customer.name });
+			const link = bookingLinkWith(bookingLink, {
+				time: datetime,
+				name: customer.name,
+				phone: customer.phone || commLog.source
+			});
 			draftedResponse = datetime
 				? `Hi! Thanks for reaching out to ${company.name || 'us'}. ${formatDatetime(datetime)} works — just confirm it here: ${link}`
 				: `Hi! Thanks for contacting ${company.name || 'us'}. Book a time that works for you here: ${link}`;
@@ -241,8 +245,12 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				if (asksAppointments) {
 					const gconn = await getConnectionInfo(company.id);
 					if (gconn.connected) {
+						// Match by phone (the number they called/texted from — reliable), then email,
+						// then name as a fuzzy fallback.
 						appointments = await getCustomerAppointments(company.id, {
-							query: customer.name || customer.phone || customer.email || ''
+							phone: customer.phone || commLog.source,
+							email: customer.email,
+							name: customer.name
 						});
 					}
 				}
@@ -257,6 +265,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						history,
 						companyName: company.name || 'us',
 						customerName: customer.name || null,
+						customerPhone: customer.phone || commLog.source,
 						locations: (company as any).locations || [],
 						accountBalance: customer.accountBalance ?? null,
 						bookingUrl: bookingLink,
