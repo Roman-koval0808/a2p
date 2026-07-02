@@ -3,6 +3,7 @@ import type { PageServerLoad } from './$types';
 import { isA2pCommLogEnabled } from '$lib/server/a2p-client';
 import { commCode } from '$lib/utils/comm-id';
 import { getBookingUrl } from '$lib/utils/booking';
+import { getConnectionInfo } from '$lib/server/google-calendar';
 
 const PAGE_SIZES = [10, 20, 50, 100] as const;
 
@@ -10,7 +11,7 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 	depends('app:communication-log');
 
 	if (!locals.user || !locals.user.company) {
-		return { logs: [], members: [], useA2pCommLog: false, totalCount: 0, limit: 20, page: 1, bookingUrl: null };
+		return { logs: [], members: [], useA2pCommLog: false, totalCount: 0, limit: 20, page: 1, bookingUrl: null, googleCalendar: { connected: false, email: null } };
 	}
 
 	const limitParam = url.searchParams.get('limit');
@@ -56,6 +57,7 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 			select: { settings: true }
 		});
 		const bookingUrl = getBookingUrl(companyRow);
+		const googleCalendar = await getConnectionInfo(companyId);
 
 		// Fetch both tables with size offset + limit to correctly paginate after sorting
 		const maxTake = offset + limit;
@@ -193,10 +195,11 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 			totalCount,
 			limit,
 			page,
-			bookingUrl
+			bookingUrl,
+			googleCalendar
 		};
 	} catch (err) {
 		console.error('Error loading communication logs:', err);
-		return { logs: [], members: [], useA2pCommLog: false, totalCount: 0, limit: 20, page: 1, bookingUrl: null };
+		return { logs: [], members: [], useA2pCommLog: false, totalCount: 0, limit: 20, page: 1, bookingUrl: null, googleCalendar: { connected: false, email: null } };
 	}
 };
