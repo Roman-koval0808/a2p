@@ -12,6 +12,7 @@
 import { prisma } from '$lib/db';
 import { env } from '$env/dynamic/private';
 import { PUBLIC_BASE_URL } from '$env/static/public';
+import { getDayHours } from './calendar';
 
 // Dynamic env so an unconfigured deployment still builds (feature simply stays off).
 const GOOGLE_CLIENT_ID = env.GOOGLE_CLIENT_ID || '';
@@ -307,4 +308,99 @@ export async function bookAppointment(
 	});
 	if (!ev) return { status: 'failed', meetLink: null, htmlLink: null };
 	return { status: 'booked', meetLink: ev.meetLink, htmlLink: ev.htmlLink };
+}
+
+/** Public URL of the self-service booking page for a company. */
+export function getBookingPageUrl(companyId: string): string {
+	return `${(PUBLIC_BASE_URL || '').replace(/\/$/, '')}/book/${companyId}`;
+}
+
+/** The self-service booking-page URL if Google Calendar is connected for this company, else null. */
+export async function getBookingLinkIfConnected(companyId: string): Promise<string | null> {
+	const conn = await getConnectionInfo(companyId);
+	return conn.connected ? getBookingPageUrl(companyId) : null;
+}
+
+function pad(n: number): string {
+	return String(n).padStart(2, '0');
+}
+function localNaive(d: Date): string {
+	return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
+}
+
+export interface DaySlots {
+	date: string;
+	label: string;
+	slots: { value: string; label: string }[];
+}
+
+/**
+ * Open appointment slots for the next `days` days: the company's business hours MINUS anything
+ * already busy on the connected Google Calendar. Empty array if not connected.
+ */
+export async function getAvailableSlots(
+	companyId: string,
+	opts: { days?: number; durationMin?: number; locations?: any[] } = {}
+): Promise<DaySlots[]> {
+	const auth = await getAccessToken(companyId);
+	if (!auth) return [];
+	const days = opts.days ?? 14;
+	const dur = opts.durationMin ?? 60;
+	const now = new Date();
+
+	// Candidate slots within business hours across the window.
+	const candidates: { start: Date; end: Date }[] = [];
+	for (let d = 0; d < days; d++) {
+		const base = new Date(now.getFullYear(), now.getMonth(), now.getDate() + d);
+		const hours = getDayHours(opts.locations || [], base.getDay());
+		if (!hours) continue;
+		for (let h = hours.startH; h + dur / 60 <= hours.endH; h += dur / 60) {
+			const hh = Math.floor(h);
+			const mm = Math.round((h - hh) * 60);
+			const start = new Date(base.getFullYear(), base.getMonth(), base.getDate(), hh, mm, 0, 0);
+			if (start.getTime() <= now.getTime() + 60 * 60 * 1000) continue; // at least 1h out
+			candidates.push({ start, end: new Date(start.getTime() + dur * 60000) });
+		}
+	}
+	if (candidates.length === 0) return [];
+
+	// One free/busy query for the whole window.
+	let busy: { start: string; end: string }[] = [];
+	try {
+		const res = await fetch(`${CAL_API}/freeBusy`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				timeMin: candidates[0].start.toISOString(),
+				timeMax: candidates[candidates.length - 1].end.toISOString(),
+				items: [{ id: auth.calendarId }]
+			})
+		});
+		if (res.ok) {
+			const data = await res.json();
+			busy = data?.calendars?.[auth.calendarId]?.busy ?? [];
+		}
+	} catch (e) {
+		console.error('[google-calendar] getAvailableSlots freeBusy error:', e);
+	}
+	const busyRanges = busy.map((b) => [new Date(b.start).getTime(), new Date(b.end).getTime()] as [number, number]);
+
+	const groups = new Map<string, { label: string; slots: { value: string; label: string }[] }>();
+	for (const c of candidates) {
+		const s = c.start.getTime();
+		const e = c.end.getTime();
+		if (busyRanges.some(([bs, be]) => s < be && e > bs)) continue; // overlaps a busy block
+		const dateKey = c.start.toDateString();
+		if (!groups.has(dateKey)) {
+			groups.set(dateKey, {
+				label: c.start.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }),
+				slots: []
+			});
+		}
+		groups.get(dateKey)!.slots.push({
+			value: localNaive(c.start),
+			label: c.start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+		});
+	}
+	return Array.from(groups.entries()).map(([date, g]) => ({ date, label: g.label, slots: g.slots }));
 }
