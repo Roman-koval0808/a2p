@@ -533,7 +533,7 @@
 		subCategory={selectedComm.isDropCall
 			? ''
 			: capLabel(meta.subcat_gpt, meta.sub_intent, meta.urgency) || 'General'}
-		sourceLabel={selectedComm.raw?.type === 'voice' ? 'Phone' : 'Email Address'}
+		sourceLabel={selectedComm.raw?.type === 'email' ? 'Email Address' : 'Phone'}
 		email={selectedComm.source ?? ''}
 		subject={selectedComm.raw?.metadata?.subject || selectedComm.raw?.subject || 'No subject'}
 		body={selectedComm.raw?.content || selectedComm.summary || ''}

@@ -20,14 +20,16 @@ export const load: PageServerLoad = async ({ params, url }) => {
 			})
 		: [];
 
-	// A requested time (?t=...) deep-links from an AI reply so the page opens pre-selected on it.
+	// Deep-link params from an AI reply: ?t= pre-selects the time, ?n= prefills the name.
 	const requestedTime = (url.searchParams.get('t') || '').slice(0, 16); // YYYY-MM-DDTHH:mm
+	const requestedName = (url.searchParams.get('n') || '').slice(0, 80);
 
 	return {
 		companyName: company.name || 'us',
 		connected: conn.connected,
 		days,
-		requestedTime
+		requestedTime,
+		requestedName
 	};
 };
 

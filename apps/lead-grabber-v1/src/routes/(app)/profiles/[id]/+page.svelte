@@ -784,7 +784,7 @@
 				subCategory={meta.drop_call
 					? ''
 					: cap2(meta.subcat_gpt || meta.sub_intent || meta.urgency || '') || 'General'}
-				sourceLabel={isVoice ? 'Phone' : 'Email Address'}
+				sourceLabel={selectedSummary.raw?.type === 'email' ? 'Email Address' : 'Phone'}
 				email={selectedSummary.source ?? ''}
 				subject={meta.subject || 'No subject'}
 				body={selectedSummary.raw?.content || selectedSummary.summary || ''}
