@@ -40,20 +40,34 @@
 				<Calendar class="h-5 w-5" />
 			</div>
 			<div>
-				<h1 class="text-xl font-bold leading-tight text-gray-900">Book an appointment</h1>
+				<h1 class="text-xl font-bold leading-tight text-gray-900">
+					{data.rescheduleId ? 'Reschedule your appointment' : 'Book an appointment'}
+				</h1>
 				<p class="text-sm text-gray-500">with {data.companyName}</p>
 			</div>
 		</div>
+
+		{#if data.rescheduleId && !form?.success}
+			<div class="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+				<span class="font-medium"
+					>Rescheduling{data.rescheduleLabel ? ` your ${data.rescheduleLabel} appointment` : ' your appointment'}.</span
+				> Pick a new time below — your current appointment is cancelled only once you confirm the new one.
+			</div>
+		{/if}
 
 		{#if form?.success}
 			<div class="rounded-2xl border border-green-200 bg-white p-8 text-center shadow-sm">
 				<div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-green-100">
 					<Check class="h-6 w-6 text-green-600" />
 				</div>
-				<h2 class="text-lg font-semibold text-gray-900">You're booked!</h2>
+				<h2 class="text-lg font-semibold text-gray-900">
+					{form.rescheduled ? "You're rescheduled!" : "You're booked!"}
+				</h2>
 				<p class="mt-1 text-sm text-gray-600">
-					It's on the calendar and you'll get a confirmation. You can cancel or reschedule from that
-					invite anytime.
+					{form.rescheduled
+						? 'Your new time is on the calendar and the old appointment has been cancelled.'
+						: "It's on the calendar and you'll get a confirmation."}
+					You can change it again anytime.
 				</p>
 				{#if form.meetLink}
 					<a
@@ -148,6 +162,7 @@
 						}}
 					>
 						<input type="hidden" name="slot" value={selected.value} />
+						<input type="hidden" name="reschedule" value={data.rescheduleId || ''} />
 						<div class="grid gap-4">
 							<div class="grid gap-1.5">
 								<Label for="name">Your name</Label>

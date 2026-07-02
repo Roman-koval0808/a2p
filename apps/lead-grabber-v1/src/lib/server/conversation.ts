@@ -28,6 +28,8 @@ export interface ConversationInput {
 	bookingUrl?: string | null;
 	/** The customer's appointments on record (from the calendar). undefined = not looked up. */
 	appointments?: { startISO: string; title: string; isPast: boolean }[];
+	/** Reschedule resolution (target link, or ask-which, or none). */
+	reschedule?: { mode: 'link' | 'ask' | 'none'; link?: string; targetLabel?: string; options?: string[] };
 	apiKey: string;
 }
 
@@ -159,7 +161,24 @@ export async function draftConversationalReply(
 		}
 	}
 
-	const bookingUrl = (input.bookingUrl || '').trim();
+	// Reschedule takes priority over normal booking (it must cancel the right old appointment).
+	if (input.reschedule) {
+		if (input.reschedule.mode === 'link' && input.reschedule.link) {
+			factLines.push(
+				`The customer wants to RESCHEDULE their ${input.reschedule.targetLabel || 'existing'} appointment. Warmly acknowledge it, then give them THIS link to pick a new time — their current appointment is cancelled automatically ONLY when they confirm the new one, so nothing is lost meanwhile: ${input.reschedule.link}. Do NOT confirm a new time yourself, and do NOT say it's already moved.`
+			);
+		} else if (input.reschedule.mode === 'ask') {
+			factLines.push(
+				`The customer wants to reschedule but has MORE THAN ONE upcoming appointment: ${(input.reschedule.options || []).join('; ')}. Ask which ONE they'd like to move (by its date). Do NOT send a booking link or cancel anything yet.`
+			);
+		} else {
+			factLines.push(
+				`The customer mentioned rescheduling but has no upcoming appointment on file. Let them know gently and offer to book a new one.`
+			);
+		}
+	}
+
+	const bookingUrl = input.reschedule?.mode === 'link' ? '' : (input.bookingUrl || '').trim();
 
 	if (extracted?.contains_datetime && extracted.datetime_iso) {
 		datetime = extracted.datetime_iso;
