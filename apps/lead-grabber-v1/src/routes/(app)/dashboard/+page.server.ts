@@ -1,6 +1,8 @@
 import { prisma } from '$lib/db';
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
+import { getTenantEvents } from '$lib/server/profiledb/telemetry';
+import { getTenantProfiles } from '$lib/server/profiledb/profiles';
 
 export const load: PageServerLoad = async ({ locals, fetch }) => {
 	const user = locals.user;
@@ -16,12 +18,11 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 	const now = new Date();
 
 	// 1. Latest Communications (fetched from ProfileDB telemetry events like communication-log page)
-	const PROFILEDB_URL = process.env.PROFILEDB_URL || 'http://localhost:6277';
 	let latestCommunications: any[] = [];
 	try {
-		const profileDbRes = await fetch(`${PROFILEDB_URL}/api/v1/tenants/${locals.user.company.id}/events?limit=20`);
-		if (profileDbRes.ok) {
-			const data = await profileDbRes.json();
+		const result = await getTenantEvents({ tenantSlug: companyId, limit: '20' });
+		if (result.status >= 200 && result.status < 300) {
+			const data = result.body;
 			const events = Array.isArray(data.data) ? data.data : [];
 
 			latestCommunications = events.map((ev: any) => {
@@ -75,9 +76,9 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 	// 2. Site Visitors (CDP Profiles)
 	let siteVisitors: any[] = [];
 	try {
-		const res = await fetch(`${PROFILEDB_URL}/api/v1/tenants/${locals.user.company.id}/profiles?limit=10`);
-		if (res.ok) {
-			const json = await res.json();
+		const result = await getTenantProfiles(companyId, { limit: '10' });
+		if (result.status >= 200 && result.status < 300) {
+			const json = result.body;
 			if (json && Array.isArray(json.data)) {
 				siteVisitors = json.data;
 			}
