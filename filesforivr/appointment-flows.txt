@@ -1,0 +1,128 @@
+==================================================================
+  APPOINTMENT BOOKING — SYSTEM FLOW
+  Marie INC · powered by the AI assistant + Amela Bell's Google Calendar
+==================================================================
+
+
+------------------------------------------------------------------
+  FLOW 1 — Marie books an appointment (call / voicemail)
+------------------------------------------------------------------
+
+Marie calls the Telnyx business number
+      │
+      ▼
+IVR greeting plays; Marie leaves a voicemail
+("Hi, I'd like to book an appointment...")
+      │
+      ▼
+Voicemail is recorded and transcribed
+      │
+      ▼
+AI analyzes the message
+(ignores the "welcome to..." greeting; what Marie SAYS
+ wins over whichever key she pressed)
+      │
+      ▼
+Intent detected  →  "Booking / appointment request"
+      │
+      ▼
+Is Amela Bell's Google Calendar connected?
+      │
+      ├── YES  →  send a booking link
+      │        │
+      │        ▼
+      │   AI texts Marie:
+      │   "Happy to help! Book a time that works for you: <link>"
+      │   (if Marie named a time, the link opens pre-selected on it,
+      │    with her name + number already filled in)
+      │        │
+      │        ▼
+      │   Marie opens the link  →  sees Amela's REAL open times
+      │   (business hours MINUS whatever is already busy on her calendar)
+      │        │
+      │        ▼
+      │   Marie picks an open slot  →  confirms
+      │        │
+      │        ▼
+      │   Event is created on Amela's Google Calendar
+      │   (with a Google Meet link, tagged with Marie's phone)
+      │        │
+      │        ▼
+      │   Booked on BOTH sides · Marie gets a confirmation
+      │   · she can cancel or reschedule anytime
+      │
+      └── NO  →  no calendar connected
+               │
+               ▼
+          AI texts Marie: "What day and time works best for you?"
+               │
+               ▼
+          Marie replies with a time
+               │
+               ▼
+          A reply is drafted and queued for the team to confirm
+
+
+------------------------------------------------------------------
+  FLOW 2 — How availability is decided (inside the booking link)
+------------------------------------------------------------------
+
+Marie opens the booking link
+      │
+      ▼
+Read Amela Bell's business hours (e.g. Mon–Fri 10am–6pm)
+      │
+      ▼
+Read Amela's calendar free/busy for the next 2 weeks
+      │
+      ▼
+Open slots  =  business hours  MINUS  anything already booked
+      │
+      ▼
+Show ONLY those open slots to Marie
+      │
+      ├── Marie picks one  →  it is booked; that slot disappears
+      │                        (no double-booking)
+      │
+      └── The exact time Marie asked for is taken/closed
+               ▼
+          "That time isn't open — here are other times that day"
+
+
+------------------------------------------------------------------
+  FLOW 3 — Marie asks about an existing appointment
+------------------------------------------------------------------
+
+Marie calls or texts:
+"When was my last appointment?"  /  "Anything booked for Friday?"
+      │
+      ▼
+AI detects an appointment-history question
+      │
+      ▼
+Look up Marie's appointments on Amela's calendar
+(matched by PHONE NUMBER — reliable — then email, then name)
+      │
+      ├── Found
+      │      ▼
+      │   AI replies with the real date/time:
+      │   "Your last appointment was Saturday, June 20 at 2pm."
+      │   "Yes — you're booked Friday, July 4 at 1pm."
+      │
+      └── None on file
+             ▼
+          "I don't see any appointments on file for you —
+           would you like to book one?"
+
+
+------------------------------------------------------------------
+  KEY POINTS FOR THE CLIENT
+------------------------------------------------------------------
+· Amela connects Google Calendar ONCE (one click). No links to paste.
+· The customer always picks from Amela's REAL availability — never a
+  time that's already busy or outside her hours.
+· Every booking lands on Amela's calendar with a Meet link, and the
+  customer can cancel/reschedule themselves.
+· Appointments are matched by phone number, so history lookups stay
+  accurate even if the customer gives a different name.
+==================================================================
