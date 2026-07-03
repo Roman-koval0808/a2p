@@ -196,26 +196,25 @@ export async function draftConversationalReply(
 		}
 	}
 
-	// Live availability from the connected calendar (answers "what times are you free on X?").
-	if (input.availableSlots !== undefined) {
-		const withSlots = input.availableSlots.filter((d) => d.slots.length > 0);
-		if (withSlots.length > 0) {
-			const lines = withSlots
-				.map((d) => `- ${d.label}: ${d.slots.map((s) => s.label).join(', ')}`)
-				.join('\n');
-			factLines.push(
-				`Real open appointment times from our calendar (already filtered to what the customer asked about):\n${lines}\nWhen they ask what times we're available, list these ACTUAL open times conversationally and offer to book one. Do NOT invent other times or say you'll "check and get back" — these ARE the open times.`
-			);
-		} else {
-			factLines.push(
-				`We have no open appointment times for the day the customer asked about (either fully booked or closed that day). Say so gently and offer the nearest days you can book instead.`
-			);
-		}
-	}
-
-	if (input.openHoursNote) {
+	// Availability ("what times are you free on Monday?"). We mix two sources so the reply is
+	// never dead: live calendar slots are authoritative when we have them; otherwise fall back
+	// to the day's business hours; only if we have neither do we say "nothing open". Exactly ONE
+	// of these fires so the reply can't contradict itself.
+	const liveDays = (input.availableSlots || []).filter((d) => d.slots.length > 0);
+	if (liveDays.length > 0) {
+		const lines = liveDays
+			.map((d) => `- ${d.label}: ${d.slots.map((s) => s.label).join(', ')}`)
+			.join('\n');
 		factLines.push(
-			`The customer asked about availability. ${input.openHoursNote} Give them those open hours conversationally and ask what time works so we can get them booked (offer the booking link if one is provided). Do NOT invent specific open time-slots or claim a slot is free — we haven't checked the live calendar.`
+			`Real open appointment times from our calendar (already filtered to what the customer asked about):\n${lines}\nWhen they ask what times we're available, list these ACTUAL open times conversationally and offer to book one. Do NOT invent other times or say you'll "check and get back" — these ARE the open times.`
+		);
+	} else if (input.openHoursNote) {
+		factLines.push(
+			`The customer asked about availability. ${input.openHoursNote} Give them those open hours conversationally and ask what time works so we can get them booked (offer the booking link if one is provided). Do NOT invent specific open time-slots or claim a slot is free — we haven't confirmed the live calendar.`
+		);
+	} else if (input.availableSlots !== undefined) {
+		factLines.push(
+			`We have no open appointment times for the day the customer asked about (either fully booked or closed that day). Say so gently and offer the nearest days you can book instead.`
 		);
 	}
 
