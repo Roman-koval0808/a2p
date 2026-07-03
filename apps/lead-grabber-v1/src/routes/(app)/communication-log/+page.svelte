@@ -532,7 +532,7 @@
 			: capLabel(meta.message_category, meta.category_gpt, meta.intent, meta.sentiment) || 'General'}
 		subCategory={selectedComm.isDropCall
 			? ''
-			: capLabel(meta.subcat_gpt, meta.sub_intent, meta.urgency) || 'General'}
+			: capLabel(meta.subcat_gpt, meta.sub_intent) || 'General'}
 		sourceLabel={selectedComm.raw?.type === 'email' ? 'Email Address' : 'Phone'}
 		email={selectedComm.source ?? ''}
 		subject={selectedComm.raw?.metadata?.subject || selectedComm.raw?.subject || 'No subject'}
