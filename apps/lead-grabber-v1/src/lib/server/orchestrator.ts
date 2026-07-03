@@ -279,17 +279,27 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						reschedule = await resolveReschedule(company.id, { message: rawMessage, ...ident });
 					} else if (asksAvailability) {
 						const named = dayNames.filter((d) => new RegExp(`\\b${d}\\b`, 'i').test(rawMessage));
+						// Always compute the business-hours answer as a safety net. It's used when the
+						// calendar isn't connected, AND as a graceful fallback if the live lookup fails
+						// or returns nothing — so an availability question is NEVER left unanswered.
+						openHoursNote = describeDayHours(locations, named);
 						if (gconn.connected) {
-							// Pull live open slots, then narrow to the weekday the customer named
-							// (e.g. "Monday"). If no day is named, show the next few open days.
-							const allSlots = await getAvailableSlots(company.id, { locations, days: 14 });
-							availableSlots =
-								named.length > 0
-									? allSlots.filter((d) => named.some((n) => new RegExp(`\\b${n}\\b`, 'i').test(d.label)))
-									: allSlots.slice(0, 3);
-						} else {
-							// No live calendar — answer honestly from the day's business hours.
-							openHoursNote = describeDayHours(locations, named);
+							try {
+								// Pull live open slots, then narrow to the weekday the customer named
+								// (e.g. "Monday"). If no day is named, show the next few open days.
+								const allSlots = await getAvailableSlots(company.id, { locations, days: 14 });
+								const filtered =
+									named.length > 0
+										? allSlots.filter((d) => named.some((n) => new RegExp(`\\b${n}\\b`, 'i').test(d.label)))
+										: allSlots.slice(0, 3);
+								const nonEmpty = filtered.filter((d) => d.slots.length > 0);
+								// Only trust live slots when we actually got some. Empty can mean "fully
+								// booked" OR "freeBusy hiccup" — we can't tell, so we let openHoursNote
+								// carry the reply instead of falsely claiming there's nothing open.
+								if (nonEmpty.length > 0) availableSlots = nonEmpty;
+							} catch (slotErr) {
+								console.warn('[Orchestrator] Live availability lookup failed; using business hours:', slotErr);
+							}
 						}
 					} else if (asksAppointments && gconn.connected) {
 						appointments = await getCustomerAppointments(company.id, ident);
