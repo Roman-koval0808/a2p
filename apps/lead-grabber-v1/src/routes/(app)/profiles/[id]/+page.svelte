@@ -783,7 +783,7 @@
 						'General'}
 				subCategory={meta.drop_call
 					? ''
-					: cap2(meta.subcat_gpt || meta.sub_intent || meta.urgency || '') || 'General'}
+					: cap2(meta.subcat_gpt || meta.sub_intent || '') || 'General'}
 				sourceLabel={selectedSummary.raw?.type === 'email' ? 'Email Address' : 'Phone'}
 				email={selectedSummary.source ?? ''}
 				subject={meta.subject || 'No subject'}
