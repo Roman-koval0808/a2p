@@ -799,7 +799,7 @@
 		{/if}
 
 	<!-- Pipeline Modal -->
-	<PipelineModal bind:open={pipelineDialogOpen} eventData={selectedPipelineEvent} />
+	<PipelineModal bind:open={pipelineDialogOpen} event={selectedPipelineEvent} />
 	
 	<!-- Comm Reply Panel -->
 	<CommReplyPanel
