@@ -2,10 +2,11 @@ import { prisma } from '$lib/db';
 import { logCommunication } from '$lib/utils/communication-log';
 import { toE164 } from '$lib/company-numbers';
 import { classifyMessageIntent, bucketToCategory } from './message-intent';
-import { checkCalendarAvailability, formatDatetime, describeLocations } from './calendar';
+import { checkCalendarAvailability, formatDatetime, describeLocations, describeDayHours } from './calendar';
 import { getBookingUrl, bookingLinkWith } from '$lib/utils/booking';
 import { resolveBalanceByPhone } from './balance';
 import {
+	getAvailableSlots,
 	getBookingLinkIfConnected,
 	getConnectionInfo,
 	getCustomerAppointments,
@@ -255,22 +256,43 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					/\b(appointment|appt|last (time|appointment|visit)|when .*(was|were|is|are|scheduled|booked)|history|scheduled|booked|come out|came out|visit|next (appointment|appt|visit))\b/i.test(
 						rawMessage
 					);
+				// "what times are you free/available/open on Monday?", "any availability Tuesday?"
+				const asksAvailability =
+					/\b(availab|what times|which times|what time.*(open|free|available)|when are you (open|free|available)|any (openings|slots|times)|free on|open on|slots? (on|for))\b/i.test(
+						rawMessage
+					);
 				let appointments: { startISO: string; title: string; isPast: boolean }[] | undefined;
 				let reschedule: RescheduleResult | undefined;
-				if (asksReschedule || asksAppointments) {
+				let availableSlots: { label: string; slots: { label: string }[] }[] | undefined;
+				let openHoursNote: string | null | undefined;
+				const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+				if (asksReschedule || asksAppointments || asksAvailability) {
 					const gconn = await getConnectionInfo(company.id);
-					if (gconn.connected) {
-						// Match by phone (the number they called/texted from — reliable), then email, then name.
-						const ident = {
-							phone: customer.phone || commLog.source,
-							email: customer.email,
-							name: customer.name
-						};
-						if (asksReschedule) {
-							reschedule = await resolveReschedule(company.id, { message: rawMessage, ...ident });
+					const locations = (company as any).locations || [];
+					// Match by phone (the number they called/texted from — reliable), then email, then name.
+					const ident = {
+						phone: customer.phone || commLog.source,
+						email: customer.email,
+						name: customer.name
+					};
+					if (asksReschedule && gconn.connected) {
+						reschedule = await resolveReschedule(company.id, { message: rawMessage, ...ident });
+					} else if (asksAvailability) {
+						const named = dayNames.filter((d) => new RegExp(`\\b${d}\\b`, 'i').test(rawMessage));
+						if (gconn.connected) {
+							// Pull live open slots, then narrow to the weekday the customer named
+							// (e.g. "Monday"). If no day is named, show the next few open days.
+							const allSlots = await getAvailableSlots(company.id, { locations, days: 14 });
+							availableSlots =
+								named.length > 0
+									? allSlots.filter((d) => named.some((n) => new RegExp(`\\b${n}\\b`, 'i').test(d.label)))
+									: allSlots.slice(0, 3);
 						} else {
-							appointments = await getCustomerAppointments(company.id, ident);
+							// No live calendar — answer honestly from the day's business hours.
+							openHoursNote = describeDayHours(locations, named);
 						}
+					} else if (asksAppointments && gconn.connected) {
+						appointments = await getCustomerAppointments(company.id, ident);
 					}
 				}
 
@@ -280,6 +302,8 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					history.length > 0 ||
 					appointments !== undefined ||
 					reschedule !== undefined ||
+					availableSlots !== undefined ||
+					openHoursNote != null ||
 					messageCategory === 'support'
 				) {
 					// Self-service link: pasted Appointment Schedule link, or our booking page when
@@ -301,6 +325,8 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						bookingUrl: bookingLink,
 						appointments,
 						reschedule,
+						availableSlots,
+						openHoursNote,
 						businessInfo: {
 							website: company.website,
 							address: describeLocations((company as any).locations)
@@ -314,7 +340,11 @@ export async function process_orchestrator(commId: string, trigger: string) {
 								? '[Orchestrator] Handled reschedule request.'
 								: appointments !== undefined
 									? '[Orchestrator] Answered appointment-history question from the calendar.'
-									: '[Orchestrator] Used conversational cross-channel reply (returning caller).'
+									: availableSlots !== undefined
+										? '[Orchestrator] Answered availability question with live calendar slots.'
+										: openHoursNote
+											? '[Orchestrator] Answered availability question from business hours.'
+											: '[Orchestrator] Used conversational cross-channel reply (returning caller).'
 						);
 					}
 				}
@@ -403,10 +433,13 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 	// If we drafted a response, save it as pending_approval
 	if (draftedResponse && companyNumber && customerPhone) {
-		// De-dup: Telnyx re-delivers/retries webhooks (and a sibling comm log can trigger us
-		// too), which would otherwise create a second identical "Confirm" draft. If a pending
-		// draft to this customer already exists, don't create another.
-		const existingDraft = await prisma.communicationLog.findFirst({
+		// De-dup: Telnyx re-delivers/retries webhooks (and the SMS webhook drafts a reply AND
+		// fires us for the SAME inbound), which would otherwise create a second identical draft.
+		// We de-dup on the TRIGGERING inbound message (trigger_comm_id), NOT on the customer —
+		// otherwise a genuine follow-up ("what times are you free Monday?") a minute after a
+		// previous message gets silently dropped as a "duplicate". Only a draft that was raised
+		// by THIS same inbound counts as a duplicate.
+		const recentDrafts = await prisma.communicationLog.findMany({
 			where: {
 				companyId: company.id,
 				type: 'sms',
@@ -414,10 +447,14 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				status: 'pending_approval',
 				destination: customerPhone,
 				created: { gte: new Date(Date.now() - 10 * 60 * 1000) }
-			}
+			},
+			select: { metadata: true }
 		});
-		if (existingDraft) {
-			console.log('[Orchestrator] A pending draft already exists for this customer — skipping duplicate.');
+		const isDuplicate = recentDrafts.some(
+			(d) => (d.metadata as Record<string, any> | null)?.trigger_comm_id === commId
+		);
+		if (isDuplicate) {
+			console.log(`[Orchestrator] A draft already exists for inbound ${commId} — skipping duplicate.`);
 			return;
 		}
 

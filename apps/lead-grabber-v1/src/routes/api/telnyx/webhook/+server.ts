@@ -610,6 +610,10 @@ export const POST: RequestHandler = async ({ request }) => {
 									is_draft: true,
 									is_emergency: hasEmergency,
 									commId: inboundCommLog?.communicationThreadId,
+									// Tie this draft to the inbound that raised it, so the orchestrator
+									// (which fires for the same inbound) de-dups against it instead of
+									// creating a second SMS draft.
+									trigger_comm_id: inboundCommLog?.id,
 									// Inherit the conversation's classification so the summary shows a real category.
 									message_category: draftCategory,
 									sub_intent: draftSubIntent,
