@@ -126,6 +126,14 @@ export function getDayHours(locations: any[], jsDay: number): { startH: number; 
 	return { startH: 9, endH: 17 };
 }
 
+/** Human-readable address(es) from the company's Location records (the /locations data). null if none. */
+export function describeLocations(locations: any[]): string | null {
+	const list = (locations || [])
+		.map((l) => [l?.address, l?.city].filter(Boolean).join(', ').trim())
+		.filter(Boolean);
+	return list.length ? Array.from(new Set(list)).join(' · ') : null;
+}
+
 /** Formats an ISO string into a readable date/time. Leaves relative strings alone. */
 export function formatDatetime(datetimeStr: string): string {
 	const d = new Date(datetimeStr);

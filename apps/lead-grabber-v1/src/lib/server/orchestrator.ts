@@ -2,7 +2,7 @@ import { prisma } from '$lib/db';
 import { logCommunication } from '$lib/utils/communication-log';
 import { toE164 } from '$lib/company-numbers';
 import { classifyMessageIntent, bucketToCategory } from './message-intent';
-import { checkCalendarAvailability, formatDatetime } from './calendar';
+import { checkCalendarAvailability, formatDatetime, describeLocations } from './calendar';
 import { getBookingUrl, bookingLinkWith } from '$lib/utils/booking';
 import {
 	getBookingLinkIfConnected,
@@ -134,7 +134,24 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// --- EMERGENCY: always wins, regardless of the digit pressed ---
 	if (messageCategory === 'emergency') {
 		console.log('[Orchestrator] EMERGENCY detected from the message — overriding IVR routing.');
-		draftedResponse = `Hi ${customer.name || 'there'}, we received your urgent message and someone from ${company.name || 'our team'} will call you back right away.`;
+		const template = `Hi ${customer.name || 'there'}, we received your urgent message and someone from ${company.name || 'our team'} will call you back right away.`;
+		try {
+			// Urgent ack + a SAFE, business-flexible self-mitigation tip while help is on the way.
+			const { draftConversationalReply } = await import('./conversation');
+			const conv = await draftConversationalReply({
+				message: rawMessage,
+				history: [],
+				companyName: company.name || 'us',
+				customerName: customer.name || null,
+				locations: (company as any).locations || [],
+				emergency: true,
+				apiKey: ANTHROPIC_AI_KEY
+			});
+			draftedResponse = conv?.reply || template;
+		} catch (e) {
+			console.error('[Orchestrator] Emergency reply failed, using template:', e);
+			draftedResponse = template;
+		}
 	}
 
 	// --- SCENARIO 1: BILLING (only when the MESSAGE is actually about billing) ---
@@ -295,10 +312,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						reschedule,
 						businessInfo: {
 							website: company.website,
-							address: (() => {
-								const loc = (company as any).locations?.[0];
-								return loc ? [loc.address, loc.city].filter(Boolean).join(', ') : null;
-							})()
+							address: describeLocations((company as any).locations)
 						},
 						apiKey: ANTHROPIC_AI_KEY
 					});

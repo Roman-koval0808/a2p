@@ -32,6 +32,8 @@ export interface ConversationInput {
 	reschedule?: { mode: 'link' | 'ask' | 'none'; link?: string; targetLabel?: string; options?: string[] };
 	/** Business facts for answering general questions ("what is this business", "where are you"). */
 	businessInfo?: { website?: string | null; address?: string | null; services?: string | null };
+	/** Urgent message — reply with an urgent ack + a SAFE, self-mitigation tip while help is coming. */
+	emergency?: boolean;
 	apiKey: string;
 }
 
@@ -105,7 +107,14 @@ async function generateReply(
 		.slice(-8)
 		.map((t) => `${t.from === 'business' ? 'Us' : 'Customer'}: ${t.text}`)
 		.join('\n');
-	const system = `You are a warm, friendly assistant for ${input.companyName}, a local trades / home-services business, replying by SMS to ${input.customerName || 'the customer'}.
+	const system = input.emergency
+		? `You are an assistant for ${input.companyName}, a local trades / home-services business. The customer just left an URGENT message. Write ONE short, calm, human SMS (2-3 sentences, no markdown):
+1. Warmly acknowledge the urgency and say someone from ${input.companyName} will call them back right away.
+2. IF — and only if — there is a SIMPLE, SAFE step a non-expert can take to limit damage or stay safe while they wait, briefly suggest it. Adapt to what they actually described (works for ANY trade): burst/leaking pipe → shut off the main water valve; roof leak → move valuables and put a bucket under the drip; backed-up drain → stop running water; appliance leaking/overflowing → turn it off at its own valve/switch if easily reachable.
+3. SAFETY FIRST: NEVER suggest anything involving gas, live electricity, fire, heights, structural collapse, or physical danger. For anything hazardous (gas smell, sparks/smoke/fire, water near outlets, etc.) tell them to get to safety and call 911 or the relevant utility — do not have them attempt anything. If you're unsure a step is safe, or there's no obvious safe step, SKIP the tip and just reassure them.
+Use ONLY these facts; never invent details:
+${facts}`
+		: `You are a warm, friendly assistant for ${input.companyName}, a local trades / home-services business, replying by SMS to ${input.customerName || 'the customer'}.
 Write ONE short, natural, human reply (1-2 sentences, conversational, no corporate stiffness, no markdown). Continue the conversation.
 Use ONLY these facts — never invent availability, prices, services or details you weren't given:
 ${facts}
@@ -136,6 +145,13 @@ export async function draftConversationalReply(
 ): Promise<ConversationResult | null> {
 	const message = (input.message || '').trim();
 	if (!message) return null;
+
+	// Emergency: skip all scheduling logic — reply with an urgent ack + a safe self-mitigation tip.
+	if (input.emergency) {
+		const facts = `Business hours: ${describeBusinessHours(input.locations || [])}.`;
+		const reply = await generateReply(input, facts, input.apiKey);
+		return reply ? { reply, booked: false, datetime: null, available: null } : null;
+	}
 
 	const extracted = await extractReply(message, input.apiKey);
 
