@@ -30,6 +30,8 @@ export interface ConversationInput {
 	appointments?: { startISO: string; title: string; isPast: boolean }[];
 	/** Reschedule resolution (target link, or ask-which, or none). */
 	reschedule?: { mode: 'link' | 'ask' | 'none'; link?: string; targetLabel?: string; options?: string[] };
+	/** Business facts for answering general questions ("what is this business", "where are you"). */
+	businessInfo?: { website?: string | null; address?: string | null; services?: string | null };
 	apiKey: string;
 }
 
@@ -103,11 +105,16 @@ async function generateReply(
 		.slice(-8)
 		.map((t) => `${t.from === 'business' ? 'Us' : 'Customer'}: ${t.text}`)
 		.join('\n');
-	const system = `You are a warm, friendly scheduling assistant for ${input.companyName}, a trades service business. You are replying by SMS to ${input.customerName || 'the customer'}.
+	const system = `You are a warm, friendly assistant for ${input.companyName}, a local trades / home-services business, replying by SMS to ${input.customerName || 'the customer'}.
 Write ONE short, natural, human reply (1-2 sentences, conversational, no corporate stiffness, no markdown). Continue the conversation.
-You MUST honour these facts exactly — never invent availability or promise a time that isn't available:
+Use ONLY these facts — never invent availability, prices, services or details you weren't given:
 ${facts}
-If a proposed time is available, warmly confirm it. If it is not available, apologise briefly, state the real hours, and ask for another time. If they asked a question, answer helpfully.`;
+How to handle different messages:
+- Booking / times: if a proposed time is available, warmly confirm it; if not, apologise briefly and give the real hours or the booking link.
+- General questions (what the business is/does, hours, location, services, "who are you?"): answer helpfully from the facts above. If you genuinely don't have that detail, say a team member will follow up shortly — do NOT make things up.
+- Service requests ("I need my roof fixed", "my sink is leaking"): acknowledge warmly, say you can help, and move toward booking or connecting them with the team.
+- If the message is unclear, vague, or off-topic: be friendly and ask how you can help.
+Keep it brief and human.`;
 	const content = await claudeText({
 		apiKey,
 		system,
@@ -135,6 +142,14 @@ export async function draftConversationalReply(
 	let available: boolean | null = null;
 	let datetime: string | null = null;
 	const factLines: string[] = [`Our business hours are: ${describeBusinessHours(input.locations || [])}.`];
+	if (input.businessInfo) {
+		const b = input.businessInfo;
+		const parts = [`This business is ${input.companyName}, a local trades / home-services company.`];
+		if (b.services) parts.push(`Services offered: ${b.services}.`);
+		if (b.address) parts.push(`Location: ${b.address}.`);
+		if (b.website) parts.push(`Website: ${b.website}.`);
+		factLines.push(`About the business (for general questions): ${parts.join(' ')}`);
+	}
 	if (input.accountBalance != null) {
 		factLines.push(`The customer's outstanding balance is $${Number(input.accountBalance).toFixed(2)}.`);
 	}
