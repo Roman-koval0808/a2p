@@ -270,7 +270,14 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					}
 				}
 
-				if (history.length > 0 || appointments !== undefined || reschedule !== undefined) {
+				// Also answer general / support / off-topic first-touch messages conversationally
+				// (e.g. "what is this business?", "I need my roof fixed") instead of a canned reply.
+				if (
+					history.length > 0 ||
+					appointments !== undefined ||
+					reschedule !== undefined ||
+					messageCategory === 'support'
+				) {
 					// Self-service link: pasted Appointment Schedule link, or our booking page when
 					// Google Calendar is connected — the customer picks a slot from live availability.
 					const bookingLink = getBookingUrl(company) || (await getBookingLinkIfConnected(company.id));
@@ -286,6 +293,13 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						bookingUrl: bookingLink,
 						appointments,
 						reschedule,
+						businessInfo: {
+							website: company.website,
+							address: (() => {
+								const loc = (company as any).locations?.[0];
+								return loc ? [loc.address, loc.city].filter(Boolean).join(', ') : null;
+							})()
+						},
 						apiKey: ANTHROPIC_AI_KEY
 					});
 					if (conv?.reply) {
