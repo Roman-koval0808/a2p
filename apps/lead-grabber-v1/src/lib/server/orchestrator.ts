@@ -4,6 +4,7 @@ import { toE164 } from '$lib/company-numbers';
 import { classifyMessageIntent, bucketToCategory } from './message-intent';
 import { checkCalendarAvailability, formatDatetime, describeLocations } from './calendar';
 import { getBookingUrl, bookingLinkWith } from '$lib/utils/booking';
+import { resolveBalanceByPhone } from './balance';
 import {
 	getBookingLinkIfConnected,
 	getConnectionInfo,
@@ -159,27 +160,13 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		{
 			console.log('[Orchestrator] Detected Scenario 1: Billing');
 
-			let balance = customer.accountBalance;
-			if (balance === null || balance === undefined) {
-				// The inbound webhook may have created a fresh contact for this caller while an
-				// older/duplicate record holds the balance — and it may be stored in a different
-				// phone format (e.g. "(905) 705-5234" vs "+19097055234"). Match the SAME person by
-				// normalized digits (last 10), never by name (that could leak another's balance).
-				const digitsOf = (p: string | null | undefined) => (p || '').replace(/\D/g, '').slice(-10);
-				const callerDigits = digitsOf(customer.phone);
-				if (callerDigits) {
-					const candidates = await prisma.contact.findMany({
-						where: { companyId: company.id, accountBalance: { not: null } },
-						select: { id: true, phone: true, accountBalance: true }
-					});
-					const alt = candidates.find(
-						(c) => c.id !== customer.id && digitsOf(c.phone) === callerDigits
-					);
-					if (alt) {
-						balance = alt.accountBalance;
-					}
-				}
-			}
+			// Match the balance to the SAME person by phone (the number they actually called from),
+			// covering a duplicate/older contact row or a different phone format. Never by name.
+			const balance = await resolveBalanceByPhone(
+				company.id,
+				customer.phone || commLog.source,
+				customer.accountBalance
+			);
 
 			if (balance !== null && balance !== undefined) {
 				draftedResponse = `You currently owe $${balance.toFixed(2)}, Thank you for your business have a nice day.`;
@@ -306,7 +293,11 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						customerName: customer.name || null,
 						customerPhone: customer.phone || commLog.source,
 						locations: (company as any).locations || [],
-						accountBalance: customer.accountBalance ?? null,
+						accountBalance: await resolveBalanceByPhone(
+							company.id,
+							customer.phone || commLog.source,
+							customer.accountBalance
+						),
 						bookingUrl: bookingLink,
 						appointments,
 						reschedule,
