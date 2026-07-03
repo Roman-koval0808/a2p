@@ -18,6 +18,7 @@ import {
 	resolveReschedule,
 	type RescheduleResult
 } from '$lib/server/google-calendar';
+import { describeLocations } from '$lib/server/calendar';
 import { ingestTelemetryEvent } from '$lib/server/profiledb/telemetry';
 import { TELNYX_API_KEY, TELNYX_MESSAGING_PROFILE_ID, ANTHROPIC_AI_KEY } from '$env/static/private';
 import { PUBLIC_BASE_URL } from '$env/static/public';
@@ -314,11 +315,9 @@ export const POST: RequestHandler = async ({ request }) => {
 							reschedule,
 							businessInfo: {
 								website: company?.website,
-								address: (() => {
-									const loc = (company as any)?.locations?.[0];
-									return loc ? [loc.address, loc.city].filter(Boolean).join(', ') : null;
-								})()
+								address: describeLocations((company as any)?.locations)
 							},
+							emergency: hasEmergency,
 							apiKey: ANTHROPIC_AI_KEY
 						});
 						if (conv?.reply) {
