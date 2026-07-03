@@ -19,6 +19,7 @@ import {
 	type RescheduleResult
 } from '$lib/server/google-calendar';
 import { describeLocations } from '$lib/server/calendar';
+import { resolveBalanceByPhone } from '$lib/server/balance';
 import { ingestTelemetryEvent } from '$lib/server/profiledb/telemetry';
 import { TELNYX_API_KEY, TELNYX_MESSAGING_PROFILE_ID, ANTHROPIC_AI_KEY } from '$env/static/private';
 import { PUBLIC_BASE_URL } from '$env/static/public';
@@ -309,7 +310,11 @@ export const POST: RequestHandler = async ({ request }) => {
 							customerName: contact?.name || extractedName || null,
 							customerPhone: contact?.phone || normalizedPhoneNumber,
 							locations: (company as any)?.locations || [],
-							accountBalance: contact?.accountBalance ?? null,
+							accountBalance: await resolveBalanceByPhone(
+								cid,
+								contact?.phone || normalizedPhoneNumber,
+								contact?.accountBalance
+							),
 							bookingUrl: bookingLink,
 							appointments,
 							reschedule,
@@ -571,6 +576,23 @@ export const POST: RequestHandler = async ({ request }) => {
 							console.error('❌ ProfileDB draft logging error:', dbErr);
 						}
 
+						// Classify the inbound so the draft shows a real Category / Sub-Category (not
+						// "General/General"). Uses the same classifier the orchestrator uses.
+						let draftCategory: string | null = hasEmergency ? 'emergency' : null;
+						let draftSubIntent: string | null = null;
+						try {
+							const { classifyMessageIntent, bucketToCategory } = await import(
+								'$lib/server/message-intent'
+							);
+							const intent = await classifyMessageIntent(smsText, ANTHROPIC_AI_KEY);
+							if (intent) {
+								if (!hasEmergency) draftCategory = bucketToCategory(intent);
+								draftSubIntent = intent.intent_bucket;
+							}
+						} catch (clsErr) {
+							console.error('[SMS draft classify] failed:', clsErr);
+						}
+
 						// Also log as a pending CommunicationLog or send auto-reply
 						try {
 							await logCommunication({
@@ -587,7 +609,11 @@ export const POST: RequestHandler = async ({ request }) => {
 									thread_id: normalizedPhoneNumber,
 									is_draft: true,
 									is_emergency: hasEmergency,
-									commId: inboundCommLog?.communicationThreadId
+									commId: inboundCommLog?.communicationThreadId,
+									// Inherit the conversation's classification so the summary shows a real category.
+									message_category: draftCategory,
+									sub_intent: draftSubIntent,
+									urgency: hasEmergency ? 'high' : null
 								}
 							});
 							console.log('📡 Logged pending_approval draft to local CommunicationLog');
