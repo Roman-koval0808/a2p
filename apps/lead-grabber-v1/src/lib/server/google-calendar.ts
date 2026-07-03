@@ -600,6 +600,7 @@ export async function getAvailableSlots(
 
 	// One free/busy query for the whole window.
 	let busy: { start: string; end: string }[] = [];
+	let freeBusyOk = false;
 	try {
 		const res = await fetch(`${CAL_API}/freeBusy`, {
 			method: 'POST',
@@ -613,10 +614,17 @@ export async function getAvailableSlots(
 		if (res.ok) {
 			const data = await res.json();
 			busy = data?.calendars?.[auth.calendarId]?.busy ?? [];
+			freeBusyOk = true;
+		} else {
+			console.error(`[google-calendar] getAvailableSlots freeBusy HTTP ${res.status}`);
 		}
 	} catch (e) {
 		console.error('[google-calendar] getAvailableSlots freeBusy error:', e);
 	}
+	// If we couldn't actually read the calendar's busy times, DON'T return every business-hour
+	// candidate as "open" — that would advertise slots that may already be booked. Return nothing
+	// so callers fall back to a safe business-hours answer instead.
+	if (!freeBusyOk) return [];
 	const busyRanges = busy.map((b) => [new Date(b.start).getTime(), new Date(b.end).getTime()] as [number, number]);
 
 	const groups = new Map<string, { label: string; slots: { value: string; label: string }[] }>();
