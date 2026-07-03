@@ -1735,7 +1735,11 @@ export const POST: RequestHandler = async ({ request }) => {
 																thread_id: formattedTo,
 																is_draft: true,
 																is_safety_draft: true,
-																is_emergency: true
+																is_emergency: true,
+																// Known statically — this branch only fires on urgent voicemails.
+																message_category: 'emergency',
+																sub_intent: 'safety',
+																urgency: 'high'
 															}
 														});
 														console.log('📡 Voicemail safety SMS draft logged as pending_approval');
