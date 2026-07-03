@@ -312,6 +312,13 @@ export const POST: RequestHandler = async ({ request }) => {
 							bookingUrl: bookingLink,
 							appointments,
 							reschedule,
+							businessInfo: {
+								website: company?.website,
+								address: (() => {
+									const loc = (company as any)?.locations?.[0];
+									return loc ? [loc.address, loc.city].filter(Boolean).join(', ') : null;
+								})()
+							},
 							apiKey: ANTHROPIC_AI_KEY
 						});
 						if (conv?.reply) {
