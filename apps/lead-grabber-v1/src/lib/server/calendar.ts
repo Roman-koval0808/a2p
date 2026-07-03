@@ -126,6 +126,45 @@ export function getDayHours(locations: any[], jsDay: number): { startH: number; 
 	return { startH: 9, endH: 17 };
 }
 
+/**
+ * Honest availability answer when there's no live calendar to check bookings against.
+ * Given the weekday name(s) the customer mentioned, returns e.g.
+ * "On Monday, July 6 we're open 9:00 AM to 5:00 PM." — or, if no day was named,
+ * a general hours summary. Returns null if we can't say anything useful.
+ */
+export function describeDayHours(locations: any[], namedDays: string[]): string | null {
+	const DAY_INDEX: Record<string, number> = {
+		sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6
+	};
+	const fmtH = (h: number) => {
+		const hh = Math.floor(h);
+		const mm = Math.round((h - hh) * 60);
+		const d = new Date(2000, 0, 1, hh, mm);
+		return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: mm ? '2-digit' : undefined } as any);
+	};
+	if (namedDays && namedDays.length > 0) {
+		const parts: string[] = [];
+		for (const name of namedDays) {
+			const target = DAY_INDEX[name.toLowerCase()];
+			if (target === undefined) continue;
+			// Next date (today included) that falls on this weekday.
+			const now = new Date();
+			const delta = (target - now.getDay() + 7) % 7;
+			const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + delta);
+			const dateLabel = date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+			const hrs = getDayHours(locations, target);
+			parts.push(
+				hrs
+					? `On ${dateLabel} we're open ${fmtH(hrs.startH)} to ${fmtH(hrs.endH)}.`
+					: `We're closed on ${dateLabel}.`
+			);
+		}
+		if (parts.length) return parts.join(' ');
+	}
+	const summary = describeBusinessHours(locations);
+	return summary ? `Our hours are: ${summary}.` : null;
+}
+
 /** Human-readable address(es) from the company's Location records (the /locations data). null if none. */
 export function describeLocations(locations: any[]): string | null {
 	const list = (locations || [])

@@ -30,6 +30,10 @@ export interface ConversationInput {
 	appointments?: { startISO: string; title: string; isPast: boolean }[];
 	/** Reschedule resolution (target link, or ask-which, or none). */
 	reschedule?: { mode: 'link' | 'ask' | 'none'; link?: string; targetLabel?: string; options?: string[] };
+	/** Live open slots from the connected calendar (for "what times are you free?"). undefined = not looked up. */
+	availableSlots?: { label: string; slots: { label: string }[] }[];
+	/** When we can't see live bookings, the open hours for the specific day the customer asked about. */
+	openHoursNote?: string | null;
 	/** Business facts for answering general questions ("what is this business", "where are you"). */
 	businessInfo?: { website?: string | null; address?: string | null; services?: string | null };
 	/** Urgent message — reply with an urgent ack + a SAFE, self-mitigation tip while help is coming. */
@@ -190,6 +194,29 @@ export async function draftConversationalReply(
 				`The customer has NO appointments on record. If they ask about past or upcoming appointments, tell them you don't see any on file and offer to book one.`
 			);
 		}
+	}
+
+	// Live availability from the connected calendar (answers "what times are you free on X?").
+	if (input.availableSlots !== undefined) {
+		const withSlots = input.availableSlots.filter((d) => d.slots.length > 0);
+		if (withSlots.length > 0) {
+			const lines = withSlots
+				.map((d) => `- ${d.label}: ${d.slots.map((s) => s.label).join(', ')}`)
+				.join('\n');
+			factLines.push(
+				`Real open appointment times from our calendar (already filtered to what the customer asked about):\n${lines}\nWhen they ask what times we're available, list these ACTUAL open times conversationally and offer to book one. Do NOT invent other times or say you'll "check and get back" — these ARE the open times.`
+			);
+		} else {
+			factLines.push(
+				`We have no open appointment times for the day the customer asked about (either fully booked or closed that day). Say so gently and offer the nearest days you can book instead.`
+			);
+		}
+	}
+
+	if (input.openHoursNote) {
+		factLines.push(
+			`The customer asked about availability. ${input.openHoursNote} Give them those open hours conversationally and ask what time works so we can get them booked (offer the booking link if one is provided). Do NOT invent specific open time-slots or claim a slot is free — we haven't checked the live calendar.`
+		);
 	}
 
 	// Reschedule takes priority over normal booking (it must cancel the right old appointment).
