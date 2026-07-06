@@ -261,101 +261,116 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					/\b(availab|what times|which times|what time.*(open|free|available)|when are you (open|free|available)|any (openings|slots|times)|free on|open on|slots? (on|for))\b/i.test(
 						rawMessage
 					);
-				let appointments: { startISO: string; title: string; isPast: boolean }[] | undefined;
-				let reschedule: RescheduleResult | undefined;
-				let availableSlots: { label: string; slots: { label: string }[] }[] | undefined;
-				let openHoursNote: string | null | undefined;
 				const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-				if (asksReschedule || asksAppointments || asksAvailability) {
-					const gconn = await getConnectionInfo(company.id);
+
+				// Reply whenever this is a returning caller, an explicit support message, or a
+				// scheduling / account ask. The AI itself then decides which real data it needs.
+				if (
+					history.length > 0 ||
+					messageCategory === 'support' ||
+					asksReschedule ||
+					asksAppointments ||
+					asksAvailability
+				) {
 					const locations = (company as any).locations || [];
+					// Self-service link: pasted Appointment Schedule link, or our booking page when
+					// Google Calendar is connected — the customer picks a slot from live availability.
+					const bookingLink = getBookingUrl(company) || (await getBookingLinkIfConnected(company.id));
+					const gconn = await getConnectionInfo(company.id);
 					// Match by phone (the number they called/texted from — reliable), then email, then name.
 					const ident = {
 						phone: customer.phone || commLog.source,
 						email: customer.email,
 						name: customer.name
 					};
-					if (asksReschedule && gconn.connected) {
-						reschedule = await resolveReschedule(company.id, { message: rawMessage, ...ident });
-					} else if (asksAvailability) {
-						const named = dayNames.filter((d) => new RegExp(`\\b${d}\\b`, 'i').test(rawMessage));
-						// Always compute the business-hours answer as a safety net. It's used when the
-						// calendar isn't connected, AND as a graceful fallback if the live lookup fails
-						// or returns nothing — so an availability question is NEVER left unanswered.
-						openHoursNote = describeDayHours(locations, named);
-						if (gconn.connected) {
-							try {
-								// Pull live open slots, then narrow to the weekday the customer named
-								// (e.g. "Monday"). If no day is named, show the next few open days.
-								const allSlots = await getAvailableSlots(company.id, { locations, days: 14 });
-								const filtered =
-									named.length > 0
-										? allSlots.filter((d) => named.some((n) => new RegExp(`\\b${n}\\b`, 'i').test(d.label)))
-										: allSlots.slice(0, 3);
-								const nonEmpty = filtered.filter((d) => d.slots.length > 0);
-								// Only trust live slots when we actually got some. Empty can mean "fully
-								// booked" OR "freeBusy hiccup" — we can't tell, so we let openHoursNote
-								// carry the reply instead of falsely claiming there's nothing open.
-								if (nonEmpty.length > 0) availableSlots = nonEmpty;
-							} catch (slotErr) {
-								console.warn('[Orchestrator] Live availability lookup failed; using business hours:', slotErr);
-							}
-						}
-					} else if (asksAppointments && gconn.connected) {
-						appointments = await getCustomerAppointments(company.id, ident);
-					}
-				}
 
-				// Also answer general / support / off-topic first-touch messages conversationally
-				// (e.g. "what is this business?", "I need my roof fixed") instead of a canned reply.
-				if (
-					history.length > 0 ||
-					appointments !== undefined ||
-					reschedule !== undefined ||
-					availableSlots !== undefined ||
-					openHoursNote != null ||
-					messageCategory === 'support'
-				) {
-					// Self-service link: pasted Appointment Schedule link, or our booking page when
-					// Google Calendar is connected — the customer picks a slot from live availability.
-					const bookingLink = getBookingUrl(company) || (await getBookingLinkIfConnected(company.id));
-					const { draftConversationalReply } = await import('./conversation');
-					const conv = await draftConversationalReply({
-						message: commLog.content || rawMessage,
-						history,
-						companyName: company.name || 'us',
-						customerName: customer.name || null,
-						customerPhone: customer.phone || commLog.source,
-						locations: (company as any).locations || [],
-						accountBalance: await resolveBalanceByPhone(
-							company.id,
-							customer.phone || commLog.source,
-							customer.accountBalance
-						),
-						bookingUrl: bookingLink,
-						appointments,
-						reschedule,
-						availableSlots,
-						openHoursNote,
-						businessInfo: {
+					// PRIMARY: let the AI complete the request itself using real data-lookup skills
+					// (account summary, appointments, availability, reschedule, booking link, business
+					// info). It calls only what the message needs and grounds the reply in the results.
+					let draft: string | null = null;
+					try {
+						const { draftAgenticReply } = await import('./reply-skills');
+						draft = await draftAgenticReply({
+							companyId: company.id,
+							companyName: company.name || 'us',
+							locations,
 							website: company.website,
-							address: describeLocations((company as any).locations)
-						},
-						apiKey: ANTHROPIC_AI_KEY
-					});
-					if (conv?.reply) {
-						draftedResponse = conv.reply;
-						console.log(
-							reschedule !== undefined
-								? '[Orchestrator] Handled reschedule request.'
-								: appointments !== undefined
-									? '[Orchestrator] Answered appointment-history question from the calendar.'
-									: availableSlots !== undefined
-										? '[Orchestrator] Answered availability question with live calendar slots.'
-										: openHoursNote
-											? '[Orchestrator] Answered availability question from business hours.'
-											: '[Orchestrator] Used conversational cross-channel reply (returning caller).'
-						);
+							customerName: customer.name || null,
+							customerPhone: customer.phone || commLog.source,
+							customerEmail: customer.email,
+							message: commLog.content || rawMessage,
+							history,
+							bookingUrl: bookingLink,
+							connected: gconn.connected,
+							knownBalance: customer.accountBalance,
+							apiKey: ANTHROPIC_AI_KEY
+						});
+					} catch (agErr) {
+						console.error('[Orchestrator] Agentic reply failed; using fact-based fallback:', agErr);
+					}
+
+					if (draft) {
+						draftedResponse = draft;
+						console.log('[Orchestrator] Agentic skill reply.');
+					} else {
+						// FALLBACK: keyword-gated fact assembly → fact-based conversational reply.
+						let appointments: { startISO: string; title: string; isPast: boolean }[] | undefined;
+						let reschedule: RescheduleResult | undefined;
+						let availableSlots: { label: string; slots: { label: string }[] }[] | undefined;
+						let openHoursNote: string | null | undefined;
+						if (asksReschedule && gconn.connected) {
+							reschedule = await resolveReschedule(company.id, { message: rawMessage, ...ident });
+						} else if (asksAvailability) {
+							const named = dayNames.filter((d) => new RegExp(`\\b${d}\\b`, 'i').test(rawMessage));
+							// Business-hours answer as a safety net (used when disconnected, or if the live
+							// lookup fails / returns nothing) so an availability question is never unanswered.
+							openHoursNote = describeDayHours(locations, named);
+							if (gconn.connected) {
+								try {
+									const allSlots = await getAvailableSlots(company.id, { locations, days: 14 });
+									const filtered =
+										named.length > 0
+											? allSlots.filter((d) => named.some((n) => new RegExp(`\\b${n}\\b`, 'i').test(d.label)))
+											: allSlots.slice(0, 3);
+									const nonEmpty = filtered.filter((d) => d.slots.length > 0);
+									// Empty can mean "fully booked" OR "freeBusy hiccup" — don't over-claim.
+									if (nonEmpty.length > 0) availableSlots = nonEmpty;
+								} catch (slotErr) {
+									console.warn('[Orchestrator] Live availability lookup failed; using business hours:', slotErr);
+								}
+							}
+						} else if (asksAppointments && gconn.connected) {
+							appointments = await getCustomerAppointments(company.id, ident);
+						}
+
+						const { draftConversationalReply } = await import('./conversation');
+						const conv = await draftConversationalReply({
+							message: commLog.content || rawMessage,
+							history,
+							companyName: company.name || 'us',
+							customerName: customer.name || null,
+							customerPhone: customer.phone || commLog.source,
+							locations,
+							accountBalance: await resolveBalanceByPhone(
+								company.id,
+								customer.phone || commLog.source,
+								customer.accountBalance
+							),
+							bookingUrl: bookingLink,
+							appointments,
+							reschedule,
+							availableSlots,
+							openHoursNote,
+							businessInfo: {
+								website: company.website,
+								address: describeLocations(locations)
+							},
+							apiKey: ANTHROPIC_AI_KEY
+						});
+						if (conv?.reply) {
+							draftedResponse = conv.reply;
+							console.log('[Orchestrator] Fact-based reply (fallback).');
+						}
 					}
 				}
 			}
