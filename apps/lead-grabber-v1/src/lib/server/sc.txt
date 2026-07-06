@@ -1,0 +1,414 @@
+### Conversational SMS Scenario Blueprints & Scoring Reference
+================================================================
+
+This document outlines 20 customer interaction scenarios. 
+Each scenario includes the conversational path, the under-the-hood logic, 
+and the corresponding impact on ClearSky engagement scores and intent buckets 
+(cross-referenced with clearsky-scoring-reference.html and scoring.service.ts).
+
+---
+
+### Scenario 1: Standard Reschedule (Single Upcoming Event Found)
+
+Marie: "Can I move my appointment to Monday?"
+  │
+  ▼
+AI searches Google Calendar by phone for upcoming appointments.
+  │
+  ▼
+One appointment found: Fri Jul 4 at 1:00 PM.
+  │
+  ▼
+AI drafts: "You're booked Fri Jul 4 at 1pm. Pick a new time here: <link> — I'll cancel the old one once you rebook."
+  │
+  ▼
+Marie clicks link (carries `?reschedule=eventId`) 
+  │
+  ▼
+She picks a Monday slot 
+  │
+  ▼
+New event created & Old event cancelled automatically.
+
+[SCORING IMPACT]
+- Orchestrator Webhook Score: +10 (Sales/Booking Intent)
+- Pipeline Event Type: `sms_received` (+10 points) or `booking_rescheduled` (Conversion)
+- Intent Bucket Progression: Promotes to [Active Project] (Score >= 45 & conversion event)
+
+---
+
+### Scenario 2: Ambiguous Reschedule (Multiple Upcoming Events Found)
+
+Steve: "Hey, I need to push my service back."
+  │
+  ▼
+AI searches Google Calendar and finds two upcoming events: July 10th & July 15th.
+  │
+  ▼
+Orchestrator returns `mode: 'ask'` with the date options.
+  │
+  ▼
+AI drafts: "I see you have two upcoming appointments: Fri July 10 at 9am and Wed July 15 at 2pm. Which one are we moving?"
+
+[SCORING IMPACT]
+- Orchestrator Webhook Score: +10 (Sales/Booking Intent)
+- Pipeline Event Type: `sms_received` (+10 points)
+- Intent Bucket Progression: Promotes to [Comparison] (Score >= 25)
+
+---
+
+### Scenario 3: Blind Reschedule Request (No Upcoming Events Found)
+
+Laura: "Can I reschedule my appointment for next Tuesday?"
+  │
+  ▼
+AI searches Google Calendar by phone but finds 0 upcoming events.
+  │
+  ▼
+Orchestrator returns `mode: 'none'`.
+  │
+  ▼
+AI drafts: "I couldn't find an upcoming booking under this number. Would you like to schedule a new one here: <link>?"
+
+[SCORING IMPACT]
+- Orchestrator Webhook Score: +10 (Sales/Booking Intent)
+- Pipeline Event Type: `sms_received` (+10 points)
+- Intent Bucket Progression: Promotes to [Comparison] (Score >= 25)
+
+---
+
+### Scenario 4: Simple Balance Check (Active Balance)
+
+Tom: "How much is my outstanding bill?"
+  │
+  ▼
+AI classifies message as "billing" intent.
+  │
+  ▼
+`resolveBalanceByPhone` queries DB and finds Tom owes $180.00.
+  │
+  ▼
+AI drafts: "You currently owe $180.00. Thank you for your business, have a nice day!"
+
+[SCORING IMPACT]
+- Orchestrator Webhook Score: +0 (Billing Intent)
+- Pipeline Event Type: `sms_received` (+10 points) or `billing_query` (+4 points)
+- Intent Bucket Progression: Promotes to [Research] or [Comparison] depending on cumulative scores.
+
+---
+
+### Scenario 5: Balance Check (Zero Balance / No Record)
+
+Anna: "What's my balance right now?"
+  │
+  ▼
+AI classifies message as "billing" intent.
+  │
+  ▼
+`resolveBalanceByPhone` queries DB but finds no outstanding balance ($0.00 or null).
+  │
+  ▼
+AI drafts: "Hi Anna, we received your balance query. An agent will review your account and reach out shortly."
+
+[SCORING IMPACT]
+- Orchestrator Webhook Score: +0 (Billing Intent)
+- Pipeline Event Type: `sms_received` (+10 points)
+- Intent Bucket Progression: Promotes to [Research] (Score >= 9)
+
+---
+
+### Scenario 6: Day-Specific Availability Check
+
+Chris: "Are you guys open or free this Monday morning?"
+  │
+  ▼
+AI classifies as "sales" and detects availability check for "Monday".
+  │
+  ▼
+`getAvailableSlots` pulls next 14 days and filters for Monday slots.
+  │
+  ▼
+AI drafts: "Yes! We have Monday morning openings at 9:00 AM and 10:30 AM. Do either of those work for you?"
+
+[SCORING IMPACT]
+- Orchestrator Webhook Score: +10 (Sales/Booking Intent)
+- Pipeline Event Type: `sms_received` (+10 points) or `availability_query` (+5 points)
+- Intent Bucket Progression: Promotes to [Comparison] (Score >= 25)
+
+---
+
+### Scenario 7: General Availability Request (No Connected Calendar)
+
+Jen: "Do you have any openings next week?"
+  │
+  ▼
+AI classifies as "sales", but Google Calendar connection is inactive/not connected.
+  │
+  ▼
+Orchestrator falls back to static company business hours (`describeDayHours`).
+  │
+  ▼
+AI drafts: "We're typically open Mon-Fri from 9am to 5pm. Please let us know what days/times work best and we'll confirm!"
+
+[SCORING IMPACT]
+- Orchestrator Webhook Score: +10 (Sales/Booking Intent)
+- Pipeline Event Type: `sms_received` (+10 points)
+- Intent Bucket Progression: Promotes to [Research] or [Comparison] (depending on page tracking history)
+
+---
+
+### Scenario 8: After-Hours Delayed/Deferred Response
+
+David: "Can I book a roof estimate for tomorrow?" (Texted at 11:30 PM)
+  │
+  ▼
+`checkCalendarAvailability` detects the current time is outside business hours.
+  │
+  ▼
+Orchestrator drafts the booking SMS but flags it as deferred.
+  │
+  ▼
+Message sits in `pending_approval` queue to prevent waking up the customer late at night.
+
+[SCORING IMPACT]
+- Orchestrator Webhook Score: +10 (Sales/Booking Intent)
+- Pipeline Event Type: `sms_received` (+10 points)
+- Intent Bucket Progression: Promotes to [Comparison] (Score >= 25)
+
+---
+
+### Scenario 9: Emergency Burst Water Pipe (Trade-Specific Advice)
+
+Gary: "My water pipe burst in the basement, water is going everywhere!"
+  │
+  ▼
+AI classifies message as "emergency" (urgency >= 25, wants_appointment: true).
+  │
+  ▼
+Increments contact engagement score in DB by +25.
+  │
+  ▼
+AI drafts: "I've flagged this as urgent and our team is heading over. Please shut off your main water valve immediately to minimize damage!"
+
+[SCORING IMPACT]
+- Orchestrator Webhook Score: +25 (Emergency Intent Override)
+- Pipeline Event Type: `sms_received` (+15 points due to emergency flag)
+- Intent Bucket Progression: Promotes instantly to [Emergency] (Single urgency signal override, no score threshold, does not demote)
+
+---
+
+### Scenario 10: Emergency Sparks/Electrical Hazard (Safety Warning First)
+
+Bill: "There are sparks coming out of my breaker panel!"
+  │
+  ▼
+AI classifies message as "emergency" (urgency >= 25).
+  │
+  ▼
+Recognizes electrical danger (sparks, live voltage).
+  │
+  ▼
+AI drafts: "We are dispatching someone immediately. Please do not touch the panel, get everyone out of the area safely, and call 911 if you see fire or smoke."
+
+[SCORING IMPACT]
+- Orchestrator Webhook Score: +25 (Emergency Intent Override)
+- Pipeline Event Type: `sms_received` (+15 points due to emergency flag)
+- Intent Bucket Progression: Promotes instantly to [Emergency] (no score threshold required)
+
+---
+
+### Scenario 11: Emergency Roof Leak (Structural Protection Tip)
+
+Mark: "Water is dripping heavily through my ceiling from the storm!"
+  │
+  ▼
+AI classifies message as "emergency" (urgency >= 25).
+  │
+  ▼
+AI drafts: "We have marked this as urgent. While we get a technician out, please move any valuables away from the drip and place a bucket underneath."
+
+[SCORING IMPACT]
+- Orchestrator Webhook Score: +25 (Emergency Intent Override)
+- Pipeline Event Type: `sms_received` (+15 points due to emergency flag)
+- Intent Bucket Progression: Promotes instantly to [Emergency]
+
+---
+
+### Scenario 12: Sales Request with No Datetime Offered
+
+Lucy: "Do you guys do kitchen tiling? I'd like to get an estimate."
+  │
+  ▼
+AI classifies message as "sales" (confidence high, wants_appointment: true).
+  │
+  ▼
+Increments contact engagement score in DB by +10.
+  │
+  ▼
+AI drafts: "We sure do! We'd love to help with your kitchen tiling. You can book an estimate appointment that works for you here: <link>"
+
+[SCORING IMPACT]
+- Orchestrator Webhook Score: +10 (Sales/Booking Intent)
+- Pipeline Event Type: `sms_received` (+10 points)
+- Intent Bucket Progression: Promotes to [Comparison] or [Active Project] (if multiple signals match)
+
+---
+
+### Scenario 13: Sales Request with Available Time Offered
+
+Rick: "Can someone come out tomorrow Friday at 2pm?"
+  │
+  ▼
+AI detects "Friday at 2:00 PM" and confirms slot is free on Google Calendar.
+  │
+  ▼
+AI drafts confirmation link pre-loaded with parameters: "Hi Rick! Friday at 2:00 PM works — just confirm it here: <link_with_params>"
+
+[SCORING IMPACT]
+- Orchestrator Webhook Score: +10 (Sales/Booking Intent)
+- Pipeline Event Type: `sms_received` (+10 points)
+- Intent Bucket Progression: Promotes to [Comparison] or [Active Project]
+
+---
+
+### Scenario 14: Sales Request with Unavailable Time Offered
+
+Tina: "Can you do Sunday morning at 10am?"
+  │
+  ▼
+AI checks calendar and detects Sunday 10am is busy or outside company hours.
+  │
+  ▼
+AI drafts polite fallback: "Unfortunately, Sunday at 10am is unavailable. You can view all our open times and self-book here: <link>"
+
+[SCORING IMPACT]
+- Orchestrator Webhook Score: +10 (Sales/Booking Intent)
+- Pipeline Event Type: `sms_received` (+10 points)
+- Intent Bucket Progression: Promotes to [Comparison] (Score >= 25)
+
+---
+
+### Scenario 15: Vague Support Query (Human Fallback)
+
+Sam: "I need to talk to someone about the job last month."
+  │
+  ▼
+AI classifies message as "support" (unstructured conversation).
+  │
+  ▼
+Orchestrator skips auto-responses that book appointments or query calendars.
+  │
+  ▼
+AI drafts warm fallback: "Hi Sam, thanks for reaching out. I'll have a support agent review the details of your job and call you right back."
+
+[SCORING IMPACT]
+- Orchestrator Webhook Score: +0 (Support Intent)
+- Pipeline Event Type: `sms_received` (+10 points)
+- Intent Bucket Progression: Promotes to [Research] (Score >= 9)
+
+---
+
+### Scenario 16: Cross-Channel Follow-up (Voicemail to SMS Link)
+
+Pam leaves a voicemail: "Need to book a plumber for my sink." 
+  │
+  ▼
+Pam texts: "Checking if you got my message?"
+  │
+  ▼
+OpenAI semantic thread matching runs on recent inbound logs (within 7 days).
+  │
+  ▼
+Orchestrator links the SMS and voicemail into the same conversation thread.
+  │
+  ▼
+AI drafts: "Hi Pam! Yes, we received your voicemail about booking a plumber. You can pick an open time here: <link>"
+
+[SCORING IMPACT]
+- Voicemail Event: +15 points (Voice Call event category)
+- SMS Event: +10 points (SMS event category)
+- Orchestrator Webhook Score: +10 (Sales/Booking Intent)
+- Intent Bucket Progression: Promotes to [Active Project] (Voice + SMS sequence counts as multiple active signals)
+
+---
+
+### Scenario 17: User Pressed Wrong IVR Button (Reclassification)
+
+Alex calls IVR and presses '1' (Billing department).
+  │
+  ▼
+Voicemail transcript says: "I want to schedule a new estimate for gutters."
+  │
+  ▼
+Orchestrator detects mismatch: pressed category is "billing" but text content is "sales".
+  │
+  ▼
+Orchestrator overrides digit routing and uses the "sales" path instead.
+  │
+  ▼
+AI drafts: "Thanks for calling! You can book an estimate slot for your gutters right here: <link>"
+
+[SCORING IMPACT]
+- Orchestrator Webhook Score: +10 (Sales/Booking Intent override, not +0 Billing)
+- Pipeline Event Type: `call_received` (+15 points)
+- Intent Bucket Progression: Promotes to [Comparison] or [Active Project]
+
+---
+
+### Scenario 18: Webhook Retry/Duplicate Suppression
+
+Carrier network sends duplicate webhook for SMS event (already processing/processed).
+  │
+  ▼
+Orchestrator checks `orchestrator_processed` metadata or searches `recentDrafts` matching `trigger_comm_id` within 10 mins.
+  │
+  ▼
+Duplicate detected.
+  │
+  ▼
+Orchestrator aborts immediately, preventing duplicate draft responses from being saved.
+
+[SCORING IMPACT]
+- Orchestrator Webhook Score: +0 (No-op)
+- Pipeline Event Type: Suppressed (Identical content / Transaction ID match)
+- Intent Bucket Progression: No change (Deduplication prevents double-scoring)
+
+---
+
+### Scenario 19: High-Value Customer Retention (Emergency Engagement Score)
+
+Customer texts: "Our heating went out and it's freezing!"
+  │
+  ▼
+Orchestrator detects emergency and flags the customer record.
+  │
+  ▼
+Database automatically increments the customer's `engagementScore` by 25 points.
+  │
+  ▼
+Customer profile updates live in the dashboard, ranking them as a top-priority client.
+
+[SCORING IMPACT]
+- Orchestrator Webhook Score: +25 (Emergency Intent Override)
+- Pipeline Event Type: `sms_received` (+15 points due to emergency flag)
+- Intent Bucket Progression: Promotes instantly to [Emergency] (Never demotes during session)
+
+---
+
+### Scenario 20: Completed Reschedule Loop (Booking Action Submit)
+
+Marie picks a Monday 9am slot on the booking web page and clicks "Confirm Reschedule".
+  │
+  ▼
+Booking Svelte action creates new event on Google Calendar.
+  │
+  ▼
+Action reads the `reschedule` parameter containing the original event ID.
+  │
+  ▼
+`deleteEvent` deletes the old Friday 1pm event from the calendar, sending a cancellation email automatically.
+
+[SCORING IMPACT]
+- Orchestrator Webhook Score: +10 (Sales/Booking Intent)
+- Pipeline Event Type: `booking_submit` (Conversion event)
+- Intent Bucket Progression: Promotes to [Active Project] (Score >= 45 & conversion event achieved)
