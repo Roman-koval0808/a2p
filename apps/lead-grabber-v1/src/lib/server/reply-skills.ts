@@ -18,7 +18,8 @@ import { bookingLinkWith } from '$lib/utils/booking';
 import {
 	getAvailableSlots,
 	getCustomerAppointments,
-	resolveReschedule
+	resolveReschedule,
+	resolveCancel
 } from './google-calendar';
 
 export interface AgenticReplyInput {
@@ -215,6 +216,23 @@ function buildSkills(input: AgenticReplyInput): ClaudeTool[] {
 				if (r.mode === 'ask')
 					return `They have MORE THAN ONE upcoming appointment: ${(r.options || []).join('; ')}. Ask which one to move. Do not send a link yet.`;
 				return 'No upcoming appointment on file to reschedule; offer to book a new one.';
+			}
+		},
+		{
+			name: 'cancel_appointment',
+			description:
+				'Cancel the customer\'s existing upcoming appointment on our calendar. Use when they clearly want to cancel / call off / are no longer coming to an existing booking (NOT when they want to move it — use reschedule_appointment for that).',
+			input_schema: { type: 'object', properties: {} },
+			run: async () => {
+				if (!connected) return 'Calendar is not connected; offer to have someone cancel it for them.';
+				const r = await resolveCancel(companyId, { message: input.message, ...ident });
+				if (r.mode === 'cancelled')
+					return `Done — their appointment (${r.cancelledLabel}) is now cancelled on our calendar. Confirm it's cancelled and warmly offer to rebook whenever they're ready.`;
+				if (r.mode === 'ask')
+					return `They have MORE THAN ONE upcoming appointment: ${(r.options || []).join('; ')}. Ask which one to cancel. Do NOT cancel any yet.`;
+				if (r.mode === 'error')
+					return `We tried to cancel their appointment (${r.cancelledLabel}) but it didn't go through. Apologize and offer to have someone cancel it manually. Do NOT claim it's cancelled.`;
+				return 'No upcoming appointment on file to cancel; let them know there is nothing currently booked.';
 			}
 		}
 	];
