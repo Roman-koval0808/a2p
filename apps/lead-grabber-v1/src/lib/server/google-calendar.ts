@@ -540,6 +540,41 @@ export async function resolveReschedule(
 	return { mode: 'link', link, targetLabel: formatDatetime(target.startISO) };
 }
 
+export interface CancelResult {
+	mode: 'cancelled' | 'ask' | 'none' | 'error';
+	cancelledLabel?: string;
+	options?: string[];
+}
+
+/**
+ * Resolve a cancellation request and, when the target is unambiguous, actually cancel it on the
+ * calendar (Google sends the cancellation notice via `sendUpdates=all`). Matches the customer's
+ * UPCOMING appointments by phone (reliable), then decides the exact target with the SAME safe
+ * disambiguation used for reschedules: cancels only when there's exactly one upcoming appointment,
+ * or the message names a day/date that matches exactly one — otherwise asks which one. Never cancels
+ * "the latest", so it can't cancel the wrong appointment.
+ */
+export async function resolveCancel(
+	companyId: string,
+	opts: { message: string; phone?: string | null; name?: string | null; email?: string | null }
+): Promise<CancelResult> {
+	const appts = await getCustomerAppointments(companyId, {
+		phone: opts.phone,
+		email: opts.email,
+		name: opts.name
+	});
+	const upcoming = appts.filter((a) => !a.isPast);
+	if (upcoming.length === 0) return { mode: 'none' };
+
+	const target = pickRescheduleTarget(opts.message, upcoming);
+	if (!target) {
+		return { mode: 'ask', options: upcoming.map((a) => formatDatetime(a.startISO)) };
+	}
+	const ok = await deleteEvent(companyId, target.id);
+	const label = formatDatetime(target.startISO);
+	return ok ? { mode: 'cancelled', cancelledLabel: label } : { mode: 'error', cancelledLabel: label };
+}
+
 /** Public URL of the self-service booking page for a company. */
 export function getBookingPageUrl(companyId: string): string {
 	return `${(PUBLIC_BASE_URL || '').replace(/\/$/, '')}/book/${companyId}`;
