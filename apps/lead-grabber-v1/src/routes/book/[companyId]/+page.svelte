@@ -3,7 +3,7 @@
 	import { Button } from '$lib/components/ui/button/index';
 	import { Input } from '$lib/components/ui/input/index';
 	import { Label } from '$lib/components/ui/label/index';
-	import { Calendar, Clock, Check, ChevronLeft } from 'lucide-svelte';
+	import { Calendar, Clock, Check, ChevronLeft, X } from 'lucide-svelte';
 
 	let { data, form } = $props();
 
@@ -41,7 +41,11 @@
 			</div>
 			<div>
 				<h1 class="text-xl font-bold leading-tight text-gray-900">
-					{data.rescheduleId ? 'Reschedule your appointment' : 'Book an appointment'}
+					{data.cancelId
+						? 'Cancel your appointment'
+						: data.rescheduleId
+							? 'Reschedule your appointment'
+							: 'Book an appointment'}
 				</h1>
 				<p class="text-sm text-gray-500">with {data.companyName}</p>
 			</div>
@@ -55,7 +59,65 @@
 			</div>
 		{/if}
 
-		{#if form?.success}
+		{#if form?.cancelled}
+			<div class="rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
+				<div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-gray-100">
+					<X class="h-6 w-6 text-gray-500" />
+				</div>
+				<h2 class="text-lg font-semibold text-gray-900">Appointment cancelled</h2>
+				<p class="mt-1 text-sm text-gray-600">
+					{form.cancelledLabel
+						? `Your ${form.cancelledLabel} appointment has been cancelled.`
+						: 'Your appointment has been cancelled.'}
+					Changed your mind? You can book a new time whenever you're ready.
+				</p>
+				<a
+					href={`/book/${data.companyId}`}
+					class="mt-4 inline-block rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+				>
+					Book a new time
+				</a>
+			</div>
+		{:else if data.cancelId}
+			<!-- Cancel deep-link (?cancel=…&p=…): confirm before we actually cancel. -->
+			<div class="rounded-2xl border bg-white p-6 shadow-sm">
+				<div class="mb-4 flex items-center gap-2 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-900">
+					<Calendar class="h-4 w-4 shrink-0 text-red-600" />
+					<span class="font-medium">{data.cancelLabel}</span>
+				</div>
+				<p class="mb-5 text-sm text-gray-600">
+					Cancel this appointment? You can always book a new time afterwards.
+				</p>
+				<form
+					method="POST"
+					action="?/cancel"
+					use:enhance={() => {
+						submitting = true;
+						return async ({ update }) => {
+							await update();
+							submitting = false;
+						};
+					}}
+				>
+					<input type="hidden" name="cancel" value={data.cancelId} />
+					<input type="hidden" name="phone" value={data.requestedPhone || ''} />
+					{#if form?.error}
+						<p class="mb-3 text-sm text-red-600">{form.error}</p>
+					{/if}
+					<div class="flex gap-3">
+						<Button type="submit" disabled={submitting} class="flex-1 bg-red-600 hover:bg-red-700">
+							{submitting ? 'Cancelling…' : 'Cancel appointment'}
+						</Button>
+						<a
+							href={`/book/${data.companyId}`}
+							class="flex flex-1 items-center justify-center rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+						>
+							Keep it
+						</a>
+					</div>
+				</form>
+			</div>
+		{:else if form?.success}
 			<div class="rounded-2xl border border-green-200 bg-white p-8 text-center shadow-sm">
 				<div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-green-100">
 					<Check class="h-6 w-6 text-green-600" />

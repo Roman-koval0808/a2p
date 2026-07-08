@@ -28,11 +28,12 @@ export const load: PageServerLoad = async ({ params, url }) => {
 		: [];
 
 	// Deep-link params from an AI reply: ?t= pre-selects the time, ?n= name, ?p= phone,
-	// ?reschedule= the EXACT event id being moved.
+	// ?reschedule= the EXACT event id being moved, ?cancel= the EXACT event id being cancelled.
 	const requestedTime = (url.searchParams.get('t') || '').slice(0, 16); // YYYY-MM-DDTHH:mm
 	const requestedName = (url.searchParams.get('n') || '').slice(0, 80);
 	const requestedPhone = (url.searchParams.get('p') || '').slice(0, 30);
 	const rescheduleId = (url.searchParams.get('reschedule') || '').slice(0, 1024);
+	const cancelId = (url.searchParams.get('cancel') || '').slice(0, 1024);
 
 	// Resolve the appointment being rescheduled (for a clear "moving your … appointment" banner).
 	// Verified against the phone-matched list so the id can only be one of THIS customer's events.
@@ -47,7 +48,21 @@ export const load: PageServerLoad = async ({ params, url }) => {
 		}
 	}
 
+	// Resolve the appointment being cancelled the SAME safe way: the id must belong to THIS phone
+	// and still be upcoming. An invalid/expired link just falls through to the normal booking page.
+	let cancelLabel = '';
+	let cancelValid = false;
+	if (cancelId && requestedPhone && conn.connected) {
+		const mine = await getCustomerAppointments(companyId, { phone: requestedPhone });
+		const match = mine.find((a) => a.id === cancelId && !a.isPast);
+		if (match) {
+			cancelValid = true;
+			cancelLabel = formatDatetime(match.startISO);
+		}
+	}
+
 	return {
+		companyId,
 		companyName: company.name || 'us',
 		connected: conn.connected,
 		days,
@@ -55,7 +70,9 @@ export const load: PageServerLoad = async ({ params, url }) => {
 		requestedName,
 		requestedPhone,
 		rescheduleId: rescheduleValid ? rescheduleId : '',
-		rescheduleLabel
+		rescheduleLabel,
+		cancelId: cancelValid ? cancelId : '',
+		cancelLabel
 	};
 };
 
@@ -104,5 +121,35 @@ export const actions: Actions = {
 		}
 
 		return { success: true, meetLink: r.meetLink, rescheduled };
+	},
+
+	// Self-service cancellation. Only cancels the EXACT event id, and ONLY after re-confirming it
+	// belongs to THIS customer's phone — the same guard the reschedule path uses, so a tampered or
+	// stale link can never cancel someone else's appointment.
+	cancel: async ({ params, request }) => {
+		const companyId = params.companyId;
+		const form = await request.formData();
+		const cancelId = ((form.get('cancel') as string) || '').trim();
+		const phone = ((form.get('phone') as string) || '').trim();
+
+		if (!cancelId || !phone) {
+			return fail(400, { error: 'We could not verify which appointment to cancel.' });
+		}
+
+		try {
+			const mine = await getCustomerAppointments(companyId, { phone });
+			const match = mine.find((a) => a.id === cancelId);
+			if (!match) {
+				return fail(404, { error: "We couldn't find that appointment under your number." });
+			}
+			const ok = await deleteEvent(companyId, cancelId);
+			if (!ok) {
+				return fail(500, { error: 'Could not cancel that appointment. Please try again.' });
+			}
+			return { cancelled: true, cancelledLabel: formatDatetime(match.startISO) };
+		} catch (e) {
+			console.error('[book] cancel failed:', e);
+			return fail(500, { error: 'Could not cancel that appointment. Please try again.' });
+		}
 	}
 };
