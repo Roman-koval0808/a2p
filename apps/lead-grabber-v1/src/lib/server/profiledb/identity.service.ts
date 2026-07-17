@@ -1,6 +1,7 @@
 import { profileDb as prisma } from '$lib/profiledb-db';
 import type { CustomerProfile } from 'profiledb-client';
 import { calculateDecayedScore, getNextBucket } from './scoring.service';
+import { TIER } from './tiers';
 import crypto from 'crypto';
 
 export function isValidName(name: string): boolean {
@@ -79,7 +80,7 @@ export async function resolveCustomerProfile(input: ResolveIdentityInput): Promi
             scoreLive: 0,
             lastEventAt: new Date(),
             group: 2,
-            tier: 'Tier 2B',
+            tier: TIER.ANON_ENGAGED,
           },
         });
 
@@ -150,10 +151,10 @@ export async function resolveCustomerProfile(input: ResolveIdentityInput): Promi
 
     // Resolve Q2 Tier & Group Upgrades
     if (hashedEmail || hashedPhone) {
-      updateData.tier = 'Tier 1';
+      updateData.tier = TIER.IDENTIFIED;
       updateData.group = input.group || (phone ? 3 : 2);
-    } else if (name && currentProfile.tier === 'Tier 2B') {
-      updateData.tier = 'Tier 2A';
+    } else if (name && currentProfile.tier === TIER.ANON_ENGAGED) {
+      updateData.tier = TIER.ANON_NAMED;
       updateData.group = 4;
     }
 
@@ -254,10 +255,10 @@ export async function resolveCustomerProfile(input: ResolveIdentityInput): Promi
 
     // Resolve Q2 Tier & Group Upgrades
     if (mergedEmail || mergedPhone) {
-      updateData.tier = 'Tier 1';
+      updateData.tier = TIER.IDENTIFIED;
       updateData.group = input.group || targetProfile.group || (phone || targetProfile.phone ? 3 : 2);
-    } else if (mergedName && targetProfile.tier === 'Tier 2B') {
-      updateData.tier = 'Tier 2A';
+    } else if (mergedName && targetProfile.tier === TIER.ANON_ENGAGED) {
+      updateData.tier = TIER.ANON_NAMED;
       updateData.group = 4;
     }
 
@@ -297,10 +298,10 @@ export async function resolveCustomerProfile(input: ResolveIdentityInput): Promi
 
     // Resolve Q2 Tier & Group Upgrades
     if (mergedEmail || mergedPhone) {
-      updateData.tier = 'Tier 1';
+      updateData.tier = TIER.IDENTIFIED;
       updateData.group = input.group || targetProfile.group || (phone || targetProfile.phone ? 3 : 2);
-    } else if (mergedName && targetProfile.tier === 'Tier 2B') {
-      updateData.tier = 'Tier 2A';
+    } else if (mergedName && targetProfile.tier === TIER.ANON_ENGAGED) {
+      updateData.tier = TIER.ANON_NAMED;
       updateData.group = 4;
     }
 

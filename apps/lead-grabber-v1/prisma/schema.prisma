@@ -769,6 +769,7 @@ model PipelineEnrichment {
   aiServiceMentioned        String?
   aiCustomerExperienceIssue String?
   aiUrgencyLevel            String?
+  aiEmergencyType           String? // burst_pipe | gas_leak | sewage_backup | electrical_fire | no_hot_water | roof_leak | general_emergency (always set when emergency)
   aiSummary                 String?
   aiConfidenceScore         Float?
   aiCustomerName            String? // extracted customer name (not in clearsky)
@@ -841,6 +842,7 @@ model PipelineActionQueue {
   parameters    Json             @default("{}")
   status        String           @default("pending")
   dueAt         DateTime?
+  slaEscalatedAt DateTime? // set when an SLA-breach escalation has fired, to avoid repeats (T3.4)
 
   // Consultant context
   consultantId             String?
@@ -1001,7 +1003,10 @@ model PipelineBusinessConfig {
   publicResponseRequiresApproval Boolean  @default(true)
   brandTone                      String   @default("professional")
   slaResponseHours               Int      @default(24)
+  slaMinutes                     Int      @default(10) // minute-level callback SLA (e.g. Barry's 10)
+  smsAutoReplyAllowed            Boolean  @default(false) // gates transactional auto-replies (callback-ack, emergency)
   officeTimezone                 String   @default("UTC")
+  officeHours                    Json? // structured per-day hours { mon: { open, close, isOpen }, ... }
   maxRetries                     Int      @default(3)
   maxReplyLength                 Int      @default(150)
   active                         Boolean  @default(true)
@@ -1109,4 +1114,22 @@ model DropCall {
   @@index([phoneNumber])
   @@index([companyId])
   @@map("drop_calls")
+}
+
+// SMS consent split by purpose, so transactional auto-replies (callback-ack,
+// emergency guidance) aren't blocked by a missing marketing opt-in, and vice versa.
+model SmsConsent {
+  id        String    @id @default(cuid())
+  companyId String
+  phone     String
+  purpose   String // 'transactional' | 'marketing'
+  status    String    @default("granted") // granted | revoked
+  source    String? // lead_form | keyword | verbal | import
+  grantedAt DateTime  @default(now())
+  revokedAt DateTime?
+  updatedAt DateTime  @updatedAt
+
+  @@unique([companyId, phone, purpose])
+  @@index([companyId, phone])
+  @@map("sms_consents")
 }

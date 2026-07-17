@@ -9,6 +9,7 @@ import { analyzeIncomingMessage } from '$lib/ai/openai';
 import { UnifiedPipeline } from '$lib/server/pipeline/unified-pipeline';
 import { getProfileDetails, getProfileHistory } from '$lib/server/profiledb/profiles';
 import { getTenantEvents } from '$lib/server/profiledb/telemetry';
+import { emergencyAdvice } from '$lib/server/emergency-templates';
 
 const CORS_HEADERS = {
 	'Access-Control-Allow-Origin': '*',
@@ -401,21 +402,8 @@ async function syncEmergencyMessages(companyId: string) {
 			// Generate specific emergency advice locally if none exists
 			if (!draftResponse && profile.intentBucket === 'emergency') {
 				const lastMessage = uniqueMappedMessages[uniqueMappedMessages.length - 1]?.content?.toLowerCase() || '';
-				let advice = `Hi ${customerName}, we received your urgent message. A technician has been dispatched and will contact you in 2-3 minutes. Please keep your phone available. — RightFlush Plumbing`;
-				
-				if (lastMessage.includes('leak') || lastMessage.includes('pipe') || lastMessage.includes('water') || lastMessage.includes('flood')) {
-					advice = `Hi ${customerName}, we received your urgent message about the leak. Please TURN OFF your main water supply immediately to prevent further damage! A plumber has been dispatched and will contact you in 2-3 minutes. — RightFlush Plumbing`;
-				} else if (lastMessage.includes('power') || lastMessage.includes('electr') || lastMessage.includes('spark') || lastMessage.includes('wire') || lastMessage.includes('smoke')) {
-					advice = `Hi ${customerName}, we received your urgent message about the electrical issue. Please TURN OFF the main power breaker to the affected area immediately! An electrician has been dispatched and will contact you in 2-3 minutes. — RightFlush Plumbing`;
-				} else if (lastMessage.includes('heat') || lastMessage.includes('furnace') || lastMessage.includes('hvac') || lastMessage.includes('ac') || lastMessage.includes('cold')) {
-					advice = `Hi ${customerName}, we received your urgent message about the heating/cooling failure. A technician has been dispatched and will contact you in 2-3 minutes. Please keep your phone available. — RightFlush Plumbing`;
-				} else if (lastMessage.includes('gas') || lastMessage.includes('smell') || lastMessage.includes('odor') || lastMessage.includes('leakage')) {
-					advice = `Hi ${customerName}, we received your urgent message about a potential gas issue. Please IMMEDIATELY evacuate the building, leave the doors open, and do not touch any electrical switches! A technician has been dispatched and will contact you in 2-3 minutes. — RightFlush Plumbing`;
-				} else if (lastMessage.includes('sewage') || lastMessage.includes('sewer') || lastMessage.includes('drain') || lastMessage.includes('backup') || lastMessage.includes('toilet')) {
-					advice = `Hi ${customerName}, we received your urgent message about a sewage backup. Please avoid flushing toilets or running any water, and keep away from the affected area to prevent contamination! A plumber has been dispatched and will contact you in 2-3 minutes. — RightFlush Plumbing`;
-				} else if (lastMessage.includes('roof') || lastMessage.includes('ceiling') || lastMessage.includes('drip') || lastMessage.includes('attic')) {
-					advice = `Hi ${customerName}, we received your urgent message about a roof or ceiling leak. If safe, please place buckets under the drip and move valuables out of the area! A technician has been dispatched and will contact you in 2-3 minutes. — RightFlush Plumbing`;
-				}
+				// Emergency guidance from the shared template library (T2.2/T2.3).
+				const { message: advice } = emergencyAdvice({ text: lastMessage, name: customerName });
 				draftResponse = advice;
 			}
 

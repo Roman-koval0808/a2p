@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { request as httpRequest } from 'http';
 import { request as httpsRequest } from 'https';
 import { resolveCustomerProfile, sha256, normalizeEmail, normalizePhone } from './identity.service';
+import { emergencyAdvice } from '$lib/server/emergency-templates';
 import { getNextBucket, calculateDecayedScore } from './scoring.service';
 import { providerRegistry } from './providerRegistry';
 import { eventRegistry } from './eventRegistry';
@@ -366,6 +367,7 @@ export async function ingestTelemetryEvent(params: {
             externalEventId,
             fingerprintId,
           },
+          threadId: reqBody.threadId ?? payload.threadId ?? payload.thread_id ?? payload.sessionId ?? null,
           occurredAt: eventTime,
         },
       }),
@@ -393,21 +395,8 @@ export async function ingestTelemetryEvent(params: {
         const contactName = name || payload.name || 'there';
         const transcriptText = (payload.voicemail_text || payload.textContent || payload.detail || '').toLowerCase();
 
-        let advice = `Hi ${contactName}, we received your urgent voicemail. A technician has been dispatched and will contact you in 2-3 minutes. Please keep your phone available. — RightFlush Plumbing`;
-
-        if (transcriptText.includes('leak') || transcriptText.includes('pipe') || transcriptText.includes('water') || transcriptText.includes('flood')) {
-          advice = `Hi ${contactName}, we received your urgent voicemail about the leak. Please TURN OFF your main water supply immediately to prevent further damage! A plumber has been dispatched and will contact you in 2-3 minutes. — RightFlush Plumbing`;
-        } else if (transcriptText.includes('power') || transcriptText.includes('electr') || transcriptText.includes('spark') || transcriptText.includes('wire') || transcriptText.includes('smoke')) {
-          advice = `Hi ${contactName}, we received your urgent voicemail about the electrical issue. Please TURN OFF the main power breaker to the affected area immediately! An electrician has been dispatched and will contact you in 2-3 minutes. — RightFlush Plumbing`;
-        } else if (transcriptText.includes('heat') || transcriptText.includes('furnace') || transcriptText.includes('hvac') || transcriptText.includes('ac') || transcriptText.includes('cold')) {
-          advice = `Hi ${contactName}, we received your urgent voicemail about the heating/cooling failure. A technician has been dispatched and will contact you in 2-3 minutes. Please keep your phone available. — RightFlush Plumbing`;
-        } else if (transcriptText.includes('gas') || transcriptText.includes('smell') || transcriptText.includes('odor') || transcriptText.includes('leakage')) {
-          advice = `Hi ${contactName}, we received your urgent voicemail about a potential gas issue. Please IMMEDIATELY evacuate the building, leave the doors open, and do not touch any electrical switches! A technician has been dispatched and will contact you in 2-3 minutes. — RightFlush Plumbing`;
-        } else if (transcriptText.includes('sewage') || transcriptText.includes('sewer') || transcriptText.includes('drain') || transcriptText.includes('backup') || transcriptText.includes('toilet')) {
-          advice = `Hi ${contactName}, we received your urgent voicemail about a sewage backup. Please avoid flushing toilets or running any water, and keep away from the affected area to prevent contamination! A plumber has been dispatched and will contact you in 2-3 minutes. — RightFlush Plumbing`;
-        } else if (transcriptText.includes('roof') || transcriptText.includes('ceiling') || transcriptText.includes('drip') || transcriptText.includes('attic')) {
-          advice = `Hi ${contactName}, we received your urgent voicemail about a roof or ceiling leak. If safe, please place buckets under the drip and move valuables out of the area! A technician has been dispatched and will contact you in 2-3 minutes. — RightFlush Plumbing`;
-        }
+        // Emergency guidance from the shared template library (T2.2/T2.3).
+        const { message: advice } = emergencyAdvice({ text: transcriptText, name: contactName });
 
         const cleanedPhone = contactPhone.replace(/[^\d+]/g, '');
         stageLog('SMS', `Triggering automated emergency response SMS to ${cleanedPhone}: "${advice}"`);
@@ -427,6 +416,7 @@ export async function ingestTelemetryEvent(params: {
               body: advice,
               provider: 'telnyx_voice'
             },
+            threadId: payload.threadId ?? payload.thread_id ?? payload.sessionId ?? null,
             occurredAt: new Date()
           }
         }).then((smsEvent: any) => {
@@ -471,6 +461,7 @@ export async function ingestTelemetryEvent(params: {
               body: reviewText,
               provider: 'telnyx_voice'
             },
+            threadId: payload.threadId ?? payload.thread_id ?? payload.sessionId ?? null,
             occurredAt: new Date()
           }
         }).then((smsEvent: any) => {
@@ -1006,7 +997,7 @@ async function triggerTelemetryNotification(
 /**
  * Sends a real SMS via the Telnyx messages API using credentials in environment.
  */
-async function sendAutomatedSms(to: string, body: string): Promise<void> {
+export async function sendAutomatedSms(to: string, body: string): Promise<void> {
   const telnyxApiKey = process.env.TELNYX_API_KEY?.trim();
   const telnyxFrom = process.env.TELNYX_PHONE_NUMBER?.trim();
   const messagingProfileId = process.env.TELNYX_MESSAGING_PROFILE_ID?.trim();

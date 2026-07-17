@@ -2,6 +2,7 @@ import { env } from '$env/dynamic/private';
 import { z } from 'zod';
 import { getReferenceCalendar } from '../openai';
 import { claudeJSON } from '$lib/server/anthropic';
+import { classifyEmergencyType } from '$lib/server/emergency-templates';
 
 export const ExtractionResultSchema = z.object({
 	contains_problem: z.boolean().describe("True if the customer mentions a specific issue, complaint, or problem with service."),
@@ -18,6 +19,7 @@ export const ExtractionResultSchema = z.object({
 	summary: z.string(),
 	confidence_score: z.number().min(0).max(1),
 	urgency_level: z.enum(['low', 'medium', 'high']).describe("Use booleans for decision logic. For extraction, set 'high' only if multiple urgency booleans are true."),
+	emergency_type: z.enum(['burst_pipe', 'gas_leak', 'sewage_backup', 'electrical_fire', 'no_hot_water', 'roof_leak', 'general_emergency']).nullable().describe("If contains_emergency_keywords is true, the specific emergency category; otherwise null."),
 	customer_name: z.string().nullable().describe("The name of the customer if explicitly mentioned in message, e.g. 'sam' from 'sam here', otherwise null"),
 	has_name: z.boolean().describe("True if customer name is explicitly mentioned, otherwise false"),
 	datetime: z.string().nullable().describe("If the customer mentions a specific date or time they want to book an appointment for (e.g. 'July 1 at 2pm'), extract it into standard YYYY-MM-DDTHH:mm:ss format. Otherwise null.")
@@ -43,6 +45,7 @@ const EXTRACTION_SCHEMA = {
 		'summary',
 		'confidence_score',
 		'urgency_level',
+		'emergency_type',
 		'customer_name',
 		'has_name',
 		'datetime'
@@ -62,6 +65,7 @@ const EXTRACTION_SCHEMA = {
 		summary: { type: 'string' },
 		confidence_score: { type: 'number' },
 		urgency_level: { type: 'string', enum: ['low', 'medium', 'high'] },
+		emergency_type: { type: ['string', 'null'], enum: ['burst_pipe', 'gas_leak', 'sewage_backup', 'electrical_fire', 'no_hot_water', 'roof_leak', 'general_emergency', null] },
 		customer_name: { type: 'string', description: "customer's name if stated, otherwise an empty string" },
 		has_name: { type: 'boolean' },
 		datetime: { type: 'string', description: 'YYYY-MM-DDTHH:mm:ss if an appointment time is given, otherwise an empty string' }
@@ -85,6 +89,7 @@ export const AI_EXTRACTION_PROTOCOL = {
 		complaint_topics: "array (concise complaint phrases)",
 		summary: "string (one-sentence summary)",
 		confidence_score: "number (0 to 1)",
+		emergency_type: "string|null (specific emergency category: burst_pipe, gas_leak, sewage_backup, electrical_fire, no_hot_water, roof_leak, general_emergency — only when emergency keywords present, else null)",
 		customer_name: "string (the name of the customer if explicitly mentioned, otherwise null)",
 		has_name: "boolean (true if customer name is explicitly mentioned, otherwise false)",
 		datetime: "string (if the customer mentions a specific date or time they want to book an appointment for, extract it into standard YYYY-MM-DDTHH:mm:ss format, otherwise null)"
@@ -233,6 +238,7 @@ Set urgency_level to 'high' ONLY if contains_emergency_keywords is true OR (cont
 			summary: text.slice(0, 100),
 			confidence_score: 0.95,
 			urgency_level: hasEmergency ? 'high' : hasQuote ? 'medium' : 'low',
+			emergency_type: hasEmergency ? classifyEmergencyType(text) : null,
 			customer_name: parsedName,
 			has_name: parsedName !== null,
 			datetime: null

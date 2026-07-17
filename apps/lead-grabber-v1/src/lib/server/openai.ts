@@ -12,7 +12,7 @@ const ANALYSIS_SCHEMA = {
 		summary: { type: 'string', description: 'concise 2-3 sentence summary' },
 		intent: { type: 'string', description: 'e.g. Billing, Sales, Support, Emergency' },
 		sub_intent: { type: 'string', description: 'more specific category, or empty string if N/A' },
-		urgency: { type: 'string', enum: ['low', 'medium', 'high'] },
+		urgency: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
 		actionItems: { type: 'array', items: { type: 'string' } },
 		sentiment: {
 			type: 'string',
