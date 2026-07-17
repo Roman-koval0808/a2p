@@ -1,4 +1,5 @@
 import { prisma } from '$lib/db';
+import { normalizeExecutionMode } from './execution-modes';
 
 export interface SelectedAction {
 	action_id: string;
@@ -485,8 +486,9 @@ export class OrchestratorEngine {
 			return action.isPublicFacing ? 'approval_required' : 'automatic';
 		}
 
-		// 6. Action Library default
-		return action.defaultExecutionMode;
+		// 6. Action Library default (normalized so non-canonical modes like
+		// 'automatic_immediate' resolve to a real, executable lane)
+		return normalizeExecutionMode(action.defaultExecutionMode);
 	}
 
 	private static resolveOwner(action: any, rules: any[], signalRuleId: string, consultant: any, profile: any): string {

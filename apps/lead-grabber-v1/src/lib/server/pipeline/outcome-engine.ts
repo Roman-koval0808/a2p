@@ -78,6 +78,10 @@ const RECORDABLE_STATUSES = [
 	'pending_manual_assignment'
 ];
 
+// Actions that post publicly and must never be recorded as an outcome (audit-only).
+// Kept as a single named constant so the rule isn't scattered as bare string literals.
+const NON_RECORDABLE_ACTION_IDS = ['ACT-REV-002'];
+
 function shortId(prefix: string) {
 	return `${prefix}_${Math.random().toString(36).substring(2, 12)}`;
 }
@@ -140,7 +144,7 @@ async function confirmOutcomeEntryEligibility(executionRecords: any[], blockedAu
 
 	for (const rec of executionRecords) {
 		const reasons: string[] = [];
-		if (rec.action_id === 'ACT-REV-002') reasons.push('blocked_action');
+		if (NON_RECORDABLE_ACTION_IDS.includes(rec.action_id)) reasons.push('blocked_action');
 		if (!rec.execution_id) reasons.push('missing_execution_id');
 		if (!RECORDABLE_STATUSES.includes(rec.execution_status)) reasons.push('non_recordable_status');
 		if (!rec.action_queue_id) reasons.push('missing_queue_id');
@@ -238,12 +242,7 @@ function normalizeComplaintThemes(raw: any): string[] {
 	return [];
 }
 
-function buildDetailsObject(rec: EligibleExecutionRecord, mapping: any) {
-	const actionNameMap: Record<string, string> = {
-		'ACT-REV-001': 'create_review_reply_draft',
-		'ACT-REV-004': 'log_review_complaint_theme'
-	};
-
+function buildDetailsObject(rec: EligibleExecutionRecord, mapping: any, actionNameMap: Record<string, string>) {
 	if (mapping.type === 'draft_created') {
 		return {
 			outcome_type: 'draft_created',
@@ -289,6 +288,7 @@ async function createOutcomeRecords(
 	eligibleRecords: EligibleExecutionRecord[],
 	execOut: any,
 	rulesSnapshot: any,
+	actionNameMap: Record<string, string>,
 	log: OutcomeLog
 ): Promise<CreatedOutcome[]> {
 	const created: CreatedOutcome[] = [];
@@ -315,7 +315,10 @@ async function createOutcomeRecords(
 					? calcHours(execCreatedAt, new Date())
 					: null;
 
-			const details = buildDetailsObject(rec, mapping);
+			// T0.5: action display name comes from PipelineActionLibrary, not a hardcoded map.
+			log.step('pass', `Action name for ${rec.action_id} → "${actionNameMap[rec.action_id] || rec.action_id}" (from PipelineActionLibrary)`, 'Resolved from the library so it cannot drift from a hardcoded map.');
+
+			const details = buildDetailsObject(rec, mapping, actionNameMap);
 
 			await tx.pipelineOutcome.create({
 				data: {
@@ -421,7 +424,7 @@ async function validateOutcomes(createdOutcomes: CreatedOutcome[], eventId: stri
 	const blockedCount = await prisma.pipelineOutcome.count({
 		where: {
 			eventId: eventId,
-			actionId: 'ACT-REV-002'
+			actionId: { in: NON_RECORDABLE_ACTION_IDS }
 		}
 	});
 
@@ -509,6 +512,12 @@ export async function runOutcome(execOutPackage: any, eventId: string, decisionI
 		const eligibility = await confirmOutcomeEntryEligibility(intake.execution_records, intake.blocked_audit_only, log);
 		const rules = loadOutcomeRules(log);
 
+		// Action display names come from the library (single source of truth) rather
+		// than a hardcoded map that must be kept in sync.
+		const libraryRows = await prisma.pipelineActionLibrary.findMany({ select: { actionId: true, name: true } });
+		const actionNameMap: Record<string, string> = {};
+		for (const row of libraryRows) actionNameMap[row.actionId] = row.name;
+
 		const resolvedExecOutPackage = {
 			...execOutPackage,
 			source_event_id: intake.event_id,
@@ -516,7 +525,7 @@ export async function runOutcome(execOutPackage: any, eventId: string, decisionI
 			company_id: intake.company_id || companyId
 		};
 
-		const createdOutcomes = await createOutcomeRecords(eligibility.eligible, resolvedExecOutPackage, rules, log);
+		const createdOutcomes = await createOutcomeRecords(eligibility.eligible, resolvedExecOutPackage, rules, actionNameMap, log);
 		const blockedCtx = buildBlockedContext(eligibility.blocked_audit_only, log);
 		await updateTimingMetrics(createdOutcomes, log);
 		await updateReferences(createdOutcomes, log);

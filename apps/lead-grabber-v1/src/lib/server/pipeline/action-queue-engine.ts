@@ -1,4 +1,32 @@
 import { prisma } from '$lib/db';
+import { normalizeExecutionMode } from './execution-modes';
+
+/**
+ * Coarse emergency-type classifier used to populate the `emergency_type` param
+ * for ACT-A2P-004. Interim keyword logic — once T2.1 lands an `aiEmergencyType`
+ * field on the enrichment (and T2.2 centralizes emergency templates), this
+ * should prefer that field and share one keyword source with the templates.
+ */
+function resolveEmergencyType(enrichment: any, event: any): string {
+	if (enrichment?.aiEmergencyType) return enrichment.aiEmergencyType;
+
+	const text = [
+		enrichment?.aiSummary,
+		enrichment?.aiServiceMentioned,
+		event?.unstructuredText,
+		event?.reviewText
+	]
+		.filter(Boolean)
+		.join(' ')
+		.toLowerCase();
+
+	if (/gas|carbon monoxide|smell|odor/.test(text)) return 'gas_leak';
+	if (/sewage|sewer|septic|backup|overflow/.test(text)) return 'sewage_backup';
+	if (/spark|electr|shock|wire|smoke|burning|\bfire\b/.test(text)) return 'electrical_fire';
+	if (/no hot water|hot water|water heater|\bheater\b|furnace|no heat/.test(text)) return 'no_hot_water';
+	if (/burst|flood|\bpipe\b|leak|no water/.test(text)) return 'burst_pipe';
+	return 'general_emergency';
+}
 
 export class ActionQueueLog {
 	decision_id: string;
@@ -138,7 +166,7 @@ export class ActionQueueEngine {
 			return 'approval_required';
 		}
 
-		const lane = actionMeta.defaultExecutionMode || 'approval_required';
+		const lane = normalizeExecutionMode(actionMeta.defaultExecutionMode);
 		log.step('lane_assignment', `Action ${actionMeta.actionId} using default lane: ${lane.toUpperCase()}`, `Applying the standard default lane for ${actionMeta.actionId}.`);
 		return lane;
 	}
@@ -166,11 +194,18 @@ export class ActionQueueEngine {
 				case 'sentiment': params[key] = enrichment.aiSentiment; break;
 				case 'intent': params[key] = enrichment.aiRequestedAction || 'Unknown'; break;
 				case 'phone_number': params[key] = event.customerProfile?.phoneNumber || 'Unknown'; break;
-				case 'urgency_level': 
+				case 'urgency_level':
 					// Map deterministic priority to urgency level
 					if (decision.priority <= 1) params[key] = 'high';
 					else if (decision.priority === 2) params[key] = 'medium';
 					else params[key] = 'low';
+					break;
+				case 'emergency_type':
+					// Required by ACT-A2P-004 (emergency dispatch). Prefer an explicit
+					// AI-provided type once T2.1 adds `aiEmergencyType` to the schema;
+					// until then, derive a coarse category from the message text so the
+					// dispatch alert carries a meaningful type instead of null.
+					params[key] = resolveEmergencyType(enrichment, event);
 					break;
 				case 'complaint_topics':
 					params[key] = enrichment.aiComplaintTopics ? (typeof enrichment.aiComplaintTopics === 'string' ? JSON.parse(enrichment.aiComplaintTopics) : enrichment.aiComplaintTopics) : [];

@@ -274,7 +274,35 @@
 	}
 
 	function handlePipelineClick(comm: any) {
-		selectedPipelineEvent = comm.raw;
+		// The real pipeline execution package (logs, AI protocol, decision, execution,
+		// outcome, feedback) is persisted on ProfileDB telemetry events, which the loader
+		// exposes as `data.historyEvents`. A CommunicationLog row (`comm.raw`) carries no
+		// pipeline payload, so resolve the matching telemetry event instead. Match on phone
+		// (when known) and pick the telemetry event closest in time to this communication.
+		const events: any[] = data.historyEvents || [];
+		const withPipeline = events.filter(
+			(e) => Array.isArray(e?.payload?.pipeline_logs) && e.payload.pipeline_logs.length > 0
+		);
+
+		const commTime = comm.raw?.created ? new Date(comm.raw.created).getTime() : Date.now();
+		const commPhones = [comm.raw?.source, comm.raw?.destination, comm.source].filter(Boolean);
+
+		let best: any = null;
+		let bestDelta = Infinity;
+		for (const e of withPipeline) {
+			const ePhone = e.payload?.phone || e.payload?.customer_phone || e.phone;
+			if (commPhones.length && ePhone && !commPhones.includes(ePhone)) continue;
+			const eTime = e.occurredAt ? new Date(e.occurredAt).getTime() : 0;
+			const delta = Math.abs(eTime - commTime);
+			if (delta < bestDelta) {
+				best = e;
+				bestDelta = delta;
+			}
+		}
+
+		// `null` is passed through when no real pipeline execution exists for this record;
+		// the modal renders an honest empty state rather than fabricated logs.
+		selectedPipelineEvent = best;
 		pipelineDialogOpen = true;
 	}
 
@@ -380,6 +408,26 @@
 						{selectedProfile.isAnonymous ? (selectedProfile.clearPhone !== '—' ? 'Caller (' + selectedProfile.clearPhone + ')' : 'Anonymous Lead') : selectedProfile.name}
 					</h1>
 					<p class="text-[10px] text-[#718096] font-mono truncate">{selectedProfile.id}</p>
+				</div>
+				<div class="flex items-center gap-1">
+					<button
+						type="button"
+						onclick={openEdit}
+						title="Edit profile"
+						aria-label="Edit profile"
+						class="rounded p-1.5 text-[#718096] transition-colors hover:bg-white hover:text-indigo-600"
+					>
+						<SquarePen class="h-4 w-4" />
+					</button>
+					<button
+						type="button"
+						onclick={handleDelete}
+						title="Delete profile"
+						aria-label="Delete profile"
+						class="rounded p-1.5 text-[#718096] transition-colors hover:bg-white hover:text-red-600"
+					>
+						<Trash2 class="h-4 w-4" />
+					</button>
 				</div>
 			</div>
 
