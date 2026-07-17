@@ -123,3 +123,6 @@ dist/
 # OS metadata
 .DS_Store
 Thumbs.db
+
+# Prisma generated clients
+apps/lead-grabber-v1/profiledb-client/
