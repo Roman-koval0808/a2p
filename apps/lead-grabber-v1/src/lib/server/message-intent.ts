@@ -35,6 +35,7 @@ export interface MessageIntent {
 	confidence: number;
 	needs_human_review: boolean;
 	reason: string;
+	action_items: string[];
 }
 
 const SYSTEM_PROMPT = `You are a data-extraction engine for a trades service business (plumbing, HVAC, roofing).
@@ -114,7 +115,12 @@ const INTENT_SCHEMA = {
 		wants_callback: { type: 'boolean' },
 		confidence: { type: 'number' },
 		needs_human_review: { type: 'boolean' },
-		reason: { type: 'string' }
+		reason: { type: 'string' },
+		action_items: {
+			type: 'array',
+			items: { type: 'string' },
+			description: '1-3 concrete next-step tasks for the rep/team based on this message (e.g. "Send the account balance to the customer", "Confirm the appointment time"). Always provide at least one.'
+		}
 	},
 	required: [
 		'intent_bucket',
@@ -127,7 +133,8 @@ const INTENT_SCHEMA = {
 		'wants_callback',
 		'confidence',
 		'needs_human_review',
-		'reason'
+		'reason',
+		'action_items'
 	]
 };
 
@@ -168,6 +175,8 @@ export function bucketToCategory(intent: MessageIntent): 'emergency' | 'billing'
 	// mention paying a bill (that's the "book an appointment to pay my bill" case).
 	if (intent.wants_appointment || intent.intent_bucket === 'booking' || intent.intent_bucket === 'sales')
 		return 'sales';
-	if (intent.intent_bucket === 'billing') return 'billing';
+	// A balance/billing request routes to billing even if the model labelled the bucket
+	// 'inquiry'/'other' — wants_balance is the reliable signal ("how much is my balance?").
+	if (intent.intent_bucket === 'billing' || intent.wants_balance) return 'billing';
 	return 'support';
 }

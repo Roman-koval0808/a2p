@@ -885,7 +885,11 @@
 				{recordingUrl}
 				estimatedPrice={meta.estimatedPrice ?? null}
 				draftedMessage={selectedSummary.raw?.draftResponse || null}
-				department={cap2(meta.ivr_intent || meta.message_category || '') || null}
+				department={cap2(
+					[meta.ivr_intent, meta.message_category]
+						.map((x) => String(x ?? '').trim())
+						.find((s) => s && !['<unknown>', 'unknown', 'n/a', 'none'].includes(s.toLowerCase())) || ''
+				) || null}
 				{ivrPath}
 			/>
 		{/if}
