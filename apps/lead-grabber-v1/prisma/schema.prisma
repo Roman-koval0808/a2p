@@ -177,10 +177,26 @@ model GoogleCalendarConnection {
   refreshToken String?
   expiresAt    DateTime?
   calendarId   String    @default("primary")
+  representativeId String? // T5.2: per-rep calendar (additive; full per-rep needs the companyId unique relaxed)
   created      DateTime  @default(now())
   updated      DateTime  @updatedAt
 
   @@map("google_calendar_connections")
+}
+
+// T5.6: short-lived hold on a booking slot to prevent concurrent double-claims.
+model SlotHold {
+  id               String   @id @default(cuid())
+  companyId        String
+  representativeId String?
+  startTime        DateTime
+  endTime          DateTime?
+  heldBy           String? // contact id or booking session
+  expiresAt        DateTime
+  created          DateTime @default(now())
+
+  @@index([companyId, startTime])
+  @@map("slot_holds")
 }
 
 // Call tracking: company-defined categories (e.g. "Facebook", "Customer Care") for numbers

@@ -3,6 +3,25 @@ import { getUserFromToken, parseSessionCookie, createSessionCookie } from '$lib/
 import type { Handle } from '@sveltejs/kit';
 import { redirect } from '@sveltejs/kit';
 
+// T3.4: in-process SLA-breach sweep. Starts once at server boot and escalates overdue
+// callback/approval items via SMS + push. sla-monitor (and its firebase-admin dep) is
+// lazy-imported inside the tick so it stays off the request/module-load path. Guarded so
+// HMR / repeated imports don't stack intervals; .unref() so it never holds the process open.
+// (POST /api/a2p/sla/check remains available as an external-cron alternative.)
+const slaCronGlobal = globalThis as unknown as { __slaCronStarted?: boolean };
+if (!slaCronGlobal.__slaCronStarted) {
+	slaCronGlobal.__slaCronStarted = true;
+	const timer = setInterval(async () => {
+		try {
+			const { checkSlaBreaches } = await import('$lib/server/sla-monitor');
+			await checkSlaBreaches();
+		} catch (e: any) {
+			console.error('[SLA cron] sweep failed:', e?.message || e);
+		}
+	}, 60_000);
+	timer.unref?.();
+}
+
 // Cache for auth refresh timestamps to avoid refreshing too frequently
 const authRefreshCache = new Map<string, number>();
 const AUTH_REFRESH_CACHE_MS = 60000; // Cache auth refresh for 60 seconds

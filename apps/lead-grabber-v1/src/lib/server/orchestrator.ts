@@ -15,6 +15,7 @@ import {
 } from './google-calendar';
 import { ANTHROPIC_AI_KEY } from '$env/static/private';
 import { isInternalCaller } from '$lib/server/internal-call-guard';
+import { sendCallbackAck } from '$lib/server/callback-ack';
 
 export async function process_orchestrator(commId: string, trigger: string) {
 	console.log(`[Orchestrator] Processing commId: ${commId} with trigger: ${trigger}`);
@@ -109,6 +110,28 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	metadata.message_category = messageCategory;
 	metadata.reclassified = reclassified;
 	if (digitCategory) metadata.ivr_pressed_category = digitCategory;
+
+	// T3.1: pre-approved callback acknowledgement ("a representative will call you in X minutes").
+	// Fires without human approval, but sendCallbackAck gates it on config (sms_auto_reply_allowed),
+	// transactional consent, and office hours. Deduped so a re-delivered webhook can't double-send.
+	if (aiIntent?.wants_callback && !metadata.callback_ack_sent && commLog.companyId && customerPhone) {
+		try {
+			const ack = await sendCallbackAck({
+				companyId: commLog.companyId,
+				phone: customerPhone,
+				customerName: customer.name || null,
+				summary: commLog.summary || metadata.summary || null
+			});
+			if (ack.sent) {
+				metadata.callback_ack_sent = true;
+				console.log(`[Orchestrator] Callback ack sent (${ack.slaMinutes} min).`);
+			} else {
+				console.log(`[Orchestrator] Callback ack skipped: ${ack.reason}`);
+			}
+		} catch (err) {
+			console.error('[Orchestrator] Callback ack failed:', err);
+		}
+	}
 
 	// Claim this comm up-front so a retried or concurrent webhook (Telnyx can re-deliver
 	// recording.saved) can't double-increment the engagement score or draft the SMS twice.

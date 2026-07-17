@@ -29,6 +29,7 @@ export interface MessageIntent {
 	sentiment: 'positive' | 'neutral' | 'negative';
 	wants_appointment: boolean;
 	wants_balance: boolean;
+	wants_callback: boolean;
 	confidence: number;
 	needs_human_review: boolean;
 	reason: string;
@@ -98,6 +99,7 @@ const INTENT_SCHEMA = {
 		sentiment: { type: 'string', enum: ['positive', 'neutral', 'negative'] },
 		wants_appointment: { type: 'boolean' },
 		wants_balance: { type: 'boolean' },
+		wants_callback: { type: 'boolean' },
 		confidence: { type: 'number' },
 		needs_human_review: { type: 'boolean' },
 		reason: { type: 'string' }
@@ -108,6 +110,7 @@ const INTENT_SCHEMA = {
 		'sentiment',
 		'wants_appointment',
 		'wants_balance',
+		'wants_callback',
 		'confidence',
 		'needs_human_review',
 		'reason'
