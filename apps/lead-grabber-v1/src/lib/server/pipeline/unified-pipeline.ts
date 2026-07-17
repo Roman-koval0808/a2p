@@ -217,6 +217,7 @@ export class UnifiedPipeline {
 							aiServiceMentioned: aiResult.service_requested,
 							aiCustomerExperienceIssue: aiResult.contains_problem ? 'problem_detected' : null,
 							aiUrgencyLevel: aiResult.urgency_level,
+							aiEmergencyType: aiResult.emergency_type ?? null,
 							aiSummary: aiResult.summary,
 							aiConfidenceScore: aiResult.confidence_score,
 							aiCustomerName: aiResult.customer_name,

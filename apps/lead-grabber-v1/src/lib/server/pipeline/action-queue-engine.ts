@@ -1,31 +1,18 @@
 import { prisma } from '$lib/db';
 import { normalizeExecutionMode } from './execution-modes';
+import { classifyEmergencyType } from '$lib/server/emergency-templates';
 
 /**
- * Coarse emergency-type classifier used to populate the `emergency_type` param
- * for ACT-A2P-004. Interim keyword logic — once T2.1 lands an `aiEmergencyType`
- * field on the enrichment (and T2.2 centralizes emergency templates), this
- * should prefer that field and share one keyword source with the templates.
+ * Populate the `emergency_type` param for ACT-A2P-004. Prefers the AI-provided
+ * `aiEmergencyType` (T2.1); otherwise classifies via the shared template library
+ * (T2.2) so it can't drift from the customer-facing emergency copy.
  */
 function resolveEmergencyType(enrichment: any, event: any): string {
 	if (enrichment?.aiEmergencyType) return enrichment.aiEmergencyType;
-
-	const text = [
-		enrichment?.aiSummary,
-		enrichment?.aiServiceMentioned,
-		event?.unstructuredText,
-		event?.reviewText
-	]
+	const text = [enrichment?.aiSummary, enrichment?.aiServiceMentioned, event?.unstructuredText, event?.reviewText]
 		.filter(Boolean)
-		.join(' ')
-		.toLowerCase();
-
-	if (/gas|carbon monoxide|smell|odor/.test(text)) return 'gas_leak';
-	if (/sewage|sewer|septic|backup|overflow/.test(text)) return 'sewage_backup';
-	if (/spark|electr|shock|wire|smoke|burning|\bfire\b/.test(text)) return 'electrical_fire';
-	if (/no hot water|hot water|water heater|\bheater\b|furnace|no heat/.test(text)) return 'no_hot_water';
-	if (/burst|flood|\bpipe\b|leak|no water/.test(text)) return 'burst_pipe';
-	return 'general_emergency';
+		.join(' ');
+	return classifyEmergencyType(text);
 }
 
 export class ActionQueueLog {

@@ -99,10 +99,15 @@ model TelemetryEvent {
   payload           Json            @default("{}") // Flexible storage for app-specific telemetry
   occurredAt        DateTime        @default(now())
 
+  // Ties related events/messages to one originating record (session, SMS/voice thread).
+  // Lets an anonymous pixel session be linked to the later message it converts into.
+  threadId          String?
+
   @@index([tenantId])
   @@index([customerProfileId])
   @@index([eventType])
   @@index([occurredAt])
+  @@index([threadId])
 }
 
 enum UserRole {

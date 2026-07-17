@@ -19,6 +19,9 @@ export const eventRegistry: Record<string, EventConfig> = {
   page_view_reviews: { eventType: 'page_view_reviews', delta: 6, method: 2, bucketSignal: 'comparison', channelType: 'pixel' },
   hero_cta_click: { eventType: 'hero_cta_click', delta: 12, method: 2, bucketSignal: 'active', channelType: 'pixel' },
   emg_cta_click: { eventType: 'emg_cta_click', delta: 20, method: 2, bucketSignal: 'emergency', channelType: 'pixel' },
+  // Tracker #31: sustained dwell on the home-page Emergency band itself (before any nav/CTA).
+  // Distinct from generic dwell_* — signals emergency intent while still on the home page.
+  emergency_band_dwell: { eventType: 'emergency_band_dwell', delta: 18, method: 2, bucketSignal: 'emergency', channelType: 'pixel' },
   phone_click: { eventType: 'phone_click', delta: 15, method: 2, bucketSignal: 'active', channelType: 'pixel' },
   nav_emergency: { eventType: 'nav_emergency', delta: 15, method: 2, bucketSignal: 'emergency', channelType: 'pixel' },
   email_cta_click: { eventType: 'email_cta_click', delta: 12, method: 2, bucketSignal: 'active', channelType: 'email' },
