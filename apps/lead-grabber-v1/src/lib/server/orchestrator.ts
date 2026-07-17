@@ -206,7 +206,13 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// caller, BOOK it now — create the calendar event, persist the Appointment, notify the rep.
 	let bookedConfirmation: string | null = null;
 	if (isAffirmative(rawMessage) && commLog.companyId && customerPhone) {
+		olog(`[Orchestrator] Affirmative reply detected — looking for a pending proposal for ${customerPhone}.`);
 		const pending = await findPendingProposal(commLog.companyId, customerPhone);
+		olog(
+			pending
+				? `[Orchestrator] Found pending proposal (comm ${pending.commId}) for ${pending.proposal.proposedLabel} — booking now.`
+				: '[Orchestrator] No pending proposal found for this caller — treating as a normal message.'
+		);
 		if (pending) {
 			// This is a booking confirmation, not a support ticket — label it Sales so the log
 			// shows the right Category/Department (not "Support / <UNKNOWN>").
