@@ -593,34 +593,36 @@ export const POST: RequestHandler = async ({ request }) => {
 							console.error('[SMS draft classify] failed:', clsErr);
 						}
 
-						// Also log as a pending CommunicationLog or send auto-reply
+						// Draft here ONLY as a fallback. Normally process_orchestrator (below) is the sole
+						// drafter — it owns the billing balance/email + scenario logic, populates the
+						// action items, and records the orchestrator logs. If we also drafted here, this
+						// draft would win the de-dup race and suppress all of that.
+						const orchestratorWillDraft = !!(inboundCommLog?.id && effectiveCompanyId && smsText.trim());
 						try {
-							await logCommunication({
-								type: 'sms',
-								direction: 'outbound',
-								status: 'pending_approval',
-								source: toNumber || 'Inbox',
-								destination: phoneNumber,
-								company_id: compId,
-								customer_id: contact?.id ?? undefined,
-								summary: draftText.substring(0, 50) + '...',
-								content: draftText,
-								metadata: {
-									thread_id: normalizedPhoneNumber,
-									is_draft: true,
-									is_emergency: hasEmergency,
-									commId: inboundCommLog?.communicationThreadId,
-									// Tie this draft to the inbound that raised it, so the orchestrator
-									// (which fires for the same inbound) de-dups against it instead of
-									// creating a second SMS draft.
-									trigger_comm_id: inboundCommLog?.id,
-									// Inherit the conversation's classification so the summary shows a real category.
-									message_category: draftCategory,
-									sub_intent: draftSubIntent,
-									urgency: hasEmergency ? 'high' : null
-								}
-							});
-							console.log('📡 Logged pending_approval draft to local CommunicationLog');
+							if (!orchestratorWillDraft) {
+								await logCommunication({
+									type: 'sms',
+									direction: 'outbound',
+									status: 'pending_approval',
+									source: toNumber || 'Inbox',
+									destination: phoneNumber,
+									company_id: compId,
+									customer_id: contact?.id ?? undefined,
+									summary: draftText.substring(0, 50) + '...',
+									content: draftText,
+									metadata: {
+										thread_id: normalizedPhoneNumber,
+										is_draft: true,
+										is_emergency: hasEmergency,
+										commId: inboundCommLog?.communicationThreadId,
+										trigger_comm_id: inboundCommLog?.id,
+										message_category: draftCategory,
+										sub_intent: draftSubIntent,
+										urgency: hasEmergency ? 'high' : null
+									}
+								});
+								console.log('📡 Logged pending_approval draft (fallback) to local CommunicationLog');
+							}
 						} catch (draftErr) {
 							console.error('Failed to log/send draft:', draftErr);
 						}
