@@ -58,3 +58,29 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 	};
 	return json({ success: true, data });
 };
+
+// Edit a pending draft (content / email subject) before approval.
+export const PATCH: RequestHandler = async ({ params, request, locals }) => {
+	const auth = requireAuth(locals);
+	if (!auth) return unauthorized();
+	const log = await prisma.communicationLog.findFirst({
+		where: { id: params.id, companyId: auth.companyId }
+	});
+	if (!log) return json({ success: false, error: 'Communication log not found' }, { status: 404 });
+	if (log.status !== 'pending_approval') {
+		return json({ success: false, error: 'Only pending drafts can be edited' }, { status: 400 });
+	}
+	const body = await request.json().catch(() => ({}) as any);
+	const data: Record<string, unknown> = {};
+	if (typeof body.content === 'string') data.content = body.content;
+	if (typeof body.subject === 'string') {
+		const md = (log.metadata as Record<string, unknown>) || {};
+		data.metadata = { ...md, subject: body.subject };
+		if (log.type === 'email') data.summary = body.subject;
+	}
+	if (!Object.keys(data).length) {
+		return json({ success: false, error: 'Nothing to update (content/subject)' }, { status: 400 });
+	}
+	const updated = await prisma.communicationLog.update({ where: { id: log.id }, data });
+	return json({ success: true, data: { id: updated.id } });
+};

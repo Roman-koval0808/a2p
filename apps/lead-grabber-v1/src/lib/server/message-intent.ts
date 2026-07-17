@@ -27,6 +27,8 @@ export interface MessageIntent {
 	intent_bucket: IntentBucket;
 	urgency: 'low' | 'medium' | 'high' | 'critical';
 	sentiment: 'positive' | 'neutral' | 'negative';
+	complaints: string[];
+	opportunity: 'none' | 'low' | 'medium' | 'high';
 	wants_appointment: boolean;
 	wants_balance: boolean;
 	wants_callback: boolean;
@@ -97,6 +99,16 @@ const INTENT_SCHEMA = {
 		},
 		urgency: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
 		sentiment: { type: 'string', enum: ['positive', 'neutral', 'negative'] },
+		complaints: {
+			type: 'array',
+			items: { type: 'string' },
+			description: 'Specific complaints or problems the customer raises (empty array if none).'
+		},
+		opportunity: {
+			type: 'string',
+			enum: ['none', 'low', 'medium', 'high'],
+			description: 'Sales/revenue opportunity level implied by the message.'
+		},
 		wants_appointment: { type: 'boolean' },
 		wants_balance: { type: 'boolean' },
 		wants_callback: { type: 'boolean' },
@@ -108,6 +120,8 @@ const INTENT_SCHEMA = {
 		'intent_bucket',
 		'urgency',
 		'sentiment',
+		'complaints',
+		'opportunity',
 		'wants_appointment',
 		'wants_balance',
 		'wants_callback',
@@ -124,19 +138,26 @@ const INTENT_SCHEMA = {
 export async function classifyMessageIntent(
 	message: string,
 	apiKey: string,
+	context?: Record<string, unknown> | null,
 	model = CLAUDE_FAST
 ): Promise<MessageIntent | null> {
 	const text = (message || '').trim();
 	if (!text) return null;
+	// The orchestrator compiles a structured metadata blob (IVR digit, day/time, caller geo,
+	// line type, weather, …). Hand it to the AI as context alongside the unstructured message.
+	const contextBlock =
+		context && Object.keys(context).length
+			? `\n\nStructured call metadata (context — use it to inform your analysis; do not echo it back):\n${JSON.stringify(context, null, 2)}`
+			: '';
 	return await claudeJSON<MessageIntent>({
 		apiKey,
 		system: SYSTEM_PROMPT,
-		user: `Analyze this customer message:\n\n${text}`,
+		user: `Analyze this customer message:\n\n${text}${contextBlock}`,
 		schema: INTENT_SCHEMA,
 		toolName: 'classify_message',
 		model,
 		temperature: 0,
-		maxTokens: 512
+		maxTokens: 700
 	});
 }
 

@@ -16,6 +16,10 @@ import {
 import { ANTHROPIC_AI_KEY } from '$env/static/private';
 import { isInternalCaller } from '$lib/server/internal-call-guard';
 import { sendCallbackAck } from '$lib/server/callback-ack';
+import { isAffirmative, proposeAppointment, findPendingProposal, bookProposedAppointment } from '$lib/server/appointment-flow';
+import { buildBalanceEmail, wantsEmailedBalance } from '$lib/server/billing-email';
+import { phoneGeo, dayOfWeek, lookupLineType } from '$lib/server/phone-geo';
+import { weatherForLocation } from '$lib/server/weather';
 
 export async function process_orchestrator(commId: string, trigger: string) {
 	console.log(`[Orchestrator] Processing commId: ${commId} with trigger: ${trigger}`);
@@ -83,10 +87,40 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	const digitCategory: 'billing' | 'sales' | 'support' | null =
 		digit === '1' ? 'billing' : digit === '2' ? 'sales' : digit === '3' ? 'support' : null;
 
-	// The AI classifier is the ONLY thing that decides the category — no keyword or digit
-	// fallbacks. We always follow what the caller actually SAID. e.g. "book an appointment to
-	// come down and pay my bill" -> booking (ask for a time), not a balance reply.
-	const aiIntent = await classifyMessageIntent(rawMessage, ANTHROPIC_AI_KEY);
+	// Compile the structured caller metrics FIRST — IVR digit/department, call time + day of
+	// week, phone geo (area code → city), mobile-vs-landline + carrier (Telnyx), and current
+	// weather — so we can (a) hand them to the AI as context and (b) store them on the record.
+	const callerContext: Record<string, unknown> = {};
+	try {
+		const callAt = commLog.created ? new Date(commLog.created) : new Date();
+		const geo = phoneGeo(commLog.source);
+		const day = dayOfWeek(callAt);
+		const lt = await lookupLineType(commLog.source);
+		const weather = await weatherForLocation(geo?.location);
+		metadata.caller_geo = geo;
+		metadata.call_day_of_week = day;
+		metadata.line_type = lt.lineType;
+		metadata.carrier = lt.carrier;
+		metadata.weather = weather;
+		Object.assign(callerContext, {
+			ivr_digit: digit ?? null,
+			ivr_department: intent ?? null,
+			call_time: callAt.toISOString(),
+			day_of_week: day,
+			area_code: geo?.areaCode ?? null,
+			city: geo?.location ?? null,
+			line_type: lt.lineType,
+			carrier: lt.carrier,
+			weather: weather ? { tempF: weather.tempF, description: weather.description } : null
+		});
+	} catch (e) {
+		console.error('[Orchestrator] caller enrichment failed:', e);
+	}
+
+	// The AI classifier decides the category — no keyword/digit fallbacks — but it now gets the
+	// structured metrics above as context alongside the caller's actual words. e.g. "book an
+	// appointment to come down and pay my bill" -> booking (ask for a time), not a balance reply.
+	const aiIntent = await classifyMessageIntent(rawMessage, ANTHROPIC_AI_KEY, callerContext);
 	let messageCategory: 'emergency' | 'billing' | 'sales' | 'support';
 	if (aiIntent) {
 		messageCategory = bucketToCategory(aiIntent);
@@ -149,7 +183,38 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		return;
 	}
 
+	// SCENARIO 2 confirm: if this inbound affirms a pending appointment proposal we sent this
+	// caller, BOOK it now — create the calendar event, persist the Appointment, notify the rep.
+	let bookedConfirmation: string | null = null;
+	if (isAffirmative(rawMessage) && commLog.companyId && customerPhone) {
+		const pending = await findPendingProposal(commLog.companyId, customerPhone);
+		if (pending) {
+			try {
+				const result = await bookProposedAppointment({
+					companyId: commLog.companyId,
+					contactId: customer.id,
+					contactName: customer.name,
+					phone: customerPhone,
+					proposal: pending.proposal,
+					proposalCommId: pending.commId
+				});
+				bookedConfirmation = result.message;
+				metadata.appointment_booked = {
+					appointmentId: result.appointmentId,
+					calendarEventId: result.calendarEventId,
+					when: pending.proposal.proposedStartISO
+				};
+				console.log(`[Orchestrator] Auto-booked appointment ${result.appointmentId} from affirmative reply.`);
+			} catch (e) {
+				console.error('[Orchestrator] Auto-book failed:', e);
+			}
+		}
+	}
+
 	let draftedResponse = '';
+	let draftChannel: 'sms' | 'email' = 'sms';
+	let emailSubject = '';
+	let proposedAppointment: any = null;
 
 	console.log(`[Orchestrator] Debug -> digit: "${digit}", intent: "${intent}", sub_intent: "${sub_intent}"`);
 
@@ -164,8 +229,12 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		console.log(`[Orchestrator] Engagement score +${scoreDelta} (${messageCategory}).`);
 	}
 
+	// --- BOOKED (Scenario 2 "yes"): short-circuit with the booking confirmation ---
+	if (bookedConfirmation) {
+		draftedResponse = bookedConfirmation;
+	}
 	// --- EMERGENCY: always wins, regardless of the digit pressed ---
-	if (messageCategory === 'emergency') {
+	else if (messageCategory === 'emergency') {
 		console.log('[Orchestrator] EMERGENCY detected from the message — overriding IVR routing.');
 		const template = `Hi ${customer.name || 'there'}, we received your urgent message and someone from ${company.name || 'our team'} will call you back right away.`;
 		try {
@@ -201,7 +270,16 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			);
 
 			if (balance !== null && balance !== undefined) {
-				draftedResponse = `You currently owe $${balance.toFixed(2)}, Thank you for your business have a nice day.`;
+				// Scenario 1: if the caller asked us to EMAIL it and we have an email on file,
+				// draft an itemized balance EMAIL (approval-gated) instead of an SMS.
+				if (customer.email && wantsEmailedBalance(rawMessage)) {
+					const em = buildBalanceEmail({ customerName: customer.name, balance, companyName: company.name });
+					draftedResponse = em.htmlContent;
+					draftChannel = 'email';
+					emailSubject = em.subject;
+				} else {
+					draftedResponse = `You currently owe $${balance.toFixed(2)}, Thank you for your business have a nice day.`;
+				}
 			} else {
 				draftedResponse = `Hi ${customer.name || 'there'}, we received your message regarding your account balance. An agent will review your account and reach out shortly.`;
 			}
@@ -213,30 +291,44 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		console.log('[Orchestrator] Detected Scenario 2: Sales / Booking');
 
 		// (Engagement score is bumped centrally above based on the reclassified category.)
-		// Prefer a self-service booking link: a pasted Appointment Schedule link, or — when Google
-		// Calendar is connected — our own booking page (shows live availability from her calendar,
-		// customer self-picks, event is written back with a Meet link).
-		const bookingLink = getBookingUrl(company) || (await getBookingLinkIfConnected(company.id));
+		// Scenario 2: check the requested time against the LIVE calendar and propose a specific
+		// slot the customer can confirm by replying YES (which auto-books — see top of function).
+		if (datetime) {
+			try {
+				const { requestedFree, proposal } = await proposeAppointment(company.id, datetime);
+				if (proposal) {
+					proposedAppointment = proposal;
+					draftedResponse =
+						requestedFree === false
+							? `Hi ${customer.name || 'there'}! ${formatDatetime(datetime)} is already booked, but our next opening is ${proposal.proposedLabel}. Does that work? Reply YES to confirm.`
+							: `Hi ${customer.name || 'there'}! ${proposal.proposedLabel} works for your appointment — reply YES to confirm and we'll lock it in.`;
+				}
+			} catch (e) {
+				console.error('[Orchestrator] proposeAppointment failed:', e);
+			}
+		}
 
-		if (bookingLink) {
-			console.log('[Orchestrator] Sending self-service booking link.');
-			const link = bookingLinkWith(bookingLink, {
-				time: datetime,
-				name: customer.name,
-				phone: customer.phone || commLog.source
-			});
-			draftedResponse = datetime
-				? `Hi! Thanks for reaching out to ${company.name || 'us'}. ${formatDatetime(datetime)} works — just confirm it here: ${link}`
-				: `Hi! Thanks for contacting ${company.name || 'us'}. Book a time that works for you here: ${link}`;
-		} else if (datetime) {
-			// No booking option configured — legacy text flow.
-			const formattedDatetime = formatDatetime(datetime);
-			const isAvailable = checkCalendarAvailability(datetime, company.locations || []);
-			draftedResponse = isAvailable
-				? `Hi! Thanks for reaching out to ${company.name || 'us'}. We see you'd like to book an appointment for ${formattedDatetime}. A representative will confirm this time with you shortly.`
-				: `Hi! Thanks for reaching out to ${company.name || 'us'}. Unfortunately, ${formattedDatetime} is outside our normal business hours or unavailable. What other day or time works best for you?`;
-		} else {
-			draftedResponse = `Hi! Thanks for contacting ${company.name || 'us'}. We received your booking request. What day and time works best for you?`;
+		// Fallback: self-service booking link / legacy flow if we couldn't propose a live slot.
+		if (!draftedResponse) {
+			const bookingLink = getBookingUrl(company) || (await getBookingLinkIfConnected(company.id));
+			if (bookingLink) {
+				const link = bookingLinkWith(bookingLink, {
+					time: datetime,
+					name: customer.name,
+					phone: customer.phone || commLog.source
+				});
+				draftedResponse = datetime
+					? `Hi! Thanks for reaching out to ${company.name || 'us'}. ${formatDatetime(datetime)} works — just confirm it here: ${link}`
+					: `Hi! Thanks for contacting ${company.name || 'us'}. Book a time that works for you here: ${link}`;
+			} else if (datetime) {
+				const formattedDatetime = formatDatetime(datetime);
+				const isAvailable = checkCalendarAvailability(datetime, company.locations || []);
+				draftedResponse = isAvailable
+					? `Hi! Thanks for reaching out to ${company.name || 'us'}. We see you'd like to book an appointment for ${formattedDatetime}. A representative will confirm this time with you shortly.`
+					: `Hi! Thanks for reaching out to ${company.name || 'us'}. Unfortunately, ${formattedDatetime} is outside our normal business hours or unavailable. What other day or time works best for you?`;
+			} else {
+				draftedResponse = `Hi! Thanks for contacting ${company.name || 'us'}. We received your booking request. What day and time works best for you?`;
+			}
 		}
 	}
 
@@ -413,7 +505,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// --- 3. Post-Processing: Thread Similarity Matching ---
 	// Match on the caller's phone (whichever leg is NOT the company number)
 	const callerPhone = commLog.source || '';
-	const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+	const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // 1-month thread-match window
 
 	if (commLog.content && callerPhone) {
 		const recentComms = await prisma.communicationLog.findMany({
@@ -422,7 +514,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				id: { not: commId },
 				status: { in: ['completed', 'success', 'pending_approval'] },
 				content: { not: null },
-				created: { gte: sevenDaysAgo },
+				created: { gte: thirtyDaysAgo },
 				// Match ONLY the same caller's recent comms (their phone on either leg).
 				// Do NOT match on the company number — it is on every business call and would
 				// merge unrelated callers' conversations into one thread.
@@ -487,8 +579,33 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		}
 	}
 
-	// If we drafted a response, save it as pending_approval
-	if (draftedResponse && companyNumber && customerPhone) {
+	// Email draft (Scenario 1): itemized balance email → approval queue → sent via Brevo on confirm.
+	if (draftChannel === 'email' && customer.email && draftedResponse) {
+		try {
+			await logCommunication({
+				type: 'email',
+				direction: 'outbound',
+				status: 'pending_approval',
+				destination: customer.email,
+				company_id: company.id,
+				customer_id: customer.id,
+				summary: emailSubject || 'Account balance',
+				content: draftedResponse,
+				metadata: {
+					subject: emailSubject,
+					is_draft: true,
+					orchestrator_draft: true,
+					trigger_comm_id: commId,
+					message_category: messageCategory || null
+				}
+			});
+			console.log('[Orchestrator] Email draft queued for approval.');
+		} catch (err) {
+			console.error('[Orchestrator] Failed to log pending email:', err);
+		}
+	}
+	// If we drafted an SMS response, save it as pending_approval
+	else if (draftedResponse && companyNumber && customerPhone) {
 		// De-dup: Telnyx re-delivers/retries webhooks (and the SMS webhook drafts a reply AND
 		// fires us for the SAME inbound), which would otherwise create a second identical draft.
 		// We de-dup on the TRIGGERING inbound message (trigger_comm_id), NOT on the customer —
@@ -550,6 +667,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					is_draft: true,
 					orchestrator_draft: true,
 					trigger_comm_id: commId,
+					proposed_appointment: proposedAppointment || undefined,
 					deferred_after_hours: shouldDefer,
 					// Inherit the conversation's classification so the draft's summary shows a
 					// meaningful Category / Sub-Category instead of blanks.

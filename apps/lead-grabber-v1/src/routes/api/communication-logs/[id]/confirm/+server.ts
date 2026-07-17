@@ -144,6 +144,20 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 			}
 		}
 
+		// If it's an outbound EMAIL, send it via Brevo (dev mode logs instead of sending).
+		if (log.type === 'email' && log.direction === 'outbound') {
+			const m = (log.metadata as any) || {};
+			const subject = m.subject || log.summary || 'A message from us';
+			try {
+				const { sendEmail } = await import('$lib/server/brevo');
+				await sendEmail({ to: [{ email: log.destination || '' }], subject, htmlContent: log.content || '' });
+				console.log(`[Confirm Outbound Email] Sent to ${log.destination}`);
+			} catch (e: any) {
+				console.error('Email send failed during confirmation:', e?.message || e);
+				return json({ success: false, error: 'Failed to send email' }, { status: 500 });
+			}
+		}
+
 		// Update the log status to completed (simulating dispatch)
 		const updatedLog = await prisma.communicationLog.update({
 			where: { id: log.id },
