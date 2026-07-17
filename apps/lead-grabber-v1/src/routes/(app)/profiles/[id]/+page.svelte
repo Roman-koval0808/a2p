@@ -28,6 +28,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import PipelineModal from '$lib/components/PipelineModal.svelte';
+	import OrchestratorLogModal from '$lib/components/orchestrator-log-modal.svelte';
 	import CommReplyPanel from '$lib/components/CommReplyPanel.svelte';
 	import { toast } from 'svelte-sonner';
 
@@ -146,6 +147,30 @@
 	let editForm = $state({ name: '', email: '', phone: '' });
 	let pipelineDialogOpen = $state(false);
 	let selectedPipelineEvent = $state<any>(null);
+	let logModalOpen = $state(false);
+	let logModalComm = $state<any>(null);
+	function handleViewLogClick(comm: any) {
+		logModalComm = comm;
+		logModalOpen = true;
+	}
+
+	// Technical/debug summary for this profile (full per-comm trace is in each comm's "View Log").
+	const debugRows = $derived.by(() => {
+		const rows: [string, string][] = [];
+		rows.push(['Profile ID', (data.profile as any)?.id ?? '—']);
+		rows.push(['Engagement score', String(data.engagementScore ?? 0)]);
+		rows.push(['Account balance', data.accountBalance != null ? `$${data.accountBalance}` : '—']);
+		rows.push(['Communications', String((data.communications || []).length)]);
+		const latest: any = (data.communications || [])[0];
+		const md = latest?.raw?.metadata || {};
+		if (md.message_category) rows.push(['Latest category', md.message_category]);
+		if (md.ai_intent?.sentiment) rows.push(['Latest sentiment', md.ai_intent.sentiment]);
+		if (md.ai_intent?.opportunity) rows.push(['Latest opportunity', String(md.ai_intent.opportunity)]);
+		if (md.caller_geo?.location) rows.push(['Caller geo', md.caller_geo.location]);
+		if (md.line_type) rows.push(['Line type', md.line_type]);
+		if (md.weather?.description) rows.push(['Weather', `${md.weather.tempF ?? '?'}°F ${md.weather.description}`]);
+		return rows;
+	});
 	let assignFormState = $state({ loading: false });
 
 	let replyPanelOpen = $state(false);
@@ -447,6 +472,24 @@
 						<span class="font-sans text-[#718096]">{selectedProfile.past_names.join(', ')}</span>
 					</div>
 				{/if}
+			</div>
+
+			<!-- Debug details (technical) -->
+			<div class="mb-5 bg-white rounded-lg border border-[#e2e8f0] shadow-sm overflow-hidden">
+				<div class="bg-[#edf2f7] px-3 py-2 border-b border-[#e2e8f0]">
+					<h3 class="text-xs font-bold text-[#4a5568] uppercase tracking-wider">Debug details</h3>
+				</div>
+				<div class="space-y-1.5 p-3 text-xs">
+					{#each debugRows as [k, v]}
+						<div class="flex items-start gap-2">
+							<span class="w-32 flex-shrink-0 font-medium text-[#4a5568]">{k}</span>
+							<span class="min-w-0 break-words font-mono text-[#718096]">{v}</span>
+						</div>
+					{/each}
+					<p class="pt-1 text-[10px] text-[#a0aec0]">
+						Open a communication's <b>View Log</b> (⋯ menu) for its full orchestrator trace.
+					</p>
+				</div>
 			</div>
 
 			<!-- Account Balance & Engagement Score -->
@@ -753,6 +796,7 @@
 					onSummaryClick={handleSummaryClick}
 					onActionClick={handleActionClick}
 					onPipelineClick={handlePipelineClick}
+					onViewLogClick={handleViewLogClick}
 					onConfirmClick={handleConfirmClick}
 				/>
 			</div>
@@ -848,6 +892,13 @@
 
 	<!-- Pipeline Modal -->
 	<PipelineModal bind:open={pipelineDialogOpen} event={selectedPipelineEvent} />
+
+	<OrchestratorLogModal
+		bind:open={logModalOpen}
+		commId={logModalComm?.commId || logModalComm?.raw?.id || ''}
+		logs={logModalComm?.raw?.metadata?.orchestrator_logs || []}
+		details={logModalComm?.raw?.metadata || null}
+	/>
 	
 	<!-- Comm Reply Panel -->
 	<CommReplyPanel

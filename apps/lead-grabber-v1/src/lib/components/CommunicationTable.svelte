@@ -40,6 +40,7 @@
 		onActionClick?: (action: string, comm: Communication) => void;
 		onAssignClick?: (comm: Communication) => void;
 		onPipelineClick?: (comm: Communication) => void;
+		onViewLogClick?: (comm: Communication) => void;
 		onReplyClick?: (comm: Communication) => void;
 		onConfirmClick?: (comm: Communication) => void;
 		showFilters?: boolean;
@@ -66,6 +67,7 @@
 		onActionClick,
 		onAssignClick,
 		onPipelineClick,
+		onViewLogClick,
 		onReplyClick,
 		onConfirmClick,
 		showFilters = true,
@@ -419,6 +421,9 @@
 									<DropdownMenu.Content align="end" class="w-40">
 										<DropdownMenu.Item onclick={() => handleActionClick('view', comm)}>
 											View Details
+										</DropdownMenu.Item>
+										<DropdownMenu.Item onclick={() => onViewLogClick?.(comm)}>
+											View Log
 										</DropdownMenu.Item>
 										<DropdownMenu.Item onclick={() => handleActionClick('call', comm)}>
 											Call

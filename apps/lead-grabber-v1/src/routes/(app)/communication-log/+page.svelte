@@ -6,6 +6,7 @@
 	import CommunicationSummaryDialog from '$lib/components/communication-summary-dialog.svelte';
 	import NotificationsDialog from '$lib/components/notifications/notifications-dialog.svelte';
 	import PipelineModal from '$lib/components/PipelineModal.svelte';
+	import OrchestratorLogModal from '$lib/components/orchestrator-log-modal.svelte';
 	import CommReplyPanel from '$lib/components/CommReplyPanel.svelte';
 	import AssignAgentDialog from '$lib/components/assign-agent-dialog.svelte';
 	import BookingCalendarDialog from '$lib/components/booking-calendar-dialog.svelte';
@@ -64,6 +65,8 @@
 	let notificationsDialogOpen = $state(false);
 		let pipelineDialogOpen = $state(false);
 	let selectedPipelineEvent = $state<any>(null);
+	let logModalOpen = $state(false);
+	let logModalComm = $state<any>(null);
 	let selectedEndpoint = $state<string | null>(null);
 	let selectedCommId = $state<string | null>(null);
 	let assignDialogOpen = $state(false);
@@ -360,6 +363,11 @@
 			toast.error('Failed to save draft', { id: loadingId });
 		}
 	}
+
+	function handleViewLogClick(comm: any) {
+		logModalComm = comm;
+		logModalOpen = true;
+	}
 </script>
 
 <div class="flex w-full min-w-0 flex-col">
@@ -457,6 +465,7 @@
 			onPipelineClick={handlePipelineClick}
 			onReplyClick={handleReplyClick}
 			onConfirmClick={handleConfirmClick}
+			onViewLogClick={handleViewLogClick}
 			showAssignButton={true}
 			showSearch={false}
 		/>
@@ -584,6 +593,13 @@
 
 
 <PipelineModal bind:open={pipelineDialogOpen} event={selectedPipelineEvent} />
+
+<OrchestratorLogModal
+	bind:open={logModalOpen}
+	commId={logModalComm?.commId || logModalComm?.raw?.id || ''}
+	logs={logModalComm?.raw?.metadata?.orchestrator_logs || []}
+	details={logModalComm?.raw?.metadata || null}
+/>
 
 <CommReplyPanel
 	bind:open={replyPanelOpen}

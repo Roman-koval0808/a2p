@@ -22,7 +22,21 @@ import { phoneGeo, dayOfWeek, lookupLineType } from '$lib/server/phone-geo';
 import { weatherForLocation } from '$lib/server/weather';
 
 export async function process_orchestrator(commId: string, trigger: string) {
-	console.log(`[Orchestrator] Processing commId: ${commId} with trigger: ${trigger}`);
+	// Capture the orchestrator's own log lines so they persist on the comm (metadata.orchestrator_logs)
+	// and can be surfaced in the UI ("View Log"). olog/oerr tee to the console AND this buffer.
+	const orchestratorLogs: string[] = [];
+	const fmt = (a: any[]) =>
+		a.map((x) => (typeof x === 'string' ? x : x?.message || JSON.stringify(x))).join(' ');
+	const olog = (...a: any[]) => {
+		console.log(...a);
+		orchestratorLogs.push(fmt(a));
+	};
+	const oerr = (...a: any[]) => {
+		console.error(...a);
+		orchestratorLogs.push('⚠ ' + fmt(a));
+	};
+
+	olog(`[Orchestrator] Processing commId: ${commId} with trigger: ${trigger}`);
 
 	// Fetch the communication log
 	const commLog = await prisma.communicationLog.findUnique({
@@ -42,7 +56,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		!commLog.customer ||
 		!commLog.company
 	) {
-		console.log('[Orchestrator] Missing commLog, company, or customer. Aborting.');
+		olog('[Orchestrator] Missing commLog, company, or customer. Aborting.');
 		return;
 	}
 
@@ -62,7 +76,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 	// Prevent drafting multiple SMS if already processed
 	if (metadata.orchestrator_processed) {
-		console.log('[Orchestrator] Already processed. Aborting.');
+		olog('[Orchestrator] Already processed. Aborting.');
 		return;
 	}
 
@@ -74,7 +88,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// T4.4: skip operational/internal calls (e.g. the owner leaving himself a voicemail on
 	// a company line) — classifying them as customer contacts would score a false emergency.
 	if (commLog.companyId && commLog.source && (await isInternalCaller(commLog.companyId, commLog.source))) {
-		console.log('[Orchestrator] Internal/operational caller — skipping customer classification.');
+		olog('[Orchestrator] Internal/operational caller — skipping customer classification.');
 		return;
 	}
 
@@ -114,7 +128,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			weather: weather ? { tempF: weather.tempF, description: weather.description } : null
 		});
 	} catch (e) {
-		console.error('[Orchestrator] caller enrichment failed:', e);
+		oerr('[Orchestrator] caller enrichment failed:', e);
 	}
 
 	// The AI classifier decides the category — no keyword/digit fallbacks — but it now gets the
@@ -125,19 +139,19 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	if (aiIntent) {
 		messageCategory = bucketToCategory(aiIntent);
 		metadata.ai_intent = aiIntent;
-		console.log(
+		olog(
 			`[Orchestrator] AI intent: ${aiIntent.intent_bucket} (urgency ${aiIntent.urgency}, appt ${aiIntent.wants_appointment}, conf ${aiIntent.confidence}) -> ${messageCategory}`
 		);
 	} else {
 		// Classification unavailable (empty message or AI error): route to a human, never guess.
 		messageCategory = 'support';
 		metadata.ai_intent = null;
-		console.log('[Orchestrator] No AI classification available; routing to support for human review.');
+		olog('[Orchestrator] No AI classification available; routing to support for human review.');
 	}
 
 	const reclassified = !!(digitCategory && digitCategory !== messageCategory);
 	if (reclassified) {
-		console.log(
+		olog(
 			`[Orchestrator] Reclassified: caller pressed ${digit} (${digitCategory}) but the message is "${messageCategory}" — following the message.`
 		);
 	}
@@ -158,12 +172,12 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			});
 			if (ack.sent) {
 				metadata.callback_ack_sent = true;
-				console.log(`[Orchestrator] Callback ack sent (${ack.slaMinutes} min).`);
+				olog(`[Orchestrator] Callback ack sent (${ack.slaMinutes} min).`);
 			} else {
-				console.log(`[Orchestrator] Callback ack skipped: ${ack.reason}`);
+				olog(`[Orchestrator] Callback ack skipped: ${ack.reason}`);
 			}
 		} catch (err) {
-			console.error('[Orchestrator] Callback ack failed:', err);
+			oerr('[Orchestrator] Callback ack failed:', err);
 		}
 	}
 
@@ -179,7 +193,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			data: { metadata: { ...metadata } }
 		});
 	} catch (err) {
-		console.error('[Orchestrator] Failed to claim comm for processing:', err);
+		oerr('[Orchestrator] Failed to claim comm for processing:', err);
 		return;
 	}
 
@@ -204,9 +218,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					calendarEventId: result.calendarEventId,
 					when: pending.proposal.proposedStartISO
 				};
-				console.log(`[Orchestrator] Auto-booked appointment ${result.appointmentId} from affirmative reply.`);
+				olog(`[Orchestrator] Auto-booked appointment ${result.appointmentId} from affirmative reply.`);
 			} catch (e) {
-				console.error('[Orchestrator] Auto-book failed:', e);
+				oerr('[Orchestrator] Auto-book failed:', e);
 			}
 		}
 	}
@@ -216,7 +230,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	let emailSubject = '';
 	let proposedAppointment: any = null;
 
-	console.log(`[Orchestrator] Debug -> digit: "${digit}", intent: "${intent}", sub_intent: "${sub_intent}"`);
+	olog(`[Orchestrator] Debug -> digit: "${digit}", intent: "${intent}", sub_intent: "${sub_intent}"`);
 
 	// Engagement score: a sales/booking message is a hot opportunity; an emergency is urgent
 	// and high-value to retain. Billing (already a paying customer) and plain support don't move it.
@@ -226,7 +240,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			where: { id: customer.id },
 			data: { engagementScore: { increment: scoreDelta } }
 		});
-		console.log(`[Orchestrator] Engagement score +${scoreDelta} (${messageCategory}).`);
+		olog(`[Orchestrator] Engagement score +${scoreDelta} (${messageCategory}).`);
 	}
 
 	// --- BOOKED (Scenario 2 "yes"): short-circuit with the booking confirmation ---
@@ -235,7 +249,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	}
 	// --- EMERGENCY: always wins, regardless of the digit pressed ---
 	else if (messageCategory === 'emergency') {
-		console.log('[Orchestrator] EMERGENCY detected from the message — overriding IVR routing.');
+		olog('[Orchestrator] EMERGENCY detected from the message — overriding IVR routing.');
 		const template = `Hi ${customer.name || 'there'}, we received your urgent message and someone from ${company.name || 'our team'} will call you back right away.`;
 		try {
 			// Urgent ack + a SAFE, business-flexible self-mitigation tip while help is on the way.
@@ -251,7 +265,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			});
 			draftedResponse = conv?.reply || template;
 		} catch (e) {
-			console.error('[Orchestrator] Emergency reply failed, using template:', e);
+			oerr('[Orchestrator] Emergency reply failed, using template:', e);
 			draftedResponse = template;
 		}
 	}
@@ -259,7 +273,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// --- SCENARIO 1: BILLING (only when the MESSAGE is actually about billing) ---
 	else if (messageCategory === 'billing') {
 		{
-			console.log('[Orchestrator] Detected Scenario 1: Billing');
+			olog('[Orchestrator] Detected Scenario 1: Billing');
 
 			// Match the balance to the SAME person by phone (the number they actually called from),
 			// covering a duplicate/older contact row or a different phone format. Never by name.
@@ -288,7 +302,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 	// --- SCENARIO 2: SALES / BOOKING (message is about sales/booking) ---
 	else if (messageCategory === 'sales') {
-		console.log('[Orchestrator] Detected Scenario 2: Sales / Booking');
+		olog('[Orchestrator] Detected Scenario 2: Sales / Booking');
 
 		// (Engagement score is bumped centrally above based on the reclassified category.)
 		// Scenario 2: check the requested time against the LIVE calendar and propose a specific
@@ -304,7 +318,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 							: `Hi ${customer.name || 'there'}! ${proposal.proposedLabel} works for your appointment — reply YES to confirm and we'll lock it in.`;
 				}
 			} catch (e) {
-				console.error('[Orchestrator] proposeAppointment failed:', e);
+				oerr('[Orchestrator] proposeAppointment failed:', e);
 			}
 		}
 
@@ -334,7 +348,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 	// --- SUPPORT (default — and where reclassified non-billing/non-sales calls land) ---
 	else {
-		console.log('[Orchestrator] Detected Support request.');
+		olog('[Orchestrator] Detected Support request.');
 		draftedResponse = `Hi ${customer.name || 'there'}, thanks for reaching out to ${company.name || 'us'}. We received your message and a support agent will get back to you shortly.`;
 	}
 
@@ -429,12 +443,12 @@ export async function process_orchestrator(commId: string, trigger: string) {
 							apiKey: ANTHROPIC_AI_KEY
 						});
 					} catch (agErr) {
-						console.error('[Orchestrator] Agentic reply failed; using fact-based fallback:', agErr);
+						oerr('[Orchestrator] Agentic reply failed; using fact-based fallback:', agErr);
 					}
 
 					if (draft) {
 						draftedResponse = draft;
-						console.log('[Orchestrator] Agentic skill reply.');
+						olog('[Orchestrator] Agentic skill reply.');
 					} else {
 						// FALLBACK: keyword-gated fact assembly → fact-based conversational reply.
 						let appointments: { startISO: string; title: string; isPast: boolean }[] | undefined;
@@ -492,13 +506,13 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						});
 						if (conv?.reply) {
 							draftedResponse = conv.reply;
-							console.log('[Orchestrator] Fact-based reply (fallback).');
+							olog('[Orchestrator] Fact-based reply (fallback).');
 						}
 					}
 				}
 			}
 		} catch (e) {
-			console.error('[Orchestrator] Conversational override failed:', e);
+			oerr('[Orchestrator] Conversational override failed:', e);
 		}
 	}
 
@@ -536,7 +550,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					.map(c => ({ id: c.id, content: c.content as string }));
 
 				if (messagesForAi.length > 0) {
-					console.log(`[Orchestrator] Asking OpenAI to match thread (${messagesForAi.length} candidates within 7 days)...`);
+					olog(`[Orchestrator] Asking OpenAI to match thread (${messagesForAi.length} candidates within 7 days)...`);
 					const aiMatchedCommId = await matchThreadOpenAI(commLog.content, messagesForAi);
 					if (aiMatchedCommId) {
 						// Resolve the matched comm's thread ID (or use its own ID as the thread)
@@ -548,12 +562,12 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					}
 				}
 			} catch (e) {
-				console.error('[Orchestrator] OpenAI thread matching failed:', e);
+				oerr('[Orchestrator] OpenAI thread matching failed:', e);
 			}
 		}
 
 		if (matchedThreadId) {
-			console.log(`[Orchestrator] Found similar thread (${matchReason}). Linking current comm.`);
+			olog(`[Orchestrator] Found similar thread (${matchReason}). Linking current comm.`);
 
 			const oldThreadId = commLog.communicationThreadId;
 
@@ -599,9 +613,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					message_category: messageCategory || null
 				}
 			});
-			console.log('[Orchestrator] Email draft queued for approval.');
+			olog('[Orchestrator] Email draft queued for approval.');
 		} catch (err) {
-			console.error('[Orchestrator] Failed to log pending email:', err);
+			oerr('[Orchestrator] Failed to log pending email:', err);
 		}
 	}
 	// If we drafted an SMS response, save it as pending_approval
@@ -627,11 +641,11 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			(d) => (d.metadata as Record<string, any> | null)?.trigger_comm_id === commId
 		);
 		if (isDuplicate) {
-			console.log(`[Orchestrator] A draft already exists for inbound ${commId} — skipping duplicate.`);
+			olog(`[Orchestrator] A draft already exists for inbound ${commId} — skipping duplicate.`);
 			return;
 		}
 
-		console.log(`[Orchestrator] Drafting SMS response: "${draftedResponse}"`);
+		olog(`[Orchestrator] Drafting SMS response: "${draftedResponse}"`);
 
 		const now = new Date();
 		let shouldDefer = false;
@@ -647,7 +661,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		}
 
 		if (shouldDefer) {
-			console.log('[Orchestrator] Outside business hours, flagging draft as deferred.');
+			olog('[Orchestrator] Outside business hours, flagging draft as deferred.');
 		}
 		
 		try {
@@ -678,12 +692,12 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				}
 			});
 		} catch (err) {
-			console.error('[Orchestrator] Failed to log pending SMS:', err);
+			oerr('[Orchestrator] Failed to log pending SMS:', err);
 		}
 	} else if (intent?.toLowerCase() === 'emergency' || intent?.toLowerCase() === 'support') {
-		console.log(`[Orchestrator] Acknowledging intent "${intent}". No extra response drafted as webhook handles emergencies or support is manual.`);
+		olog(`[Orchestrator] Acknowledging intent "${intent}". No extra response drafted as webhook handles emergencies or support is manual.`);
 	} else {
-		console.log(`[Orchestrator] No action taken for intent: ${intent}`);
+		olog(`[Orchestrator] No action taken for intent: ${intent}`);
 	}
 
 	// Always mark as processed
@@ -693,12 +707,13 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			data: {
 				metadata: {
 					...metadata,
+					orchestrator_logs: orchestratorLogs,
 					orchestrator_processed: true
 				}
 			}
 		});
 	} catch (err) {
-		console.error('[Orchestrator] Failed to mark as processed:', err);
+		oerr('[Orchestrator] Failed to mark as processed:', err);
 	}
 
 }
