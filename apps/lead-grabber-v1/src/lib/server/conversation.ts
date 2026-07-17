@@ -171,7 +171,9 @@ export async function draftConversationalReply(
 		factLines.push(`About the business (for general questions): ${parts.join(' ')}`);
 	}
 	if (input.accountBalance != null) {
-		factLines.push(`The customer's outstanding balance is $${Number(input.accountBalance).toFixed(2)}.`);
+		factLines.push(
+			`The customer's outstanding balance is $${Number(input.accountBalance).toFixed(2)}. Only state this amount if they actually ask about their balance, bill, or what they owe. Do NOT volunteer it for unrelated messages (e.g. "I'll come pay tomorrow" → just acknowledge warmly, don't quote the balance).`
+		);
 	}
 
 	if (input.appointments !== undefined) {

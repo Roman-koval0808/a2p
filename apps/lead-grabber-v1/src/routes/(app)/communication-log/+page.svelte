@@ -573,6 +573,7 @@
 		body={selectedComm.raw?.content || selectedComm.summary || ''}
 		summary={selectedComm.summary}
 		tasks={meta.actionItems ?? meta.tasks ?? []}
+		showTasks={selectedComm.raw?.direction === 'inbound'}
 		{recordingUrl}
 		estimatedPrice={meta.estimatedPrice ?? null}
 		draftedMessage={selectedComm.raw?.draftResponse || selectedComm.raw?.payload?.draftResponse || selectedComm.raw?.payload?.draft_reply || null}

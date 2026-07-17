@@ -165,6 +165,40 @@ export function describeDayHours(locations: any[], namedDays: string[]): string 
 	return summary ? `Our hours are: ${summary}.` : null;
 }
 
+const WEEKDAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+/**
+ * Resolve a single day reference ("today", "tonight", "tomorrow", or a weekday name) to a concrete
+ * lowercase weekday name, using the current date for the relative words. Returns null if unrecognized.
+ */
+export function resolveDayName(when: string): string | null {
+	const w = (when || '').trim().toLowerCase();
+	if (!w) return null;
+	const now = new Date();
+	if (w === 'today' || w === 'tonight') return WEEKDAY_NAMES[now.getDay()];
+	if (w === 'tomorrow') return WEEKDAY_NAMES[(now.getDay() + 1) % 7];
+	if (WEEKDAY_NAMES.includes(w)) return w;
+	return null;
+}
+
+/**
+ * Extract every day reference from a customer message as concrete lowercase weekday names.
+ * Handles explicit weekdays ("monday") plus the relative words "today"/"tonight"/"tomorrow",
+ * resolving the relative ones against the current date. De-duplicated, order-preserving — so
+ * "what time do you open tomorrow?" yields the actual weekday tomorrow falls on.
+ */
+export function resolveNamedDays(message: string): string[] {
+	const text = (message || '').toLowerCase();
+	const out: string[] = [];
+	const add = (d: string | null) => {
+		if (d && !out.includes(d)) out.push(d);
+	};
+	if (/\b(today|tonight)\b/.test(text)) add(resolveDayName('today'));
+	if (/\btomorrow\b/.test(text)) add(resolveDayName('tomorrow'));
+	for (const d of WEEKDAY_NAMES) if (new RegExp(`\\b${d}\\b`).test(text)) add(d);
+	return out;
+}
+
 /** Human-readable address(es) from the company's Location records (the /locations data). null if none. */
 export function describeLocations(locations: any[]): string | null {
 	const list = (locations || [])
