@@ -1,6 +1,6 @@
 import { prisma } from '$lib/db';
 import { hasSmsConsent } from './consent';
-import { sendAutomatedSms } from './profiledb/telemetry';
+import { sendAutomatedSms } from './sms';
 import { buildCallContextSummary } from './call-context-summary';
 
 export interface CallbackAckResult {
@@ -34,7 +34,9 @@ export async function sendCallbackAck(opts: {
 		where: { companyId: opts.companyId }
 	});
 
-	if (config && !config.smsAutoReplyAllowed) {
+	// Fail-safe: only auto-send when a config explicitly enables it. A missing config
+	// (or smsAutoReplyAllowed=false) means no unattended customer SMS.
+	if (!config?.smsAutoReplyAllowed) {
 		return { sent: false, reason: 'sms_auto_reply_disabled' };
 	}
 	if (config?.officeHours && !isWithinOfficeHours(config.officeHours)) {
