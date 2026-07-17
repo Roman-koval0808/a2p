@@ -285,21 +285,38 @@ Rules:
 - If a tool can answer the message, CALL it and answer specifically from what it returns. You may call several.
 - NEVER invent availability, prices, balances, appointment times, services, or account details. Only state what the tools return or what's in the conversation.
 - If a tool reports it has no data (no billing history, no appointments, etc.), say so honestly and offer the best real next step (send a statement, have the team follow up) — don't make things up.
-- Reply in ONE short, natural, human SMS (1-2 sentences, no markdown, no corporate stiffness).`;
+- If the customer confirms an appointment ("yes", "that works") but you have no tool to book it, DO NOT explain your limitations. Just warmly confirm: "You're all set — see you then!" and the team handles the calendar.
+- Reply in ONE short, natural, human SMS (1-2 sentences, no markdown, no corporate stiffness).
+
+CRITICAL: Your entire output is sent VERBATIM to the customer as a text message. Output ONLY that message. Never write meta-commentary, never explain your reasoning or your tools, never address "the developer"/"the team", never write "Suggested reply:", "I need to clarify", or "I don't have a tool". If you're unsure, send a brief warm acknowledgement that the team will follow up.`;
 
 	const tools = buildSkills(input);
-	return claudeAgentReply({
+	const reply = await claudeAgentReply({
 		apiKey: input.apiKey,
 		system,
 		tools,
 		messages: [
 			{
 				role: 'user',
-				content: `Conversation so far:\n${historyText || '(none)'}\n\nCustomer's latest message: "${message}"\n\nUse your tools as needed, then write our reply:`
+				content: `Conversation so far:\n${historyText || '(none)'}\n\nCustomer's latest message: "${message}"\n\nUse your tools as needed, then write our reply (customer-facing text only):`
 			}
 		],
 		maxSteps: 4,
 		maxTokens: 400,
 		temperature: 0.4
 	});
+	// Leak guard: if the model returned meta-commentary about itself/its tools instead of a
+	// customer-facing SMS, discard it so the caller falls back to the deterministic reply.
+	if (reply && looksLikeLeakedReasoning(reply)) {
+		console.warn('[reply-skills] discarded leaked agentic reasoning:', reply.slice(0, 120));
+		return null;
+	}
+	return reply;
+}
+
+/** Detect the model narrating its own limitations/tools instead of writing the SMS. */
+function looksLikeLeakedReasoning(text: string): boolean {
+	return /\b(I don'?t have (a )?tool|I need to clarify|Suggested reply|the customer said|I should not invent|as an AI|I cannot (actually|create)|I appreciate you providing|the tools I have|from scratch)\b/i.test(
+		text
+	);
 }

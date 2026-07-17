@@ -208,6 +208,11 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	if (isAffirmative(rawMessage) && commLog.companyId && customerPhone) {
 		const pending = await findPendingProposal(commLog.companyId, customerPhone);
 		if (pending) {
+			// This is a booking confirmation, not a support ticket — label it Sales so the log
+			// shows the right Category/Department (not "Support / <UNKNOWN>").
+			messageCategory = 'sales';
+			metadata.message_category = 'sales';
+			metadata.ivr_intent = 'Sales';
 			try {
 				const result = await bookProposedAppointment({
 					companyId: commLog.companyId,
@@ -225,7 +230,12 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				};
 				olog(`[Orchestrator] Auto-booked appointment ${result.appointmentId} from affirmative reply.`);
 			} catch (e) {
-				oerr('[Orchestrator] Auto-book failed:', e);
+				// Never leave an affirmative reply to fall through to the generic/agentic path
+				// (which can ramble). Confirm the time and flag it for manual calendar entry.
+				oerr('[Orchestrator] Auto-book failed; confirming anyway and flagging for manual entry:', e);
+				bookedConfirmation = `You're all set — we've got you down for ${pending.proposal.proposedLabel}. See you then!`;
+				metadata.appointment_booked = { manual: true, when: pending.proposal.proposedStartISO };
+				metadata.needs_manual_calendar = true;
 			}
 		}
 	}
@@ -252,6 +262,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// --- BOOKED (Scenario 2 "yes"): short-circuit with the booking confirmation ---
 	if (bookedConfirmation) {
 		draftedResponse = bookedConfirmation;
+		scenarioLocked = true; // it's confirmed — don't let the conversational override rewrite it
 	}
 	// --- EMERGENCY: always wins, regardless of the digit pressed ---
 	else if (messageCategory === 'emergency') {
@@ -383,10 +394,20 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// conversational and context-aware — carrying the earlier thread into this new call —
 	// instead of the first-touch scenario template above. (Emergencies keep the urgent template.)
 	// Action items for the rep — the AI's suggestions plus scenario-specific tasks; never empty.
-	const tasks: string[] = Array.isArray(aiIntent?.action_items) ? [...aiIntent.action_items] : [];
+	// A booking confirmation supersedes the AI's generic "clarify the request" items — it's booked.
+	const tasks: string[] = metadata.appointment_booked
+		? []
+		: Array.isArray(aiIntent?.action_items)
+			? [...aiIntent.action_items]
+			: [];
+	if (metadata.appointment_booked) {
+		const when = (metadata.appointment_booked as any)?.when;
+		const whenLabel = when ? formatDatetime(when) : 'booked';
+		tasks.push(`Confirm the ${whenLabel} appointment with the assigned rep`);
+		if ((metadata.appointment_booked as any)?.manual) tasks.push('Add the appointment to the calendar manually (calendar sync was unavailable)');
+	}
 	if (messageCategory === 'billing') tasks.push(`Review & send the account balance to ${customer.name || 'the customer'}`);
 	if (proposedAppointment) tasks.push('Approve the proposed appointment time');
-	if (metadata.appointment_booked) tasks.push('Confirm the booked appointment with the assigned rep');
 	if (aiIntent?.wants_callback) tasks.push(`Call ${customer.name || 'the customer'} back`);
 	if (!tasks.length) tasks.push(`Review and follow up with ${customer.name || 'the customer'}`);
 	metadata.actionItems = Array.from(new Set(tasks));
