@@ -31,20 +31,8 @@
 		ChevronDown
 	} from 'lucide-svelte';
 	import { goto } from '$app/navigation';
-	import { page } from '$app/state';
+	import { toast } from 'svelte-sonner';
 	import EmptyState from '$lib/components/EmptyState.svelte';
-
-	interface Notification {
-		id: string;
-		type: 'email' | 'sms' | 'voice' | 'facebook';
-		name: string;
-		message: string;
-		time: string;
-		isBold?: boolean;
-		fullMessage?: string;
-		date?: string;
-		phone?: string;
-	}
 
 	interface ConversationMessage {
 		id: string;
@@ -55,168 +43,20 @@
 		time: string;
 	}
 
-	// Mock notifications data - in real app, fetch from server using $page.params.id
-	const notifications: Notification[] = [
-		{
-			id: '1',
-			type: 'email',
-			name: 'Maria Lopez',
-			message: '[Urgent] Interview – HR Position Please confirm your attendance...',
-			time: '11:45 AM',
-			isBold: true,
-			fullMessage:
-				'[Urgent] Interview – HR Position Please confirm your attendance for the interview scheduled on November 15, 2025 at 2:00 PM.',
-			date: 'Fri, Oct 17, 2025'
-		},
-		{
-			id: '2',
-			type: 'email',
-			name: 'Ella Santos',
-			message: 'Demo Room Launch Webinar on Nov 2, 2025, at 10:00 AM. Join u...',
-			time: '11:45 AM',
-			isBold: true,
-			fullMessage:
-				'Demo Room Launch Webinar on Nov 2, 2025, at 10:00 AM. Join us for an exclusive preview of our new features.',
-			date: 'Fri, Oct 17, 2025'
-		},
-		{
-			id: '3',
-			type: 'email',
-			name: 'Angela Torres',
-			message: 'Your dedicated support session is confirmed for Nov 6, 2025, a...',
-			time: '11:45 AM',
-			isBold: true,
-			fullMessage:
-				"Your dedicated support session is confirmed for Nov 6, 2025, at 3:00 PM. We'll discuss your microsite optimization.",
-			date: 'Fri, Oct 17, 2025'
-		},
-		{
-			id: '4',
-			type: 'email',
-			name: 'Jasmine Cruz',
-			message: 'Your Supplier - is ready for review. Kindly check the layout and...',
-			time: '11:45 AM',
-			isBold: true,
-			fullMessage:
-				'Your Supplier - is ready for review. Kindly check the layout and provide your feedback by end of week.',
-			date: 'Fri, Oct 17, 2025'
-		},
-		{
-			id: '5',
-			type: 'email',
-			name: 'Sophie Lim',
-			message: "Your current logo file is slightly outdated. If you'd like, upload a...",
-			time: '11:45 AM',
-			isBold: false,
-			fullMessage:
-				"Congratulations! Your Founder Benefit Package has been successfully activated. As one of our early partners, you're now entitled to 50% off banner advertising for five years and two hours of dedicated monthly support for your microsite. Thank you for being part of our early innovation phase — your input helps shape the platform's future.",
-			date: 'Fri, Oct 17, 2025'
-		},
-		{
-			id: '6',
-			type: 'email',
-			name: 'Liam Garcia',
-			message: "HR Module setup on your microsite isn't complete yet. Please fi...",
-			time: '11:45 AM',
-			isBold: true,
-			fullMessage:
-				"HR Module setup on your microsite isn't complete yet. Please finish the configuration to enable all features.",
-			date: 'Fri, Oct 17, 2025'
-		},
-		{
-			id: '7',
-			type: 'email',
-			name: 'Kevin Tan',
-			message: 'Just a quick reminder — the Microsite Deployment Report is due..',
-			time: '11:45 AM',
-			isBold: true,
-			fullMessage:
-				'Just a quick reminder — the Microsite Deployment Report is due by Friday. Please submit it at your earliest convenience.',
-			date: 'Fri, Oct 17, 2025'
-		},
-		{
-			id: '8',
-			type: 'email',
-			name: 'Ryan Kim',
-			message: 'Prospector Microsite are now live. Please review the event and...',
-			time: '11:45 AM',
-			isBold: true,
-			fullMessage:
-				'Prospector Microsite are now live. Please review the event and provide feedback on the new features.',
-			date: 'Fri, Oct 17, 2025'
-		},
-		{
-			id: '9',
-			type: 'email',
-			name: 'HR Department',
-			message: '[Urgent] Interview – HR Position Please confirm your attendance...',
-			time: '11:45 AM',
-			isBold: true,
-			fullMessage:
-				'[Urgent] Interview – HR Position Please confirm your attendance for the interview scheduled on November 15, 2025 at 2:00 PM.',
-			date: 'Fri, Oct 17, 2025'
-		},
-		{
-			id: '10',
-			type: 'email',
-			name: 'Nathan James',
-			message: 'A new client has reached out regarding your AI Design & Demo...',
-			time: '11:45 AM',
-			isBold: false,
-			fullMessage:
-				"A new client has reached out regarding your AI Design & Demo Room. They're interested in scheduling a consultation.",
-			date: 'Fri, Oct 17, 2025'
-		},
-		{
-			id: '11',
-			type: 'email',
-			name: 'Daniel Cruz',
-			message: 'Founder Benefit Package is now active. Enjoy 50% off banner a...',
-			time: '11:45 AM',
-			isBold: true,
-			fullMessage:
-				'Founder Benefit Package is now active. Enjoy 50% off banner advertising and exclusive monthly support sessions.',
-			date: 'Fri, Oct 17, 2025'
-		},
-		{
-			id: '12',
-			type: 'email',
-			name: 'Chloe Reyes',
-			message: "We've upgraded the Viewroom feature to include note-taking...",
-			time: '11:45 AM',
-			isBold: false,
-			fullMessage:
-				"We've upgraded the Viewroom feature to include note-taking capabilities. Check it out and let us know what you think!",
-			date: 'Fri, Oct 17, 2025'
-		}
-	];
+	let { data } = $props();
+
+	const selectedNotification = $derived(data.notification);
 
 	let conversationMessages = $state<ConversationMessage[]>([]);
 	let replyMessage = $state('');
+	let sending = $state(false);
 	let editorRef: HTMLDivElement | null = $state(null);
 	let threadContainerRef: HTMLDivElement | null = $state(null);
 
-	const notificationId = $derived(page.params.id);
-	const selectedNotification = $derived(notifications.find((n) => n.id === notificationId) || null);
-
+	// Seed the thread from server data whenever it changes.
 	$effect(() => {
-		if (selectedNotification) {
-			initializeConversation(selectedNotification);
-		}
+		conversationMessages = data.messages.map((m) => ({ ...m }));
 	});
-
-	function initializeConversation(notification: Notification) {
-		conversationMessages = [
-			{
-				id: '1',
-				sender: notification.name,
-				senderIsYou: false,
-				message: notification.fullMessage || notification.message,
-				date: notification.date || 'Fri, Oct 17, 2025',
-				time: notification.time || '11:29 PM'
-			}
-		];
-	}
 
 	function formatRichText(command: string, value?: string) {
 		document.execCommand(command, false, value);
@@ -225,34 +65,59 @@
 		}
 	}
 
-	function handleSend() {
-		if (editorRef && selectedNotification) {
-			const textContent = editorRef.innerText || editorRef.textContent || '';
-			if (textContent.trim()) {
-				const newMessage: ConversationMessage = {
-					id: Date.now().toString(),
-					sender: 'You',
-					senderIsYou: true,
-					message: editorRef.innerHTML,
-					date: new Date().toLocaleDateString('en-US', {
-						weekday: 'short',
-						month: 'short',
-						day: 'numeric',
-						year: 'numeric'
-					}),
-					time: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-				};
-				conversationMessages = [...conversationMessages, newMessage];
-				replyMessage = '';
-				editorRef.innerHTML = '';
+	async function handleSend() {
+		if (!editorRef || !selectedNotification || sending) return;
 
-				// Scroll to bottom after sending
-				setTimeout(() => {
-					if (threadContainerRef) {
-						threadContainerRef.scrollTop = threadContainerRef.scrollHeight;
-					}
-				}, 0);
+		const htmlContent = editorRef.innerHTML;
+		const textContent = (editorRef.innerText || editorRef.textContent || '').trim();
+		if (!textContent) return;
+
+		const replyMethod = selectedNotification.type === 'sms' ? 'sms' : 'email';
+
+		sending = true;
+		try {
+			const res = await fetch(`/api/notifications/${selectedNotification.id}/reply`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ message: textContent, replyMethod })
+			});
+			const result = await res.json().catch(() => ({}));
+
+			if (!res.ok || !result.success) {
+				toast.error(result.error || 'Failed to send reply');
+				return;
 			}
+
+			const now = new Date();
+			const newMessage: ConversationMessage = {
+				id: Date.now().toString(),
+				sender: 'You',
+				senderIsYou: true,
+				message: htmlContent,
+				date: now.toLocaleDateString('en-US', {
+					weekday: 'short',
+					month: 'short',
+					day: 'numeric',
+					year: 'numeric'
+				}),
+				time: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+			};
+			conversationMessages = [...conversationMessages, newMessage];
+			replyMessage = '';
+			editorRef.innerHTML = '';
+			toast.success('Reply sent successfully!');
+
+			// Scroll to bottom after sending
+			setTimeout(() => {
+				if (threadContainerRef) {
+					threadContainerRef.scrollTop = threadContainerRef.scrollHeight;
+				}
+			}, 0);
+		} catch (err) {
+			console.error('Failed to send reply:', err);
+			toast.error('Failed to send reply');
+		} finally {
+			sending = false;
 		}
 	}
 
@@ -286,7 +151,7 @@
 					<ArrowLeft class="h-[18px] w-[36px]" />
 				</button>
 				<h1 class="font-sans text-2xl font-semibold leading-[1.29] text-[#747474]">
-					{selectedNotification.name}
+					{selectedNotification.sourceName}
 				</h1>
 			</div>
 
@@ -299,7 +164,7 @@
 					<div class="flex items-center gap-3">
 						<Mail class="h-5 w-5 text-[#848484]" />
 						<span class="font-sans text-sm font-medium leading-[26px] text-[#717171]">
-							Fri, November 5, 2025 – 9:00 AM
+							{selectedNotification.headerDate}
 						</span>
 					</div>
 					<div class="flex items-center gap-4">
@@ -390,7 +255,7 @@
 								<ArrowLeft class="h-4 w-4 text-[#848484]" />
 								<Reply class="h-4 w-4 text-[#848484]" />
 								<span class="font-sans text-sm font-medium text-[#848484]">
-									{selectedNotification.name}
+									{selectedNotification.sourceName}
 								</span>
 							</div>
 
@@ -544,10 +409,11 @@
 								<div class="flex items-center gap-2">
 									<button
 										onclick={handleSend}
-										class="flex h-9 items-center gap-2 rounded-lg bg-[#0C58D1] px-4 font-sans text-sm font-medium text-white transition-colors hover:bg-[#0C58D1]/90"
+										disabled={sending}
+										class="flex h-9 items-center gap-2 rounded-lg bg-[#0C58D1] px-4 font-sans text-sm font-medium text-white transition-colors hover:bg-[#0C58D1]/90 disabled:cursor-not-allowed disabled:opacity-60"
 									>
 										<Send class="h-4 w-4" />
-										Send
+										{sending ? 'Sending...' : 'Send'}
 									</button>
 									<button class="flex h-8 w-8 items-center justify-center rounded bg-[#0C58D1]">
 										<ChevronDown class="h-4 w-4 text-white" />

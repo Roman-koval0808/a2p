@@ -335,23 +335,6 @@
 									bind:value={draftText}
 									class="w-full min-h-[120px] font-sans text-sm text-gray-800 leading-relaxed outline-none border-none resize-y"
 								></textarea>
-
-								<!-- Structured Appointment Details -->
-								<div class="mt-6 pt-4 border-t border-gray-100 space-y-2 text-sm text-gray-700">
-									<div><span class="font-bold text-gray-800">Agent:</span> {data.user?.name ?? 'Mark Doe'}</div>
-									<div><span class="font-bold text-gray-800">Appointment:</span> 2:30pm - 3:15pm</div>
-									<div><span class="font-bold text-gray-800">Location:</span> 123 Pine St N Timmins Ontario</div>
-									<div><span class="font-bold text-gray-800">Purpose:</span> Test Drive</div>
-									<div class="flex items-center gap-3 mt-4">
-										<span class="font-bold text-gray-800 font-sans">Confirm Appointment:</span>
-										<button class="bg-[#4CAF50] hover:bg-[#43A047] text-white text-xs font-semibold px-3 py-1 rounded transition-colors shadow-sm">
-											Yes
-										</button>
-										<button class="bg-[#F44336] hover:bg-[#E53935] text-white text-xs font-semibold px-3 py-1 rounded transition-colors shadow-sm">
-											No
-										</button>
-									</div>
-								</div>
 							</div>
 
 							<!-- Footer Toolbar -->

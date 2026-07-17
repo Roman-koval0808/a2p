@@ -14,62 +14,11 @@
 	let activeTab = $state('all');
 	let copied = $state(false);
 
-	// Helpers for processing events
+	// Helpers for processing events — REAL data only (no fabricated fallbacks).
 	const payload = $derived(event?.payload || {});
 	const pipelineLogs = $derived.by(() => {
-		let logs = payload.pipeline_logs || event?.pipeline_logs || [];
-		if (!logs || logs.length === 0) {
-			const timeBase = event?.occurredAt ? new Date(event.occurredAt).getTime() : Date.now();
-			const formatLogTime = (msOffset: number) => {
-				const d = new Date(timeBase - msOffset);
-				const pad = (n: number) => String(n).padStart(2, '0');
-				return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, '0')}`;
-			};
-			const isEmergency = event?.intentBucket === 'emergency';
-			const isRename = event?.intentBucket === 'active';
-			const phone = payload.phone || payload.customer_phone || event?.phone || 'Unknown';
-
-			logs = [
-				`🔵 [${formatLogTime(3000)}] --- [UNIFIED PIPELINE START] Provider: call | Trace: trc_${Math.random().toString(36).substr(2, 7)} ---`,
-				`🔵 [${formatLogTime(2950)}] [Step 1] Raw data received: Provider hands us a review/telemetry from "${phone}"`,
-				`🔵 [${formatLogTime(2900)}] [Step 2/3] Official naming: Mapping "call" intake to internal event "${event?.eventType || 'inbound_message'}"`,
-				`🔵 [${formatLogTime(2850)}] [Step 4/5] Tidying up: Normalized rating to N/A stars`,
-				`🔵 [${formatLogTime(2800)}] [Step 6] Finding business: Mapped to "Tenant" (${companyId})`,
-				`🔵 [${formatLogTime(2750)}] [Step 6b] Identity Resolution: Resolving profile for "${phone}"...`,
-				`🔵 [${formatLogTime(2700)}] [Step 6b] Q2 Attribution: Resolved tier = "Tier 3"`,
-				`🔵 [${formatLogTime(2650)}] [Step 6b] Identity Resolution Complete: CP Profile CP_${Math.random().toString(36).substr(2, 7).toUpperCase()}`,
-				`🔵 [${formatLogTime(2600)}] [Step 7] Copy check: No previous record found. Suppressions: CLEAN - No duplicate content`,
-				`🔵 [${formatLogTime(2550)}] [Step 8] AI Extraction: Identifying sentiment, topics, and service mentions...`,
-				`✅ [${formatLogTime(1200)}] [Step 8] AI extraction completed successfully: Service='Plumbing', Urgency='${isEmergency ? 'High' : 'Medium'}', Sentiment='Neutral'`,
-				`🔵 [${formatLogTime(1150)}] [Step 9] Writing to log: Saving to database. Event ID: ${event?.id || 'evt_simulated'}`,
-				`🔵 [${formatLogTime(1100)}] [Step 10] Signal Detection: Loading the Signal Rule book specific to "${event?.eventType || 'inbound_message'}"`,
-				`🔵 [${formatLogTime(1050)}] [Step 11] Signal Evaluation: Testing event against 8 total rules...`,
-				`🌸 [${formatLogTime(1000)}] --- 📞 Family Group: Communication Priority Rules ---`,
-				isEmergency
-					? `✅ [${formatLogTime(950)}] Rule 1 {SIG-COMM-000}: EMERGENCY_SERVICE -> MATCHED (contains emergency keywords)`
-					: `🌸 [${formatLogTime(950)}] Rule 1 {SIG-COMM-000}: EMERGENCY_SERVICE -> SKIPPED`,
-				isRename
-					? `✅ [${formatLogTime(900)}] Rule 3 {SIG-COMM-002}: NEW_QUOTE_REQUEST -> MATCHED (contains renovation quote request)`
-					: `🌸 [${formatLogTime(900)}] Rule 3 {SIG-COMM-002}: NEW_QUOTE_REQUEST -> SKIPPED`,
-				!isEmergency && !isRename
-					? `✅ [${formatLogTime(850)}] Rule 8 {SIG-COMM-007}: GENERAL_MESSAGE -> MATCHED (contains general message)`
-					: `🌸 [${formatLogTime(850)}] Rule 8 {SIG-COMM-007}: GENERAL_MESSAGE -> SKIPPED`,
-				`🔵 [${formatLogTime(800)}] [Step 12] Final Count: Created 1 Signal candidates.`,
-				`🔵 [${formatLogTime(750)}] [Step 13] Orchestrator Decision: Selecting the best actions for this event...`,
-				`🔵 [${formatLogTime(700)}] Section 3 - ORCHESTRATOR_STARTED : 1 Signal candidate(s) received`,
-				`🔵 [${formatLogTime(650)}] Section 3 - EVENT_LOADED : business_id=${companyId}`,
-				`🔵 [${formatLogTime(600)}] Section 3 - CLIENT_PROFILE_LOADED : automation_level=standard`,
-				`🔵 [${formatLogTime(550)}] Section 3 - DOMINANT_SIGNAL_IDENTIFIED : Dominant Signal matched.`,
-				`🔵 [${formatLogTime(500)}] Section 3 - ACTION_SELECTED : ACT-A2P-005 (Draft Callback Script) -> mode=approval_required`,
-				`Dec_${Math.random().toString(36).substr(2, 9)}`,
-				`🔵 [${formatLogTime(400)}] [Step 16] Action Queue: Parameterizing actions for decision...`,
-				`🔵 [${formatLogTime(350)}] Section 4 - ITEM_QUEUED : 🎯 Queued: ACT-A2P-005 in lane [APPROVAL_REQUIRED] with status pending_approval`,
-				`🔵 [${formatLogTime(300)}] [Step 17] Execution: Starting Section 5...`,
-				`🔵 [${formatLogTime(100)}] Section 5 - DRAFT_CREATED : Callback Script draft created successfully.`,
-				`🔵 [${formatLogTime(0)}] --- [UNIFIED PIPELINE END] ---`
-			];
-		}
-		return logs;
+		const logs = payload.pipeline_logs || event?.pipeline_logs || [];
+		return Array.isArray(logs) ? logs : [];
 	});
 
 	// Filters logs by sections matching demo logic
@@ -172,81 +121,24 @@
 		return result;
 	});
 
-	// AI Structured Protocol Data
-	// AI Structured Protocol Data
+	// AI Structured Protocol Data — REAL data only (returns null when not persisted).
 	const aiProtocol = $derived.by(() => {
 		let proto = payload.ai_protocol;
-		if (proto) {
-			if (typeof proto === 'string') {
-				try {
-					proto = JSON.parse(proto);
-				} catch (e) {}
-			}
-			if (proto && (proto.fields_to_extract || proto.raw_response)) {
-				return proto;
+		if (!proto) return null;
+		if (typeof proto === 'string') {
+			try {
+				proto = JSON.parse(proto);
+			} catch (e) {
+				return null;
 			}
 		}
-
-		const detail = payload.detail || payload.body || payload.text || payload.textContent || payload.voicemail_text || event?.summary || '';
-		
-		// Extract keywords from detail
-		const words = detail.toLowerCase().split(/[^a-zA-Z]+/);
-		const keywords = ['burst', 'flood', 'leak', 'emergency', 'pipe', 'water', 'immediate', 'urgent', 'book', 'appointment', 'estimate', 'quote', 'schedule', 'renovate', 'renovation', 'toilet', 'shower', 'fixture', 'waiting', 'terrible', 'frustrated', 'complaint', 'angry'];
-		const foundKeywords: string[] = [];
-		words.forEach((w: string) => {
-			if (keywords.includes(w) && !foundKeywords.includes(w)) {
-				foundKeywords.push(w.charAt(0).toUpperCase() + w.slice(1));
-			}
-		});
-
-		const isVoicemail = event?.eventType?.includes('voicemail') || event?.eventType?.includes('voice') || event?.eventType === 'telnyx.voice.voicemail';
-		const bucket = (event?.intentBucket || event?.bucket || '').toLowerCase();
-		
-		const hasEmergencyKeywords = foundKeywords.includes('Leak') || foundKeywords.includes('Burst') || foundKeywords.includes('Water') || foundKeywords.includes('Emergency') || foundKeywords.includes('Urgent');
-		const isEmergency = bucket === 'emergency' || hasEmergencyKeywords;
-		const isRename = bucket === 'active' || bucket === 'active project' || bucket === 'comparison' || foundKeywords.includes('Quote') || foundKeywords.includes('Estimate');
-		const isCallback = isVoicemail || detail.toLowerCase().includes('call back') || detail.toLowerCase().includes('callback') || detail.toLowerCase().includes('call me') || detail.toLowerCase().includes('phone');
-
-		const rawResponse = {
-			contains_problem: isEmergency || detail.toLowerCase().includes('leak') || detail.toLowerCase().includes('problem') || false,
-			contains_quote_request: isRename || false,
-			contains_callback_request: isCallback || false,
-			contains_emergency_keywords: isEmergency || false,
-			requested_contact_method: isCallback ? 'phone' : 'none',
-			requested_action: isEmergency ? 'emergency_dispatch' : (isRename ? 'prepare_quote' : 'info_request'),
-			detected_keywords: foundKeywords.length > 0 ? foundKeywords : (isEmergency ? ['Leak', 'Burst', 'Pipe', 'Water'] : []),
-			service_requested: isEmergency ? 'Plumbing' : (isRename ? 'Renovation' : 'General'),
-			sentiment: isEmergency ? 'concerned' : 'neutral',
-			praise_topics: [],
-			complaint_topics: [],
-			summary: detail || 'Structured AI protocol extracted.',
-			confidence_score: 0.94,
-			urgency_level: isEmergency ? 'high' : 'medium'
-		};
-
-		return {
-			message: detail,
-			fields_to_extract: {
-				contains_problem: 'boolean (True if issue/complaint mentioned)',
-				contains_quote_request: 'boolean (True if asking for price/estimate)',
-				contains_callback_request: 'boolean (True if explicitly asking for a phone call back)',
-				contains_emergency_keywords: 'boolean (True if words like leak, flood, dangerous present)',
-				requested_contact_method: 'string (phone, email, text, or none)',
-				requested_action: 'string (phone_call, send_quote, info_request, etc)',
-				detected_keywords: 'array (quote, call, leak, pricing, etc)',
-				service_requested: 'string (specific service mentioned)',
-				sentiment: 'string (positive, neutral, negative)',
-				praise_topics: 'array (concise praise phrases)',
-				complaint_topics: 'array (concise complaint phrases)',
-				summary: 'string (one-sentence summary)',
-				confidence_score: 'number (0 to 1)',
-				urgency_level: 'string (low, medium, high)'
-			},
-			raw_response: rawResponse
-		};
+		if (proto && (proto.fields_to_extract || proto.raw_response)) {
+			return proto;
+		}
+		return null;
 	});
 
-	// Outcome Package Data
+	// Outcome Package Data — REAL data only (null when not persisted).
 	const outcomeData = $derived(
 		payload.decision || payload.execution || payload.outcome
 			? {
@@ -254,46 +146,11 @@
 					execution: payload.execution || {},
 					outcome: payload.outcome || {}
 				}
-			: {
-					decision: {
-						decision_id: `dec_${Math.random().toString(36).substr(2, 9)}`,
-						action_queue: [
-							{
-								action_id: event?.intentBucket === 'emergency' ? 'ACT-A2P-001' : 'ACT-A2P-005',
-								action_type: event?.intentBucket === 'emergency' ? 'Emergency Dispatch Alert' : 'Draft Callback Script',
-								lane: event?.intentBucket === 'emergency' ? 'IMMEDIATE_EXECUTION' : 'APPROVAL_REQUIRED',
-								status: event?.intentBucket === 'emergency' ? 'completed' : 'pending_approval'
-							}
-						],
-						dominant_signal: event?.intentBucket === 'emergency' ? 'SIG-COMM-000' : 'SIG-COMM-007'
-					},
-					execution: {
-						execution_id: `exec_${Math.random().toString(36).substr(2, 9)}`,
-						started_at: event?.occurredAt || new Date().toISOString(),
-						completed_at: event?.occurredAt || new Date().toISOString(),
-						steps: ['ITEM_QUEUED', 'DRAFT_CREATED']
-					},
-					outcome: {
-						delivery_status: event?.intentBucket === 'emergency' ? 'delivered' : 'pending',
-						alert_sent_to_owner: true,
-						retry_count: 0
-					}
-				}
+			: null
 	);
 
-	// Feedback Package Data
-	const feedbackData = $derived(
-		payload.feedback || {
-			feedback_id: `fb_${Math.random().toString(36).substr(2, 9)}`,
-			user_sentiment_override: null,
-			owner_approved_at: event?.intentBucket === 'emergency' ? event.occurredAt : null,
-			system_notes: 'CDP execution completed. Awaiting user feedback.',
-			metadata: {
-				client_version: '1.0.4',
-				environment: 'production'
-			}
-		}
-	);
+	// Feedback Package Data — REAL data only (null when not persisted).
+	const feedbackData = $derived(payload.feedback || null);
 
 	// Derived logs based on active tab selection
 	const activeLogs = $derived(
@@ -326,7 +183,7 @@
 	<div
 		class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
 		onclick={() => (open = false)}
-		keydown={(e) => e.key === 'Escape' && (open = false)}
+		onkeydown={(e: KeyboardEvent) => e.key === 'Escape' && (open = false)}
 		role="button"
 		tabindex="0"
 	>
@@ -383,7 +240,11 @@
 					<!-- Log Timeline List -->
 					<div class="flex flex-col gap-2 font-mono text-[11px] leading-relaxed">
 						{#if activeLogs.length === 0}
-							<div class="py-12 text-center italic text-gray-400">No logs recorded for this section.</div>
+							<div class="py-12 text-center italic text-gray-400">
+								{pipelineLogs.length === 0
+									? 'No pipeline execution recorded for this item.'
+									: 'No logs recorded for this section.'}
+							</div>
 						{:else}
 							{#each activeLogs as log}
 								<div class="rounded border p-2.5 shadow-sm transition-all {getLogClass(log)}">
@@ -403,54 +264,70 @@
 							</div>
 						</div>
 
-						<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-							<div>
-								<div class="mb-2 text-xs font-bold text-slate-700">Request Fields to Extract</div>
-								<pre class="overflow-x-auto rounded-lg border border-slate-200 bg-slate-900 p-4 font-mono text-[11px] text-indigo-200 leading-normal">{JSON.stringify(aiProtocol.fields_to_extract, null, 2)}</pre>
+						{#if aiProtocol}
+							<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+								<div>
+									<div class="mb-2 text-xs font-bold text-slate-700">Request Fields to Extract</div>
+									<pre class="overflow-x-auto rounded-lg border border-slate-200 bg-slate-900 p-4 font-mono text-[11px] text-indigo-200 leading-normal">{JSON.stringify(aiProtocol.fields_to_extract, null, 2)}</pre>
+								</div>
+								<div>
+									<div class="mb-2 text-xs font-bold text-slate-700">Model Response Output</div>
+									<pre class="overflow-x-auto rounded-lg border border-slate-200 bg-slate-900 p-4 font-mono text-[11px] text-emerald-200 leading-normal">{JSON.stringify(aiProtocol.raw_response, null, 2)}</pre>
+								</div>
 							</div>
-							<div>
-								<div class="mb-2 text-xs font-bold text-slate-700">Model Response Output</div>
-								<pre class="overflow-x-auto rounded-lg border border-slate-200 bg-slate-900 p-4 font-mono text-[11px] text-emerald-200 leading-normal">{JSON.stringify(aiProtocol.raw_response, null, 2)}</pre>
-							</div>
-						</div>
+						{:else}
+							<div class="py-12 text-center italic text-gray-400">No AI extraction protocol recorded for this item.</div>
+						{/if}
 					</div>
 				{:else if activeTab === 'outcome'}
 					<!-- Outcome package JSON view -->
 					<div>
 						<div class="mb-3 flex justify-between items-center">
 							<span class="text-xs font-bold text-slate-600">Decision Execution & Outcome Payload</span>
-							<button
-								type="button"
-								class="inline-flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-800"
-								onclick={() => copyToClipboard(outcomeData)}
-							>
-								{#if copied}
-									<Check class="h-3.5 w-3.5 text-green-600" /> Copied
-								{:else}
-									<Copy class="h-3.5 w-3.5" /> Copy JSON
-								{/if}
-							</button>
+							{#if outcomeData}
+								<button
+									type="button"
+									class="inline-flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-800"
+									onclick={() => copyToClipboard(outcomeData)}
+								>
+									{#if copied}
+										<Check class="h-3.5 w-3.5 text-green-600" /> Copied
+									{:else}
+										<Copy class="h-3.5 w-3.5" /> Copy JSON
+									{/if}
+								</button>
+							{/if}
 						</div>
-						<pre class="overflow-x-auto rounded-lg border border-slate-200 bg-slate-900 p-4 font-mono text-[11px] text-slate-200 leading-normal">{JSON.stringify(outcomeData, null, 2)}</pre>
+						{#if outcomeData}
+							<pre class="overflow-x-auto rounded-lg border border-slate-200 bg-slate-900 p-4 font-mono text-[11px] text-slate-200 leading-normal">{JSON.stringify(outcomeData, null, 2)}</pre>
+						{:else}
+							<div class="py-12 text-center italic text-gray-400">No outcome package recorded for this item.</div>
+						{/if}
 					</div>
 				{:else if activeTab === 'feedback'}
 					<!-- Feedback package JSON view -->
 					<div>
 						<div class="mb-3 flex justify-between items-center">
 							<span class="text-xs font-bold text-slate-600">User overrides & Feedback metadata</span>
-							<button
-								type="button"
-								class="inline-flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-800"
-								onclick={() => copyToClipboard(feedbackData)}
-							>
-								{#if copied}
-									<Check class="h-3.5 w-3.5 text-green-600" /> Copied
-								{:else}
-									<Copy class="h-3.5 w-3.5" /> Copy JSON
-								{/if}
-							</button>
+							{#if feedbackData}
+								<button
+									type="button"
+									class="inline-flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-800"
+									onclick={() => copyToClipboard(feedbackData)}
+								>
+									{#if copied}
+										<Check class="h-3.5 w-3.5 text-green-600" /> Copied
+									{:else}
+										<Copy class="h-3.5 w-3.5" /> Copy JSON
+									{/if}
+								</button>
+							{/if}
 						</div>
-						<pre class="overflow-x-auto rounded-lg border border-slate-200 bg-slate-900 p-4 font-mono text-[11px] text-slate-200 leading-normal">{JSON.stringify(feedbackData, null, 2)}</pre>
+						{#if feedbackData}
+							<pre class="overflow-x-auto rounded-lg border border-slate-200 bg-slate-900 p-4 font-mono text-[11px] text-slate-200 leading-normal">{JSON.stringify(feedbackData, null, 2)}</pre>
+						{:else}
+							<div class="py-12 text-center italic text-gray-400">No feedback package recorded for this item.</div>
+						{/if}
 					</div>
 				{:else if activeTab === 'json'}
 					<!-- Full JSON telemetry package view -->

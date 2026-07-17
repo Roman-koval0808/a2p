@@ -1,6 +1,21 @@
 import { UnifiedPipeline, type PipelinePayload } from './pipeline/unified-pipeline';
 import { performAiExtraction } from './pipeline/ai-extraction';
+import { TELNYX_SIGNAL_RULES } from './pipeline/signal-rules';
 import { prisma } from '$lib/db';
+
+/**
+ * Derive signal metadata (name/bucket/priority) for the in-memory fallback from
+ * the canonical rule definitions, so the mock can't drift from signal-rules.ts.
+ */
+function signalMeta(signalRuleId: string) {
+	const rule = TELNYX_SIGNAL_RULES.find((r) => r.signal_rule_id === signalRuleId);
+	return {
+		name: rule?.signal_name ?? signalRuleId,
+		bucket: rule?.signal_bucket ?? 'Momentum',
+		priority: rule?.default_priority ?? 3,
+		signal_rule_id: signalRuleId
+	};
+}
 
 export class PipelineSimulator {
   static async run(payload: {
@@ -54,45 +69,30 @@ export class PipelineSimulator {
       const hasProblem = extraction.contains_problem;
 
       const signals = [];
-      let dominantSignal = null;
-      if (hasEmergency) {
-        dominantSignal = {
-          id: `sig_${Math.random().toString(36).substring(2, 9)}`,
-          name: 'EMERGENCY_SERVICE',
-          bucket: 'Risk',
-          priority: 1,
-          signal_rule_id: 'SIG-COMM-000',
-          status: 'candidate',
-          created_at: new Date().toISOString()
-        };
-        signals.push(dominantSignal);
-      } else if (hasProblem) {
-        dominantSignal = {
-          id: `sig_${Math.random().toString(36).substring(2, 9)}`,
-          name: 'SERVICE_COMPLAINT',
-          bucket: 'Bottleneck',
-          priority: 2,
-          signal_rule_id: 'SIG-COMM-006',
-          status: 'candidate',
-          created_at: new Date().toISOString()
-        };
-        signals.push(dominantSignal);
-      } else {
-        dominantSignal = {
-          id: `sig_${Math.random().toString(36).substring(2, 9)}`,
-          name: 'GENERAL_MESSAGE',
-          bucket: 'Momentum',
-          priority: 3,
-          signal_rule_id: 'SIG-COMM-007',
-          status: 'candidate',
-          created_at: new Date().toISOString()
-        };
-        signals.push(dominantSignal);
-      }
+      // Metadata is sourced from the canonical rules (signal-rules.ts) rather than
+      // hardcoded, so the fallback stays in sync with the real signal library.
+      const chosenRuleId = hasEmergency ? 'SIG-COMM-000' : hasProblem ? 'SIG-COMM-006' : 'SIG-COMM-007';
+      const meta = signalMeta(chosenRuleId);
+      const dominantSignal = {
+        id: `sig_${Math.random().toString(36).substring(2, 9)}`,
+        name: meta.name,
+        bucket: meta.bucket,
+        priority: meta.priority,
+        signal_rule_id: meta.signal_rule_id,
+        status: 'candidate',
+        created_at: new Date().toISOString()
+      };
+      signals.push(dominantSignal);
 
-      const actionId = hasEmergency ? 'ACT-A2P-002' : 'ACT-A2P-003';
-      const actionTitle = hasEmergency ? 'alert_business_owner' : 'log_a2p_interaction';
+      // Primary emergency action matches the seed mapping (SIG-COMM-000 → ACT-A2P-004).
+      const actionId = hasEmergency ? 'ACT-A2P-004' : 'ACT-A2P-003';
+      const actionTitle = hasEmergency ? 'create_emergency_dispatch_alert' : 'log_a2p_interaction';
       const executionMode = 'automatic';
+
+      // T0.4: signal metadata is derived from the canonical signal-rules.ts (no duplicated literals).
+      console.log(`🟠 [In-memory fallback] Signal ${meta.signal_rule_id} → ${meta.name}/${meta.bucket}/p${meta.priority} (sourced from signal-rules.ts)`);
+      // T0.2: fallback's primary action now matches the seed mapping for this signal.
+      console.log(`🟠 [In-memory fallback] Primary action for ${meta.signal_rule_id} = ${actionId} (matches seed SignalActionMapping)`);
 
       const executions = [
         {

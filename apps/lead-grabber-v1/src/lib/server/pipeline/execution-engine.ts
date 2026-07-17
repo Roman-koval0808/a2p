@@ -1,5 +1,6 @@
 import { prisma } from '$lib/db';
 import { generateReviewReplyDraft } from './ai-review-reply';
+import { KNOWN_EXECUTION_MODES } from './execution-modes';
 
 export interface ExecutionRecord {
 	execution_id: string;
@@ -50,7 +51,7 @@ export class ExecutionLog {
 	}
 }
 
-const KNOWN_MODES = ['approval_required', 'automatic', 'manual', 'observe_only'];
+const KNOWN_MODES = KNOWN_EXECUTION_MODES;
 const VALID_QUEUE_STATUSES = ['pending_approval', 'ready_for_execution', 'pending'];
 
 function isEmptyParams(params: any) {
@@ -376,6 +377,118 @@ async function executeAutomaticActions(
 				});
 
 				log.step('automatic_completed', `${rec.execution_id} ACT-A2P-002 completed. Sent SMS Alert to owner. Alert Text: "${smsText}"`, 'Automatic SMS alert sent successfully.');
+				results.push({
+					...rec,
+					execution_status: 'automatic_internal_action_completed',
+					generated_output: generatedOutput
+				});
+			} else if (rec.action_id === 'ACT-A2P-001') {
+				// REAL CRM lead write: upsert a Contact for this company from the event.
+				const customerName = params.customer_name || event?.authorName || null;
+				const phone = params.phone_number && params.phone_number !== 'Unknown' ? params.phone_number : null;
+				const intent = params.intent && params.intent !== 'Unknown' ? params.intent : null;
+
+				let contactId: string | null = null;
+				let crmStatus: string;
+				if (phone) {
+					const existing = await prisma.contact.findFirst({
+						where: { companyId: event.companyId, phone }
+					});
+					if (existing) {
+						contactId = existing.id;
+						crmStatus = 'existing_contact_matched';
+						if (!existing.name && customerName) {
+							await prisma.contact.update({ where: { id: existing.id }, data: { name: customerName } });
+						}
+					} else {
+						const createdContact = await prisma.contact.create({
+							data: {
+								companyId: event.companyId,
+								phone,
+								name: customerName,
+								contactType: 'phone',
+								notes: intent ? `Lead intent: ${intent}` : null
+							}
+						});
+						contactId = createdContact.id;
+						crmStatus = 'contact_created';
+					}
+				} else {
+					// No usable identifier — record a no-op rather than fabricating a junk contact.
+					crmStatus = 'skipped_no_identifier';
+				}
+
+				const generatedOutput = {
+					action: rec.action_id,
+					crm_status: crmStatus,
+					contact_id: contactId,
+					customer_name: customerName,
+					phone_number: phone,
+					intent,
+					posted_externally: false,
+					simulated: false
+				};
+
+				await prisma.pipelineExecution.update({
+					where: { id: rec.execution_row_id },
+					data: {
+						executionStatus: 'automatic_internal_action_completed',
+						generatedOutput: JSON.stringify(generatedOutput),
+						updatedAt: new Date()
+					}
+				});
+
+				await prisma.pipelineActionQueue.update({
+					where: { id: rec.action_queue_id },
+					data: { status: 'execution_completed', updatedAt: new Date() }
+				});
+
+				log.step('automatic_completed', `${rec.execution_id} ACT-A2P-001 completed. CRM: ${crmStatus}${contactId ? ` (${contactId})` : ''}.`, 'CRM lead upserted from event.');
+				results.push({
+					...rec,
+					execution_status: 'automatic_internal_action_completed',
+					generated_output: generatedOutput
+				});
+			} else if (rec.action_id === 'ACT-A2P-004') {
+				// REAL emergency dispatch: create a high-priority internal dispatch task.
+				// The owner SMS is handled by ACT-A2P-002 (secondary), so this does not double-text.
+				const customerName = params.customer_name || event?.authorName || 'Valued Customer';
+				const aiSummary = params.ai_summary || event?.enrichments?.[0]?.aiSummary || 'No summary available.';
+				const emergencyType = params.emergency_type || 'general_emergency';
+
+				const dispatchTask = await prisma.task.create({
+					data: {
+						companyId: event.companyId,
+						title: `🚨 Emergency dispatch: ${emergencyType} — ${customerName}`,
+						description: aiSummary
+					}
+				});
+
+				const generatedOutput = {
+					action: rec.action_id,
+					emergency_type: emergencyType,
+					dispatch_task_id: dispatchTask.id,
+					customer_name: customerName,
+					posted_externally: false,
+					simulated: false,
+					dispatched_at: new Date().toISOString()
+				};
+
+				await prisma.pipelineExecution.update({
+					where: { id: rec.execution_row_id },
+					data: {
+						executionStatus: 'automatic_internal_action_completed',
+						generatedOutput: JSON.stringify(generatedOutput),
+						updatedAt: new Date()
+					}
+				});
+
+				await prisma.pipelineActionQueue.update({
+					where: { id: rec.action_queue_id },
+					data: { status: 'execution_completed', updatedAt: new Date() }
+				});
+
+				log.step('automatic_completed', `${rec.execution_id} ACT-A2P-004 completed. Emergency dispatch task ${dispatchTask.id} created (${emergencyType}).`, 'Emergency dispatch task created.');
 				results.push({
 					...rec,
 					execution_status: 'automatic_internal_action_completed',

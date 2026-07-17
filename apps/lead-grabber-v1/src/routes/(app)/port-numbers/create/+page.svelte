@@ -324,7 +324,7 @@
 										</label>
 										<input
 											type="text"
-											bind:value={orderFormData.end_user_name}
+											bind:value={orderFormData.authorized_person_name}
 											class="h-[33px] w-full rounded-[2px] border border-[#808080] bg-[#FCFDFF] px-3 font-['Poppins'] text-[15px] font-normal leading-[18px] text-[rgba(128,128,128,0.33)] outline-none placeholder:text-[rgba(128,128,128,0.33)]"
 										/>
 									</div>
@@ -337,7 +337,7 @@
 										</label>
 										<input
 											type="text"
-											bind:value={orderFormData.end_user_name}
+											bind:value={orderFormData.account_number}
 											class="h-[33px] w-full rounded-[2px] border border-[#808080] bg-[#FCFDFF] px-3 font-['Poppins'] text-[15px] font-normal leading-[18px] text-[rgba(128,128,128,0.33)] outline-none placeholder:text-[rgba(128,128,128,0.33)]"
 										/>
 									</div>
@@ -350,7 +350,7 @@
 										</label>
 										<input
 											type="text"
-											bind:value={orderFormData.end_user_name}
+											bind:value={orderFormData.billing_telephone_number}
 											class="h-[33px] w-full rounded-[2px] border border-[#808080] bg-[#FCFDFF] px-3 font-['Poppins'] text-[15px] font-normal leading-[18px] text-[rgba(128,128,128,0.33)] outline-none placeholder:text-[rgba(128,128,128,0.33)]"
 										/>
 									</div>
@@ -363,7 +363,7 @@
 										</label>
 										<input
 											type="text"
-											bind:value={orderFormData.end_user_name}
+											bind:value={orderFormData.customer_reference}
 											class="h-[33px] w-full rounded-[2px] border border-[#808080] bg-[#FCFDFF] px-3 font-['Poppins'] text-[15px] font-normal leading-[18px] text-[rgba(128,128,128,0.33)] outline-none placeholder:text-[rgba(128,128,128,0.33)]"
 										/>
 									</div>
@@ -376,7 +376,7 @@
 										</label>
 										<input
 											type="text"
-											bind:value={orderFormData.end_user_name}
+											bind:value={orderFormData.pin_passcode}
 											class="h-[33px] w-full rounded-[2px] border border-[#808080] bg-[#FCFDFF] px-3 font-['Poppins'] text-[15px] font-normal leading-[18px] text-[rgba(128,128,128,0.33)] outline-none placeholder:text-[rgba(128,128,128,0.33)]"
 										/>
 									</div>
@@ -389,7 +389,7 @@
 										</label>
 										<input
 											type="text"
-											bind:value={orderFormData.end_user_name}
+											bind:value={orderFormData.customer_group_reference}
 											class="h-[33px] w-full rounded-[2px] border border-[#808080] bg-[#FCFDFF] px-3 font-['Poppins'] text-[15px] font-normal leading-[18px] text-[rgba(128,128,128,0.33)] outline-none placeholder:text-[rgba(128,128,128,0.33)]"
 										/>
 									</div>
@@ -463,6 +463,7 @@
 										</label>
 										<input
 											type="text"
+											bind:value={orderFormData.service_address.street_name}
 											placeholder="Enter a location"
 											class="h-[33px] w-full rounded-[2px] border border-[#808080] bg-[#FCFDFF] px-3 font-['Poppins'] text-[15px] font-normal leading-[18px] text-[rgba(128,128,128,0.33)] outline-none placeholder:text-[rgba(128,128,128,0.33)]"
 										/>
@@ -475,6 +476,7 @@
 										</label>
 										<input
 											type="text"
+											bind:value={orderFormData.service_address.city}
 											placeholder="Enter a location"
 											class="h-[33px] w-full rounded-[2px] border border-[#808080] bg-[#FCFDFF] px-3 font-['Poppins'] text-[15px] font-normal leading-[18px] text-[rgba(128,128,128,0.33)] outline-none placeholder:text-[rgba(128,128,128,0.33)]"
 										/>
@@ -487,6 +489,7 @@
 										</label>
 										<input
 											type="text"
+											bind:value={orderFormData.service_address.state}
 											placeholder="Enter a location"
 											class="h-[33px] w-full rounded-[2px] border border-[#808080] bg-[#FCFDFF] px-3 font-['Poppins'] text-[15px] font-normal leading-[18px] text-[rgba(128,128,128,0.33)] outline-none placeholder:text-[rgba(128,128,128,0.33)]"
 										/>
@@ -499,6 +502,7 @@
 										</label>
 										<input
 											type="text"
+											bind:value={orderFormData.service_address.postal_code}
 											placeholder="Enter a location"
 											class="h-[33px] w-full rounded-[2px] border border-[#808080] bg-[#FCFDFF] px-3 font-['Poppins'] text-[15px] font-normal leading-[18px] text-[rgba(128,128,128,0.33)] outline-none placeholder:text-[rgba(128,128,128,0.33)]"
 										/>
@@ -511,6 +515,7 @@
 										</label>
 										<input
 											type="text"
+											bind:value={orderFormData.service_address.country_code}
 											placeholder="Enter a location"
 											class="h-[33px] w-full rounded-[2px] border border-[#808080] bg-[#FCFDFF] px-3 font-['Poppins'] text-[15px] font-normal leading-[18px] text-[rgba(128,128,128,0.33)] outline-none placeholder:text-[rgba(128,128,128,0.33)]"
 										/>

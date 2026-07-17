@@ -2,7 +2,11 @@
 	import { createBubbler, stopPropagation } from 'svelte/legacy';
 
 	const bubble = createBubbler();
-	// Static data for demonstration
+
+	import type { PageData } from './$types';
+
+	let { data }: { data: PageData } = $props();
+
 	const filters = [
 		{ label: 'All', key: 'all' },
 		{ label: 'Email', key: 'email' },
@@ -15,118 +19,8 @@
 	let selectedFilter = $state('all');
 	let search = $state('');
 
-	const rows = [
-		{
-			date: '06-01, 09:33PM',
-			type: 'email',
-			direction: 'Out',
-			source: 'markdoe@clear..',
-			endpoint: 'Sarah Lee',
-			ext: '',
-			company: 'Greenbuild Inc.',
-			disposition: 'Delivered'
-		},
-		{
-			date: '06-01, 09:30PM',
-			type: 'voice',
-			direction: 'In',
-			source: 'Sarah Lee',
-			endpoint: 'Mark Doe',
-			ext: '',
-			company: 'Sarah Cell',
-			disposition: 'Connect'
-		},
-		{
-			date: '06-02, 11:10PM',
-			type: 'email',
-			direction: 'Out',
-			source: '(416) 555-1199',
-			endpoint: 'AI Agent',
-			ext: '',
-			company: '',
-			disposition: 'Msg After Hours'
-		},
-		{
-			date: '06-05, 12:16AM',
-			type: 'sms',
-			direction: 'In',
-			source: 'Emily Cruz',
-			endpoint: 'AI Agent',
-			ext: '',
-			company: '',
-			disposition: 'Msg & Route'
-		},
-		{
-			date: '06-09, 02:19PM',
-			type: 'voice',
-			direction: 'In',
-			source: 'Daniel Kwan',
-			endpoint: 'AI Agent',
-			ext: '',
-			company: 'PureBuild Inc.',
-			disposition: 'AI Resolved'
-		},
-		{
-			date: '06-11, 09:25AM',
-			type: 'voice',
-			direction: 'In',
-			source: 'Carla Santos',
-			endpoint: 'Bobby deck',
-			ext: '',
-			company: 'EcoHomes Ltd.',
-			disposition: 'Transfer + VM'
-		},
-		{
-			date: '06-13, 08:46PM',
-			type: 'voice',
-			direction: 'In',
-			source: 'Patrick Lee',
-			endpoint: 'Lisa Reyes',
-			ext: '',
-			company: 'NovaConstruct',
-			disposition: 'Avail Agent + VM'
-		},
-		{
-			date: '06-16, 10:54PM',
-			type: 'voice',
-			direction: 'In',
-			source: 'Rory Chavez',
-			endpoint: 'Tom Sy / Cell',
-			ext: '',
-			company: 'BuildCore Ltd.',
-			disposition: 'Agent + Cell Fwd'
-		},
-		{
-			date: '06-21, 07:37PM',
-			type: 'voice',
-			direction: 'In',
-			source: '(587) 444-8899',
-			endpoint: 'AI Agent',
-			ext: '',
-			company: '',
-			disposition: 'Hung Up'
-		},
-		{
-			date: '06-01, 09:30PM',
-			type: 'email',
-			direction: 'Out',
-			source: 'markdoe@clear..',
-			endpoint: 'Sarah Lee',
-			ext: '',
-			company: 'Greenbuild Inc.',
-			disposition: 'Delivered'
-		},
-		{
-			date: '06-01, 09:30PM',
-			type: 'facebook',
-			direction: 'Out',
-			source: 'You',
-			endpoint: 'Joe Swanson',
-			ext: '',
-			company: '',
-			disposition: 'Delivered'
-		}
-	];
+	// Real communication logs for the current company, loaded server-side.
+	const rows = $derived(data.rows ?? []);
 
 	import {
 		Mail,
@@ -140,7 +34,7 @@
 		Mic
 	} from 'lucide-svelte';
 
-	const iconMap = {
+	const iconMap: Record<string, typeof Mail> = {
 		email: Mail,
 		sms: MessageSquare,
 		voice: Phone,
@@ -165,28 +59,9 @@
 				row.disposition.toLowerCase().includes(search.toLowerCase()))
 	));
 
-	let selectedLog: (typeof rows)[0] | null = $state(null);
+	let selectedLog: (typeof rows)[number] | null = $state(null);
 
-	// Example summary data for demonstration
-	const summaryData = {
-		commId: '001234',
-		category: 'Sales',
-		subCategory: 'Book/Demo',
-		date: '06-01-25',
-		time: '02:12:03',
-		email: 'sarahlee@gmail.com',
-		subject: 'Demo Link and Appointment time',
-		body: `Hello Sarah,
-As per our conversation see demo link and as we discuss i book a appointment at 10am at the office.
-
-https://demolink1344/csag.com
-
-Looking forward to see you
-if you have any question just five me a shout`,
-		task: 'AI has to update the CRM & Engagement Score'
-	};
-
-	function openSummary(log) {
+	function openSummary(log: (typeof rows)[number]) {
 		selectedLog = log;
 	}
 	function closeSummary() {
@@ -245,6 +120,13 @@ if you have any question just five me a shout`,
 			</tr>
 		</thead>
 		<tbody>
+			{#if filteredRows.length === 0}
+				<tr class="bg-white">
+					<td class="px-2 py-8 text-center text-[#8a8fa7]" colspan="7">
+						No communications to show yet.
+					</td>
+				</tr>
+			{/if}
 			{#each filteredRows as row}
 				<tr
 					class="cursor-pointer border-b border-[#e7eaf6] bg-white transition last:border-b-0 hover:bg-[#f0f2f8]"
@@ -293,48 +175,45 @@ if you have any question just five me a shout`,
 				<div>
 					<div class="text-sm font-semibold text-[#8a8fa7]">AI Summary:</div>
 					<div class="mt-1 text-xs text-[#8a8fa7]">
-						{summaryData.date} | <span class="font-mono">{summaryData.time}</span>
+						{selectedLog.date} | <span class="font-mono">{selectedLog.time}</span>
 					</div>
 				</div>
 				<div class="text-right">
-					<div class="text-xs font-semibold text-[#8a8fa7]">Comm ID - {summaryData.commId}</div>
+					<div class="text-xs font-semibold text-[#8a8fa7]">Comm ID - {selectedLog.commId}</div>
 					<div class="text-xs">
 						<span class="font-semibold text-[#8a8fa7]">Category:</span>
-						<span class="text-gray-700">{summaryData.category}</span>
+						<span class="text-gray-700">{selectedLog.category}</span>
 					</div>
 					<div class="text-xs">
 						<span class="font-semibold text-[#8a8fa7]">Sub-Category:</span>
-						<span class="text-gray-700">{summaryData.subCategory}</span>
+						<span class="text-gray-700">{selectedLog.subCategory}</span>
 					</div>
 				</div>
 			</div>
 			<div class="mb-1 mt-2 font-semibold text-[#8a8fa7]">Summary:</div>
 			<div class="mb-3 rounded-md bg-[#f4f6fb] p-4 text-sm">
 				<div>
-					<span class="font-semibold text-[#8a8fa7]">Email Address:</span>
-					<span class="font-mono">{summaryData.email}</span>
+					<span class="font-semibold text-[#8a8fa7]">
+						{selectedLog.type === 'email' ? 'Email Address:' : 'Source:'}
+					</span>
+					<span class="font-mono">{selectedLog.email || '—'}</span>
 				</div>
 				<div>
 					<span class="font-semibold text-[#8a8fa7]">Subject Line:</span>
-					<span class="font-semibold">{summaryData.subject}</span>
+					<span class="font-semibold">{selectedLog.subject}</span>
 				</div>
 				<div><span class="font-semibold text-[#8a8fa7]">Body:</span></div>
 				<div class="mt-2 whitespace-pre-line rounded bg-white p-3">
-					Hello Sarah,<br />
-					As per our conversation see demo link and as we discuss i book a appointment at 10am at the
-					office.<br /><br />
-					<a
-						href="https://demolink1344/csag.com"
-						class="break-all text-purple-600 underline"
-						target="_blank">https://demolink1344/csag.com</a
-					><br /><br />
-					Looking forward to see you<br />
-					if you have any question just five me a shout
+					{#if selectedLog.body}
+						{selectedLog.body}
+					{:else}
+						<span class="text-[#8a8fa7]">No message content available.</span>
+					{/if}
 				</div>
 			</div>
 			<div class="mt-2 text-sm">
 				<span class="font-semibold text-[#8a8fa7]">Task:</span>
-				<span class="font-semibold">AI has to update the CRM & Engagement Score</span>
+				<span class="font-semibold">{selectedLog.task || 'No follow-up task recorded.'}</span>
 			</div>
 		</div>
 	</div>
