@@ -336,6 +336,30 @@
 			toast.error('Failed to confirm communication', { id: loadingId });
 		}
 	}
+
+	// Edit a pending draft (email/SMS content + subject) before approving/sending.
+	async function handleSaveDraft(content: string, subject: string) {
+		const id = selectedComm?.raw?.id || selectedComm?.id;
+		if (!id) return;
+		const loadingId = toast.loading('Saving draft…');
+		try {
+			const res = await fetch(`/api/communication-logs/${id}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ content, subject })
+			});
+			const result = await res.json();
+			if (result.success) {
+				toast.success('Draft updated — you can now confirm to send.', { id: loadingId });
+				await invalidateAll();
+			} else {
+				toast.error(result.error || 'Failed to save draft', { id: loadingId });
+			}
+		} catch (e) {
+			console.error(e);
+			toast.error('Failed to save draft', { id: loadingId });
+		}
+	}
 </script>
 
 <div class="flex w-full min-w-0 flex-col">
@@ -544,6 +568,8 @@
 		draftedMessage={selectedComm.raw?.draftResponse || selectedComm.raw?.payload?.draftResponse || selectedComm.raw?.payload?.draft_reply || null}
 		department={capLabel(meta.ivr_intent, meta.message_category) || null}
 		{ivrPath}
+		editable={selectedComm.raw?.status === 'pending_approval'}
+		onSaveDraft={handleSaveDraft}
 	/>
 {/if}
 

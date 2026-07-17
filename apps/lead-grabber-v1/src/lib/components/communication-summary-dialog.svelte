@@ -22,6 +22,9 @@
 		department?: string | null;
 		/** For voice: the IVR path, e.g. "Called …5691 · Pressed 3 (Support) · Voicemail left" */
 		ivrPath?: string | null;
+		/** When true (pending approval), the draft's subject/body can be edited before sending. */
+		editable?: boolean;
+		onSaveDraft?: (content: string, subject: string) => void | Promise<void>;
 	}
 
 	let {
@@ -41,8 +44,34 @@
 		estimatedPrice = null,
 		draftedMessage = null,
 		department = null,
-		ivrPath = null
+		ivrPath = null,
+		editable = false,
+		onSaveDraft
 	}: Props = $props();
+
+	// Edit-before-approve state. Seeded from the draft each time the dialog opens.
+	let editSubject = $state('');
+	let editBody = $state('');
+	let saving = $state(false);
+	let seededFor = $state('');
+	$effect(() => {
+		if (open && editable && seededFor !== commId) {
+			editSubject = subject || '';
+			editBody = draftedMessage || body || '';
+			seededFor = commId;
+		}
+		if (!open) seededFor = '';
+	});
+	async function saveDraft() {
+		if (!onSaveDraft) return;
+		saving = true;
+		try {
+			await onSaveDraft(editBody, editSubject);
+		} finally {
+			saving = false;
+		}
+	}
+	const isEmail = () => (sourceLabel || '').toLowerCase().includes('email');
 </script>
 
 <Dialog.Root bind:open>
@@ -219,6 +248,31 @@
 					</div>
 				</div>
 			</div>
+
+			{#if editable}
+				<div class="mt-3 flex flex-shrink-0 flex-col gap-2 rounded border border-amber-200 bg-amber-50/50 p-3">
+					<span class="text-[13px] font-semibold text-amber-800">Edit before approving</span>
+					{#if isEmail()}
+						<input
+							bind:value={editSubject}
+							placeholder="Subject"
+							class="rounded border border-gray-300 px-2 py-1 text-[14px]"
+						/>
+					{/if}
+					<textarea
+						bind:value={editBody}
+						rows="4"
+						class="rounded border border-gray-300 px-2 py-1 text-[14px]"
+					></textarea>
+					<button
+						onclick={saveDraft}
+						disabled={saving}
+						class="self-start rounded bg-amber-600 px-3 py-1.5 text-[13px] font-semibold text-white transition-colors hover:bg-amber-700 disabled:opacity-50"
+					>
+						{saving ? 'Saving…' : 'Save changes'}
+					</button>
+				</div>
+			{/if}
 
 			<!-- Footer: Close Button -->
 			<div class="mt-4 flex flex-shrink-0 justify-end">
