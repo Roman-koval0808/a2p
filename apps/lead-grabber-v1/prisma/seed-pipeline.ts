@@ -151,6 +151,53 @@ async function main() {
 			defaultExecutionMode: 'approval_required',
 			defaultOwner: 'consultant',
 			requiredParams: ['customer_name', 'phone_number']
+		},
+		// Epic 6 — job fulfillment (internal logging, automatic)
+		{
+			actionId: 'ACT-A2P-008',
+			name: 'log_job_completed',
+			domain: 'A2P',
+			isPublicFacing: false,
+			defaultExecutionMode: 'automatic',
+			defaultOwner: 'system',
+			requiredParams: ['transaction_id']
+		},
+		{
+			actionId: 'ACT-A2P-009',
+			name: 'log_transaction_update',
+			domain: 'A2P',
+			isPublicFacing: false,
+			defaultExecutionMode: 'automatic',
+			defaultOwner: 'system',
+			requiredParams: ['transaction_id']
+		},
+		// Epic 7 — post-job growth (customer-facing, approval, Sarah's queue)
+		{
+			actionId: 'ACT-REV-008',
+			name: 'send_review_request',
+			domain: 'REV',
+			isPublicFacing: true,
+			defaultExecutionMode: 'approval_required',
+			defaultOwner: 'consultant',
+			requiredParams: ['customer_name', 'phone_number', 'gbp_link']
+		},
+		{
+			actionId: 'ACT-REV-009',
+			name: 'send_referral_request',
+			domain: 'REV',
+			isPublicFacing: true,
+			defaultExecutionMode: 'approval_required',
+			defaultOwner: 'consultant',
+			requiredParams: ['customer_name', 'phone_number']
+		},
+		{
+			actionId: 'ACT-COM-004',
+			name: 'post_job_checkin',
+			domain: 'COM',
+			isPublicFacing: true,
+			defaultExecutionMode: 'approval_required',
+			defaultOwner: 'consultant',
+			requiredParams: ['customer_name', 'phone_number']
 		}
 	];
 

@@ -1133,3 +1133,66 @@ model SmsConsent {
   @@index([companyId, phone])
   @@map("sms_consents")
 }
+
+// Sales order / job transaction with open→closed lifecycle (Epic 6, tracker #40).
+// FK-less companyId/contactId to avoid back-relations on Company/Contact.
+model Transaction {
+  id             String    @id @default(cuid())
+  companyId      String
+  contactId      String?
+  status         String    @default("open") // open | closed
+  service        String? // service_requested
+  totalAmount    Float?
+  depositAmount  Float? // T6.2
+  balanceAmount  Float?
+  jobCompletedAt DateTime? // T6.3
+  invoiceSentAt  DateTime? // T6.4
+  paidAt         DateTime? // T6.4
+  threadId       String? // ties the status messages (order/arrival/reminder) together
+  created        DateTime  @default(now())
+  updated        DateTime  @updatedAt
+
+  @@index([companyId])
+  @@index([contactId])
+  @@map("transactions")
+}
+
+// Persisted appointment record (Epic 5, T5.1). Booking still lives in Google
+// Calendar; this row links a calendar event to a customer + transaction.
+model Appointment {
+  id               String    @id @default(cuid())
+  companyId        String
+  contactId        String?
+  representativeId String?
+  calendarEventId  String? // Google Calendar event id
+  transactionId    String?
+  startTime        DateTime
+  endTime          DateTime?
+  status           String    @default("booked") // booked | completed | cancelled | rescheduled
+  source           String? // transcript_commitment | self_service | rep_manual
+  created          DateTime  @default(now())
+  updated          DateTime  @updatedAt
+
+  @@index([companyId])
+  @@index([contactId])
+  @@index([startTime])
+  @@map("appointments")
+}
+
+// Cohort 2 trajectory write on job close (Epic 7, T7.5). Aggregate/anonymized
+// model the orchestrator queries to recognize patterns in future customers.
+model Cohort2Trajectory {
+  id               String   @id @default(cuid())
+  companyId        String
+  contactId        String?
+  bucketHistory    Json?
+  scorePath        Json?
+  tierProgression  Json?
+  personaBand      String?
+  channelSequence  Json?
+  bookedJobOutcome String?
+  closedAt         DateTime @default(now())
+
+  @@index([companyId])
+  @@map("cohort2_trajectories")
+}

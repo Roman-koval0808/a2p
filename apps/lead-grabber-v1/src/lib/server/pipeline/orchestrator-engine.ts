@@ -491,7 +491,19 @@ export class OrchestratorEngine {
 		return normalizeExecutionMode(action.defaultExecutionMode);
 	}
 
+	// T8.1: pricing/financial content is originated by the business owner (Bert),
+	// not the consultant (Sarah). Actions that merely relay an already-set figure
+	// aren't financially-named, so they still route to the consultant.
+	private static isFinancialAction(action: any): boolean {
+		if (action?.isFinancial === true) return true;
+		const name = (action?.name || '').toLowerCase();
+		return /quote|pricing|price|invoice|transaction|deposit|balance|estimate/.test(name);
+	}
+
 	private static resolveOwner(action: any, rules: any[], signalRuleId: string, consultant: any, profile: any): string {
+		// T8.1: financial/pricing origination goes to the business owner.
+		if (this.isFinancialAction(action)) return 'business_owner';
+
 		// 1. Client rule override
 		for (const rule of rules) {
 			if (rule.signalRuleId === signalRuleId && rule.owner && rule.scope === 'client') {

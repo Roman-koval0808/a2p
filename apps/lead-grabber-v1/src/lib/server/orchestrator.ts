@@ -14,6 +14,7 @@ import {
 	type RescheduleResult
 } from './google-calendar';
 import { ANTHROPIC_AI_KEY } from '$env/static/private';
+import { isInternalCaller } from '$lib/server/internal-call-guard';
 
 export async function process_orchestrator(commId: string, trigger: string) {
 	console.log(`[Orchestrator] Processing commId: ${commId} with trigger: ${trigger}`);
@@ -62,6 +63,13 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 	// Wait, is it inbound?
 	if (commLog.direction !== 'inbound') {
+		return;
+	}
+
+	// T4.4: skip operational/internal calls (e.g. the owner leaving himself a voicemail on
+	// a company line) — classifying them as customer contacts would score a false emergency.
+	if (commLog.companyId && commLog.source && (await isInternalCaller(commLog.companyId, commLog.source))) {
+		console.log('[Orchestrator] Internal/operational caller — skipping customer classification.');
 		return;
 	}
 
