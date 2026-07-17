@@ -355,7 +355,18 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// If this caller has prior cross-channel history (past calls OR SMS), make the reply
 	// conversational and context-aware — carrying the earlier thread into this new call —
 	// instead of the first-touch scenario template above. (Emergencies keep the urgent template.)
-	if (draftedResponse && messageCategory !== 'emergency') {
+	// Action items for the rep — the AI's suggestions plus scenario-specific tasks; never empty.
+	const tasks: string[] = Array.isArray(aiIntent?.action_items) ? [...aiIntent.action_items] : [];
+	if (messageCategory === 'billing') tasks.push(`Review & send the account balance to ${customer.name || 'the customer'}`);
+	if (proposedAppointment) tasks.push('Approve the proposed appointment time');
+	if (metadata.appointment_booked) tasks.push('Confirm the booked appointment with the assigned rep');
+	if (aiIntent?.wants_callback) tasks.push(`Call ${customer.name || 'the customer'} back`);
+	if (!tasks.length) tasks.push(`Review and follow up with ${customer.name || 'the customer'}`);
+	metadata.actionItems = Array.from(new Set(tasks));
+
+	// Don't let the conversational/agentic reply override a scenario-specific draft: the billing
+	// balance draft/email and the sales appointment proposal must survive as-is.
+	if (draftedResponse && messageCategory !== 'emergency' && messageCategory !== 'billing' && !proposedAppointment) {
 		try {
 			const last10 = (p: string | null | undefined) => (p || '').replace(/\D/g, '').slice(-10);
 			const callerDigits = last10(commLog.source);
@@ -439,7 +450,11 @@ export async function process_orchestrator(commId: string, trigger: string) {
 							history,
 							bookingUrl: bookingLink,
 							connected: gconn.connected,
-							knownBalance: customer.accountBalance,
+							knownBalance: await resolveBalanceByPhone(
+								company.id,
+								customer.phone || commLog.source,
+								customer.accountBalance
+							),
 							apiKey: ANTHROPIC_AI_KEY
 						});
 					} catch (agErr) {

@@ -233,13 +233,13 @@
 					<!-- Separator Line -->
 					<div class="my-1 h-px w-full bg-[#979797]"></div>
 
-					<!-- Tasks to Complete -->
+					<!-- Tasks to Complete (always shown; falls back to a default task) -->
 					<div class="flex flex-col gap-2">
 						<span class="font-sans text-[15px] font-semibold leading-[141%] text-[#797979]">
 							Tasks to complete
 						</span>
 						<ul class="flex list-inside list-disc flex-col gap-1">
-							{#each tasks as task}
+							{#each tasks && tasks.length ? tasks : ['Review this communication and follow up with the customer.'] as task}
 								<li class="font-sans text-xs font-normal leading-[141%] text-[#7B7B7B]">
 									{task}
 								</li>

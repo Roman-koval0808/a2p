@@ -39,9 +39,10 @@
 	// First non-empty candidate, capitalized. Used so the summary dialog always shows a meaningful
 	// Category / Sub-Category instead of a blank.
 	function capLabel(...vals: any[]): string {
+		const skip = new Set(['', 'unknown', '<unknown>', 'n/a', 'none', 'null', 'undefined']);
 		for (const v of vals) {
 			const s = (v ?? '').toString().trim();
-			if (s) return s.charAt(0).toUpperCase() + s.slice(1);
+			if (s && !skip.has(s.toLowerCase())) return s.charAt(0).toUpperCase() + s.slice(1);
 		}
 		return '';
 	}
