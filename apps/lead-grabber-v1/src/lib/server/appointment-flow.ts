@@ -32,7 +32,11 @@ export async function proposeAppointment(
 	if (requestedISO) {
 		const end = new Date(new Date(requestedISO).getTime() + durationMin * 60000).toISOString();
 		requestedFree = await isTimeFree(companyId, requestedISO, end);
-		if (requestedFree === true) {
+		// Honor the time the customer actually asked for unless it's DEFINITIVELY taken.
+		// isTimeFree returns null when we can't check (calendar disconnected / freeBusy API
+		// error) — in that case we must NOT silently propose some other earlier slot; we
+		// propose the requested time and let them confirm (the team sees it before it's sent).
+		if (requestedFree !== false) {
 			return {
 				requestedFree,
 				proposal: {
@@ -44,7 +48,7 @@ export async function proposeAppointment(
 			};
 		}
 	}
-	// Requested time is taken/unavailable (or none given) → next open slot.
+	// Requested time is definitively taken → next open slot.
 	const days = await getAvailableSlots(companyId, { days: 14, durationMin });
 	for (const day of days) {
 		if (day.slots?.length) {
@@ -104,13 +108,20 @@ export async function bookProposedAppointment(opts: {
 }): Promise<{ booked: boolean; calendarEventId: string | null; appointmentId: string; message: string }> {
 	const { companyId, contactId, phone, proposal } = opts;
 	const summary = `Appointment — ${opts.contactName?.trim() || phone}`;
-	const event = await createEvent(companyId, {
-		summary,
-		startISO: proposal.proposedStartISO,
-		endISO: proposal.proposedEndISO,
-		phone,
-		addMeet: false
-	});
+	// A calendar outage (freeBusy/insert 4xx, disconnected) must NOT block the booking: we still
+	// record the Appointment and confirm to the customer, then reps can sync the calendar manually.
+	let event: { eventId: string } | null = null;
+	try {
+		event = await createEvent(companyId, {
+			summary,
+			startISO: proposal.proposedStartISO,
+			endISO: proposal.proposedEndISO,
+			phone,
+			addMeet: false
+		});
+	} catch (e: any) {
+		console.error('[appointment-flow] createEvent failed; booking without calendar sync:', e?.message || e);
+	}
 	const appt = await prisma.appointment.create({
 		data: {
 			companyId,
