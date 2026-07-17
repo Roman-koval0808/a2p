@@ -2,7 +2,7 @@ import { prisma } from '$lib/db';
 import { logCommunication } from '$lib/utils/communication-log';
 import { toE164 } from '$lib/company-numbers';
 import { classifyMessageIntent, bucketToCategory } from './message-intent';
-import { checkCalendarAvailability, formatDatetime, describeLocations, describeDayHours } from './calendar';
+import { checkCalendarAvailability, formatDatetime, describeLocations, describeDayHours, resolveNamedDays } from './calendar';
 import { getBookingUrl, bookingLinkWith } from '$lib/utils/booking';
 import { resolveBalanceByPhone } from './balance';
 import {
@@ -116,6 +116,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		metadata.line_type = lt.lineType;
 		metadata.carrier = lt.carrier;
 		metadata.weather = weather;
+		olog(
+			`[Orchestrator] Enrichment -> day ${day}; geo ${geo?.areaCode ?? '?'}/${geo?.location ?? '?'}; line ${lt.lineType}${lt.carrier ? ' (' + lt.carrier + ')' : ''}; weather ${weather ? `${weather.tempF}°F ${weather.description}` : 'n/a'}.`
+		);
 		Object.assign(callerContext, {
 			ivr_digit: digit ?? null,
 			ivr_department: intent ?? null,
@@ -140,8 +143,10 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		messageCategory = bucketToCategory(aiIntent);
 		metadata.ai_intent = aiIntent;
 		olog(
-			`[Orchestrator] AI intent: ${aiIntent.intent_bucket} (urgency ${aiIntent.urgency}, appt ${aiIntent.wants_appointment}, conf ${aiIntent.confidence}) -> ${messageCategory}`
+			`[Orchestrator] AI intent: ${aiIntent.intent_bucket} (urgency ${aiIntent.urgency}, appt ${aiIntent.wants_appointment}, balance ${aiIntent.wants_balance}, callback ${aiIntent.wants_callback}, conf ${aiIntent.confidence}) -> ${messageCategory}`
 		);
+		if (aiIntent.reason) olog(`[Orchestrator] AI reason: ${aiIntent.reason}`);
+		if (aiIntent.needs_human_review) olog('[Orchestrator] AI flagged this for human review (low confidence / ambiguous).');
 	} else {
 		// Classification unavailable (empty message or AI error): route to a human, never guess.
 		messageCategory = 'support';
@@ -229,6 +234,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	let draftChannel: 'sms' | 'email' = 'sms';
 	let emailSubject = '';
 	let proposedAppointment: any = null;
+	let scenarioLocked = false; // a scenario produced a specific draft — don't let the conversational reply override it
 
 	olog(`[Orchestrator] Debug -> digit: "${digit}", intent: "${intent}", sub_intent: "${sub_intent}"`);
 
@@ -272,32 +278,53 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 	// --- SCENARIO 1: BILLING (only when the MESSAGE is actually about billing) ---
 	else if (messageCategory === 'billing') {
-		{
-			olog('[Orchestrator] Detected Scenario 1: Billing');
+		olog('[Orchestrator] Detected Scenario 1: Billing');
+		const balance = await resolveBalanceByPhone(
+			company.id,
+			customer.phone || commLog.source,
+			customer.accountBalance
+		);
+		olog(
+			`[Orchestrator] Balance resolved: ${
+				balance === null || balance === undefined ? 'none on file' : '$' + Number(balance).toFixed(2)
+			}.`
+		);
+		// Only STATE the balance when the customer actually asks for it (or asks to be emailed it).
+		// For other billing messages ("I'll come pay tomorrow"), fall through to a conversational ack
+		// instead of parroting the balance back.
+		const asksForBalance =
+			!!aiIntent?.wants_balance ||
+			wantsEmailedBalance(rawMessage) ||
+			/\b(balance|owe|owing|how much|statement|invoice)\b/i.test(rawMessage);
+		olog(
+			`[Orchestrator] Billing: customer ${
+				asksForBalance
+					? 'is asking for their balance'
+					: 'is not asking for the balance — replying conversationally'
+			}.`
+		);
 
-			// Match the balance to the SAME person by phone (the number they actually called from),
-			// covering a duplicate/older contact row or a different phone format. Never by name.
-			const balance = await resolveBalanceByPhone(
-				company.id,
-				customer.phone || commLog.source,
-				customer.accountBalance
-			);
-
-			if (balance !== null && balance !== undefined) {
-				// Scenario 1: if the caller asked us to EMAIL it and we have an email on file,
-				// draft an itemized balance EMAIL (approval-gated) instead of an SMS.
-				if (customer.email && wantsEmailedBalance(rawMessage)) {
-					const em = buildBalanceEmail({ customerName: customer.name, balance, companyName: company.name });
-					draftedResponse = em.htmlContent;
-					draftChannel = 'email';
-					emailSubject = em.subject;
-				} else {
-					draftedResponse = `You currently owe $${balance.toFixed(2)}, Thank you for your business have a nice day.`;
-				}
+		if (asksForBalance) {
+			if (balance === null || balance === undefined || balance === 0) {
+				// No balance on file / paid up — tell them, don't punt to "an agent will review".
+				olog('[Orchestrator] Billing: no outstanding balance — informing the customer.');
+				draftedResponse = `Hi ${customer.name || 'there'}, good news — you have no outstanding balance on your account. Thank you!`;
+				scenarioLocked = true;
+			} else if (customer.email && wantsEmailedBalance(rawMessage)) {
+				olog('[Orchestrator] Billing: emailing the balance statement.');
+				const em = buildBalanceEmail({ customerName: customer.name, balance, companyName: company.name });
+				draftedResponse = em.htmlContent;
+				draftChannel = 'email';
+				emailSubject = em.subject;
+				scenarioLocked = true;
 			} else {
-				draftedResponse = `Hi ${customer.name || 'there'}, we received your message regarding your account balance. An agent will review your account and reach out shortly.`;
+				olog('[Orchestrator] Billing: texting the outstanding balance.');
+				draftedResponse = `You currently owe $${balance.toFixed(2)}. Thank you for your business!`;
+				scenarioLocked = true;
 			}
 		}
+		// else: not a balance request — leave draftedResponse empty so the conversational reply
+		// below acknowledges it naturally ("Great, see you tomorrow!").
 	}
 
 	// --- SCENARIO 2: SALES / BOOKING (message is about sales/booking) ---
@@ -364,9 +391,11 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	if (!tasks.length) tasks.push(`Review and follow up with ${customer.name || 'the customer'}`);
 	metadata.actionItems = Array.from(new Set(tasks));
 
-	// Don't let the conversational/agentic reply override a scenario-specific draft: the billing
-	// balance draft/email and the sales appointment proposal must survive as-is.
-	if (draftedResponse && messageCategory !== 'emergency' && messageCategory !== 'billing' && !proposedAppointment) {
+	// Generate a conversational/agentic reply for anything that isn't a LOCKED scenario draft
+	// (emergency template, billing balance/email, or a sales appointment proposal). This also
+	// covers billing messages that aren't balance requests, e.g. "I'll come pay tomorrow".
+	if (messageCategory !== 'emergency' && !scenarioLocked && !proposedAppointment) {
+		olog('[Orchestrator] Generating a conversational reply (no locked scenario draft).');
 		try {
 			const last10 = (p: string | null | undefined) => (p || '').replace(/\D/g, '').slice(-10);
 			const callerDigits = last10(commLog.source);
@@ -409,7 +438,6 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					/\b(availab|what times|which times|what time.*(open|free|available)|when are you (open|free|available)|any (openings|slots|times)|free on|open on|slots? (on|for))\b/i.test(
 						rawMessage
 					);
-				const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
 				// Reply whenever this is a returning caller, an explicit support message, or a
 				// scheduling / account ask. The AI itself then decides which real data it needs.
@@ -473,7 +501,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						if (asksReschedule && gconn.connected) {
 							reschedule = await resolveReschedule(company.id, { message: rawMessage, ...ident });
 						} else if (asksAvailability) {
-							const named = dayNames.filter((d) => new RegExp(`\\b${d}\\b`, 'i').test(rawMessage));
+							// Resolve explicit weekdays AND relative words ("today"/"tomorrow") to concrete
+							// weekday names, so "what time do you open tomorrow?" gets tomorrow's exact hours.
+							const named = resolveNamedDays(rawMessage);
 							// Business-hours answer as a safety net (used when disconnected, or if the live
 							// lookup fails / returns nothing) so an availability question is never unanswered.
 							openHoursNote = describeDayHours(locations, named);
@@ -529,6 +559,12 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		} catch (e) {
 			oerr('[Orchestrator] Conversational override failed:', e);
 		}
+	}
+
+	// Safety net: never leave a non-emergency inbound without a drafted reply.
+	if (!draftedResponse && messageCategory !== 'emergency') {
+		olog('[Orchestrator] No draft produced upstream — using the generic follow-up safety net.');
+		draftedResponse = `Hi ${customer.name || 'there'}, thanks for reaching out to ${company.name || 'us'}. Someone from our team will follow up with you shortly.`;
 	}
 
 	// --- 3. Post-Processing: Thread Similarity Matching ---

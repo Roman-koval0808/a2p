@@ -11,6 +11,7 @@ import {
 	describeBusinessHours,
 	describeLocations,
 	describeDayHours,
+	resolveDayName,
 	formatDatetime
 } from './calendar';
 import { resolveBalanceByPhone } from './balance';
@@ -40,8 +41,6 @@ export interface AgenticReplyInput {
 	knownBalance?: number | null;
 	apiKey: string;
 }
-
-const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
 function last10(phone?: string | null): string | null {
 	const d = (phone || '').replace(/\D/g, '');
@@ -79,10 +78,22 @@ function buildSkills(input: AgenticReplyInput): ClaudeTool[] {
 		{
 			name: 'get_business_info',
 			description:
-				'Get this business\'s hours, location(s) and website. Use for "what are your hours", "where are you", "what is this business", "what do you do".',
-			input_schema: { type: 'object', properties: {} },
-			run: async () => {
-				const parts = [`Hours: ${describeBusinessHours(locations)}.`];
+				'Get this business\'s hours, location(s) and website. Use for "what are your hours", "where are you", "what is this business", "what do you do". If the customer asks about a specific day ("what time do you open tomorrow", "are you open Monday"), pass that day in `when` to get that exact day\'s hours instead of the whole week.',
+			input_schema: {
+				type: 'object',
+				properties: {
+					when: {
+						type: 'string',
+						description:
+							'The specific day the customer asked about: "today", "tonight", "tomorrow", or a weekday name like "monday". Omit for a general hours question.'
+					}
+				}
+			},
+			run: async ({ when }: { when?: string }) => {
+				// If they named a specific day (incl. "tomorrow"), give that day's exact hours.
+				const resolved = when ? resolveDayName(when) : null;
+				const dayHours = resolved ? describeDayHours(locations, [resolved]) : null;
+				const parts = [dayHours ? dayHours : `Hours: ${describeBusinessHours(locations)}.`];
 				const addr = describeLocations(locations);
 				if (addr) parts.push(`Location(s): ${addr}.`);
 				if (input.website) parts.push(`Website: ${input.website}.`);
@@ -170,12 +181,14 @@ function buildSkills(input: AgenticReplyInput): ClaudeTool[] {
 				properties: {
 					day: {
 						type: 'string',
-						description: 'Weekday name the customer asked about, lowercase (e.g. "monday"). Omit if none.'
+						description:
+							'The day the customer asked about: "today", "tonight", "tomorrow", or a weekday name like "monday". Omit if none.'
 					}
 				}
 			},
 			run: async ({ day }: { day?: string }) => {
-				const named = day && DAY_NAMES.includes(day.toLowerCase()) ? [day.toLowerCase()] : [];
+				const resolved = day ? resolveDayName(day) : null;
+				const named = resolved ? [resolved] : [];
 				if (connected) {
 					try {
 						const all = await getAvailableSlots(companyId, { locations, days: 14 });

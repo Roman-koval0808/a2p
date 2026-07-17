@@ -882,6 +882,7 @@
 				body={selectedSummary.raw?.content || selectedSummary.summary || ''}
 				summary={selectedSummary.summary ?? ''}
 				tasks={meta.actionItems ?? meta.tasks ?? []}
+				showTasks={selectedSummary.raw?.direction === 'inbound'}
 				{recordingUrl}
 				estimatedPrice={meta.estimatedPrice ?? null}
 				draftedMessage={selectedSummary.raw?.draftResponse || null}
