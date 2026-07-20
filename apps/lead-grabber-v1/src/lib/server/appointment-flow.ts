@@ -30,8 +30,13 @@ export async function proposeAppointment(
 ): Promise<{ requestedFree: boolean | null; proposal: Proposal | null }> {
 	let requestedFree: boolean | null = null;
 	if (requestedISO) {
-		const end = new Date(new Date(requestedISO).getTime() + durationMin * 60000).toISOString();
-		requestedFree = await isTimeFree(companyId, requestedISO, end);
+		// Start AND end must use the SAME naive wall-clock representation. If start stays naive
+		// (Google reads it in the calendar's timezone) while end is a UTC .toISOString() built
+		// with the server's clock, the two land in different timezones and Google rejects the
+		// insert as an empty/inverted range ("timeRangeEmpty"). Keep both naive → consistent.
+		const startNaive = naiveWallClock(requestedISO);
+		const endNaive = naiveWallClock(requestedISO, durationMin);
+		requestedFree = await isTimeFree(companyId, requestedISO, endNaive);
 		// Honor the time the customer actually asked for unless it's DEFINITIVELY taken.
 		// isTimeFree returns null when we can't check (calendar disconnected / freeBusy API
 		// error) — in that case we must NOT silently propose some other earlier slot; we
@@ -41,9 +46,9 @@ export async function proposeAppointment(
 				requestedFree,
 				proposal: {
 					requestedISO,
-					proposedStartISO: requestedISO,
-					proposedEndISO: end,
-					proposedLabel: labelFor(requestedISO)
+					proposedStartISO: startNaive,
+					proposedEndISO: endNaive,
+					proposedLabel: labelFor(startNaive)
 				}
 			};
 		}
@@ -52,20 +57,30 @@ export async function proposeAppointment(
 	const days = await getAvailableSlots(companyId, { days: 14, durationMin });
 	for (const day of days) {
 		if (day.slots?.length) {
-			const start = day.slots[0].value;
-			const end = new Date(new Date(start).getTime() + durationMin * 60000).toISOString();
+			const start = day.slots[0].value; // getAvailableSlots already emits naive wall-clock
 			return {
 				requestedFree,
 				proposal: {
 					requestedISO,
-					proposedStartISO: start,
-					proposedEndISO: end,
+					proposedStartISO: naiveWallClock(start),
+					proposedEndISO: naiveWallClock(start, durationMin),
 					proposedLabel: `${day.label} ${day.slots[0].label}`
 				}
 			};
 		}
 	}
 	return { requestedFree, proposal: null };
+}
+
+/**
+ * Return a NAIVE local wall-clock string ('YYYY-MM-DDTHH:mm:ss'), optionally shifted by minutes.
+ * Both ends of an appointment must share this representation so Google Calendar interprets them in
+ * the same (calendar) timezone — otherwise a naive start + a UTC end invert into an empty range.
+ */
+function naiveWallClock(iso: string, addMinutes = 0): string {
+	const d = new Date(new Date(iso).getTime() + addMinutes * 60000);
+	const p = (n: number) => String(n).padStart(2, '0');
+	return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
 /** Find a recent, still-unbooked proposal we sent this caller (30-day window). */
