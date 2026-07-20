@@ -813,7 +813,65 @@ async function prepareApprovalRequiredOutputs(
 					approval_package_id: approvalPkgId
 				});
 			} else {
-				results.push(rec);
+				// GENERIC approval-lane fallback for any action without a bespoke handler above.
+				//
+				// Previously these passed through untouched, so the execution row kept
+				// 'created_pending_route' — a status absent from Section 6's
+				// execution_to_outcome_map, which throws missing_outcome_mapping_for_* inside a
+				// transaction and takes Sections 6 AND 7 down with it. Every approval-lane action
+				// must therefore end on a mapped status.
+				//
+				// We record an internal work item for a human, NOT invented customer-facing copy:
+				// customer replies are owned by process_orchestrator, and fabricating message text
+				// here would put a second competing draft in the approval queue.
+				const actionName =
+					rulesSnapshot?.action_library?.[rec.action_id]?.name || rec.action_id;
+				const generatedOutput = {
+					action: 'internal_task',
+					action_id: rec.action_id,
+					action_name: actionName,
+					summary: `${actionName} — prepared for review from ${event?.provider || 'inbound event'}.`,
+					parameters: params,
+					ready_for_approval: true
+				};
+
+				await prisma.pipelineExecution.update({
+					where: { id: rec.execution_row_id },
+					data: {
+						executionStatus: 'draft_created',
+						generatedOutput: JSON.stringify(generatedOutput),
+						requiresHumanApproval: true,
+						updatedAt: new Date()
+					}
+				});
+
+				const approvalPkgId = shortId('approval_pkg_task');
+				await prisma.pipelineApprovalPackage.create({
+					data: {
+						approvalPackageId: approvalPkgId,
+						executionId: rec.execution_row_id,
+						owner: rec.approval_owner || 'business_owner',
+						status: 'pending_approval'
+					}
+				});
+
+				await prisma.pipelineActionQueue.update({
+					where: { id: rec.action_queue_id },
+					data: { status: 'draft_ready_pending_approval', updatedAt: new Date() }
+				});
+
+				log.step(
+					'draft_created',
+					`${rec.execution_id} internal task prepared for ${rec.action_id}.`,
+					'Approval-required internal task stored.'
+				);
+
+				results.push({
+					...rec,
+					execution_status: 'draft_created',
+					generated_output: generatedOutput,
+					approval_package_id: approvalPkgId
+				});
 			}
 		} catch (err: any) {
 			const failureReason = err?.message || String(err);

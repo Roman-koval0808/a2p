@@ -116,11 +116,11 @@ export class OrchestratorEngine {
 			log.step('client_profile_loaded', `automation_level=${clientProfile.automationLevel}`, `Loaded the client's automation preferences. Current level: ${clientProfile.automationLevel.toUpperCase()}.`);
 		}
 
-		let businessConfig = await prisma.pipelineBusinessConfig.findUnique({
+		const loadedBusinessConfig = await prisma.pipelineBusinessConfig.findUnique({
 			where: { companyId }
 		});
 
-		if (!businessConfig) {
+		if (!loadedBusinessConfig) {
 			// Mirror the client-profile behaviour above instead of dead-ending the run. A missing
 			// config used to abort Section 3, which silently skipped Sections 4-8 for EVERY event —
 			// no queue, no execution, no outcome, no feedback.
@@ -134,7 +134,17 @@ export class OrchestratorEngine {
 				'Using safe defaults (approval required, draft_only)',
 				'No business configuration found for this company; applying conservative defaults so the decision can proceed. Public replies still require human approval.'
 			);
-			businessConfig = {
+		} else {
+			log.step(
+				'business_config_loaded',
+				`approval_route=${loadedBusinessConfig.approvalRoute}`,
+				`Loaded the business configuration. Public response approval required: ${loadedBusinessConfig.publicResponseRequiresApproval}.`
+			);
+		}
+
+		const businessConfig =
+			loadedBusinessConfig ??
+			({
 				companyId,
 				consultantId: null,
 				consultantName: null,
@@ -154,14 +164,7 @@ export class OrchestratorEngine {
 				maxRetries: 3,
 				maxReplyLength: 150,
 				active: true
-			} as any;
-		} else {
-			log.step(
-				'business_config_loaded',
-				`approval_route=${businessConfig.approvalRoute}`,
-				`Loaded the business configuration. Public response approval required: ${businessConfig.publicResponseRequiresApproval}.`
-			);
-		}
+			} as NonNullable<typeof loadedBusinessConfig>);
 
 		const eventData = this.buildEventData(event, businessConfig);
 
