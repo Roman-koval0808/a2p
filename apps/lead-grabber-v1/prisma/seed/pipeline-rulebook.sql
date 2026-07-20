@@ -81,22 +81,26 @@ ON CONFLICT ("actionId") DO UPDATE SET
 -- ---------------------------------------------------------------------------
 INSERT INTO pipeline_signal_action_mappings
 	(id, "signalRuleId", "actionId", "isPrimary", "isSecondary", "companyId", active)
+--    NOTE: ACT-A2P-001 (draft SMS reply) is intentionally NOT mapped. Customer-facing
+--    replies are owned by process_orchestrator; queueing a pipeline SMS draft as well
+--    would put a second competing draft in front of the approver for the same message.
+--    Every mapped action below is an INTERNAL task.
 VALUES
 	-- SIG-COMM-000 EMERGENCY_SERVICE (Risk)
 	('seed_map_000_p', 'SIG-COMM-000', 'ACT-A2P-004', true,  false, NULL, true),
 	('seed_map_000_s', 'SIG-COMM-000', 'ACT-A2P-002', false, true,  NULL, true),
 	-- SIG-COMM-001 HIGH_PRIORITY_CONTACT (Risk)
 	('seed_map_001_p', 'SIG-COMM-001', 'ACT-A2P-002', true,  false, NULL, true),
-	('seed_map_001_s', 'SIG-COMM-001', 'ACT-A2P-001', false, true,  NULL, true),
+	('seed_map_001_s', 'SIG-COMM-001', 'ACT-A2P-005', false, true,  NULL, true),
 	-- SIG-COMM-002 NEW_QUOTE_REQUEST (Opportunity)
 	('seed_map_002_p', 'SIG-COMM-002', 'ACT-A2P-008', true,  false, NULL, true),
-	('seed_map_002_s', 'SIG-COMM-002', 'ACT-A2P-001', false, true,  NULL, true),
+	('seed_map_002_s', 'SIG-COMM-002', 'ACT-A2P-002', false, true,  NULL, true),
 	-- SIG-COMM-003 CRITICAL_CHURN_RISK (Risk)
 	('seed_map_003_p', 'SIG-COMM-003', 'ACT-A2P-002', true,  false, NULL, true),
 	('seed_map_003_s', 'SIG-COMM-003', 'ACT-A2P-006', false, true,  NULL, true),
 	-- SIG-COMM-004 BOOKING_INQUIRY (Momentum)  <- the demo's booking path
 	('seed_map_004_p', 'SIG-COMM-004', 'ACT-A2P-007', true,  false, NULL, true),
-	('seed_map_004_s', 'SIG-COMM-004', 'ACT-A2P-001', false, true,  NULL, true),
+	('seed_map_004_s', 'SIG-COMM-004', 'ACT-A2P-002', false, true,  NULL, true),
 	-- SIG-COMM-005 CALLBACK_REQUESTED (Bottleneck)
 	('seed_map_005_p', 'SIG-COMM-005', 'ACT-A2P-005', true,  false, NULL, true),
 	('seed_map_005_s', 'SIG-COMM-005', 'ACT-A2P-002', false, true,  NULL, true),
@@ -104,14 +108,24 @@ VALUES
 	('seed_map_006_p', 'SIG-COMM-006', 'ACT-A2P-006', true,  false, NULL, true),
 	('seed_map_006_s', 'SIG-COMM-006', 'ACT-A2P-002', false, true,  NULL, true),
 	-- SIG-COMM-007 GENERAL_MESSAGE (Momentum)
-	('seed_map_007_p', 'SIG-COMM-007', 'ACT-A2P-003', true,  false, NULL, true),
-	('seed_map_007_s', 'SIG-COMM-007', 'ACT-A2P-001', false, true,  NULL, true)
+	('seed_map_007_p', 'SIG-COMM-007', 'ACT-A2P-003', true,  false, NULL, true)
 ON CONFLICT (id) DO UPDATE SET
 	"signalRuleId" = EXCLUDED."signalRuleId",
 	"actionId"     = EXCLUDED."actionId",
 	"isPrimary"    = EXCLUDED."isPrimary",
 	"isSecondary"  = EXCLUDED."isSecondary",
 	active         = EXCLUDED.active;
+
+-- Keep re-runs declarative: drop any previously-seeded mapping that this file no longer
+-- defines, so removing a row here actually removes it from the database.
+DELETE FROM pipeline_signal_action_mappings
+WHERE id LIKE 'seed_map_%'
+  AND id NOT IN (
+	'seed_map_000_p','seed_map_000_s','seed_map_001_p','seed_map_001_s',
+	'seed_map_002_p','seed_map_002_s','seed_map_003_p','seed_map_003_s',
+	'seed_map_004_p','seed_map_004_s','seed_map_005_p','seed_map_005_s',
+	'seed_map_006_p','seed_map_006_s','seed_map_007_p'
+  );
 
 -- ---------------------------------------------------------------------------
 -- 3. Business config, one row per existing company.
