@@ -228,6 +228,59 @@ async function getAccessToken(companyId: string): Promise<{ token: string; calen
 	}
 }
 
+/**
+ * The business operates on Eastern Time. Use the IANA zone, NOT the literal "EST": "EST" is a
+ * fixed -05:00 that never observes daylight saving, so every summer booking would land an hour
+ * early. "America/Toronto" switches EST/EDT automatically.
+ *
+ * Our appointment times are naive wall-clock ("2026-07-25T10:00:00") and Google rejects those
+ * unless a timeZone accompanies them — this is that zone.
+ */
+export const BUSINESS_TIME_ZONE = 'America/Toronto';
+
+const HAS_OFFSET = /(?:Z|[+-]\d{2}:?\d{2})$/;
+
+/**
+ * Resolve a NAIVE wall-clock string ("2026-07-25T10:00:00") to the absolute instant it refers to
+ * IN `timeZone` — independent of whatever zone the server happens to run in.
+ *
+ * Without this, `new Date("2026-07-25T10:00:00")` silently means "10am wherever the server is",
+ * so a Europe-hosted box books an Ontario customer six hours off.
+ */
+export function zonedNaiveToUtc(naive: string, timeZone = BUSINESS_TIME_ZONE): Date {
+	const asIfUtc = new Date(`${naive}Z`);
+	if (isNaN(asIfUtc.getTime())) return new Date(naive); // unparseable → best effort
+	// Sampling the offset at `asIfUtc` is only an approximation: on a DST-transition day that
+	// instant can sit on the far side of the switch, landing the result an hour off. Re-sampling
+	// at the corrected instant converges (standard two-pass zone resolution).
+	const first = offsetMsAt(asIfUtc, timeZone);
+	const refined = offsetMsAt(new Date(asIfUtc.getTime() - first), timeZone);
+	return new Date(asIfUtc.getTime() - refined);
+}
+
+/** The zone's UTC offset, in ms, at a given absolute instant. */
+function offsetMsAt(instant: Date, timeZone: string): number {
+	const dtf = new Intl.DateTimeFormat('en-US', {
+		timeZone,
+		hour12: false,
+		year: 'numeric',
+		month: '2-digit',
+		day: '2-digit',
+		hour: '2-digit',
+		minute: '2-digit',
+		second: '2-digit'
+	});
+	const p: Record<string, string> = {};
+	for (const part of dtf.formatToParts(instant)) p[part.type] = part.value;
+	const rendered = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute, +p.second);
+	return rendered - instant.getTime();
+}
+
+/** Absolute instant for a datetime that may be naive (business zone) or already offset-bearing. */
+export function toUtcInstant(iso: string, timeZone = BUSINESS_TIME_ZONE): Date {
+	return HAS_OFFSET.test(iso) ? new Date(iso) : zonedNaiveToUtc(iso, timeZone);
+}
+
 /** True if the calendar has no conflicting event for [startISO, endISO). null = can't tell / not connected. */
 export async function isTimeFree(
 	companyId: string,
@@ -237,10 +290,17 @@ export async function isTimeFree(
 	const auth = await getAccessToken(companyId);
 	if (!auth) return null;
 	try {
+		// freeBusy demands real RFC3339 instants. Callers pass naive wall-clock times, which Google
+		// rejects outright (400 Bad Request) — resolve them in the business zone first so we both
+		// stop erroring AND check the window the customer actually meant.
 		const res = await fetch(`${CAL_API}/freeBusy`, {
 			method: 'POST',
 			headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' },
-			body: JSON.stringify({ timeMin: startISO, timeMax: endISO, items: [{ id: auth.calendarId }] })
+			body: JSON.stringify({
+				timeMin: toUtcInstant(startISO).toISOString(),
+				timeMax: toUtcInstant(endISO).toISOString(),
+				items: [{ id: auth.calendarId }]
+			})
 		});
 		if (!res.ok) {
 			const body = await res.text();
@@ -282,11 +342,15 @@ export async function createEvent(
 	const auth = await getAccessToken(companyId);
 	if (!auth) return null;
 	try {
+		// Google REQUIRES a timezone whenever dateTime carries no UTC offset, and our appointment
+		// times are naive wall-clock. Eastern Time keeps the event at the wall-clock time the
+		// customer asked for instead of shifting it by the server's zone.
+		const timeZone = opts.timeZone || BUSINESS_TIME_ZONE;
 		const body: any = {
 			summary: opts.summary,
 			description: opts.description || undefined,
-			start: { dateTime: opts.startISO, ...(opts.timeZone ? { timeZone: opts.timeZone } : {}) },
-			end: { dateTime: opts.endISO, ...(opts.timeZone ? { timeZone: opts.timeZone } : {}) }
+			start: { dateTime: opts.startISO, timeZone },
+			end: { dateTime: opts.endISO, timeZone }
 		};
 		if (opts.attendeeEmail) body.attendees = [{ email: opts.attendeeEmail }];
 		// Stable identity tags for exact later lookup (phone is the reliable key, not the name).
