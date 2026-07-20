@@ -9,9 +9,45 @@
 	}
 	let { open = $bindable(false), commId = '', logs = [], details = null }: Props = $props();
 
+	const allLogs = $derived.by(() => {
+		let result: string[] = [];
+		
+		// 1. Explicitly add pipeline_logs if present
+		if (details && Array.isArray(details.pipeline_logs)) {
+			result.push(...details.pipeline_logs);
+		}
+
+		// 2. Explicitly add orchestrator_logs if present
+		if (details && Array.isArray(details.orchestrator_logs)) {
+			result.push(...details.orchestrator_logs);
+		}
+
+		// 3. Add any OTHER arrays of strings from details
+		if (details) {
+			for (const key in details) {
+				if (key !== 'pipeline_logs' && key !== 'orchestrator_logs' && Array.isArray(details[key])) {
+					if (details[key].length > 0 && typeof details[key][0] === 'string') {
+						result.push(...details[key]);
+					}
+				}
+			}
+		}
+
+		// 4. Add any logs passed directly via prop that aren't already included
+		const set = new Set(result);
+		for (const log of (logs || [])) {
+			if (!set.has(log)) {
+				result.push(log);
+				set.add(log);
+			}
+		}
+
+		return result;
+	});
+
 	function copyLogs() {
 		try {
-			navigator.clipboard?.writeText((logs || []).join('\n'));
+			navigator.clipboard?.writeText(allLogs.join('\n'));
 		} catch {
 			/* ignore */
 		}
@@ -72,16 +108,16 @@
 			{/if}
 
 			<div class="space-y-2">
-				<div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Orchestrator steps</div>
+				<div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Log trace</div>
 				<div
 					class="max-h-[360px] overflow-y-auto rounded bg-slate-900 p-3 font-mono text-[11px] leading-relaxed text-slate-100"
 				>
-					{#if logs && logs.length}
-						{#each logs as line}
+					{#if allLogs && allLogs.length}
+						{#each allLogs as line}
 							<div class="whitespace-pre-wrap {line.startsWith('⚠') ? 'text-red-300' : ''}">{line}</div>
 						{/each}
 					{:else}
-						<div class="text-slate-400">No orchestrator logs recorded for this communication yet.</div>
+						<div class="text-slate-400">No logs recorded for this communication yet.</div>
 					{/if}
 				</div>
 			</div>
