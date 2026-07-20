@@ -599,7 +599,10 @@
 <OrchestratorLogModal
 	bind:open={logModalOpen}
 	commId={logModalComm?.commId || logModalComm?.raw?.id || ''}
-	logs={logModalComm?.raw?.metadata?.orchestrator_logs || []}
+	logs={[
+		...(Array.isArray(logModalComm?.raw?.metadata?.pipeline_logs) ? logModalComm.raw.metadata.pipeline_logs : []),
+		...(Array.isArray(logModalComm?.raw?.metadata?.orchestrator_logs) ? logModalComm.raw.metadata.orchestrator_logs : [])
+	]}
 	details={logModalComm?.raw?.metadata || null}
 />
 

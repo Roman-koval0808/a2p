@@ -1621,9 +1621,13 @@ export const POST: RequestHandler = async ({ request }) => {
 											sessionId: callControlId,
 											companyId: numberInfo?.companyId || undefined
 										}).then(async (pipelineResult) => {
+											const webhookTrace: string[] = [];
 											if (!pipelineResult.success) {
 												console.error('❌ Voice Pipeline run failed:', pipelineResult.error);
 												return;
+											}
+											if (pipelineResult.logs) {
+												webhookTrace.push(...pipelineResult.logs);
 											}
 
 											let bucketSignal = 'research';
@@ -1675,7 +1679,11 @@ export const POST: RequestHandler = async ({ request }) => {
 										});
 
 										if (result.status >= 200 && result.status < 300) {
+											if (result.body?.pipeline_log) {
+												webhookTrace.push(...result.body.pipeline_log);
+											}
 											console.log('📡 Pipeline executed and Voice event logged to ProfileDB successfully');
+											webhookTrace.push('🔵 [CDP] Logged event to ProfileDB successfully.');
 										} else {
 											console.error('❌ Failed to log Voice event to ProfileDB:', result.status);
 										}
@@ -1743,6 +1751,7 @@ export const POST: RequestHandler = async ({ request }) => {
 															}
 														});
 														console.log('📡 Voicemail safety SMS draft logged as pending_approval');
+														webhookTrace.push('📡 Voicemail safety SMS draft logged as pending_approval');
 													} catch (draftErr) {
 														console.error('❌ Error logging safety SMS draft:', draftErr);
 													}
@@ -1771,7 +1780,8 @@ export const POST: RequestHandler = async ({ request }) => {
 								datetime: datetime || undefined,
 								actionItems,
 								origin: direction,
-								estimatedPrice
+								estimatedPrice,
+								pipeline_logs: webhookTrace
 							};
 
 							let finalLogId: string | null = null;

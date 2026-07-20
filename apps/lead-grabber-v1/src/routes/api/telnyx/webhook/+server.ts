@@ -146,6 +146,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		// the webhook, which was causing duplicate messages.
 		Promise.resolve()
 			.then(async () => {
+				const webhookTrace: string[] = [];
 				// RUN SVELTEKIT INTERNAL AI SIGNALS PIPELINE synchronously:
 				let pipelineResult = null;
 				try {
@@ -158,6 +159,9 @@ export const POST: RequestHandler = async ({ request }) => {
 						sessionId: smsId,
 						companyId: companyId || undefined
 					});
+					if (pipelineResult?.logs) {
+						webhookTrace.push(...pipelineResult.logs);
+					}
 				} catch (err) {
 					console.error('[SMS Pipeline Error]', err);
 				}
@@ -327,9 +331,9 @@ export const POST: RequestHandler = async ({ request }) => {
 						});
 						if (conv?.reply) {
 							draftText = conv.reply;
-							console.log(
-								`[Conversational reply] booked=${conv.booked} available=${conv.available} -> "${conv.reply}"`
-							);
+							const logMsg = `[Conversational reply] booked=${conv.booked} available=${conv.available} -> "${conv.reply}"`;
+							console.log(logMsg);
+							webhookTrace.push(logMsg);
 						}
 					}
 				} catch (convErr) {
@@ -374,7 +378,11 @@ export const POST: RequestHandler = async ({ request }) => {
 								headers: { authorization: 'Bearer clearsky_pixel_api_key' }
 							});
 							if (result.status >= 200 && result.status < 300) {
+								if (result.body?.pipeline_log) {
+									webhookTrace.push(...result.body.pipeline_log);
+								}
 								console.log('📡 Pipeline executed and SMS event logged to ProfileDB successfully');
+								webhookTrace.push('🔵 [CDP] Logged event to ProfileDB successfully.');
 							} else {
 								console.error('❌ Failed to log SMS event to ProfileDB:', result.body);
 							}
@@ -412,6 +420,7 @@ export const POST: RequestHandler = async ({ request }) => {
 				if (isA2pEnabled()) {
 					try {
 						const { ok, status, body: a2pBody } = await forwardSmsWebhook(rawBody);
+						webhookTrace.push(`[A2P] Forwarding SMS to A2P backend`);
 						return json(a2pBody ?? { ok }, {
 							status: status >= 200 && status < 300 ? 200 : status
 						});
@@ -521,7 +530,8 @@ export const POST: RequestHandler = async ({ request }) => {
 						content: smsText,
 						metadata: {
 							thread_id: threadId,
-							telnyx_event: eventType
+							telnyx_event: eventType,
+							pipeline_logs: webhookTrace
 						}
 					});
 
