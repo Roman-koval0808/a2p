@@ -11,6 +11,7 @@
 import { checkCalendarAvailability, formatDatetime, describeBusinessHours } from './calendar';
 import { claudeJSON, claudeText, CLAUDE_FAST } from './anthropic';
 import { bookingLinkWith } from '$lib/utils/booking';
+import { isUnsendableDraft } from './reply-sanity';
 
 export interface ConversationTurn {
 	from: 'customer' | 'business';
@@ -123,7 +124,8 @@ Write ONE short, natural, human reply (1-2 sentences, conversational, no corpora
 Use ONLY these facts — never invent availability, prices, services or details you weren't given:
 ${facts}
 How to handle different messages:
-- Booking / times: if a proposed time is available, warmly confirm it; if not, apologise briefly and give the real hours or the booking link.
+- Booking / times: if a proposed time is available, warmly confirm it; if not, apologise briefly and give the real hours. Only mention a booking link if one appears verbatim in the facts above — if there is none, ask them to reply with a time that works instead.
+- NEVER write a fill-in-the-blank placeholder: no square/angle brackets, no "TBD", no "[booking link]" or "will be provided". If you don't have a real value, rephrase without it — the customer receives this text exactly as written.
 - General questions (what the business is/does, hours, location, services, "who are you?"): answer helpfully from the facts above. If you genuinely don't have that detail, say a team member will follow up shortly — do NOT make things up.
 - Service requests ("I need my roof fixed", "my sink is leaking"): acknowledge warmly, say you can help, and move toward booking or connecting them with the team.
 - If the message is unclear, vague, or off-topic: be friendly and ask how you can help.
@@ -271,6 +273,12 @@ export async function draftConversationalReply(
 
 	const reply = await generateReply(input, factLines.join('\n'), input.apiKey);
 	if (!reply) return null;
+	// Same sanity bar as the agentic path: never send a template or self-narration to a customer.
+	// Returning null lets the orchestrator fall back to its plain follow-up message.
+	if (isUnsendableDraft(reply)) {
+		console.warn('[Conversational reply] discarded unsendable draft:', reply.slice(0, 160));
+		return null;
+	}
 
 	return {
 		// When a self-service booking link is used, the customer books it themselves — we don't

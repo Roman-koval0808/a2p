@@ -15,6 +15,7 @@ import {
 	formatDatetime
 } from './calendar';
 import { resolveBalanceByPhone } from './balance';
+import { isUnsendableDraft } from './reply-sanity';
 import { bookingLinkWith } from '$lib/utils/booking';
 import {
 	getAvailableSlots,
@@ -277,18 +278,31 @@ export async function draftAgenticReply(input: AgenticReplyInput): Promise<strin
 		.map((t) => `${t.from === 'business' ? 'Us' : 'Customer'}: ${t.text}`)
 		.join('\n');
 
+	// Only advertise capabilities that are actually registered — naming a "booking link" tool that
+	// wasn't built (no bookingUrl configured) is what makes the model invent
+	// "[booking link will be provided]" placeholders.
+	const toolBlurb = input.bookingUrl
+		? 'appointments, account summary, availability, business info, booking link'
+		: 'appointments, account summary, availability, business info';
+	const bookingRule = input.bookingUrl
+		? '- To share the booking link, CALL get_booking_link and paste the EXACT url it returns. Never retype or shorten it.'
+		: '- You have NO booking link available. Never offer, promise, or hint at one. Instead ask them to reply with a time that works and we will confirm it for them.';
+
 	const system = `You are a warm, friendly assistant for ${input.companyName}, a local trades / home-services business, replying by SMS to ${input.customerName || 'the customer'}.
 
-You have TOOLS that look up REAL data (appointments, account summary, availability, business info, booking link). Your job is to actually COMPLETE the customer's request yourself using these tools, not to say "someone will get back to you" when a tool can answer.
+You have TOOLS that look up REAL data (${toolBlurb}). Your job is to actually COMPLETE the customer's request yourself using these tools, not to say "someone will get back to you" when a tool can answer.
 
 Rules:
 - If a tool can answer the message, CALL it and answer specifically from what it returns. You may call several.
 - NEVER invent availability, prices, balances, appointment times, services, or account details. Only state what the tools return or what's in the conversation.
 - If a tool reports it has no data (no billing history, no appointments, etc.), say so honestly and offer the best real next step (send a statement, have the team follow up) — don't make things up.
 - If the customer confirms an appointment ("yes", "that works") but you have no tool to book it, DO NOT explain your limitations. Just warmly confirm: "You're all set — see you then!" and the team handles the calendar.
+${bookingRule}
 - Reply in ONE short, natural, human SMS (1-2 sentences, no markdown, no corporate stiffness).
 
-CRITICAL: Your entire output is sent VERBATIM to the customer as a text message. Output ONLY that message. Never write meta-commentary, never explain your reasoning or your tools, never address "the developer"/"the team", never write "Suggested reply:", "I need to clarify", or "I don't have a tool". If you're unsure, send a brief warm acknowledgement that the team will follow up.`;
+CRITICAL: Your entire output is sent VERBATIM to the customer as a text message. Output ONLY that message. Never write meta-commentary, never explain your reasoning or your tools, never address "the developer"/"the team", never write "Suggested reply:", "I need to clarify", or "I don't have a tool". If you're unsure, send a brief warm acknowledgement that the team will follow up.
+
+NEVER write a fill-in-the-blank placeholder. No square brackets, no angle brackets, no "TBD", no "will be provided", no "[link]"/"[name]"/"[time]". If you don't have a real value, leave it out and rephrase the sentence without it — a customer must never receive a template.`;
 
 	const tools = buildSkills(input);
 	const reply = await claudeAgentReply({
@@ -305,18 +319,11 @@ CRITICAL: Your entire output is sent VERBATIM to the customer as a text message.
 		maxTokens: 400,
 		temperature: 0.4
 	});
-	// Leak guard: if the model returned meta-commentary about itself/its tools instead of a
-	// customer-facing SMS, discard it so the caller falls back to the deterministic reply.
-	if (reply && looksLikeLeakedReasoning(reply)) {
-		console.warn('[reply-skills] discarded leaked agentic reasoning:', reply.slice(0, 120));
+	// Sanity guard: meta-commentary about its own tools, or a fill-in-the-blank placeholder, is
+	// unsendable — discard it so the caller falls back to the deterministic reply.
+	if (isUnsendableDraft(reply)) {
+		console.warn('[reply-skills] discarded unsendable agentic draft:', (reply || '').slice(0, 160));
 		return null;
 	}
 	return reply;
-}
-
-/** Detect the model narrating its own limitations/tools instead of writing the SMS. */
-function looksLikeLeakedReasoning(text: string): boolean {
-	return /\b(I don'?t have (a )?tool|I need to clarify|Suggested reply|the customer said|I should not invent|as an AI|I cannot (actually|create)|I appreciate you providing|the tools I have|from scratch)\b/i.test(
-		text
-	);
 }
