@@ -1,5 +1,5 @@
 import { prisma } from '$lib/db';
-import { isTimeFree, createEvent, getAvailableSlots } from './google-calendar';
+import { isTimeFree, createEvent, getAvailableSlots, toUtcInstant } from './google-calendar';
 
 const AFFIRMATIVE =
 	/\b(yes|yep|yeah|yup|sure|ok|okay|sounds good|that works|works for me|works|confirm|confirmed|great|perfect|book it|let'?s do it)\b/i;
@@ -142,8 +142,11 @@ export async function bookProposedAppointment(opts: {
 			companyId,
 			contactId,
 			calendarEventId: event?.eventId ?? null,
-			startTime: new Date(proposal.proposedStartISO),
-			endTime: new Date(proposal.proposedEndISO),
+			// Resolve the naive wall-clock time in the BUSINESS zone, not the server's — otherwise a
+			// Europe-hosted box stores an Ontario 10am appointment as the wrong absolute instant,
+			// which would break reminders and "upcoming appointment" queries.
+			startTime: toUtcInstant(proposal.proposedStartISO),
+			endTime: toUtcInstant(proposal.proposedEndISO),
 			status: 'booked',
 			source: 'sms_confirm'
 		}
