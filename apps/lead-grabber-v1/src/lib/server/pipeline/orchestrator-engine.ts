@@ -116,13 +116,51 @@ export class OrchestratorEngine {
 			log.step('client_profile_loaded', `automation_level=${clientProfile.automationLevel}`, `Loaded the client's automation preferences. Current level: ${clientProfile.automationLevel.toUpperCase()}.`);
 		}
 
-		const businessConfig = await prisma.pipelineBusinessConfig.findUnique({
+		let businessConfig = await prisma.pipelineBusinessConfig.findUnique({
 			where: { companyId }
 		});
 
 		if (!businessConfig) {
-			log.step('error', 'Business configuration missing');
-			return this.noDecision(eventId, 'business_config_missing', log);
+			// Mirror the client-profile behaviour above instead of dead-ending the run. A missing
+			// config used to abort Section 3, which silently skipped Sections 4-8 for EVERY event —
+			// no queue, no execution, no outcome, no feedback.
+			//
+			// Defaulting is safe here because every column in PipelineBusinessConfig has a schema
+			// default and those defaults are the CONSERVATIVE ones: consultant review required,
+			// public responses require approval, draft-only replies, no SMS auto-reply. So the
+			// "public replies always need human approval" boundary still holds.
+			log.step(
+				'business_config_not_found',
+				'Using safe defaults (approval required, draft_only)',
+				'No business configuration found for this company; applying conservative defaults so the decision can proceed. Public replies still require human approval.'
+			);
+			businessConfig = {
+				companyId,
+				consultantId: null,
+				consultantName: null,
+				consultantReviewRequired: true,
+				primaryInternalOwner: 'consultant',
+				approvalRoute: 'consultant_then_client',
+				autoNotifyConsultant: true,
+				autoNotifyBusinessOwner: false,
+				reviewReplyPolicy: 'draft_only',
+				publicResponseRequiresApproval: true,
+				brandTone: 'professional',
+				slaResponseHours: 24,
+				slaMinutes: 10,
+				smsAutoReplyAllowed: false,
+				officeTimezone: 'America/Toronto', // keep in step with BUSINESS_TIME_ZONE
+				officeHours: null,
+				maxRetries: 3,
+				maxReplyLength: 150,
+				active: true
+			} as any;
+		} else {
+			log.step(
+				'business_config_loaded',
+				`approval_route=${businessConfig.approvalRoute}`,
+				`Loaded the business configuration. Public response approval required: ${businessConfig.publicResponseRequiresApproval}.`
+			);
 		}
 
 		const eventData = this.buildEventData(event, businessConfig);
