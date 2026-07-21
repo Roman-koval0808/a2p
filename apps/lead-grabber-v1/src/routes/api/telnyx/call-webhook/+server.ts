@@ -1554,7 +1554,22 @@ export const POST: RequestHandler = async ({ request }) => {
 								await removeVoicemail(callControlId);
 							}
 
-							const shouldTranscribe = !hasVoicemail || isVoicemailRecording;
+							// Telnyx delivers TWO recordings for a voicemail call: the DUAL-channel recording of
+							// the whole call (which includes the IVR greeting) and the SINGLE-channel voicemail.
+							// Processing both transcribed twice, produced two conflicting analyses (the full-call
+							// transcript is polluted by the IVR script — it yielded a different caller name and
+							// intent), overwrote the log's content with the greeting, and fired the whole
+							// downstream twice. `channels` is the reliable discriminator: unlike the call-state
+							// flags it survives the deleteState() that call.hangup performs before we get here.
+							const recordingChannels =
+								typeof payload?.channels === 'string' ? (payload.channels as string) : null;
+							const isFullCallRecording = recordingChannels === 'dual';
+							const shouldTranscribe = recordingChannels
+								? !isFullCallRecording
+								: !hasVoicemail || isVoicemailRecording;
+							if (isFullCallRecording) {
+								console.log('🎥 Skipping transcription of the dual-channel whole-call recording (voicemail is transcribed separately)');
+							}
 
 							const audioUrl = originalAudioUrl;
 							if (audioUrl && shouldTranscribe) {
@@ -1742,10 +1757,19 @@ export const POST: RequestHandler = async ({ request }) => {
 													safetySmsText = `Hi, we received your urgent message about the burst pipe/leak and are calling you right back to help!`;
 												}
 
-												if (companyNumber && contactNumber) {
+												// process_orchestrator — fired for every call that produced a communication log —
+												// is the SOLE drafter of customer-facing replies, and it already queues an emergency
+												// response for this same voicemail. Drafting again here put multiple competing
+												// drafts in the approval list for a single call (one per recording.saved event),
+												// and this one is canned/mock text. The owner SMS alert above still runs.
+												const orchestratorOwnsCustomerReply = !!finalLogId;
+												if (orchestratorOwnsCustomerReply) {
+													console.log('📤 Safety SMS draft skipped — orchestrator already drafted the reply for this call');
+													webhookTrace.push('📤 Safety SMS draft skipped — orchestrator owns the customer reply');
+												} else if (companyNumber && contactNumber) {
 													const formattedFrom = toE164(companyNumber);
 													const formattedTo = toE164(contactNumber);
-													
+
 													console.log(`📤 Logging safety SMS draft from ${formattedFrom} to ${formattedTo}: "${safetySmsText}"`);
 													try {
 														await logCommunication({
