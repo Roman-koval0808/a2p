@@ -31,7 +31,12 @@ export const load: PageServerLoad = async ({ locals }) => {
 				email: c.email || '',
 				clearEmail: c.email || '—',
 				isAnonymous: !c.name,
-				tier: score >= 50 ? 'T1' : score >= 20 ? 'T2A' : score >= 10 ? 'T2B' : 'T3',
+				// Tier is an ATTRIBUTION judgement (do we have an identifier for this person?), not a
+				// measure of engagement. Deriving it from engagementScore combined the two dimensions
+				// the canonical tiers doc says must never be combined (§4.1 "Two Confidence Dimensions
+				// — Never Combined"), so a highly-engaged anonymous visitor was reported as Tier 1.
+				// Locked model: 1 = strong identifier · 2 = name only · 2B = real but no identifier.
+				tier: c.phone || c.email ? 'Tier 1' : c.name ? 'Tier 2' : 'Tier 2B',
 				scoreLive: score,
 				intentBucket: score >= 20 ? 'active' : 'research',
 				lastSeen: c.updated ?? c.created ?? null

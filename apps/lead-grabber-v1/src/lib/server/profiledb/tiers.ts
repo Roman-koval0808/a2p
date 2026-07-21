@@ -5,12 +5,12 @@
  * only values the app should assign, so the set can't drift across call sites.
  *
  *   Tier 2B — anonymous but engaged (past the 10-second floor), no identifier
- *   Tier 2A — a display name only, still no contact identifier
+ *   Tier 2  — a display name only, still no contact identifier
  *   Tier 1  — a contact identifier (email or phone) has been captured
  */
 export const TIER = {
 	ANON_ENGAGED: 'Tier 2B',
-	ANON_NAMED: 'Tier 2A',
+	ANON_NAMED: 'Tier 2',
 	IDENTIFIED: 'Tier 1'
 } as const;
 

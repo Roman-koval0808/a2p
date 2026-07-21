@@ -277,10 +277,10 @@ export async function ingestTelemetryEvent(params: {
         attributionConfidence = 0.99;
         stageLog('Q2', `Check 2 MATCH — ${email ? 'email' : 'phone'} hash present → Group ${resolvedGroup} / Tier 1 / confidence=0.99`);
       } else if (name) {
-        resolvedTier = 'Tier 2A';
+        resolvedTier = 'Tier 2';
         resolvedGroup = 4;
         attributionConfidence = 0.31;
-        stageLog('Q2', 'Check 2 PARTIAL — display name only → Group 4 / Tier 2A / confidence=0.31');
+        stageLog('Q2', 'Check 2 PARTIAL — display name only → Group 4 / Tier 2 / confidence=0.31');
       } else {
         resolvedTier = 'Tier 2B';
         resolvedGroup = 2;
@@ -314,6 +314,14 @@ export async function ingestTelemetryEvent(params: {
     let scoreDelta = clampScoreDelta(rawDelta);
     if (scoreDelta !== rawDelta) {
       stageLog('CL2', `Delta clamped ${rawDelta} → ${scoreDelta} (max single-event delta)`);
+    }
+
+    // Developer brief P1.2 — friction/disengagement events must NEVER subtract from score_live
+    // mid-session. The registry keeps its negative values as the record of what the event is
+    // worth; applying them to the next visit is tracker #65 and is deliberately NOT built here.
+    if (scoreDelta < 0) {
+      stageLog('CL2', `Negative delta ${scoreDelta} not applied live (${eventConfig?.bucketSignal ?? 'friction'}) — deferred, tracker #65`);
+      scoreDelta = 0;
     }
 
     // IVR selection delta — the digit the caller pressed is a scored intent signal in the
@@ -353,12 +361,12 @@ export async function ingestTelemetryEvent(params: {
     const isUrgent = eventConfig?.bucketSignal === 'emergency' || payload.urgency_detected === true || payload.contains_emergency_keywords === true;
     const isConversion = eventConfig?.bucketSignal === 'conversion';
 
-    const newIntentBucket = getNextBucket(profile.intentBucket, newScoreLive, eventType, {
-      isUrgent,
-      isConversion,
-      activeSignalsCount: activeSignalsCount + (eventConfig?.bucketSignal === 'active' ? 1 : 0),
+    // Escalate-only, driven by the event's own bucketSignal (developer brief P1.3).
+    // The score is NOT consulted for promotion — it drives decay/demotion only.
+    const newIntentBucket = getNextBucket(profile.intentBucket, eventConfig?.bucketSignal, {
+      isUrgent
     });
-    stageLog('CL2', `Bucket evaluated — ${profile.intentBucket} → ${newIntentBucket} (isUrgent=${isUrgent} isConversion=${isConversion} activeSignals=${activeSignalsCount})`);
+    stageLog('CL2', `Bucket evaluated — ${profile.intentBucket} → ${newIntentBucket} (signal=${eventConfig?.bucketSignal ?? 'none'} isUrgent=${isUrgent})`);
 
     // CL3 — Immutable Sealed Context Package
     stageLog('CL3', 'Constructing immutable sealed context package');
@@ -572,7 +580,7 @@ export async function ingestTelemetryEvent(params: {
         },
         tier: {
           title: "Attribution Confidence Tier",
-          howWeGetIt: "Tier 1: 100% verified. Tier 2A: We are mostly sure. Tier 2B: Totally anonymous visitor. Tier 3: Environmental data only (weather, etc.).",
+          howWeGetIt: "Tier 1: 100% verified. Tier 2: We are mostly sure. Tier 2B: Totally anonymous visitor. Tier 3: Environmental data only (weather, etc.).",
           usedFor: "Ensuring we only send out automated messages if we are 100% sure of their identity (Tier 1).",
           valueInThisResponse: updatedProfile.tier
         },

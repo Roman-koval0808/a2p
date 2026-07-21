@@ -22,6 +22,28 @@ if (!slaCronGlobal.__slaCronStarted) {
 	timer.unref?.();
 }
 
+// Section 8 (Cohort 2) loss sweep. Wins are events — a rep confirms the job is done — but losses
+// are the ABSENCE of events, so they have to be swept for. Same pattern as the SLA cron above:
+// lazy-imported inside the tick, guarded against stacking, .unref()'d. Hourly rather than per
+// minute because the signals it looks for move on a scale of days.
+// (POST /api/a2p/cohort2/sweep remains available as an external-cron alternative.)
+const cohort2CronGlobal = globalThis as unknown as { __cohort2CronStarted?: boolean };
+if (!cohort2CronGlobal.__cohort2CronStarted) {
+	cohort2CronGlobal.__cohort2CronStarted = true;
+	const timer = setInterval(
+		async () => {
+			try {
+				const { checkLostRelationships } = await import('$lib/server/cohort2-sweep');
+				await checkLostRelationships();
+			} catch (e: any) {
+				console.error('[Cohort2 cron] sweep failed:', e?.message || e);
+			}
+		},
+		60 * 60_000
+	);
+	timer.unref?.();
+}
+
 // Cache for auth refresh timestamps to avoid refreshing too frequently
 const authRefreshCache = new Map<string, number>();
 const AUTH_REFRESH_CACHE_MS = 60000; // Cache auth refresh for 60 seconds

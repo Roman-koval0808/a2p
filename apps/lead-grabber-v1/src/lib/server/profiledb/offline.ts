@@ -124,8 +124,8 @@ export async function createOfflineRepEntry(
           name: name ?? null,
           email: hashedEmail ?? null,
           phone: hashedPhone ?? null,
-          // Q2 Attribution: email or phone = Tier 1, name only = Tier 2A
-          tier: (hashedEmail || hashedPhone) ? 'Tier 1' : 'Tier 2A',
+          // Q2 Attribution: email or phone = Tier 1, name only = Tier 2 (locked model: 1/2/2B/3)
+          tier: (hashedEmail || hashedPhone) ? 'Tier 1' : 'Tier 2',
           group: hashedEmail ? 2 : (hashedPhone ? 3 : 4),
           intentBucket: 'unclassified',
           scoreRaw: 0,

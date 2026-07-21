@@ -11,8 +11,16 @@
  * "I need to clarify: the customer said YES ... I don't have a tool to actually create ...".
  */
 export function looksLikeLeakedReasoning(text: string): boolean {
-	return /\b(I don'?t have (a )?tool|I need to clarify|Suggested reply|the customer said|I should not invent|as an AI|I cannot (actually|create)|I appreciate you providing|the tools I have|from scratch)\b/i.test(
-		text
+	return (
+		/\b(I don'?t have (a )?tool|I need to clarify|Suggested reply|the customer said|I should not invent|as an AI|I cannot (actually|create)|I appreciate you providing|the tools I have|from scratch)\b/i.test(
+			text
+		) ||
+		// The model describing what it cannot perceive. Seen live on a call with no transcript:
+		// "I understand you've left a voicemail, but I'm not able to listen to recordings through
+		// text." The customer does not care what the assistant can process — that is our problem.
+		/\b(not able to (listen|hear|access|play)|can'?t (listen to|hear|access|play)|unable to (listen|hear|access)|through text|I'?m not sure what you need help with)\b/i.test(
+			text
+		)
 	);
 }
 

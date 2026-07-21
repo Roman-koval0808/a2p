@@ -1957,10 +1957,21 @@ export const POST: RequestHandler = async ({ request }) => {
 								}
 							}
 
-							if (finalLogId) {
+							// Only the recording that actually produced the transcript may drive the reply.
+							//
+							// Telnyx delivers TWO recordings per voicemail call and we skip transcribing the
+							// dual-channel whole-call one. Firing the orchestrator from that leg too meant it
+							// often ran FIRST, with the placeholder content ("Call completed (30s)") and no
+							// transcript — so it drafted "I'm not able to listen to recordings through text".
+							// The voicemail leg then transcribed correctly a second later, but its (correct)
+							// draft was discarded by the trigger_comm_id de-dup because a draft already
+							// existed. The log ended up showing the right transcript beside the wrong reply.
+							if (finalLogId && !isFullCallRecording) {
 								import('$lib/server/orchestrator').then(({ process_orchestrator }) => {
 									process_orchestrator(finalLogId as string, 'ai_ready').catch(e => console.error('[Orchestrator] Error:', e));
 								});
+							} else if (isFullCallRecording) {
+								console.log('🎥 Not triggering the orchestrator from the whole-call recording — the voicemail leg owns the reply');
 							}
 
 							// Retroactively update the call_summary in the message thread with the AI analysis

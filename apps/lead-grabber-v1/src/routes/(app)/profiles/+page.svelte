@@ -173,11 +173,11 @@
 
 					<!-- Identity Tier -->
 					<div class="w-[120px]">
-						{#if profile.tier === 'T1'}
+						{#if profile.tier === 'T1' || profile.tier === 'Tier 1'}
 							<span class="inline-flex items-center font-mono text-[9px] font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">Tier 1</span>
-						{:else if profile.tier === 'T2A'}
-							<span class="inline-flex items-center font-mono text-[9px] font-bold px-2 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200">Tier 2A</span>
-						{:else if profile.tier === 'T2B'}
+						{:else if profile.tier === 'T2' || profile.tier === 'Tier 2'}
+							<span class="inline-flex items-center font-mono text-[9px] font-bold px-2 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200">Tier 2</span>
+						{:else if profile.tier === 'T2B' || profile.tier === 'Tier 2B'}
 							<span class="inline-flex items-center font-mono text-[9px] font-bold px-2 py-0.5 rounded bg-pink-50 text-pink-700 border border-pink-200">Tier 2B</span>
 						{:else}
 							<span class="inline-flex items-center font-mono text-[9px] font-bold px-2 py-0.5 rounded bg-gray-50 text-gray-500 border border-gray-200">Tier 3</span>

@@ -17,6 +17,8 @@ export const eventRegistry: Record<string, EventConfig> = {
   dwell_120: { eventType: 'dwell_120', delta: 10, method: 2, bucketSignal: 'comparison', channelType: 'pixel' },
   page_view_pricing: { eventType: 'page_view_pricing', delta: 8, method: 2, bucketSignal: 'comparison', channelType: 'pixel' },
   page_view_reviews: { eventType: 'page_view_reviews', delta: 6, method: 2, bucketSignal: 'comparison', channelType: 'pixel' },
+  // Gallery is a comparison-stage page (brief P1.3 regression case: score 17 + gallery → comparison).
+  page_view_gallery: { eventType: 'page_view_gallery', delta: 6, method: 2, bucketSignal: 'comparison', channelType: 'pixel' },
   hero_cta_click: { eventType: 'hero_cta_click', delta: 12, method: 2, bucketSignal: 'active', channelType: 'pixel' },
   emg_cta_click: { eventType: 'emg_cta_click', delta: 20, method: 2, bucketSignal: 'emergency', channelType: 'pixel' },
   // Tracker #31: sustained dwell on the home-page Emergency band itself (before any nav/CTA).

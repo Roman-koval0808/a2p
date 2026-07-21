@@ -1207,8 +1207,31 @@ model Cohort2Trajectory {
   personaBand      String?
   channelSequence  Json?
   bookedJobOutcome String?
+  /// won | lost — the terminal relationship outcome (Pipeline Reference §10.2 step 3).
+  outcomeResult    String?
+  /// Required when outcomeResult = 'lost', null when 'won'. Canonical vocabulary — see LossReason.
+  lossReason       String?
+  /// Anonymized relationship identity. Section 8 writes are "anonymized and PII-redacted" (§1.5),
+  /// so the record carries a one-way hash for entry-eligibility (§10.2 step 2) instead of a
+  /// contact FK. `contactId` above is retained for legacy rows and is no longer written.
+  relationshipKey  String?
+  /// The 5 documented trajectory layers (§10.4 / clearsky-layers-reference.md).
+  behavioural       Json?
+  demographic       Json?
+  languageSentiment Json?
+  timeTrend         Json?
+  interestAffinity  Json?
+  /// Cross-cutting, not a 6th layer. Business-level Stream B join — never individual-attached.
+  rankContext       Json?
+  /// Transcript with names/phones stripped, sentence structure intact (§10.2 step 11).
+  redactedTranscript String?
+  /// Realized revenue. 0 for a loss — never the quoted/at-stake value (§10.4).
+  closeValue        Int     @default(0)
+  touchesToOutcome  Int     @default(0)
   closedAt         DateTime @default(now())
 
   @@index([companyId])
+  @@index([companyId, contactId])
+  @@index([relationshipKey])
   @@map("cohort2_trajectories")
 }
