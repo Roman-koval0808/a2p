@@ -58,8 +58,19 @@ export async function forwardSmsWebhook(
 	return { ok: res.ok, status: res.status, body };
 }
 
-/** Whether A2P forwarding is enabled (AI_BASE_URL set). */
+/**
+ * Whether A2P webhook forwarding is enabled. OFF by default.
+ *
+ * The A2P backend was retired — all of its logic now lives in this app. Forwarding nevertheless
+ * stayed on because AI_BASE_URL was still present in .env, so EVERY inbound SMS and voice webhook
+ * paid a failed TCP connect and dumped a full stack trace. A single phone call produced ~20 of
+ * them, which buried the real pipeline output and made logs unreadable.
+ *
+ * It is therefore opt-IN: a leftover AI_BASE_URL can no longer silently resurrect it. To bring
+ * A2P back, set A2P_FORWARDING_ENABLED=true alongside AI_BASE_URL.
+ */
 export function isA2pEnabled(): boolean {
+	if (process.env.A2P_FORWARDING_ENABLED?.trim().toLowerCase() !== 'true') return false;
 	return !!getBaseUrl();
 }
 
