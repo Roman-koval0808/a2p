@@ -43,8 +43,19 @@ export const IVR_DELTAS: Record<string, { delta: number; bucket: string }> = {
 /** Flat bonus for a recognised return within this many days (reference RECENCY_BONUS). */
 export const RECENCY_BONUS = { points: 10, withinDays: 3 };
 
-/** Score at/above which on-page Site Personalization unlocks (reference SITE_PERSONALIZATION_THRESHOLD). */
-export const SITE_PERSONALIZATION_THRESHOLD = 35;
+/**
+ * Site Personalization unlock. Tracker #8 was CLOSED 2026-07-16: the earlier 35 (generalized from
+ * an example) was superseded by score >= 45 OR a momentum spike, whichever fires first —
+ * reconciled against the Arrival Response Provider Spec's Release Gate.
+ */
+export const SITE_PERSONALIZATION_THRESHOLD = 45;
+/** Momentum spike: score climbing this fast also unlocks personalization, below the 45 floor. */
+export const MOMENTUM_SPIKE = { delta: 25, withinMinutes: 5 };
+
+/** True when Site Personalization should unlock for this profile. */
+export function unlocksSitePersonalization(scoreLive: number, recentDelta = 0): boolean {
+	return scoreLive >= SITE_PERSONALIZATION_THRESHOLD || recentDelta >= MOMENTUM_SPIKE.delta;
+}
 
 /**
  * Deltas arrive from the client pixel payload, which is untrusted and unbounded — a single
@@ -83,54 +94,46 @@ export function calculateDecayedScore(
 /**
  * Evaluates target intent bucket based on live score and event type, enforcing the no-downgrade rule.
  */
+/**
+ * Bucket assignment is ESCALATE-ONLY and driven by the event's own `bucketSignal`.
+ *
+ * Per the developer brief (Priority 1.3): "getNextBucket must read the event's own bucketSignal
+ * and climb the fixed ladder — never recompute from a score band."
+ *
+ * The score is deliberately NOT consulted. A score band cannot express intent: the regression case
+ * in the brief is a session on score 17 whose triggering event is gallery-tagged — that must land
+ * in `comparison`, whereas a band lookup would call it `research`. Score drives decay and demotion
+ * (evaluateDemotion), not promotion.
+ *
+ * `friction` and `disengagement` never promote — they describe a stall, not intent.
+ */
 export function getNextBucket(
   currentBucket: string,
-  scoreLive: number,
-  eventType: string,
+  bucketSignal: string | null | undefined,
   options?: {
+    /** Forced emergency regardless of the registry tag (e.g. AI detected urgency in a voicemail). */
     isUrgent?: boolean;
-    isConversion?: boolean;
-    activeSignalsCount?: number;
   }
 ): string {
+  // Emergency overrides everything, at any score, per Four Intent Buckets §3.1.
   let targetBucket = 'unclassified';
-  const eventLower = eventType.toLowerCase();
-
-  // Emergency rule: Any single urgency signal, score irrelevant. Check first!
-  if (options?.isUrgent || eventLower.includes('emergency') || eventLower.includes('urgent')) {
+  if (options?.isUrgent || bucketSignal === 'emergency') {
     targetBucket = 'emergency';
   } else {
-    // Canonical bands — Four Intent Buckets report §3.5:
-    //   Research 9–34 · Comparison 35–49 · Active Project 50–74 · Emergency = signal override.
-    //
-    // Previously Comparison started at 25 and Active required a conversion event (or an
-    // undocumented "2+ active signals" rule) rather than a score band, so score alone could never
-    // reach Active: a profile on 100/100 was evaluated research → COMPARISON, two bands too low.
-    //
-    // The spec defines no band above 74 while the scale caps at 100, so Active is treated as 50+
-    // (open-topped) rather than leaving 75–100 unbucketed.
-    const isConversionEvent =
-      options?.isConversion || eventLower.includes('booking') || eventLower.includes('submit');
-
-    if (scoreLive >= ACTIVE_MIN_SCORE) {
-      targetBucket = 'active';
-    } else if (isConversionEvent && scoreLive >= COMPARISON_MIN_SCORE) {
-      // A conversion action from an already-engaged visitor is an Active-Project behaviour even
-      // if the accumulated score has not yet crossed 50.
-      targetBucket = 'active';
-    } else if (
-      scoreLive >= COMPARISON_MIN_SCORE ||
-      eventLower.includes('pricing') ||
-      eventLower.includes('review')
-    ) {
-      targetBucket = 'comparison';
-    } else if (
-      scoreLive >= RESEARCH_MIN_SCORE ||
-      eventLower.includes('view') ||
-      eventLower.includes('click') ||
-      eventLower.includes('scroll')
-    ) {
-      targetBucket = 'research';
+    switch (bucketSignal) {
+      case 'conversion':
+      case 'active':
+        targetBucket = 'active';
+        break;
+      case 'comparison':
+        targetBucket = 'comparison';
+        break;
+      case 'research':
+        targetBucket = 'research';
+        break;
+      // friction / disengagement / untagged → no escalation; keep the current bucket.
+      default:
+        return currentBucket;
     }
   }
 

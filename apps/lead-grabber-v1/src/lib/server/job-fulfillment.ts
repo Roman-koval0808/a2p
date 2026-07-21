@@ -30,12 +30,16 @@ export async function completeJob(opts: {
 
 	// 1. Close the transaction (if one is referenced).
 	let transactionClosed = false;
+	// Realized revenue for the Section 8 win record — read from the transaction we are closing,
+	// never a quote (§10.4: closeValue "is never the quoted/at-stake value").
+	let closedTransactionValue = 0;
 	if (opts.transactionId) {
 		const now = new Date();
-		await prisma.transaction.update({
+		const closed = await prisma.transaction.update({
 			where: { id: opts.transactionId },
 			data: { status: 'closed', jobCompletedAt: now, paidAt: now, balanceAmount: 0 }
 		});
+		closedTransactionValue = Math.max(0, Math.round(Number((closed as any).totalAmount ?? 0)));
 		transactionClosed = true;
 	}
 
@@ -85,11 +89,21 @@ export async function completeJob(opts: {
 		}
 	}
 
-	// 4. Cohort 2 trajectory write.
+	// Touch history for the trajectory's touchesToOutcome.
+	const touchCount = contactId
+		? await prisma.communicationLog.count({ where: { companyId: opts.companyId, customerId: contactId } })
+		: 0;
+
+	// 4. Section 8 — the WIN half. A confirmed, paid job completion is the terminal positive
+	// outcome (§10.2 step 1: won = Transaction closed). closeValue is REALIZED revenue, so it
+	// comes from the closed transaction, never from a quote.
 	await writeCohort2Trajectory({
 		companyId: opts.companyId,
 		contactId,
-		bookedJobOutcome: 'completed'
+		contactName: opts.customerName,
+		outcomeResult: 'won',
+		closeValue: closedTransactionValue ?? 0,
+		touchesToOutcome: touchCount
 	});
 
 	return { transactionClosed, draftsQueued, cohort2Written: true };

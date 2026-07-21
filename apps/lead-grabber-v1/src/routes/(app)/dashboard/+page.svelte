@@ -239,10 +239,10 @@
 							<div class="flex flex-col">
 								<span class="text-xs font-bold text-gray-800">{displayName}</span>
 								<div class="flex items-center gap-1.5 mt-0.5">
-									{#if visitor.tier === 'T1'}
+									{#if visitor.tier === 'T1' || visitor.tier === 'Tier 1'}
 										<span class="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-blue-50 text-blue-700 border border-blue-200">Tier 1</span>
-									{:else if visitor.tier === 'T2A'}
-										<span class="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 border border-purple-200">Tier 2A</span>
+									{:else if visitor.tier === 'T2' || visitor.tier === 'Tier 2'}
+										<span class="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 border border-purple-200">Tier 2</span>
 									{:else}
 										<span class="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-gray-50 text-gray-500 border border-gray-200">Tier 3</span>
 									{/if}

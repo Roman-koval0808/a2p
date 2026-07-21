@@ -98,6 +98,14 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// transcript + AI summary, and if it doesn't match the digit's department, reclassify and
 	// follow the message. An emergency always wins, whatever digit was pressed.
 	const rawMessage = (commLog.content || metadata.summary || commLog.summary || '').toString();
+	// When a caller hangs up without leaving a voicemail (or transcription yields nothing) the call
+	// webhook stores a PLACEHOLDER as the content — "Call completed (30s)", "Call recording
+	// available (0s)". That is call metadata, not something the customer said. Treating it as a
+	// message made the AI try to reply to it and narrate its own limitations instead:
+	// "I understand you've left a voicemail, but I'm not able to listen to recordings through text."
+	const hasCustomerMessage = !/^\s*call\s+(completed|recording available)\s*\(\d+s\)\s*$/i.test(
+		rawMessage.trim()
+	) && rawMessage.trim().length > 0;
 	const digitCategory: 'billing' | 'sales' | 'support' | null =
 		digit === '1' ? 'billing' : digit === '2' ? 'sales' : digit === '3' ? 'support' : null;
 
@@ -269,6 +277,16 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	if (bookedConfirmation) {
 		draftedResponse = bookedConfirmation;
 		scenarioLocked = true; // it's confirmed — don't let the conversational override rewrite it
+	}
+	// --- NO CUSTOMER MESSAGE: they hung up before leaving a voicemail ---
+	// There is nothing to reply TO, so we must not ask the AI to try. Acknowledge the missed call
+	// honestly and invite them to say what they need — never pretend to have heard something.
+	else if (!hasCustomerMessage) {
+		olog('[Orchestrator] No customer message (call metadata only) — using the missed-call acknowledgement.');
+		const dept = digitCategory ? ` about ${digitCategory}` : '';
+		draftedResponse = `Hi${customer.name ? ` ${customer.name}` : ''}, sorry we missed your call${dept} just now. Reply here with what you need and we'll help, or we'll call you back shortly. — ${company.name || 'our team'}`;
+		metadata.no_customer_message = true;
+		scenarioLocked = true; // nothing for the conversational/agentic reply to work with
 	}
 	// --- EMERGENCY: always wins, regardless of the digit pressed ---
 	else if (messageCategory === 'emergency') {
