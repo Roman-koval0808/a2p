@@ -21,6 +21,28 @@ export const load: PageServerLoad = async ({ locals }) => {
 	try {
 		const last10 = (p: string | null | undefined) => (p || '').replace(/\D/g, '').slice(-10);
 		const contacts = (await getContactsByCompany(user.company.id, 200)) as any[];
+
+		// The intent bucket is assigned by SIGNAL, never recomputed from a score band (developer
+		// brief P1.3, Four Intent Buckets §3.1). The only bucket the main database can evidence is
+		// Emergency — the orchestrator records `message_category` on the communication, and an
+		// emergency signal overrides every other bucket at any score. Anything else is left
+		// `unclassified` rather than guessed: the real CDP bucket is not stored in this database.
+		const latestByContact = new Map<string, string>();
+		try {
+			const recent = await prisma.communicationLog.findMany({
+				where: { companyId: user.company.id, customerId: { not: null } },
+				orderBy: { created: 'desc' },
+				select: { customerId: true, metadata: true },
+				take: 500
+			});
+			for (const log of recent) {
+				if (!log.customerId || latestByContact.has(log.customerId)) continue;
+				const category = (log.metadata as Record<string, any>)?.message_category;
+				if (typeof category === 'string') latestByContact.set(log.customerId, category);
+			}
+		} catch (e: any) {
+			console.error('[profiles] could not read latest classification:', e?.message || e);
+		}
 		const localList = contacts.map((c) => {
 			const score = c.engagementScore ?? 0;
 			return {
@@ -38,7 +60,11 @@ export const load: PageServerLoad = async ({ locals }) => {
 				// Locked model: 1 = strong identifier · 2 = name only · 2B = real but no identifier.
 				tier: c.phone || c.email ? 'Tier 1' : c.name ? 'Tier 2' : 'Tier 2B',
 				scoreLive: score,
-				intentBucket: score >= 20 ? 'active' : 'research',
+				// NOT score >= 20 ? 'active' : 'research' — that threshold matches none of the
+				// canonical bands (research 9-34 / comparison 35-49 / active 50-74) and could never
+				// produce 'emergency', so a flooded-basement caller on score 25 was shown as an
+				// Active Project.
+				intentBucket: latestByContact.get(c.id) === 'emergency' ? 'emergency' : 'unclassified',
 				lastSeen: c.updated ?? c.created ?? null
 			};
 		});
