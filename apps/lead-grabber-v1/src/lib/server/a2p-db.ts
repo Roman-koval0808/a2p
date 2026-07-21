@@ -22,7 +22,14 @@ function getPool(): pg.Pool {
 	return pool;
 }
 
+/**
+ * Whether the A2P mirror database is enabled. OFF by default — same reasoning as
+ * isA2pEnabled() in a2p-client.ts: the host was retired, but a leftover A2P_DATABASE_URL kept
+ * every communication-log write attempting a connection and logging "A2P mirror failed".
+ * Opt back in with A2P_FORWARDING_ENABLED=true.
+ */
 export function isA2pDbEnabled(): boolean {
+	if (process.env.A2P_FORWARDING_ENABLED?.trim().toLowerCase() !== 'true') return false;
 	return !!process.env.A2P_DATABASE_URL?.trim();
 }
 

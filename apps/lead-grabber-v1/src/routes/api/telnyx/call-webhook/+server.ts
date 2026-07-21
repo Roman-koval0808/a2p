@@ -1505,12 +1505,32 @@ export const POST: RequestHandler = async ({ request }) => {
 							let actionItems: string[] = [];
 							let estimatedPrice: number | null = null;
 							let datetime: string | null = null;
+							// Declared HERE, not inside the pipeline's .then() callback: recordingMetadata
+							// below references it on every path, including the one where the pipeline is
+							// skipped. Scoping it to the callback threw "webhookTrace is not defined" and
+							// crashed the whole call.recording.saved handler.
+							const webhookTrace: string[] = [];
+							// Hoisted so the pipeline callback (which resolves AFTER the log is written)
+							// can find the row to patch its trace onto. See the write-back at the end of
+							// the .then() below.
+							let finalLogId: string | null = null;
 							const recordingCount = await prisma.callRecording.count({
 								where: { callId: callControlId }
 							});
 							const callState = await getState(callControlId);
-							const hasVoicemail = callState?.hasVoicemail || false;
-							const hasIntent = !!callState?.intentDigit || !!decoded?.ivrDigit || !!decoded?.callPriority;
+							// `call.hangup` fires BEFORE `call.recording.saved` and calls deleteState(), so
+							// callState is usually already gone by the time we get here. Relying on it alone
+							// made every voicemail look like a dropped call: the pipeline was skipped and the
+							// transcript never produced signals. The recording's own client_state is the
+							// reliable evidence — it survives the state deletion because Telnyx echoes it back.
+							const voicemailFromClientState =
+								decoded?.isVoicemailRecording === true || decoded?.ivrPath === 'Voicemail';
+							const hasVoicemail = callState?.hasVoicemail || voicemailFromClientState;
+							const hasIntent =
+								!!callState?.intentDigit ||
+								!!decoded?.ivrDigit ||
+								!!decoded?.callPriority ||
+								!!decoded?.ivrPath;
 							const isDropCall = !hasIntent && !hasVoicemail && direction === 'incoming';
 
 							if (!contact && !isDropCall) {
@@ -1621,7 +1641,6 @@ export const POST: RequestHandler = async ({ request }) => {
 											sessionId: callControlId,
 											companyId: numberInfo?.companyId || undefined
 										}).then(async (pipelineResult) => {
-											const webhookTrace: string[] = [];
 											if (!pipelineResult.success) {
 												console.error('❌ Voice Pipeline run failed:', pipelineResult.error);
 												return;
@@ -1759,6 +1778,32 @@ export const POST: RequestHandler = async ({ request }) => {
 													console.warn('⚠️ Missing companyNumber or contactNumber, cannot log safety SMS draft');
 												}
 											}
+
+											// WRITE-BACK: the pipeline is intentionally not awaited so this webhook can
+											// answer Telnyx promptly (it already spends ~6s on transcription + analysis).
+											// That means the communication log was written before these logs existed, so
+											// pipeline_logs saved as []. Patch the finished trace on now — otherwise the
+											// call's "View Log" shows all 8 sections empty even though they all ran.
+											if (finalLogId && webhookTrace.length) {
+												try {
+													const row = await prisma.communicationLog.findUnique({
+														where: { id: finalLogId },
+														select: { metadata: true }
+													});
+													await prisma.communicationLog.update({
+														where: { id: finalLogId },
+														data: {
+															metadata: {
+																...((row?.metadata as Record<string, unknown>) || {}),
+																pipeline_logs: webhookTrace
+															} as any
+														}
+													});
+													console.log(`📝 Attached ${webhookTrace.length} pipeline log line(s) to ${finalLogId}`);
+												} catch (traceErr) {
+													console.error('❌ Failed to attach pipeline_logs to communication log:', traceErr);
+												}
+											}
 										}).catch(err => console.error('[Voice Pipeline Error]', err));
 										} else {
 											console.log('🎥 Skipping PipelineSimulator run for drop call');
@@ -1784,7 +1829,6 @@ export const POST: RequestHandler = async ({ request }) => {
 								pipeline_logs: webhookTrace
 							};
 
-							let finalLogId: string | null = null;
 							if (existingLog) {
 								const updatedLog = await prisma.communicationLog.update({
 									where: { id: existingLog.id },
