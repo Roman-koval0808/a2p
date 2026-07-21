@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { logCommunication } from '$lib/utils/communication-log';
 import { prisma } from '$lib/db';
+import { resolveBrand } from '$lib/server/brand';
 
 /**
  * Supplier-delivery-received trigger (Epic 6, T6.5). Back-office marks a supplier
@@ -35,7 +36,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	}
 
 	const who = name?.trim() || 'there';
-	const content = `Hi ${who}, your unit has arrived at our shop. We'll be in touch to schedule installation. — RightFlush Plumbing`;
+	const content = `Hi ${who}, your unit has arrived at our shop. We'll be in touch to schedule installation. — ${await resolveBrand(companyId)}`;
 	await logCommunication({
 		type: 'sms',
 		direction: 'outbound',

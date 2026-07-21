@@ -10,6 +10,7 @@ import { UnifiedPipeline } from '$lib/server/pipeline/unified-pipeline';
 import { getProfileDetails, getProfileHistory } from '$lib/server/profiledb/profiles';
 import { getTenantEvents } from '$lib/server/profiledb/telemetry';
 import { emergencyAdvice } from '$lib/server/emergency-templates';
+import { resolveBrand } from '$lib/server/brand';
 
 const CORS_HEADERS = {
 	'Access-Control-Allow-Origin': '*',
@@ -403,7 +404,8 @@ async function syncEmergencyMessages(companyId: string) {
 			if (!draftResponse && profile.intentBucket === 'emergency') {
 				const lastMessage = uniqueMappedMessages[uniqueMappedMessages.length - 1]?.content?.toLowerCase() || '';
 				// Emergency guidance from the shared template library (T2.2/T2.3).
-				const { message: advice } = emergencyAdvice({ text: lastMessage, name: customerName });
+				const brand = await resolveBrand(companyId);
+				const { message: advice } = emergencyAdvice({ text: lastMessage, name: customerName, brand });
 				draftResponse = advice;
 			}
 

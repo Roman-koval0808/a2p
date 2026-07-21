@@ -11,7 +11,7 @@
 import { checkCalendarAvailability, formatDatetime, describeBusinessHours } from './calendar';
 import { claudeJSON, claudeText, CLAUDE_FAST } from './anthropic';
 import { bookingLinkWith } from '$lib/utils/booking';
-import { isUnsendableDraft } from './reply-sanity';
+import { isUnsendableDraft, claimsUnverifiedDispatchOrTime } from './reply-sanity';
 
 export interface ConversationTurn {
 	from: 'customer' | 'business';
@@ -117,6 +117,8 @@ async function generateReply(
 1. Warmly acknowledge the urgency and say someone from ${input.companyName} will call them back right away.
 2. IF — and only if — there is a SIMPLE, SAFE step a non-expert can take to limit damage or stay safe while they wait, briefly suggest it. Adapt to what they actually described (works for ANY trade): burst/leaking pipe → shut off the main water valve; roof leak → move valuables and put a bucket under the drip; backed-up drain → stop running water; appliance leaking/overflowing → turn it off at its own valve/switch if easily reachable.
 3. SAFETY FIRST: NEVER suggest anything involving gas, live electricity, fire, heights, structural collapse, or physical danger. For anything hazardous (gas smell, sparks/smoke/fire, water near outlets, etc.) tell them to get to safety and call 911 or the relevant utility — do not have them attempt anything. If you're unsure a step is safe, or there's no obvious safe step, SKIP the tip and just reassure them.
+4. NEVER state that anyone has been dispatched, is en route, is "on the way", or will arrive — nobody has been sent yet when this message is written. Promise a CALLBACK only.
+5. NEVER mention an appointment, arrival time, ETA or time window. You have NO appointment data here, so any time you write would be invented. (A real message to a customer read "You have an appointment at 4:00 PM today" for an appointment that did not exist.) If they ask when someone is coming, say the team will confirm timing on the callback.
 Use ONLY these facts; never invent details:
 ${facts}`
 		: `You are a warm, friendly assistant for ${input.companyName}, a local trades / home-services business, replying by SMS to ${input.customerName || 'the customer'}.
@@ -273,6 +275,13 @@ export async function draftConversationalReply(
 
 	const reply = await generateReply(input, factLines.join('\n'), input.apiKey);
 	if (!reply) return null;
+	// An emergency reply must not promise a crew is en route or name an arrival time — we have
+	// neither dispatched anyone nor been given appointment data here. Returning null makes the
+	// caller fall back to its honest template ("someone will call you back right away").
+	if (input.emergency && claimsUnverifiedDispatchOrTime(reply)) {
+		console.warn('[Conversational reply] discarded emergency draft claiming dispatch/arrival time:', reply.slice(0, 160));
+		return null;
+	}
 	// Same sanity bar as the agentic path: never send a template or self-narration to a customer.
 	// Returning null lets the orchestrator fall back to its plain follow-up message.
 	if (isUnsendableDraft(reply)) {

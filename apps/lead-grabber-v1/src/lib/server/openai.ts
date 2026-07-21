@@ -12,7 +12,7 @@ const ANALYSIS_SCHEMA = {
 		summary: { type: 'string', description: 'concise 2-3 sentence summary' },
 		intent: { type: 'string', description: 'e.g. Billing, Sales, Support, Emergency' },
 		sub_intent: { type: 'string', description: 'more specific category, or empty string if N/A' },
-		urgency: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
+		urgency: { type: 'string', enum: ['low', 'medium', 'high'] },
 		actionItems: { type: 'array', items: { type: 'string' } },
 		sentiment: {
 			type: 'string',
@@ -151,7 +151,7 @@ export async function analyzeCallLog(
     - "summary": A concise summary of the call (2-3 sentences).
     - "intent": The main purpose or intent of the call (e.g., "Billing", "Sales", "Support", "Emergency").
     - "sub_intent": A more specific category. E.g. if Billing, is it "Accounts Receivable" or "Accounts Payable"? If not applicable, return an empty string.
-    - "urgency": One of "low", "medium", "high" based on the customer's tone and request.
+    - "urgency": One of "low", "medium", "high" based on the customer's tone and request. Use "high" for active safety or property risk (flooding, gas, fire, no heat in winter, active water ingress).
     - "actionItems": A list of action items or next steps.
     - "sentiment": One of "Positive", "Negative", "Neutral", "Angry", "Anxious" based on the overall tone.
     - "callerName": Extract the caller's full name if they introduce themselves (e.g., "Hi, this is John Smith" → "John Smith"). If no name is mentioned, return an empty string.
@@ -188,8 +188,12 @@ export async function analyzeCallLog(
 		}
 		console.log('✅ Analysis complete:', result);
 
+		// Urgency is low | medium | high. 'critical' is deliberately NOT a level: when it used to
+		// slip through the schema it failed this whitelist and fell back to 'medium', so the most
+		// urgent calls were stored as mid-urgency. Any stray/legacy 'critical' now maps UP to high.
 		const validUrgencies = ['low', 'medium', 'high'];
-		const parsedUrgency = result.urgency?.toLowerCase();
+		const rawUrgency = result.urgency?.toLowerCase();
+		const parsedUrgency = rawUrgency === 'critical' ? 'high' : rawUrgency;
 
 		return {
 			summary: result.summary || 'No summary generated',

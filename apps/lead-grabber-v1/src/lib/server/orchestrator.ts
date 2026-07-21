@@ -273,7 +273,19 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// --- EMERGENCY: always wins, regardless of the digit pressed ---
 	else if (messageCategory === 'emergency') {
 		olog('[Orchestrator] EMERGENCY detected from the message — overriding IVR routing.');
-		const template = `Hi ${customer.name || 'there'}, we received your urgent message and someone from ${company.name || 'our team'} will call you back right away.`;
+		// Fall back to the CURATED emergency copy (the same safety-reviewed library the automated
+		// telemetry SMS uses) rather than a bare acknowledgement, so the customer still gets the
+		// real mitigation advice — "turn off the main water supply", "move valuables and put a
+		// bucket under the drip" — matched to the type of emergency they described.
+		const { emergencyAdvice } = await import('./emergency-templates');
+		const advice = emergencyAdvice({
+			text: rawMessage,
+			name: customer.name,
+			brand: company.name || undefined
+		});
+		const template = advice.message;
+		metadata.emergency_type = advice.type;
+		olog(`[Orchestrator] Emergency type classified as "${advice.type}".`);
 		try {
 			// Urgent ack + a SAFE, business-flexible self-mitigation tip while help is on the way.
 			const { draftConversationalReply } = await import('./conversation');

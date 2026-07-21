@@ -1,4 +1,5 @@
 import { getAvailableSlots } from './google-calendar';
+import { resolveBrand } from './brand';
 
 /**
  * Available-slots scheduling EMAIL (Epic 5, T5.4) — the email counterpart to the
@@ -38,7 +39,7 @@ export async function buildAvailableSlotsEmail(opts: {
 		`Hi ${who},\n\nHere are some open times for your installation:\n\n` +
 		(lines.length ? lines.join('\n') : '(No open slots found — reply and we\'ll find a time.)') +
 		(opts.bookingUrl ? `\n\nOr pick a time here: ${opts.bookingUrl}` : '') +
-		`\n\n— RightFlush Plumbing`;
+		`\n\n— ${await resolveBrand(opts.companyId)}`;
 
 	return { subject: 'Schedule your installation', body, slotCount: lines.length };
 }

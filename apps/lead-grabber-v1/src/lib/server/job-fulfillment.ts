@@ -1,6 +1,7 @@
 import { prisma } from '$lib/db';
 import { logCommunication } from '$lib/utils/communication-log';
 import { writeCohort2Trajectory } from './cohort2';
+import { resolveBrand } from './brand';
 
 export interface CompleteJobResult {
 	transactionClosed: boolean;
@@ -25,7 +26,7 @@ export async function completeJob(opts: {
 	gbpLink?: string;
 	brand?: string;
 }): Promise<CompleteJobResult> {
-	const brand = opts.brand || 'RightFlush Plumbing';
+	const brand = await resolveBrand(opts.companyId, opts.brand);
 
 	// 1. Close the transaction (if one is referenced).
 	let transactionClosed = false;
