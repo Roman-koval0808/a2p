@@ -2,6 +2,7 @@ import { prisma } from '$lib/db';
 import { hasSmsConsent } from './consent';
 import { sendAutomatedSms } from './sms';
 import { buildCallContextSummary } from './call-context-summary';
+import { resolveBrand } from './brand';
 
 export interface CallbackAckResult {
 	sent: boolean;
@@ -48,7 +49,7 @@ export async function sendCallbackAck(opts: {
 
 	const slaMinutes = config?.slaMinutes ?? 10;
 	const name = opts.customerName?.trim() || 'there';
-	const brand = opts.brand || 'RightFlush Plumbing';
+	const brand = await resolveBrand(opts.companyId, opts.brand);
 	const message = `Hi ${name}, thanks for reaching out — a representative will call you back in ${slaMinutes} minutes. — ${brand}`;
 
 	await sendAutomatedSms(phone, message);

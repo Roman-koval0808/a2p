@@ -420,12 +420,19 @@ export const TELNYX_SIGNAL_RULES: SignalRule[] = [
 		conditions: {
 			'ai_context.service_mentioned': { operator: 'is_not_null' },
 			'ai_context.contains_quote_request': { operator: '=', value: false },
-			'ai_context.requested_action': { operator: '!=', value: 'praise' }
+			'ai_context.requested_action': { operator: '!=', value: 'praise' },
+			// The three conditions above are all negatives plus "a service was named", which the AI
+			// fills in for ANY service-related message — including complaints and emergencies. An
+			// active roof leak was therefore logged as a BOOKING_INQUIRY. A customer reporting a
+			// failure is not enquiring about booking, so exclude problems and emergencies outright.
+			'ai_context.contains_emergency_keywords': { operator: '=', value: false },
+			'ai_context.contains_problem': { operator: '=', value: false }
 		},
 		required_fields: ['ai_context.service_mentioned'],
 		default_priority: 1,
 		default_confidence: 0.9,
-		purpose: 'Customers asking about specific services represent potential revenue.'
+		purpose:
+			'Customers asking about specific services represent potential revenue. Excludes problem/emergency reports, which name a service but are not enquiries.'
 	},
 	{
 		signal_rule_id: 'SIG-COMM-005',

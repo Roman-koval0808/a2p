@@ -4,6 +4,7 @@ import { request as httpRequest } from 'http';
 import { request as httpsRequest } from 'https';
 import { resolveCustomerProfile, sha256, normalizeEmail, normalizePhone } from './identity.service';
 import { emergencyAdvice } from '$lib/server/emergency-templates';
+import { resolveBrand } from '$lib/server/brand';
 import { getNextBucket, calculateDecayedScore } from './scoring.service';
 import { providerRegistry } from './providerRegistry';
 import { eventRegistry } from './eventRegistry';
@@ -396,7 +397,8 @@ export async function ingestTelemetryEvent(params: {
         const transcriptText = (payload.voicemail_text || payload.textContent || payload.detail || '').toLowerCase();
 
         // Emergency guidance from the shared template library (T2.2/T2.3).
-        const { message: advice } = emergencyAdvice({ text: transcriptText, name: contactName });
+        const brand = await resolveBrand(tenantSlug);
+        const { message: advice } = emergencyAdvice({ text: transcriptText, name: contactName, brand });
 
         const cleanedPhone = contactPhone.replace(/[^\d+]/g, '');
         stageLog('SMS', `Triggering automated emergency response SMS to ${cleanedPhone}: "${advice}"`);

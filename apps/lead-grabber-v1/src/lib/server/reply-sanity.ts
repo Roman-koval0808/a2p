@@ -30,6 +30,26 @@ export function hasUnfilledPlaceholder(text: string): boolean {
 	);
 }
 
+/**
+ * An emergency reply claiming something we have not actually done or do not know: that a crew is
+ * en route, or a specific appointment/arrival time. When this fires the caller should fall back to
+ * the honest template ("someone will call you back right away").
+ *
+ * Real example this catches: "our team is on the way to you now … You have an appointment at
+ * 4:00 PM today" — no crew had been sent (the dispatch action was still awaiting approval) and no
+ * appointment existed; the model invented both.
+ *
+ * NOTE: scoped to the AI-drafted emergency reply. The curated emergency SMS templates legitimately
+ * describe dispatch as part of the business process and are not run through this.
+ */
+export function claimsUnverifiedDispatchOrTime(text: string): boolean {
+	const enRoute =
+		/\b(on (the|our|its|their) way|en ?route|has been dispatched|have been dispatched|we'?ve dispatched|is heading (out|over)|are heading (out|over)|crew will be there|will be there shortly|arriving shortly)\b/i;
+	const apptTime =
+		/\b(you have an appointment|your appointment is|appointment at|be there (at|by)|arrive (at|by)|scheduled for)\b/i;
+	return enRoute.test(text) || apptTime.test(text);
+}
+
 /** True when a drafted reply must NOT be sent as-is. */
 export function isUnsendableDraft(text: string | null | undefined): boolean {
 	const t = (text || '').trim();

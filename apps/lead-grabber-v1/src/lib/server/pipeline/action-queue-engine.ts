@@ -181,12 +181,22 @@ export class ActionQueueEngine {
 				case 'sentiment': params[key] = enrichment.aiSentiment; break;
 				case 'intent': params[key] = enrichment.aiRequestedAction || 'Unknown'; break;
 				case 'phone_number': params[key] = event.customerProfile?.phoneNumber || 'Unknown'; break;
-				case 'urgency_level':
-					// Map deterministic priority to urgency level
+				case 'urgency_level': {
+					// Prefer the urgency actually assessed for THIS message. decision.priority is a
+					// routing rank, not an urgency judgement, so deriving from it alone reported
+					// "high" on a call the analyser had already graded "critical" — two different
+					// urgencies on one event. Fall back to priority only when nothing was assessed.
+					const assessed = String(enrichment?.aiUrgencyLevel || '').toLowerCase();
+					const normalised = assessed === 'critical' ? 'high' : assessed;
+					if (['low', 'medium', 'high'].includes(normalised)) {
+						params[key] = normalised;
+						break;
+					}
 					if (decision.priority <= 1) params[key] = 'high';
 					else if (decision.priority === 2) params[key] = 'medium';
 					else params[key] = 'low';
 					break;
+				}
 				case 'emergency_type':
 					// Required by ACT-A2P-004 (emergency dispatch). Prefer an explicit
 					// AI-provided type once T2.1 adds `aiEmergencyType` to the schema;

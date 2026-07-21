@@ -143,13 +143,20 @@
 			// analyzeCallLog string urgency (low/medium/high) that voice & SMS logs store, so
 			// those also get urgency coloring instead of always falling through to in/out.
 			const meta = log.metadata || {};
-			const legacyUrgency: Record<string, number> = { low: 2, medium: 3, high: 5 };
+			// 'critical' must map to the TOP of the scale. It was missing from this table, so a
+			// critical call resolved to `?? null` and fell through to a plain in/out dot instead of
+			// red — the most urgent calls were the ones showing no colour at all. Urgency is now
+			// low|medium|high, but older rows (and the message-intent classifier) still say critical.
+			const legacyUrgency: Record<string, number> = { low: 2, medium: 3, high: 5, critical: 5 };
+			const urgencyText = (
+				typeof meta.urgency === 'string' ? meta.urgency : (meta.ai_intent?.urgency ?? '')
+			)
+				.toString()
+				.toLowerCase();
 			const urgencyGpt =
 				typeof meta.urgency_gpt === 'number'
 					? meta.urgency_gpt
-					: typeof meta.urgency === 'string'
-						? (legacyUrgency[meta.urgency.toLowerCase()] ?? null)
-						: null;
+					: (legacyUrgency[urgencyText] ?? null);
 
 			// The IVR digit the caller pressed is a deliberate signal: 2 = Sales (an
 			// opportunity to act on fast), 1 = Billing, 3 = Support. Flag Sales as an
@@ -159,6 +166,11 @@
 			const isSalesIntent =
 				ivrDigit === '2' || ivrIntentLower.includes('sales') || ivrIntentLower.includes('booking');
 
+			// Dot meaning, most severe first:
+			//   red   = needs attention now (missed call, emergency, or high urgency)
+			//   blue  = worth acting on (medium urgency, or a sales/booking opportunity)
+			//   green = seen and low urgency
+			//   in/out = no urgency signal at all — direction only
 			let status: string;
 			if (log.isDropCall || meta.drop_call) status = 'red';
 			else if (meta.message_category === 'emergency') status = 'red';

@@ -1,3 +1,4 @@
+import { NEUTRAL_BRAND } from './brand';
 /**
  * Shared, typed emergency auto-reply templates.
  *
@@ -94,7 +95,13 @@ interface AdviceOptions {
 	brand?: string;
 }
 
-/** Build the customer-facing emergency advice message and the resolved type. */
+/**
+ * Build the customer-facing emergency advice message and the resolved type.
+ *
+ * Callers should pass `brand` (see resolveBrand); without it we sign neutrally rather than as
+ * some other company — this template previously defaulted to a hardcoded 'RightFlush Plumbing',
+ * so live emergency SMS went out signed as a business the customer had never contacted.
+ */
 export function emergencyAdvice(opts: AdviceOptions): { type: EmergencyType; message: string } {
 	const type = opts.type ?? classifyEmergencyType(opts.text);
 	const def = TEMPLATES.find((t) => t.type === type);
@@ -102,6 +109,6 @@ export function emergencyAdvice(opts: AdviceOptions): { type: EmergencyType; mes
 	const message = template
 		.replaceAll('{name}', opts.name?.trim() || 'there')
 		.replaceAll('{eta}', opts.eta || '2-3 minutes')
-		.replaceAll('{brand}', opts.brand || 'RightFlush Plumbing');
+		.replaceAll('{brand}', opts.brand?.trim() || NEUTRAL_BRAND);
 	return { type, message };
 }
