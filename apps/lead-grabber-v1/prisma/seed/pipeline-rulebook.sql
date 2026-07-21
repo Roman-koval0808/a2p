@@ -163,7 +163,15 @@ INSERT INTO pipeline_safety_rules
 VALUES
 	('seed_saf_001', 'SAF-001', 'Never auto-post a public-facing action',
 		'{"action_is_public_facing":{"operator":"=","value":true},"execution_mode":{"operator":"=","value":"automatic"}}'::jsonb,
-		'Public-facing actions require human approval before posting.', 10, true)
+		'Public-facing actions require human approval before posting.', 10, true),
+	-- SAF-004 from the canonical rule book (002_seed_rules.sql). Ported because it evaluates
+	-- ai_confidence_score, which buildEventData already supplies. Like SAF-001 it is narrow: both
+	-- conditions must hold, so it cannot block the approval-lane actions we seed today.
+	-- SAF-002 (legal threat) and SAF-003 (business match) are NOT ported — they test fields this
+	-- implementation does not extract, so seeding them would create rules that can never evaluate.
+	('seed_saf_004', 'SAF-004', 'Block low-confidence public action',
+		'{"action_is_public_facing":{"operator":"=","value":true},"ai_confidence_score":{"operator":"<","value":0.7}}'::jsonb,
+		'AI confidence too low for an automatic public-facing action; needs human review.', 9, true)
 ON CONFLICT ("ruleId") DO UPDATE SET
 	"ruleName"    = EXCLUDED."ruleName",
 	conditions    = EXCLUDED.conditions,

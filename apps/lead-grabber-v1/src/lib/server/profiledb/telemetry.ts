@@ -5,7 +5,13 @@ import { request as httpsRequest } from 'https';
 import { resolveCustomerProfile, sha256, normalizeEmail, normalizePhone } from './identity.service';
 import { emergencyAdvice } from '$lib/server/emergency-templates';
 import { resolveBrand } from '$lib/server/brand';
-import { getNextBucket, calculateDecayedScore } from './scoring.service';
+import {
+  getNextBucket,
+  calculateDecayedScore,
+  clampScoreDelta,
+  IVR_DELTAS,
+  RECENCY_BONUS
+} from './scoring.service';
 import { providerRegistry } from './providerRegistry';
 import { eventRegistry } from './eventRegistry';
 
@@ -300,9 +306,35 @@ export async function ingestTelemetryEvent(params: {
     // CL2 — Event Mining & Scoring Engine
     stageLog('CL2', `Applying event delta — event=${eventType}`);
     const eventConfig = eventRegistry[eventType];
-    const scoreDelta = (clientScoreDelta !== undefined && clientScoreDelta > 0)
+    const rawDelta = (clientScoreDelta !== undefined && clientScoreDelta > 0)
       ? clientScoreDelta
       : (eventConfig ? eventConfig.delta : 0);
+    // The pixel payload is untrusted and was sending +95 for a single voicemail, saturating the
+    // 0-100 scale in one event. Bound it to the largest legitimate single-event delta.
+    let scoreDelta = clampScoreDelta(rawDelta);
+    if (scoreDelta !== rawDelta) {
+      stageLog('CL2', `Delta clamped ${rawDelta} → ${scoreDelta} (max single-event delta)`);
+    }
+
+    // IVR selection delta — the digit the caller pressed is a scored intent signal in the
+    // reference model (1 service +6, 2 quotes +10, 3 emergency +20, 4 billing +2). It was
+    // captured on the call but never reached the score.
+    const ivrDigit = payload.ivr_digit != null ? String(payload.ivr_digit) : null;
+    const ivrRule = ivrDigit ? IVR_DELTAS[ivrDigit] : undefined;
+    if (ivrRule?.delta) {
+      scoreDelta += ivrRule.delta;
+      stageLog('CL2', `IVR digit ${ivrDigit} → +${ivrRule.delta} (${ivrRule.bucket})`);
+    }
+
+    // Recency bonus — a recognised return within the window is itself an intent signal.
+    const lastSeen = profile.lastEventAt ? new Date(profile.lastEventAt as any) : null;
+    if (lastSeen) {
+      const daysSince = (Date.now() - lastSeen.getTime()) / 86400000;
+      if (daysSince > 0 && daysSince <= RECENCY_BONUS.withinDays) {
+        scoreDelta += RECENCY_BONUS.points;
+        stageLog('CL2', `Recency bonus +${RECENCY_BONUS.points} (returned within ${RECENCY_BONUS.withinDays}d)`);
+      }
+    }
 
     const newScoreRaw = Math.min(Math.max(0, profile.scoreRaw + scoreDelta), 100);
     const newScoreLive = newScoreRaw;

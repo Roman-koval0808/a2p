@@ -2,7 +2,7 @@ import { prisma } from '$lib/db';
 import { redirect, error } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { commCode } from '$lib/utils/comm-id';
-import { getProfileDetails, getProfileHistory, assignRepresentative } from '$lib/server/profiledb/profiles';
+import { assignRepresentative } from '$lib/server/profiledb/profiles';
 
 export const load: PageServerLoad = async ({ params, locals }) => {
 	const user = locals.user;
@@ -37,45 +37,53 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	}
 
 	try {
-		// 1. Fetch profile from ProfileDB
-		const profileResult = await getProfileDetails(companyId, params.id);
-		let cdpProfile: any = null;
-		if (profileResult.status >= 200 && profileResult.status < 300) {
-			cdpProfile = profileResult.body;
-		}
-
-		// 2. Fetch history from ProfileDB
-		const historyResult = await getProfileHistory(companyId, params.id);
-		let historyEvents: any[] = [];
-		if (historyResult.status >= 200 && historyResult.status < 300) {
-			historyEvents = historyResult.body;
-		}
-
-		// Always fetch the contact from Prisma for accountBalance/engagementScore
+		// ProfileDB is redundant — this page is sourced entirely from the main database.
+		// It previously read the score and history from ProfileDB, but the route param is a Contact
+		// id (cuid) while ProfileDB keys profiles by uuid, so every lookup missed and the page fell
+		// back to a stub with scoreLive 0 and an empty history. That is why scores and history did
+		// not show.
 		const dbContact = await prisma.contact.findFirst({
 			where: { id: params.id, companyId }
 		});
-
-		// Fallback to prisma contact if not found in CDP
-		if (!cdpProfile) {
-			if (!dbContact) {
-				throw error(404, 'Profile not found');
-			}
-			// Map dbProfile to look like CDP Profile
-			cdpProfile = {
-				id: dbContact.id,
-				name: dbContact.name || 'Unknown Caller',
-				phone: dbContact.phone || '',
-				email: dbContact.email || '',
-				clearPhone: dbContact.phone || '—',
-				clearEmail: dbContact.email || '—',
-				tier: 'T3',
-				scoreLive: 0,
-				intentBucket: 'unclassified',
-				isAnonymous: !dbContact.email && !dbContact.phone,
-				lastSeen: dbContact.updated || new Date()
-			};
+		if (!dbContact) {
+			throw error(404, 'Profile not found');
 		}
+
+		// The communication log IS this profile's history in the main database.
+		const historySource = await prisma.communicationLog.findMany({
+			where: { companyId, customerId: dbContact.id },
+			orderBy: { created: 'asc' },
+			take: 200
+		});
+
+		// Map comms into the event shape the identity/behaviour passes below already expect.
+		const historyEvents: any[] = historySource.map((log) => {
+			const md = (log.metadata as Record<string, any>) || {};
+			return {
+				eventType: `${log.type}.${log.direction}`,
+				occurredAt: log.created,
+				pageUrl: md.pageUrl ?? null,
+				name: md.callerName ?? dbContact.name ?? null,
+				phone: log.direction === 'inbound' ? log.source : log.destination,
+				email: dbContact.email ?? null,
+				payload: { ...md, textContent: log.content ?? undefined }
+			};
+		});
+
+		// The engagement score the orchestrator maintains on the Contact is the real score here.
+		const cdpProfile: any = {
+			id: dbContact.id,
+			name: dbContact.name || 'Unknown Caller',
+			phone: dbContact.phone || '',
+			email: dbContact.email || '',
+			clearPhone: dbContact.phone || '—',
+			clearEmail: dbContact.email || '—',
+			tier: dbContact.phone || dbContact.email ? 'Tier 1' : 'Tier 2B',
+			scoreLive: dbContact.engagementScore ?? 0,
+			intentBucket: 'unclassified',
+			isAnonymous: !dbContact.email && !dbContact.phone,
+			lastSeen: dbContact.updated || new Date()
+		};
 
 		// 3. Compute Identity Resolution History
 		const identityHistory: any[] = [];
@@ -275,7 +283,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				past_names: identityHistory.filter(h => h.field === 'Name').map(h => h.newValue)
 			},
 			accountBalance: dbContact?.accountBalance ?? null,
-			engagementScore: cdpProfile?.scoreLive ?? dbContact?.engagementScore ?? 0,
+			engagementScore: dbContact.engagementScore ?? 0,
 			communications: comms,
 			historyEvents,
 			identityHistory,
