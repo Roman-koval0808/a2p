@@ -4,6 +4,7 @@ import { TELNYX_API_KEY, TELNYX_CONNECTION_ID } from '$env/static/private';
 import { formatPhoneForDialing } from '$lib/utils/phone';
 import { getFirstCompanyNumber } from '$lib/company-numbers';
 import { prisma } from '$lib/db';
+import { logCommunication } from '$lib/utils/communication-log';
 
 export const POST: RequestHandler = async ({ request, locals }) => {
 	try {
@@ -140,6 +141,58 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			}
 		} catch (e) {
 			console.error('[Dialer] Failed to mark emergency dispatch SLA met:', e);
+		}
+
+		// Record the outbound call in the communication log so it shows in the a2p — threaded with
+		// the customer's existing conversation (inbound call, emergency dispatch, this callback all
+		// share one thread). endpoint = who we called (their profile name if we have one, else the
+		// number); source = the number we called from. The transcript/AI/orchestrator run later, off
+		// the recording.saved webhook this call already routes to /api/telnyx/call-webhook.
+		try {
+			const last10 = (ph: string) => (ph || '').replace(/\D/g, '').slice(-10);
+			const target = last10(formattedPhone);
+			// Who are we calling? Resolve their contact for the name + to link the record.
+			const contacts = await prisma.contact.findMany({
+				where: { companyId },
+				select: { id: true, name: true, phone: true }
+			});
+			const callee = contacts.find((c) => last10(c.phone || '') === target) || null;
+			// Reuse the customer's existing thread so all same-context rows connect.
+			const recentThreaded = await prisma.communicationLog.findMany({
+				where: {
+					companyId,
+					communicationThreadId: { not: null },
+					created: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+				},
+				orderBy: { created: 'desc' },
+				select: { source: true, destination: true, communicationThreadId: true },
+				take: 100
+			});
+			const threadRow = recentThreaded.find(
+				(r) => last10(r.source || '') === target || last10(r.destination || '') === target
+			);
+			await logCommunication({
+				type: 'voice',
+				direction: 'outbound',
+				status: 'completed',
+				source: from,
+				destination: formattedPhone,
+				company_id: companyId,
+				customer_id: callee?.id,
+				summary: `Outbound call to ${callee?.name || formattedPhone}`,
+				metadata: {
+					dialer_outbound: true,
+					call_control_id: data.data.call_control_id,
+					placed_by: locals.user?.id || null,
+					placed_at: new Date().toISOString(),
+					thread_id: formattedPhone,
+					// commId is the thread key — reuse the customer's thread when we found one.
+					commId: threadRow?.communicationThreadId || undefined
+				}
+			});
+			console.log(`[Dialer] Logged outbound call to ${callee?.name || formattedPhone} (thread ${threadRow?.communicationThreadId || 'new'}).`);
+		} catch (logErr) {
+			console.error('[Dialer] Failed to log outbound call:', logErr);
 		}
 
 		// Return the call ID and success status
