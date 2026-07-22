@@ -114,6 +114,34 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			console.error('[Dialer] Failed to clear SLA tasks:', slaErr);
 		}
 
+		// Reflect "SLA met" on the VISIBLE emergency-dispatch SMS record(s) for this callback
+		// number, so the Communication Log badge flips from a countdown to "SLA met" rather than
+		// eventually showing BREACHED after the tech has actually called back.
+		try {
+			const last10 = (ph: string) => (ph || '').replace(/\D/g, '').slice(-10);
+			const target = last10(formattedPhone);
+			const dispatches = await prisma.communicationLog.findMany({
+				where: {
+					type: 'sms',
+					direction: 'outbound',
+					created: { gte: new Date(Date.now() - 60 * 60 * 1000) }
+				},
+				select: { id: true, metadata: true }
+			});
+			for (const d of dispatches) {
+				const md = (d.metadata as any) || {};
+				if (md.is_emergency_dispatch && md.sla_status !== 'met' && last10(md.callback_number || '') === target) {
+					await prisma.communicationLog.update({
+						where: { id: d.id },
+						data: { metadata: { ...md, sla_status: 'met', sla_met_at: new Date().toISOString() } }
+					});
+					console.log(`[Dialer] Marked emergency dispatch ${d.id} SLA met (callback placed).`);
+				}
+			}
+		} catch (e) {
+			console.error('[Dialer] Failed to mark emergency dispatch SLA met:', e);
+		}
+
 		// Return the call ID and success status
 		return json({
 			success: true,

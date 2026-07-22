@@ -79,6 +79,33 @@
 	let openOptionsMenu = $state<string | null>(null);
 	let openDropdownId = $state<string | null>(null);
 
+	// Live clock so the emergency SLA countdown ticks without a page reload.
+	let nowMs = $state(Date.now());
+	$effect(() => {
+		const t = setInterval(() => (nowMs = Date.now()), 1000);
+		return () => clearInterval(t);
+	});
+
+	/**
+	 * SLA badge state for an emergency-dispatch row. null when the row has no SLA.
+	 * `met` — a callback was placed in time · `breached` — past due, no callback · `pending` — counting down.
+	 */
+	function slaBadge(comm: any): { label: string; tone: string } | null {
+		const m = comm?.raw?.metadata;
+		if (!m?.is_emergency_dispatch || !m?.sla_due_at) return null;
+		if (m.sla_status === 'met')
+			return { label: 'SLA met', tone: 'bg-emerald-100 text-emerald-700' };
+		const dueMs = new Date(m.sla_due_at).getTime();
+		const remaining = dueMs - nowMs;
+		if (remaining <= 0) return { label: 'SLA BREACHED', tone: 'bg-red-100 text-red-700' };
+		const mm = Math.floor(remaining / 60000);
+		const ss = Math.floor((remaining % 60000) / 1000);
+		return {
+			label: `SLA ${mm}:${String(ss).padStart(2, '0')}`,
+			tone: remaining <= 120000 ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'
+		};
+	}
+
 	const filteredCommunications = $derived.by(() => {
 		let filtered = communications;
 		if (activeFilter !== 'All') {
@@ -325,6 +352,15 @@
 											<span>{comm.purpose}</span>
 										{:else}
 											<span>—</span>
+										{/if}
+										{#if slaBadge(comm)}
+											{@const sla = slaBadge(comm)}
+											<span
+												class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold leading-none {sla?.tone}"
+												title="Emergency callback SLA — escalates if the tech doesn't call back in time"
+											>
+												🚨 {sla?.label}
+											</span>
 										{/if}
 										{#if dept}
 											<span class="inline-flex items-center rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 leading-none">
