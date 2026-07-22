@@ -836,28 +836,19 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				const dispatchFrom = (await resolveSmsSender(company.id, companyNumber)) || companyNumber || undefined;
 				// The SLA clock is shared by the dispatch record(s) below and the tracker task further
 				// down, so the UI and the escalation agree on the same deadline.
-				const slaDueAt = new Date(Date.now() + 10 * 60 * 1000);
-				const last10 = (p: string) => (p || '').replace(/\D/g, '').slice(-10);
-				const seenNumbers = new Set<string>();
-				let dispatched = 0;
-				for (const contactEntry of smsNumbers) {
-					const phoneNum = typeof contactEntry === 'string' ? contactEntry : contactEntry.number;
-					const contactName = typeof contactEntry === 'object' && contactEntry.name ? contactEntry.name : '';
-					if (!phoneNum) continue;
-					// De-dup within this run (the same number listed twice in notifications.phone_numbers).
-					const key = last10(phoneNum);
-					if (seenNumbers.has(key)) continue;
-					seenNumbers.add(key);
-					// De-dup ACROSS runs: a voice call yields several recordings/webhook retries, each
-					// re-running the orchestrator on a NEW comm (so orchestrator_processed doesn't catch
-					// it). If we already alerted this number for this callback in the last 5 min, skip —
-					// otherwise the on-call tech gets the same emergency 3×.
-					const alreadySent = await prisma.communicationLog.findFirst({
+									// The SLA clock is shared by the single dispatch record and the tracker task below, so the
+					// UI badge and the escalation agree on one deadline.
+					const slaDueAt = new Date(Date.now() + 10 * 60 * 1000);
+					const last10 = (p: string) => (p || '').replace(/\D/g, '').slice(-10);
+					
+					// De-dup ACROSS runs: a voice call yields several recordings/webhook retries, each re-running
+					// the orchestrator on a NEW comm (so orchestrator_processed doesn't catch it). If this same
+					// emergency (same callback) was already dispatched in the last 5 min, skip the whole thing.
+					const alreadyDispatched = await prisma.communicationLog.findFirst({
 						where: {
 							companyId: company.id,
 							type: 'sms',
 							direction: 'outbound',
-							destination: phoneNum,
 							created: { gte: new Date(Date.now() - 5 * 60 * 1000) },
 							AND: [
 								{ metadata: { path: ['is_emergency_dispatch'], equals: true } },
@@ -866,38 +857,62 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						},
 						select: { id: true }
 					});
-					if (alreadySent) {
-						olog(`[Orchestrator] Emergency already dispatched to ${phoneNum} for ${callbackNumber} — skipping duplicate.`);
-						continue;
+					
+					// Generic alert text for the LOG record (per-recipient sends add a personal greeting).
+					const alertText = `\u{1F6A8} EMERGENCY \u2014 ${customerName} just ${contactVerb} and needs help NOW. Call them back right away at ${callbackNumber}. Message: "${rawMessage}"`;
+					const seenNumbers = new Set<string>();
+					const sentTo: { number: string; name: string | null }[] = [];
+					
+					if (alreadyDispatched) {
+						olog(`[Orchestrator] Emergency already dispatched for ${callbackNumber} within 5 min — skipping duplicate run.`);
+					} else {
+						for (const contactEntry of smsNumbers) {
+							const phoneNum = typeof contactEntry === 'string' ? contactEntry : contactEntry.number;
+							const contactName = typeof contactEntry === 'object' && contactEntry.name ? contactEntry.name : '';
+							if (!phoneNum) continue;
+							// One send per UNIQUE number (the same number listed twice would double-text one person).
+							const key = last10(phoneNum);
+							if (seenNumbers.has(key)) continue;
+							seenNumbers.add(key);
+							const greeting = contactName ? `${contactName}, ` : '';
+							const personal = `\u{1F6A8} EMERGENCY \u2014 ${greeting}${customerName} just ${contactVerb} and needs help NOW. Call them back right away at ${callbackNumber}. Message: "${rawMessage}"`;
+							try {
+								await sendAutomatedSms(phoneNum, personal, dispatchFrom);
+								sentTo.push({ number: phoneNum, name: contactName || null });
+							} catch (e) {
+								oerr(`[Orchestrator] Failed to auto-dispatch emergency SMS to ${phoneNum}:`, e);
+							}
+						}
 					}
-					const greeting = contactName ? `${contactName}, ` : '';
-					const alertText = `\u{1F6A8} EMERGENCY \u2014 ${greeting}${customerName} just ${contactVerb} and needs help NOW. Call them back right away at ${callbackNumber}. Message: "${rawMessage}"`;
-					try {
-						await sendAutomatedSms(phoneNum, alertText, dispatchFrom);
-						dispatched++;
-						// Record the dispatch as a SENT outbound SMS so it is visible in the a2p
-						// communication log (sendAutomatedSms alone leaves no trace in the UI). Status is
-						// 'sent' \u2014 it already went out, it is NOT a pending_approval draft. The SLA deadline
-						// rides on the record so the UI can show the 10-minute countdown / breach.
+					
+					const dispatched = sentTo.length;
+					olog(`[Orchestrator] EMERGENCY auto-dispatched to ${dispatched}/${smsNumbers.length} on-call number(s) from ${dispatchFrom} — callback ${callbackNumber}.`);
+					if (!alreadyDispatched && smsNumbers.length === 0)
+						oerr('[Orchestrator] EMERGENCY but no on-call numbers configured (Settings → notifications.phone_numbers) — nobody was alerted.');
+					metadata.emergency_dispatched = dispatched;
+					metadata.emergency_callback_number = callbackNumber;
+					
+					// ONE communication-log record for the whole dispatch (not one per recipient), so the a2p
+					// Communication Log shows a SINGLE emergency-dispatch row carrying the SLA countdown.
+					if (dispatched > 0) {
 						await logCommunication({
 							type: 'sms',
 							direction: 'outbound',
-							// 'completed' = actually dispatched (same status the Confirm flow sets after a
-							// real send). It is NOT 'pending_approval' — no human action is required.
 							status: 'completed',
 							source: dispatchFrom || companyNumber,
-							destination: phoneNum,
+							destination: sentTo.map((r) => r.number).join(', '),
 							company_id: company.id,
 							customer_id: customer.id,
-							summary: `Emergency dispatch to ${contactName || phoneNum} \u2014 call ${callbackNumber}`,
+							summary: `Emergency dispatch to ${dispatched} on-call number(s) — call ${callbackNumber}`,
 							content: alertText,
 							metadata: {
 								is_emergency_dispatch: true,
 								emergency_dispatch: true,
-								recipient_name: contactName || null,
+								recipients: sentTo,
+								recipient_count: dispatched,
 								callback_number: callbackNumber,
 								trigger_comm_id: commId,
-								thread_id: phoneNum,
+								thread_id: callbackNumber,
 								message_category: 'emergency',
 								sla_minutes: 10,
 								sla_due_at: slaDueAt.toISOString(),
@@ -906,15 +921,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						}).catch((e) =>
 							oerr('[Orchestrator] Emergency SMS sent but failed to log the record:', e)
 						);
-					} catch (e) {
-						oerr(`[Orchestrator] Failed to auto-dispatch emergency SMS to ${phoneNum}:`, e);
 					}
-				}
-				olog(`[Orchestrator] EMERGENCY auto-dispatched to ${dispatched}/${smsNumbers.length} on-call number(s) from ${dispatchFrom} — callback ${callbackNumber}.`);
-				if (smsNumbers.length === 0)
-					oerr('[Orchestrator] EMERGENCY but no on-call numbers configured (Settings → notifications.phone_numbers) — nobody was alerted.');
-				metadata.emergency_dispatched = dispatched;
-				metadata.emergency_callback_number = callbackNumber;
 
 				// --- SLA BREACH TRACKER ---
 				// Create a 10-minute countdown task for the technician callback. The SLA monitor
