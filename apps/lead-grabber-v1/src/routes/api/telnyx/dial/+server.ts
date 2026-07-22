@@ -83,6 +83,37 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			);
 		}
 
+		// --- SLA CLEARANCE ---
+		// When the technician successfully initiates a call to the customer using the dialer,
+		// we must clear any pending emergency SLA tasks for this phone number.
+		try {
+			// Find all OPEN SLA tasks for emergency dispatch (ACT-A2P-004)
+			const openTasks = await prisma.pipelineActionQueue.findMany({
+				where: {
+					actionId: 'ACT-A2P-004',
+					status: { in: ['pending_approval', 'ready_for_execution', 'pending'] }
+				}
+			});
+
+			for (const task of openTasks) {
+				const params = task.parameters as any;
+				const taskPhone = params?.phone_number || params?.callback_number;
+				// If the dialed number matches the task's callback number, the SLA is met!
+				if (taskPhone && (formatPhoneForDialing(taskPhone) === formattedPhone)) {
+					await prisma.pipelineActionQueue.update({
+						where: { id: task.id },
+						data: {
+							status: 'execution_completed',
+							updatedAt: new Date()
+						}
+					});
+					console.log(`[Dialer] Cleared SLA emergency task ${task.id} because outbound call was made to ${formattedPhone}`);
+				}
+			}
+		} catch (slaErr) {
+			console.error('[Dialer] Failed to clear SLA tasks:', slaErr);
+		}
+
 		// Return the call ID and success status
 		return json({
 			success: true,

@@ -2,6 +2,7 @@ import { prisma } from '$lib/db';
 import { logCommunication } from '$lib/utils/communication-log';
 import { toE164 } from '$lib/company-numbers';
 import { extractCallbackNumber } from '$lib/utils/phone';
+import { decideRouting, isOffHours } from '$lib/server/emergency-routing';
 import { classifyMessageIntent, bucketToCategory } from './message-intent';
 import { checkCalendarAvailability, formatDatetime, describeLocations, describeDayHours, resolveNamedDays } from './calendar';
 import { getBookingUrl, bookingLinkWith } from '$lib/utils/booking';
@@ -772,69 +773,140 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			const isAvailable = checkCalendarAvailability(now.toISOString(), company.locations);
 			shouldDefer = !isAvailable;
 		} else {
-			const hour = now.getHours();
-			const day = now.getDay(); // 0 is Sunday, 6 is Saturday
-			const isWeekend = day === 0 || day === 6;
-			const isAfterHours = hour < 9 || hour >= 17;
-			shouldDefer = isWeekend || isAfterHours;
+			shouldDefer = isOffHours(now);
 		}
 
 		if (shouldDefer) {
 			olog('[Orchestrator] Outside business hours, flagging draft as deferred.');
 		}
 		
-		const isEmergency = aiIntent?.urgency === 'high' || intent?.toLowerCase() === 'emergency';
-		
+		// Route via the pure three-case decision (unit-tested in emergency-routing.test.ts).
+		// Emergency → dispatch tech + SLA, no customer draft. Non-emergency → draft (deferred
+		// off-hours). NB the old check (`urgency === 'high' || intent === 'emergency'`) missed real
+		// emergencies: a burst pipe is urgency 'critical' (not 'high') and its `intent` is often
+		// 'Support', so it drafted a "Confirm call" card instead of dispatching.
+		const routing = decideRouting({ messageCategory, isOffHours: shouldDefer });
+		const isEmergency = routing.dispatchToTech;
+
 		try {
-			await logCommunication({
-				type: 'sms',
-				direction: 'outbound',
-				status: 'pending_approval',
-				source: companyNumber,
-				destination: customerPhone,
-				company_id: company.id,
-				customer_id: customer.id,
-				summary: (shouldDefer ? '[DEFERRED] ' : '') + draftedResponse.substring(0, 40) + '...',
-				content: draftedResponse,
-				metadata: {
-					thread_id: customerPhone,
-					commId: commLog.communicationThreadId,
-					is_draft: true,
-					orchestrator_draft: true,
-					trigger_comm_id: commId,
-					proposed_appointment: proposedAppointment || undefined,
-					// Confirm places a CALL (to callback_number) instead of sending this text when set.
-					confirm_action: metadata.confirm_action || undefined,
-					callback_number: metadata.callback_number || undefined,
-					deferred_after_hours: shouldDefer,
-					// Inherit the conversation's classification so the draft's summary shows a
-					// meaningful Category / Sub-Category instead of blanks.
-					message_category: messageCategory || null,
-					sentiment: aiIntent?.sentiment ?? null,
-					urgency: aiIntent?.urgency ?? null,
-					sub_intent: aiIntent?.intent_bucket ?? null
-				}
-			});
+			// Only draft a customer-facing response if it's NOT an emergency, preventing the
+			// confusing 3 AM "Confirm Response" card when auto-dispatch should handle it.
+			if (!isEmergency) {
+				await logCommunication({
+					type: 'sms',
+					direction: 'outbound',
+					status: 'pending_approval',
+					source: companyNumber,
+					destination: customerPhone,
+					company_id: company.id,
+					customer_id: customer.id,
+					summary: (shouldDefer ? '[DEFERRED] ' : '') + draftedResponse.substring(0, 40) + '...',
+					content: draftedResponse,
+					metadata: {
+						thread_id: customerPhone,
+						commId: commLog.communicationThreadId,
+						is_draft: true,
+						orchestrator_draft: true,
+						trigger_comm_id: commId,
+						proposed_appointment: proposedAppointment || undefined,
+						confirm_action: metadata.confirm_action || undefined,
+						callback_number: metadata.callback_number || undefined,
+						deferred_after_hours: shouldDefer,
+						message_category: messageCategory || null,
+						sentiment: aiIntent?.sentiment ?? null,
+						urgency: aiIntent?.urgency ?? null,
+						sub_intent: aiIntent?.intent_bucket ?? null
+					}
+				});
+			}
 
 			if (isEmergency) {
+				// EMERGENCY AUTO-DISPATCH (deterministic, no human confirm). Immediately text the on-call
+				// number(s) so a tech can call the customer back — this is the automated path that must work
+				// off-hours, when the pending-approval queue would otherwise sit untouched.
 				const { sendAutomatedSms } = await import('./sms');
+				const { resolveSmsSender } = await import('./company-sender');
 				const companySettings = (company.settings || {}) as Record<string, any>;
 				const smsNumbers = companySettings.notifications?.phone_numbers || [];
 				const customerName = customer?.firstName || customer?.name || 'A customer';
 				const contactVerb = commLog.type === 'sms' ? 'texted' : 'called';
-				
+				// Call the number the customer LEFT in the message (blocked/borrowed line), else their line.
+				const callbackNumber = extractCallbackNumber(rawMessage) || (metadata.callback_number as string) || customerPhone;
+				// Dispatch FROM an active company number, never a ghost row, so the alert actually delivers.
+				const dispatchFrom = (await resolveSmsSender(company.id, companyNumber)) || companyNumber || undefined;
+				let dispatched = 0;
 				for (const contactEntry of smsNumbers) {
 					const phoneNum = typeof contactEntry === 'string' ? contactEntry : contactEntry.number;
 					const contactName = typeof contactEntry === 'object' && contactEntry.name ? contactEntry.name : '';
-					if (phoneNum) {
-						const alertText = `Hey ${contactName || 'there'}, ${customerName} had ${contactVerb}. They can be reached at ${customerPhone}. See message: ${rawMessage}`;
-						
-						await sendAutomatedSms(phoneNum, alertText, companyNumber).catch(e => {
-							oerr(`[Orchestrator] Failed to auto-send emergency SMS to owner ${phoneNum}:`, e);
-						});
+					if (!phoneNum) continue;
+					const greeting = contactName ? `${contactName}, ` : '';
+					const alertText = `\u{1F6A8} EMERGENCY \u2014 ${greeting}${customerName} just ${contactVerb} and needs help NOW. Call them back right away at ${callbackNumber}. Message: "${rawMessage}"`;
+					try {
+						await sendAutomatedSms(phoneNum, alertText, dispatchFrom);
+						dispatched++;
+					} catch (e) {
+						oerr(`[Orchestrator] Failed to auto-dispatch emergency SMS to ${phoneNum}:`, e);
 					}
 				}
-				olog('[Orchestrator] Emergency notifications dispatched to owners.');
+				olog(`[Orchestrator] EMERGENCY auto-dispatched to ${dispatched}/${smsNumbers.length} on-call number(s) from ${dispatchFrom} — callback ${callbackNumber}.`);
+				if (smsNumbers.length === 0)
+					oerr('[Orchestrator] EMERGENCY but no on-call numbers configured (Settings → notifications.phone_numbers) — nobody was alerted.');
+				metadata.emergency_dispatched = dispatched;
+				metadata.emergency_callback_number = callbackNumber;
+
+				// --- SLA BREACH TRACKER ---
+				// Create a 10-minute countdown task for the technician callback. The SLA monitor
+				// watches PipelineActionQueue. Because process_orchestrator bypasses the PipelineDecision
+				// engine, we must synthesize the Event/Decision records to hook into the existing SLA.
+				const fakeId = `emg_${Math.random().toString(36).substring(2, 9)}`;
+				await prisma.$transaction([
+					prisma.pipelineEvent.create({
+						data: {
+							eventId: `evt_${fakeId}`,
+							traceId: `trc_${fakeId}`,
+							provider: 'orchestrator_emergency',
+							providerEventName: 'emergency_dispatch',
+							providerEventId: commId,
+							eventType: 'emergency_alert',
+							networkCategory: 'Communication',
+							companyId: company.id,
+							processingStatus: 'handoff_eligible',
+							handoffEligible: true,
+							unstructuredText: `Emergency auto-dispatch to ${dispatched} owner(s). Callback: ${callbackNumber}`
+						}
+					}),
+					prisma.pipelineDecision.create({
+						data: {
+							decisionId: `dec_${fakeId}`,
+							eventId: `evt_${fakeId}`, // must match PipelineEvent.eventId
+							executionMode: 'automatic',
+							owner: 'system',
+							priority: 1,
+							reason: 'Emergency auto-dispatch'
+						}
+					})
+				]).then(async ([evt, dec]) => {
+					await prisma.pipelineActionQueue.create({
+						data: {
+							queueTraceId: `q_${fakeId}`,
+							decisionId: dec.id,
+							actionId: 'ACT-A2P-004',
+							executionLane: 'approval_required', // Force it to sit in the OPEN queue for the SLA monitor
+							status: 'ready_for_execution',
+							dueAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes from now
+							parameters: { 
+								phone_number: callbackNumber, 
+								emergency_type: 'automated_dispatch',
+								callback_number: callbackNumber
+							}
+						}
+					});
+					olog(`[Orchestrator] 10-minute SLA callback task created for emergency (q_${fakeId}).`);
+				}).catch(e => {
+					oerr('[Orchestrator] Failed to insert SLA tracking records for emergency:', e);
+				});
+
+				metadata.emergency_callback_number = callbackNumber;
 			}
 		} catch (err) {
 			oerr('[Orchestrator] Failed to log pending SMS:', err);
