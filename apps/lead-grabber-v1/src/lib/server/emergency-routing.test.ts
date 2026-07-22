@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { decideRouting, isOffHours } from './emergency-routing';
 import { extractCallbackNumber } from '$lib/utils/phone';
+import { looksLikeActiveEmergency } from './message-intent';
 
 // These exercise the exact functions process_orchestrator now calls (decideRouting / isOffHours),
 // plus the callback-number extractor, so the three documented George scenarios are pinned down.
@@ -110,5 +111,31 @@ describe('extractCallbackNumber — the number George leaves', () => {
 		expect(extractCallbackNumber('please call me back as soon as you can')).toBeNull();
 		expect(extractCallbackNumber('')).toBeNull();
 		expect(extractCallbackNumber(null)).toBeNull();
+	});
+});
+
+describe('looksLikeActiveEmergency — deterministic backstop', () => {
+	it('catches active emergencies the AI mis-routed as booking/support', () => {
+		// Brahma's real transcript — was classified Support/booking, missed the emergency path.
+		expect(
+			looksLikeActiveEmergency(
+				'My roof is leaking after the repair, water is coming into my kitchen, call me right away'
+			)
+		).toBe(true);
+		expect(
+			looksLikeActiveEmergency('My basement pipe is pushing water all over the basement')
+		).toBe(true);
+		expect(looksLikeActiveEmergency('my pipe just burst and there is water everywhere')).toBe(true);
+		expect(looksLikeActiveEmergency('I smell gas in the basement')).toBe(true);
+		expect(looksLikeActiveEmergency('the sewer is backing up into my tub')).toBe(true);
+	});
+
+	it('does NOT trip on non-emergencies (avoids paging the tech for routine work)', () => {
+		expect(looksLikeActiveEmergency('can someone come look at my water heater, it is making noise')).toBe(false);
+		expect(looksLikeActiveEmergency('I want a quote for a water heater replacement next week')).toBe(false);
+		expect(looksLikeActiveEmergency('you fixed my leak last month, just following up')).toBe(false);
+		expect(looksLikeActiveEmergency('I want to book an appointment for Monday')).toBe(false);
+		expect(looksLikeActiveEmergency('')).toBe(false);
+		expect(looksLikeActiveEmergency(null)).toBe(false);
 	});
 });
