@@ -44,9 +44,11 @@ A voicemail transcript may START with an automated IVR greeting/menu spoken by t
 The menu option a customer pressed is a routing hint (which department they picked), NOT their intent — the customer's actual words always decide the intent. If what they say conflicts with the key they pressed, the message wins.
 Do not infer beyond what is stated or strongly implied.
 
+EMERGENCY ALWAYS WINS: if the message describes an ACTIVE safety or property emergency (water actively leaking/flooding/gushing, gas smell, fire/smoke/sparks, sewage backup, no heat in freezing weather, no water), the bucket is "emergency" and urgency is "critical" — EVEN IF the customer also asks to schedule a visit, get someone out, or mentions a day/time. "My roof is leaking right now, can you send someone" is emergency, NOT booking. Do not downgrade an active emergency to booking/sales just because they want someone to come out — that is exactly what an emergency needs.
+
 INTENT BUCKETS — pick exactly one that matches the PRIMARY intent:
-- emergency: Immediate safety/property risk — burst pipe, flooding, gas leak, fire, no heat in winter, no water, sewage backup.
-- booking: Wants to schedule, reschedule, confirm, or have someone come out for an appointment/estimate/visit. If they want to "come in", "come down", "set a time", or have someone "come look", it is booking — even if they also mention paying a bill.
+- emergency: Immediate safety/property risk happening now — burst/leaking pipe, roof/ceiling leak with active water, flooding, water damage in progress, gas leak, fire, no heat in winter, no water, sewage backup. Takes precedence over every other bucket.
+- booking: Wants to schedule, reschedule, confirm, or have someone come out for a NON-emergency appointment/estimate/visit. If they want to "come in", "come down", "set a time", or have someone "come look", it is booking — even if they also mention paying a bill. But NOT if it's an active emergency (see above): that stays "emergency".
 - billing: Wants to know or discuss their account balance / an invoice / owed amount, with NO appointment or visit requested.
 - complaint: Expressing dissatisfaction with service or outcome.
 - cancellation: Wants to cancel a service or appointment.
@@ -75,6 +77,8 @@ Input: "hi yeah my basement is flooding right now i dont know what to do"
 Output: {"intent_bucket":"emergency","urgency":"critical","sentiment":"negative","wants_appointment":false,"wants_balance":false,"confidence":0.97,"needs_human_review":false,"reason":"Active flooding is an emergency."}
 Input: "just calling to see if someone can come look at my water heater its been making noise"
 Output: {"intent_bucket":"booking","urgency":"medium","sentiment":"neutral","wants_appointment":true,"wants_balance":false,"confidence":0.9,"needs_human_review":false,"reason":"Wants someone to come out — a scheduling request."}
+Input: "my roof is leaking after the repair, water is coming into my kitchen, can you get someone out today or schedule me for Monday"
+Output: {"intent_bucket":"emergency","urgency":"critical","sentiment":"negative","wants_appointment":true,"wants_balance":false,"wants_callback":true,"confidence":0.95,"needs_human_review":false,"reason":"Active water damage is an emergency and takes precedence over the scheduling request."}
 Input: "hi what's my balance, i think i owe you for the last job"
 Output: {"intent_bucket":"billing","urgency":"low","sentiment":"neutral","wants_appointment":false,"wants_balance":true,"confidence":0.94,"needs_human_review":false,"reason":"Asking about their outstanding balance only."}
 Input: "I just want to inquire. I want to book an appointment to come down and pay my bill."
@@ -166,6 +170,32 @@ export async function classifyMessageIntent(
 		temperature: 0,
 		maxTokens: 700
 	});
+}
+
+/**
+ * Deterministic backstop for ACTIVE emergencies. The AI is the primary classifier, but missing an
+ * in-progress flood/gas/fire because the caller also mentioned a time is too costly to leave purely
+ * to the model. Narrow on purpose — a plain "water heater" or "next week" must NOT trip it.
+ */
+export function looksLikeActiveEmergency(text: string | null | undefined): boolean {
+	const t = (text || '').toLowerCase();
+	if (!t) return false;
+	// Gas / fire / electrical — inherently an emergency.
+	if (/\b(gas (leak|smell)|smell(ing)? gas|carbon monoxide|fire|smoke|sparks?)\b/.test(t)) return true;
+	// Sewage backing up / overflowing.
+	if (/\b(sewage|sewer|septic)\b/.test(t) && /\b(back(ing|ed)?\s?up|overflow)/.test(t)) return true;
+	// Active water damage: a water-damage word (or "water" next to a spillage cue) AND an
+	// "it's happening now" cue. Kept tight so "water heater making noise" does NOT trip it.
+	const water =
+		/\b(flood(ing|ed)?|burst|gushing|pouring|leak(ing)?)\b/.test(t) ||
+		(/\bwater\b/.test(t) &&
+			/\b(everywhere|all over|coming (in|into)|pushing|gushing|pouring|damage)\b/.test(t)) ||
+		/\bpushing water\b/.test(t);
+	const active =
+		/\b(right now|as we speak|actively|everywhere|all over|coming (in|into)|pushing|gushing|pouring)\b/.test(
+			t
+		);
+	return water && active;
 }
 
 /** Map the AI intent bucket to the orchestrator's routing category. */

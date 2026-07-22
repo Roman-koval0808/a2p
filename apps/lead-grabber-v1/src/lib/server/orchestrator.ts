@@ -3,7 +3,7 @@ import { logCommunication } from '$lib/utils/communication-log';
 import { toE164 } from '$lib/company-numbers';
 import { extractCallbackNumber } from '$lib/utils/phone';
 import { decideRouting, isOffHours } from '$lib/server/emergency-routing';
-import { classifyMessageIntent, bucketToCategory } from './message-intent';
+import { classifyMessageIntent, bucketToCategory, looksLikeActiveEmergency } from './message-intent';
 import { checkCalendarAvailability, formatDatetime, describeLocations, describeDayHours, resolveNamedDays } from './calendar';
 import { getBookingUrl, bookingLinkWith } from '$lib/utils/booking';
 import { resolveBalanceByPhone } from './balance';
@@ -162,6 +162,14 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		messageCategory = 'support';
 		metadata.ai_intent = null;
 		olog('[Orchestrator] No AI classification available; routing to support for human review.');
+	}
+
+	// Deterministic emergency backstop: never let an ACTIVE emergency (water coming in, gas, fire)
+	// be routed to booking/sales/support because the AI weighed a scheduling mention over the
+	// danger. This is exactly what happened to Brahma's roof leak ("water coming into my kitchen").
+	if (messageCategory !== 'emergency' && looksLikeActiveEmergency(rawMessage)) {
+		olog(`[Orchestrator] Emergency backstop: message describes an ACTIVE emergency but AI classified "${messageCategory}" — forcing emergency.`);
+		messageCategory = 'emergency';
 	}
 
 	const reclassified = !!(digitCategory && digitCategory !== messageCategory);
