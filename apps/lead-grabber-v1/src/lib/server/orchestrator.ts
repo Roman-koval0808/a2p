@@ -837,11 +837,39 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				// The SLA clock is shared by the dispatch record(s) below and the tracker task further
 				// down, so the UI and the escalation agree on the same deadline.
 				const slaDueAt = new Date(Date.now() + 10 * 60 * 1000);
+				const last10 = (p: string) => (p || '').replace(/\D/g, '').slice(-10);
+				const seenNumbers = new Set<string>();
 				let dispatched = 0;
 				for (const contactEntry of smsNumbers) {
 					const phoneNum = typeof contactEntry === 'string' ? contactEntry : contactEntry.number;
 					const contactName = typeof contactEntry === 'object' && contactEntry.name ? contactEntry.name : '';
 					if (!phoneNum) continue;
+					// De-dup within this run (the same number listed twice in notifications.phone_numbers).
+					const key = last10(phoneNum);
+					if (seenNumbers.has(key)) continue;
+					seenNumbers.add(key);
+					// De-dup ACROSS runs: a voice call yields several recordings/webhook retries, each
+					// re-running the orchestrator on a NEW comm (so orchestrator_processed doesn't catch
+					// it). If we already alerted this number for this callback in the last 5 min, skip —
+					// otherwise the on-call tech gets the same emergency 3×.
+					const alreadySent = await prisma.communicationLog.findFirst({
+						where: {
+							companyId: company.id,
+							type: 'sms',
+							direction: 'outbound',
+							destination: phoneNum,
+							created: { gte: new Date(Date.now() - 5 * 60 * 1000) },
+							AND: [
+								{ metadata: { path: ['is_emergency_dispatch'], equals: true } },
+								{ metadata: { path: ['callback_number'], equals: callbackNumber } }
+							]
+						},
+						select: { id: true }
+					});
+					if (alreadySent) {
+						olog(`[Orchestrator] Emergency already dispatched to ${phoneNum} for ${callbackNumber} — skipping duplicate.`);
+						continue;
+					}
 					const greeting = contactName ? `${contactName}, ` : '';
 					const alertText = `\u{1F6A8} EMERGENCY \u2014 ${greeting}${customerName} just ${contactVerb} and needs help NOW. Call them back right away at ${callbackNumber}. Message: "${rawMessage}"`;
 					try {
@@ -892,7 +920,8 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				// Create a 10-minute countdown task for the technician callback. The SLA monitor
 				// watches PipelineActionQueue. Because process_orchestrator bypasses the PipelineDecision
 				// engine, we must synthesize the Event/Decision records to hook into the existing SLA.
-				const fakeId = `emg_${Math.random().toString(36).substring(2, 9)}`;
+				if (dispatched > 0) {
+					const fakeId = `emg_${Math.random().toString(36).substring(2, 9)}`;
 				await prisma.$transaction([
 					prisma.pipelineEvent.create({
 						data: {
@@ -939,6 +968,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				}).catch(e => {
 					oerr('[Orchestrator] Failed to insert SLA tracking records for emergency:', e);
 				});
+				} // end if (dispatched > 0)
 
 				metadata.emergency_callback_number = callbackNumber;
 			}
