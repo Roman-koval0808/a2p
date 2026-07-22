@@ -920,6 +920,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 								recipient_count: dispatched,
 								callback_number: callbackNumber,
 								trigger_comm_id: commId,
+								// Thread this dispatch into the customer's conversation (the inbound emergency
+								// call's thread) so the inbound call, this alert, and the callback all connect.
+								commId: commLog.communicationThreadId || undefined,
 								thread_id: callbackNumber,
 								message_category: 'emergency',
 								sla_minutes: 10,
