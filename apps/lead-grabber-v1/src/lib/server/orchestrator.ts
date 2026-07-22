@@ -1,6 +1,7 @@
 import { prisma } from '$lib/db';
 import { logCommunication } from '$lib/utils/communication-log';
 import { toE164 } from '$lib/company-numbers';
+import { extractCallbackNumber } from '$lib/utils/phone';
 import { classifyMessageIntent, bucketToCategory } from './message-intent';
 import { checkCalendarAvailability, formatDatetime, describeLocations, describeDayHours, resolveNamedDays } from './calendar';
 import { getBookingUrl, bookingLinkWith } from '$lib/utils/booking';
@@ -448,6 +449,16 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	if (!tasks.length) tasks.push(`Review and follow up with ${customer.name || 'the customer'}`);
 	metadata.actionItems = Array.from(new Set(tasks));
 
+	// If the customer asked to be CALLED (not texted), Confirm should place a call instead of
+	// sending the drafted SMS. Dial the number they LEFT in the message if there is one — they may
+	// be calling from a blocked/borrowed line — otherwise the number they contacted us from.
+	if (aiIntent?.wants_callback) {
+		metadata.confirm_action = 'call';
+		metadata.callback_number =
+			extractCallbackNumber(rawMessage) || customerPhone || commLog.source || null;
+		olog(`[Orchestrator] Customer wants a callback — Confirm will CALL ${metadata.callback_number}.`);
+	}
+
 	// Generate a conversational/agentic reply for anything that isn't a LOCKED scenario draft
 	// (emergency template, billing balance/email, or a sales appointment proposal). This also
 	// covers billing messages that aren't balance requests, e.g. "I'll come pay tomorrow".
@@ -792,6 +803,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					orchestrator_draft: true,
 					trigger_comm_id: commId,
 					proposed_appointment: proposedAppointment || undefined,
+					// Confirm places a CALL (to callback_number) instead of sending this text when set.
+					confirm_action: metadata.confirm_action || undefined,
+					callback_number: metadata.callback_number || undefined,
 					deferred_after_hours: shouldDefer,
 					// Inherit the conversation's classification so the draft's summary shows a
 					// meaningful Category / Sub-Category instead of blanks.

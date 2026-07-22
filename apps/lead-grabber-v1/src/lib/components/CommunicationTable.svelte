@@ -319,7 +319,7 @@
 												onclick={() => onConfirmClick ? onConfirmClick(comm) : onReplyClick?.(comm)}
 												class="inline-block rounded bg-[#4A72B2] hover:bg-[#3b5d95] px-3.5 py-1 text-xs font-semibold text-white transition-colors"
 											>
-												Confirm
+												{comm.raw?.metadata?.confirm_action === 'call' ? 'Confirm call' : 'Confirm'}
 											</button>
 										{:else if comm.purpose}
 											<span>{comm.purpose}</span>
