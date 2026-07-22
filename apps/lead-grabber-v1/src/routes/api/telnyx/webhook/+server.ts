@@ -403,12 +403,8 @@ export const POST: RequestHandler = async ({ request }) => {
 							);
 							if (hasEmergency || action) {
 								console.log(
-									`[SMS Webhook Pipeline] Owner notification triggered for SMS from ${smsSender} (hasEmergency=${hasEmergency})`
-								);
-								const alertMsg = `[Alert] Urgent SMS from ${pipelineAuthorName}: "${smsText.substring(0, 100)}${smsText.length > 100 ? '...' : ''}"`;
-								const { sendOwnerSmsAlert } = await import('$lib/server/sms-alert');
-								// Send FROM the number the SMS arrived on — a proven-valid Telnyx sender.
-								await sendOwnerSmsAlert(companyId, alertMsg, toNumber);
+										`[SMS Webhook Pipeline] Emergency SMS from ${smsSender} — owner alert handled by orchestrator (avoids the duplicate text)`
+									);
 							}
 						}
 					} catch (err) {
