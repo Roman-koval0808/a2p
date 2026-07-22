@@ -359,21 +359,28 @@
 
 									<div class="space-y-3">
 										<Label>SMS Notification Numbers</Label>
-										{#each phoneNumbers as number, i}
+										{#each phoneNumbers as phone, i}
 											<div class="flex items-center gap-2">
+												<Input
+													type="text"
+													name="notificationNames"
+													placeholder="Name (e.g. Rory)"
+													bind:value={phoneNumbers[i].name}
+													class="flex-[0.4]"
+												/>
 												<Input
 													type="tel"
 													name="notificationPhones"
 													placeholder="+15551234567"
-													bind:value={phoneNumbers[i]}
-													class="flex-1"
+													bind:value={phoneNumbers[i].number}
+													class="flex-[0.6]"
 												/>
 												<Button
 													type="button"
 													variant="outline"
 													class="text-red-500 border-red-200 hover:bg-red-50 hover:text-red-700"
 													onclick={() => {
-														phoneNumbers = phoneNumbers.filter((_, idx) => idx !== i);
+														phoneNumbers = phoneNumbers.filter((_: any, idx: number) => idx !== i);
 													}}
 												>
 													Remove
@@ -386,7 +393,7 @@
 											size="sm"
 											class="text-primary border-primary/20 hover:bg-primary/5"
 											onclick={() => {
-												phoneNumbers = [...phoneNumbers, ''];
+												phoneNumbers = [...phoneNumbers, { name: '', number: '' }];
 											}}
 										>
 											+ Add Phone Number

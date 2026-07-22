@@ -38,7 +38,7 @@ export async function sendOwnerSmsAlert(companyId: string, alertMessage: string)
 			return;
 		}
 
-		const phoneNumbers: string[] = notifSettings.phone_numbers || [];
+		const phoneNumbers: any[] = notifSettings.phone_numbers || [];
 		if (phoneNumbers.length === 0) {
 			console.log(`[sms-alert] No phone numbers configured for SMS alerts: ${company.name || companyId}`);
 			return;
@@ -58,12 +58,17 @@ export async function sendOwnerSmsAlert(companyId: string, alertMessage: string)
 
 		console.log(`[sms-alert] Broadcasting alert for "${company.name}" to ${phoneNumbers.length} recipients...`);
 
-		for (const rawPhone of phoneNumbers) {
+		for (const phone of phoneNumbers) {
+			const rawPhone = typeof phone === 'string' ? phone : phone.number;
+			const name = typeof phone === 'object' && phone.name ? phone.name : '';
+			
 			const recipient = normalizePhoneNumber(rawPhone);
 			if (!recipient) {
 				console.warn(`[sms-alert] Invalid phone number skipped: "${rawPhone}"`);
 				continue;
 			}
+			
+			const personalizedMessage = name ? `Hey ${name},\n${alertMessage}` : alertMessage;
 
 			try {
 				const response = await fetch('https://api.telnyx.com/v2/messages', {
@@ -75,7 +80,7 @@ export async function sendOwnerSmsAlert(companyId: string, alertMessage: string)
 					body: JSON.stringify({
 						from: fromNumber,
 						to: recipient,
-						text: alertMessage,
+						text: personalizedMessage,
 						messaging_profile_id: TELNYX_MESSAGING_PROFILE_ID,
 						webhook_url: normalizeUrl(PUBLIC_BASE_URL, '/api/telnyx/webhook'),
 						use_profile_webhooks: false,
