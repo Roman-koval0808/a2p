@@ -772,11 +772,13 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			olog('[Orchestrator] Outside business hours, flagging draft as deferred.');
 		}
 		
+		const isEmergency = aiIntent?.urgency === 'high' || intent?.toLowerCase() === 'emergency';
+		
 		try {
 			await logCommunication({
 				type: 'sms',
 				direction: 'outbound',
-				status: 'pending_approval',
+				status: isEmergency ? 'completed' : 'pending_approval',
 				source: companyNumber,
 				destination: customerPhone,
 				company_id: company.id,
@@ -799,6 +801,14 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					sub_intent: aiIntent?.intent_bucket ?? null
 				}
 			});
+
+			if (isEmergency) {
+				const { sendAutomatedSms } = await import('./sms');
+				await sendAutomatedSms(customerPhone, draftedResponse, companyNumber).catch(e => {
+					oerr('[Orchestrator] Failed to auto-send emergency SMS:', e);
+				});
+				olog('[Orchestrator] SMS auto-sent due to emergency priority.');
+			}
 		} catch (err) {
 			oerr('[Orchestrator] Failed to log pending SMS:', err);
 		}

@@ -4,9 +4,9 @@ import { request as httpsRequest } from 'https';
  * Send an SMS via Telnyx. No DB dependency — extracted so main-DB modules
  * (callback-ack, etc.) don't transitively import the redundant profiledb client.
  */
-export async function sendAutomatedSms(to: string, body: string): Promise<void> {
+export async function sendAutomatedSms(to: string, body: string, fromNumber?: string): Promise<void> {
 	const telnyxApiKey = process.env.TELNYX_API_KEY?.trim();
-	const telnyxFrom = process.env.TELNYX_PHONE_NUMBER?.trim();
+	const telnyxFrom = fromNumber || process.env.TELNYX_PHONE_NUMBER?.trim();
 	const messagingProfileId = process.env.TELNYX_MESSAGING_PROFILE_ID?.trim();
 
 	if (!telnyxApiKey || !telnyxFrom) {

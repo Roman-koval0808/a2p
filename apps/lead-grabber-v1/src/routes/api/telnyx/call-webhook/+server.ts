@@ -1775,7 +1775,7 @@ export const POST: RequestHandler = async ({ request }) => {
 														await logCommunication({
 															type: 'sms',
 															direction: 'outbound',
-															status: 'pending_approval',
+															status: 'completed',
 															source: formattedFrom,
 															destination: formattedTo,
 															company_id: numberInfo?.companyId ?? undefined,
@@ -1793,8 +1793,13 @@ export const POST: RequestHandler = async ({ request }) => {
 																urgency: 'high'
 															}
 														});
-														console.log('📡 Voicemail safety SMS draft logged as pending_approval');
-														webhookTrace.push('📡 Voicemail safety SMS draft logged as pending_approval');
+														console.log('📡 Voicemail safety SMS logged as completed and sending automatically');
+														webhookTrace.push('📡 Voicemail safety SMS logged as completed and sending automatically');
+														
+														const { sendAutomatedSms } = await import('$lib/server/sms');
+														await sendAutomatedSms(formattedTo, safetySmsText, formattedFrom).catch(e => {
+															console.error('❌ Failed to auto-send emergency safety SMS:', e);
+														});
 													} catch (draftErr) {
 														console.error('❌ Error logging safety SMS draft:', draftErr);
 													}
