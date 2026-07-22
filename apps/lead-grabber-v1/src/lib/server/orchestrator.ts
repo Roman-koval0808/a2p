@@ -778,7 +778,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			await logCommunication({
 				type: 'sms',
 				direction: 'outbound',
-				status: isEmergency ? 'completed' : 'pending_approval',
+				status: 'pending_approval',
 				source: companyNumber,
 				destination: customerPhone,
 				company_id: company.id,
@@ -804,10 +804,42 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 			if (isEmergency) {
 				const { sendAutomatedSms } = await import('./sms');
-				await sendAutomatedSms(customerPhone, draftedResponse, companyNumber).catch(e => {
-					oerr('[Orchestrator] Failed to auto-send emergency SMS:', e);
-				});
-				olog('[Orchestrator] SMS auto-sent due to emergency priority.');
+				const companySettings = (company.settings || {}) as Record<string, any>;
+				const smsNumbers = companySettings.notifications?.smsNumbers || [];
+				const customerName = customer?.firstName || customer?.name || 'A customer';
+				const msgSummary = aiIntent?.summary || intent || 'Emergency reported';
+				
+				for (const contactObj of smsNumbers) {
+					if (contactObj.number) {
+						const alertText = `Hey ${contactObj.name || 'there'}, ${customerName} had called. He can be reached at ${customerPhone}. See message: ${msgSummary}`;
+						
+						await sendAutomatedSms(contactObj.number, alertText, companyNumber).catch(e => {
+							oerr(`[Orchestrator] Failed to auto-send emergency SMS to owner ${contactObj.number}:`, e);
+						});
+						
+						// Log this outgoing notification to the owner
+						try {
+							await logCommunication({
+								type: 'sms',
+								direction: 'outbound',
+								status: 'completed',
+								source: companyNumber,
+								destination: contactObj.number,
+								company_id: company.id,
+								customer_id: customer.id,
+								summary: `Emergency alert sent to ${contactObj.name || 'Owner'}`,
+								content: alertText,
+								metadata: {
+									is_emergency_notification: true,
+									trigger_comm_id: commId
+								}
+							});
+						} catch(err) {
+							oerr('[Orchestrator] Failed to log emergency notification:', err);
+						}
+					}
+				}
+				olog('[Orchestrator] Emergency notifications dispatched to owners.');
 			}
 		} catch (err) {
 			oerr('[Orchestrator] Failed to log pending SMS:', err);
