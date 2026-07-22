@@ -199,7 +199,6 @@ export const actions: Actions = {
 				});
 			}
 
-			const notificationPhonesRaw = formData.getAll('notificationPhones');
 			const notificationNamesRaw = formData.getAll('notificationNames');
 
 			const notificationPhones = notificationPhonesRaw
