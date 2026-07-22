@@ -834,6 +834,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				const callbackNumber = extractCallbackNumber(rawMessage) || (metadata.callback_number as string) || customerPhone;
 				// Dispatch FROM an active company number, never a ghost row, so the alert actually delivers.
 				const dispatchFrom = (await resolveSmsSender(company.id, companyNumber)) || companyNumber || undefined;
+				// The SLA clock is shared by the dispatch record(s) below and the tracker task further
+				// down, so the UI and the escalation agree on the same deadline.
+				const slaDueAt = new Date(Date.now() + 10 * 60 * 1000);
 				let dispatched = 0;
 				for (const contactEntry of smsNumbers) {
 					const phoneNum = typeof contactEntry === 'string' ? contactEntry : contactEntry.number;
@@ -844,6 +847,37 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					try {
 						await sendAutomatedSms(phoneNum, alertText, dispatchFrom);
 						dispatched++;
+						// Record the dispatch as a SENT outbound SMS so it is visible in the a2p
+						// communication log (sendAutomatedSms alone leaves no trace in the UI). Status is
+						// 'sent' \u2014 it already went out, it is NOT a pending_approval draft. The SLA deadline
+						// rides on the record so the UI can show the 10-minute countdown / breach.
+						await logCommunication({
+							type: 'sms',
+							direction: 'outbound',
+							// 'completed' = actually dispatched (same status the Confirm flow sets after a
+							// real send). It is NOT 'pending_approval' — no human action is required.
+							status: 'completed',
+							source: dispatchFrom || companyNumber,
+							destination: phoneNum,
+							company_id: company.id,
+							customer_id: customer.id,
+							summary: `Emergency dispatch to ${contactName || phoneNum} \u2014 call ${callbackNumber}`,
+							content: alertText,
+							metadata: {
+								is_emergency_dispatch: true,
+								emergency_dispatch: true,
+								recipient_name: contactName || null,
+								callback_number: callbackNumber,
+								trigger_comm_id: commId,
+								thread_id: phoneNum,
+								message_category: 'emergency',
+								sla_minutes: 10,
+								sla_due_at: slaDueAt.toISOString(),
+								sla_status: 'pending'
+							}
+						}).catch((e) =>
+							oerr('[Orchestrator] Emergency SMS sent but failed to log the record:', e)
+						);
 					} catch (e) {
 						oerr(`[Orchestrator] Failed to auto-dispatch emergency SMS to ${phoneNum}:`, e);
 					}
@@ -893,7 +927,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 							actionId: 'ACT-A2P-004',
 							executionLane: 'approval_required', // Force it to sit in the OPEN queue for the SLA monitor
 							status: 'ready_for_execution',
-							dueAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes from now
+							dueAt: slaDueAt, // SAME deadline shown on the dispatch record above
 							parameters: { 
 								phone_number: callbackNumber, 
 								emergency_type: 'automated_dispatch',
