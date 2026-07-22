@@ -258,6 +258,11 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			// Random-looking per-THREAD COM ID (hash of the thread id, anchored on the message's own
 			// id when unlinked) — related messages share it, a different context gets a new one.
 			const convoCode = commCode(log.communicationThreadId, log.id);
+			
+			let endpoint = log.destination || locals.user.company.id;
+			if (log.direction === 'outbound' && meta.is_emergency_dispatch && Array.isArray(meta.recipients)) {
+				endpoint = meta.recipients.map((r: any) => r.name || r.number).join(', ');
+			}
 
 			return {
 				id: log.id,
@@ -266,7 +271,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				type: log.type,
 				direction: log.direction === 'inbound' ? 'In' : 'Out',
 				source: log.source || 'Unknown',
-				endpoint: log.destination || locals.user.company.id,
+				endpoint,
 				purpose: purpose,
 				summary: summary,
 				commId: convoCode,
