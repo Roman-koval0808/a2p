@@ -124,6 +124,10 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 			// If outbound: company sent it (source), customer received it (destination)
 			let displaySource = isOutbound ? companyNameOrPhone : customerNameOrPhone;
 			let displayDestination = isOutbound ? customerNameOrPhone : companyNameOrPhone;
+			
+			if (isOutbound && meta.is_emergency_dispatch && Array.isArray(meta.recipients)) {
+				displayDestination = meta.recipients.map((r: any) => r.name || r.number).join(', ');
+			}
 
 			// COM ID identifies the THREAD (topic/context): every message the thread-matcher linked
 			// into the same conversation shares one random-LOOKING code; a different context — even
