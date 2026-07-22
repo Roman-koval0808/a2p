@@ -5,11 +5,12 @@ import { requireAuth, unauthorized } from '$lib/api/spec';
 import {
 	TELNYX_API_KEY,
 	TELNYX_MESSAGING_PROFILE_ID,
-	TELNYX_PHONE_NUMBER
+	TELNYX_PHONE_NUMBER,
+	TELNYX_CONNECTION_ID
 } from '$env/static/private';
 import { PUBLIC_BASE_URL } from '$env/static/public';
 import { normalizeUrl } from '$lib/utils';
-import { normalizePhoneNumber } from '$lib/utils/phone';
+import { normalizePhoneNumber, formatPhoneForDialing } from '$lib/utils/phone';
 
 export const POST: RequestHandler = async ({ params, locals }) => {
 	const auth = requireAuth(locals);
@@ -26,6 +27,54 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 
 		if (log.status !== 'pending_approval') {
 			return json({ success: false, error: 'Communication log is not pending approval' }, { status: 400 });
+		}
+
+		const meta = (log.metadata as any) || {};
+
+		// The customer asked to be CALLED, not texted — place a call instead of sending the draft.
+		// Dial the number they left in their message (meta.callback_number), else their own line.
+		if (meta.confirm_action === 'call') {
+			const to = normalizePhoneNumber(meta.callback_number || log.destination || '');
+			if (!to) {
+				return json({ success: false, error: 'No callback number available to dial' }, { status: 400 });
+			}
+			const { resolveSmsSender } = await import('$lib/server/company-sender');
+			const from = await resolveSmsSender(log.companyId, meta.preferred_from);
+			if (!from) {
+				return json(
+					{ success: false, error: 'No active company number to call from. Check Manage Numbers.' },
+					{ status: 400 }
+				);
+			}
+			console.log(`[Confirm → Callback] Placing call from ${from} to ${to}`);
+			const res = await fetch('https://api.telnyx.com/v2/calls', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TELNYX_API_KEY}` },
+				body: JSON.stringify({
+					connection_id: TELNYX_CONNECTION_ID,
+					to: formatPhoneForDialing(to),
+					from,
+					webhook_url: normalizeUrl(PUBLIC_BASE_URL, '/api/telnyx/call-webhook'),
+					answering_machine_detection: 'premium'
+				})
+			});
+			if (!res.ok) {
+				const body = await res.text();
+				console.error('[Confirm → Callback] Telnyx call failed:', body);
+				let e: any;
+				try {
+					e = JSON.parse(body);
+				} catch {}
+				return json(
+					{ success: false, error: e?.errors?.[0]?.detail || 'Failed to place callback' },
+					{ status: 500 }
+				);
+			}
+			const updated = await prisma.communicationLog.update({
+				where: { id: log.id },
+				data: { status: 'completed', metadata: { ...meta, callback_placed_to: to } }
+			});
+			return json({ success: true, data: updated, action: 'call' });
 		}
 
 		// If it's an outbound SMS, actually send it!

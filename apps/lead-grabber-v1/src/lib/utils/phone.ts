@@ -24,6 +24,25 @@ export function normalizePhoneNumber(phone: string): string {
 }
 
 /**
+ * Extract a North-American callback number a customer spoke/wrote in a message and return it as
+ * E.164, e.g. "...give me a call, 705-264-2251" -> "+17052642251". Returns null if there's no
+ * plausible 10/11-digit number. Used so a "call me back" reply dials the number they LEFT, which
+ * may differ from the line they called from (blocked caller-ID, calling on someone else's phone).
+ */
+export function extractCallbackNumber(text: string | null | undefined): string | null {
+	if (!text) return null;
+	// Match 10 digits, optionally led by a 1/+1, with common separators (space, dash, dot, parens).
+	const re = /(?:\+?1[\s.-]?)?\(?([2-9]\d{2})\)?[\s.-]?(\d{3})[\s.-]?(\d{4})/g;
+	let best: string | null = null;
+	for (const m of text.matchAll(re)) {
+		// Reject if the surrounding run has more digits than a phone number (e.g. an order id).
+		const candidate = `+1${m[1]}${m[2]}${m[3]}`;
+		best = candidate; // last match wins — people usually state the number near the end
+	}
+	return best;
+}
+
+/**
  * Formats a phone number for display (e.g., "70543234123" -> "+1 (705) 4323 4123")
  *
  * @param phone - The phone number to format
