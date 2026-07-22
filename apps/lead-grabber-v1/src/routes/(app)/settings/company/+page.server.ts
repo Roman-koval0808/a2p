@@ -85,6 +85,10 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			if (s.notifications.web === undefined) s.notifications.web = true;
 			if (s.notifications.sms === undefined) s.notifications.sms = false;
 			if (!s.notifications.phone_numbers) s.notifications.phone_numbers = [];
+			s.notifications.phone_numbers = s.notifications.phone_numbers.map((p: any) => {
+				if (typeof p === 'string') return { name: '', number: p };
+				return p;
+			});
 		}
 
 		// Get pending invites
@@ -195,8 +199,16 @@ export const actions: Actions = {
 				});
 			}
 
+			const notificationPhonesRaw = formData.getAll('notificationPhones');
+			const notificationNamesRaw = formData.getAll('notificationNames');
+
 			const notificationPhones = notificationPhonesRaw
-				.map((num) => num.toString().trim())
+				.map((num, i) => {
+					const number = num.toString().trim();
+					if (!number) return null;
+					const name = notificationNamesRaw[i]?.toString().trim() || '';
+					return { name, number };
+				})
 				.filter(Boolean);
 
 			const updateData: any = {
