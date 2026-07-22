@@ -1,8 +1,4 @@
-import {
-	TELNYX_API_KEY,
-	TELNYX_PHONE_NUMBER,
-	TELNYX_MESSAGING_PROFILE_ID
-} from '$env/static/private';
+import { TELNYX_API_KEY, TELNYX_MESSAGING_PROFILE_ID } from '$env/static/private';
 import { PUBLIC_BASE_URL } from '$env/static/public';
 import { normalizeUrl } from '$lib/utils';
 import { normalizePhoneNumber } from '$lib/utils/phone';
@@ -11,7 +7,17 @@ import { prisma } from '$lib/db';
 /**
  * Sends an SMS alert to all configured company phone numbers if SMS notifications are enabled.
  */
-export async function sendOwnerSmsAlert(companyId: string, alertMessage: string) {
+export async function sendOwnerSmsAlert(
+	companyId: string,
+	alertMessage: string,
+	/**
+	 * The number the triggering call/SMS arrived on. It is a GUARANTEED-valid Telnyx sender
+	 * (Telnyx just routed traffic to it), whereas the first company_phone_numbers row can be a
+	 * stale/ghost entry that exists in our DB but not in the Telnyx account — sending from which
+	 * fails with "10004 Invalid source number" and the owner never gets the emergency alert.
+	 */
+	preferredFrom?: string | null
+) {
 	try {
 		const company = await prisma.company.findUnique({
 			where: { id: companyId },
@@ -44,12 +50,18 @@ export async function sendOwnerSmsAlert(companyId: string, alertMessage: string)
 			return;
 		}
 
-		// Find a verified sender number for the company
-		const companyNumberObj = await prisma.companyPhoneNumber.findFirst({
-			where: { companyId },
-			select: { phoneNumber: true }
-		});
-		const fromNumber = companyNumberObj?.phoneNumber || TELNYX_PHONE_NUMBER;
+		// Only ever send FROM a number that is active in the Telnyx account — the exact set the
+		// "Manage Numbers" screen shows. The company_phone_numbers table can hold ghost rows that
+		// were deleted from Telnyx; sending from one fails with "10004 Invalid source number" and
+		// the owner silently never gets the alert. resolveSmsSender returns null rather than a ghost.
+		const { resolveSmsSender } = await import('./company-sender');
+		const fromNumber = await resolveSmsSender(companyId, preferredFrom);
+		if (!fromNumber) {
+			console.error(
+				`[sms-alert] No ACTIVE Telnyx sender number for company ${company.name || companyId} — alert not sent. Check Manage Numbers.`
+			);
+			return;
+		}
 
 		if (!fromNumber) {
 			console.error(`[sms-alert] No sender phone number found for alerts (TELNYX_PHONE_NUMBER is not set)`);

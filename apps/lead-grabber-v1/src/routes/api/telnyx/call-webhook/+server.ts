@@ -1735,7 +1735,8 @@ export const POST: RequestHandler = async ({ request }) => {
 													try {
 														const alertMsg = `[Alert] Urgent Voicemail/Call from ${contact?.name || contactNumber || 'Unknown'}: "${transcript.substring(0, 100)}${transcript.length > 100 ? '...' : ''}"`;
 														const { sendOwnerSmsAlert } = await import('$lib/server/sms-alert');
-														await sendOwnerSmsAlert(numberInfo.companyId, alertMsg);
+														// Send FROM the number the call arrived on — a proven-valid Telnyx sender.
+														await sendOwnerSmsAlert(numberInfo.companyId, alertMsg, companyNumber);
 													} catch (err) {
 														console.error('Failed to notify owner via SMS:', err);
 													}

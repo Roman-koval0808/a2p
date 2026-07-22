@@ -407,7 +407,8 @@ export const POST: RequestHandler = async ({ request }) => {
 								);
 								const alertMsg = `[Alert] Urgent SMS from ${pipelineAuthorName}: "${smsText.substring(0, 100)}${smsText.length > 100 ? '...' : ''}"`;
 								const { sendOwnerSmsAlert } = await import('$lib/server/sms-alert');
-								await sendOwnerSmsAlert(companyId, alertMsg);
+								// Send FROM the number the SMS arrived on — a proven-valid Telnyx sender.
+								await sendOwnerSmsAlert(companyId, alertMsg, toNumber);
 							}
 						}
 					} catch (err) {
