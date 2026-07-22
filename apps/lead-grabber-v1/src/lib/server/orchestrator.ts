@@ -805,16 +805,18 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			if (isEmergency) {
 				const { sendAutomatedSms } = await import('./sms');
 				const companySettings = (company.settings || {}) as Record<string, any>;
-				const smsNumbers = companySettings.notifications?.smsNumbers || [];
+				const smsNumbers = companySettings.notifications?.phone_numbers || [];
 				const customerName = customer?.firstName || customer?.name || 'A customer';
-				const msgSummary = aiIntent?.summary || intent || 'Emergency reported';
+				const msgSummary = aiIntent?.summary || draftedResponse || intent || 'Emergency reported';
 				
-				for (const contactObj of smsNumbers) {
-					if (contactObj.number) {
-						const alertText = `Hey ${contactObj.name || 'there'}, ${customerName} had called. He can be reached at ${customerPhone}. See message: ${msgSummary}`;
+				for (const contactEntry of smsNumbers) {
+					const phoneNum = typeof contactEntry === 'string' ? contactEntry : contactEntry.number;
+					const contactName = typeof contactEntry === 'object' && contactEntry.name ? contactEntry.name : '';
+					if (phoneNum) {
+						const alertText = `Hey ${contactName || 'there'}, ${customerName} had called. They can be reached at ${customerPhone}. See message: ${msgSummary}`;
 						
-						await sendAutomatedSms(contactObj.number, alertText, companyNumber).catch(e => {
-							oerr(`[Orchestrator] Failed to auto-send emergency SMS to owner ${contactObj.number}:`, e);
+						await sendAutomatedSms(phoneNum, alertText, companyNumber).catch(e => {
+							oerr(`[Orchestrator] Failed to auto-send emergency SMS to owner ${phoneNum}:`, e);
 						});
 						
 						// Log this outgoing notification to the owner
@@ -824,10 +826,10 @@ export async function process_orchestrator(commId: string, trigger: string) {
 								direction: 'outbound',
 								status: 'completed',
 								source: companyNumber,
-								destination: contactObj.number,
+								destination: phoneNum,
 								company_id: company.id,
 								customer_id: customer.id,
-								summary: `Emergency alert sent to ${contactObj.name || 'Owner'}`,
+								summary: `Emergency alert sent to ${contactName || 'Owner'}`,
 								content: alertText,
 								metadata: {
 									is_emergency_notification: true,

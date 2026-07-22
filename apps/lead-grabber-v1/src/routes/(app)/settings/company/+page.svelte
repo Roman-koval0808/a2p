@@ -37,7 +37,7 @@
 				email: boolean;
 				web: boolean;
 				sms: boolean;
-				phone_numbers: string[];
+				phone_numbers: { name: string; number: string }[];
 			};
 		};
 	}
