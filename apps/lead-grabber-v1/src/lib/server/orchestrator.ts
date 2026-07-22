@@ -807,38 +807,17 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				const companySettings = (company.settings || {}) as Record<string, any>;
 				const smsNumbers = companySettings.notifications?.phone_numbers || [];
 				const customerName = customer?.firstName || customer?.name || 'A customer';
-				const msgSummary = aiIntent?.summary || draftedResponse || intent || 'Emergency reported';
+				const contactVerb = commLog.type === 'sms' ? 'texted' : 'called';
 				
 				for (const contactEntry of smsNumbers) {
 					const phoneNum = typeof contactEntry === 'string' ? contactEntry : contactEntry.number;
 					const contactName = typeof contactEntry === 'object' && contactEntry.name ? contactEntry.name : '';
 					if (phoneNum) {
-						const alertText = `Hey ${contactName || 'there'}, ${customerName} had called. They can be reached at ${customerPhone}. See message: ${msgSummary}`;
+						const alertText = `Hey ${contactName || 'there'}, ${customerName} had ${contactVerb}. They can be reached at ${customerPhone}. See message: ${rawMessage}`;
 						
 						await sendAutomatedSms(phoneNum, alertText, companyNumber).catch(e => {
 							oerr(`[Orchestrator] Failed to auto-send emergency SMS to owner ${phoneNum}:`, e);
 						});
-						
-						// Log this outgoing notification to the owner
-						try {
-							await logCommunication({
-								type: 'sms',
-								direction: 'outbound',
-								status: 'completed',
-								source: companyNumber,
-								destination: phoneNum,
-								company_id: company.id,
-								customer_id: customer.id,
-								summary: `Emergency alert sent to ${contactName || 'Owner'}`,
-								content: alertText,
-								metadata: {
-									is_emergency_notification: true,
-									trigger_comm_id: commId
-								}
-							});
-						} catch(err) {
-							oerr('[Orchestrator] Failed to log emergency notification:', err);
-						}
 					}
 				}
 				olog('[Orchestrator] Emergency notifications dispatched to owners.');
