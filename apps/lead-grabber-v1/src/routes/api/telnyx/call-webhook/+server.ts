@@ -1728,19 +1728,11 @@ export const POST: RequestHandler = async ({ request }) => {
 											// Check if the pipeline decided to dispatch a safety SMS (emergency route) or if it's an emergency
 											const action = pipelineResult?.decision?.action_queue?.[0];
 											if (hasEmergency || (action && (action.action_id === 'ACT-A2P-002' || action.title?.toLowerCase().includes('owner notification')))) {
-												console.log('🚨 Emergency action detected! Attempting to send safety SMS & notifying owner...');
+												console.log('🚨 Emergency action detected!');
 
-												// Send SMS alert to company notification numbers
-												if (numberInfo?.companyId) {
-													try {
-														const alertMsg = `[Alert] Urgent Voicemail/Call from ${contact?.name || contactNumber || 'Unknown'}: "${transcript.substring(0, 100)}${transcript.length > 100 ? '...' : ''}"`;
-														const { sendOwnerSmsAlert } = await import('$lib/server/sms-alert');
-														// Send FROM the number the call arrived on — a proven-valid Telnyx sender.
-														await sendOwnerSmsAlert(numberInfo.companyId, alertMsg, companyNumber);
-													} catch (err) {
-														console.error('Failed to notify owner via SMS:', err);
-													}
-												}
+												// NOTE: the owner SMS alert is sent by process_orchestrator (its emergency branch texts the
+												// configured owner numbers with the caller's callback number + full message). We deliberately
+												// do NOT also send one here — doing so texted the owner twice for every emergency.
 												
 												// Get safety SMS text
 												let safetySmsText = '';
