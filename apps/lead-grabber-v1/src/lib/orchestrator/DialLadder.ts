@@ -51,37 +51,27 @@ export async function initiateEmergencyDialLadder(
 		console.error('Failed to send immediate SMS to customer, proceeding anyway', e);
 	}
 
-	// 2. Build the ladder (Primary -> Owner for now)
+	// 2. Build the ladder from company settings notification numbers
 	const company = await prisma.company.findUnique({
-		where: { id: companyId },
-		include: { members: { include: { user: true } } }
+		where: { id: companyId }
 	});
 
 	if (!company) throw new Error('Company not found');
 
-	const owners = company.members.filter((m) => m.role === 'owner' && m.user.phone);
-	const techs = company.members.filter((m) => m.role !== 'owner' && m.user.phone);
+	const settings = (company.settings || {}) as any;
+	const phoneNumbers = (settings?.notifications?.phone_numbers || []) as { name: string; number: string }[];
 
 	const dial_ladder: Rung[] = [];
 	
-	// Add primary tech
-	if (techs.length > 0) {
-		dial_ladder.push({
-			rep_id: techs[0].userId,
-			phone_number: techs[0].user.phone!,
-			attempts_made: 0,
-			max_attempts: 1
-		});
-	}
-
-	// Add owner as guaranteed last rung
-	if (owners.length > 0) {
-		dial_ladder.push({
-			rep_id: owners[0].userId,
-			phone_number: owners[0].user.phone!,
-			attempts_made: 0,
-			max_attempts: 1
-		});
+	for (const pn of phoneNumbers) {
+		if (pn.number) {
+			dial_ladder.push({
+				rep_id: pn.name || 'Tech', // use name as rep_id just for logging/display
+				phone_number: pn.number,
+				attempts_made: 0,
+				max_attempts: 1
+			});
+		}
 	}
 
 	if (dial_ladder.length === 0) {
