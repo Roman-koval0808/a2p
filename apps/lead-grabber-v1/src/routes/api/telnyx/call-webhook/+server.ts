@@ -1214,8 +1214,9 @@ export const POST: RequestHandler = async ({ request }) => {
 							company_id: numberInfo.companyId,
 							type: 'voice',
 							direction: direction as 'inbound' | 'outbound',
-							source_name: contact?.name || contactNumber,
-							source_identifier: contactNumber,
+							// Outbound: the source is OUR number, not the person we called.
+							source_name: direction === 'outbound' ? companyNumber : contact?.name || contactNumber,
+							source_identifier: direction === 'outbound' ? companyNumber : contactNumber,
 							message_preview: hangupDuration != null
 								? `Call ${callVerb} (${Math.round(hangupDuration)}s${outboundNoAnswer ? ' ring' : ''})`
 								: `Call ${callVerb}`,
@@ -1871,8 +1872,11 @@ export const POST: RequestHandler = async ({ request }) => {
 									where: { id: existingLog.id },
 									data: {
 										duration: recDurationSeconds > 0 ? recDurationSeconds : existingLog.duration,
-										content: transcript || `Call recording available (${recDurationSeconds}s)`,
-										summary: summary || null,
+										// Keep the existing content/summary when this recording produced no transcript
+										// (outbound dialer calls skip transcription) — overwriting with null was wiping
+										// the dialer's "Outbound call to …" summary from the row.
+										content: transcript || existingLog.content || `Call recording available (${recDurationSeconds}s)`,
+										summary: summary || existingLog.summary || null,
 										metadata: {
 											...((existingLog.metadata as Record<string, unknown>) || {}),
 											...recordingMetadata
@@ -1887,8 +1891,11 @@ export const POST: RequestHandler = async ({ request }) => {
 									company_id: numberInfo.companyId,
 									type: 'voice',
 									direction: direction === 'incoming' ? 'inbound' : 'outbound',
-									source_name: contact?.name || contactNumber,
-									source_identifier: contactNumber,
+									// Source = who initiated: the CUSTOMER for inbound, but OUR company number for
+									// outbound — presenting the callee as the source made outbound rows read backwards.
+									source_name:
+										direction === 'incoming' ? contact?.name || contactNumber : companyNumber,
+									source_identifier: direction === 'incoming' ? contactNumber : companyNumber,
 									message_preview: summary || transcript || `Call recording available (${recDurationSeconds}s)`,
 									content: transcript || `Call recording available (${recDurationSeconds}s)`,
 									communication_log_id: updatedLog.id,
@@ -1959,8 +1966,10 @@ export const POST: RequestHandler = async ({ request }) => {
 										company_id: numberInfo.companyId,
 										type: 'voice',
 										direction: direction === 'incoming' ? 'inbound' : 'outbound',
-										source_name: contact?.name || contactNumber,
-										source_identifier: contactNumber,
+										// Outbound: the source is OUR number, not the person we called.
+										source_name:
+											direction === 'incoming' ? contact?.name || contactNumber : companyNumber,
+										source_identifier: direction === 'incoming' ? contactNumber : companyNumber,
 										message_preview: summary || transcript || `Call recording available (${recDurationSeconds}s)`,
 										content: transcript || `Call recording available (${recDurationSeconds}s)`,
 										communication_log_id: createdLog.id,

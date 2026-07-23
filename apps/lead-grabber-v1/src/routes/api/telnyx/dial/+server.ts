@@ -156,7 +156,17 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				where: { companyId },
 				select: { id: true, name: true, phone: true }
 			});
-			const callee = contacts.find((c) => last10(c.phone || '') === target) || null;
+			let callee = contacts.find((c) => last10(c.phone || '') === target) || null;
+			if (!callee) {
+				// First contact with this number. Create the contact NOW so the call record links to a
+				// profile immediately — previously the contact was only created by the hangup handler
+				// ~10s later, so the dialer's log always missed the link (customerId null) and the UI
+				// could never show a profile name for the callee.
+				callee = await prisma.contact.create({
+					data: { companyId, phone: formattedPhone, name: null },
+					select: { id: true, name: true, phone: true }
+				});
+			}
 			// Reuse the customer's existing thread so all same-context rows connect.
 			const recentThreaded = await prisma.communicationLog.findMany({
 				where: {
