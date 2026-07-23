@@ -19,6 +19,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { TELNYX_API_KEY, TELNYX_CONNECTION_ID, TELNYX_PHONE_NUMBER } from '$env/static/private';
+import { env } from '$env/dynamic/private';
 import { requireAuth, unauthorized, specError } from '$lib/api/spec';
 import { getFirstCompanyNumber } from '$lib/company-numbers';
 import { prisma } from '$lib/db';
@@ -48,7 +49,13 @@ async function generateWebRtcToken(connectionId: string): Promise<string | null>
 		});
 
 		if (!credRes.ok) {
-			console.warn('[sip/credentials] Could not create telephony credential:', credRes.status);
+			const body = await credRes.text().catch(() => '');
+			console.warn(
+				`[sip/credentials] Could not create telephony credential: ${credRes.status}. ` +
+					`connection_id=${connectionId} — telephony_credentials require a Telnyx CREDENTIAL ` +
+					`(SIP) connection, NOT a Call Control application. Set TELNYX_SIP_CONNECTION_ID to a ` +
+					`Credential Connection id. ${body}`
+			);
 			return null;
 		}
 
@@ -93,13 +100,16 @@ export const GET: RequestHandler = async ({ locals }) => {
 	});
 	const callerIdName = company?.name ?? 'ClearSky';
 
-	// Generate a short-lived WebRTC token (nullable – depends on Telnyx connection type)
-	const webrtcToken = await generateWebRtcToken(TELNYX_CONNECTION_ID);
+	// WebRTC tokens must come from a CREDENTIAL (SIP) connection, not the Call Control app.
+	// Use TELNYX_SIP_CONNECTION_ID when provided; otherwise fall back (and log the 422 above so the
+	// misconfiguration is visible).
+	const sipConnectionId = env.TELNYX_SIP_CONNECTION_ID?.trim() || TELNYX_CONNECTION_ID;
+	const webrtcToken = await generateWebRtcToken(sipConnectionId);
 
 	return json({
 		success: true,
 		data: {
-			connectionId: TELNYX_CONNECTION_ID,
+			connectionId: sipConnectionId,
 			callerIdName,
 			callerIdNumber,
 			webrtcToken

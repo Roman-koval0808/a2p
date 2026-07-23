@@ -60,6 +60,11 @@ const MAX_EVENT_IDS = 10000;
 // this in-memory claim is synchronous (no await between has() and add()), so within this
 // single process it cannot race. Returns true if THIS call won the claim.
 const callsWithLogCreated = new Set<string>();
+
+// Call-control ids that reached `call.answered`. An OUTBOUND call NOT in this set at hangup was
+// never picked up — so it must be logged as "No answer"/missed, not "completed (Xs)" (which made
+// an unanswered 10-second ring look like a 10-second conversation).
+const answeredCalls = new Set<string>();
 function claimLogForCall(callControlId: string): boolean {
 	if (!callControlId || callsWithLogCreated.has(callControlId)) return false;
 	callsWithLogCreated.add(callControlId);
@@ -440,6 +445,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
 			case 'call.answered': {
 				console.log('✅ Call answered:', callControlId);
+				if (callControlId) answeredCalls.add(callControlId);
 				await logCallEvent(callControlId, 'answered', payload);
 
 				// Bypass IVR logic for outbound calls (e.g. transfer legs to reps)
@@ -1161,11 +1167,17 @@ export const POST: RequestHandler = async ({ request }) => {
 							}
 						}
 
+						// An OUTBOUND call that never reached call.answered was not picked up. Label it a
+						// missed/no-answer attempt — the duration is RING time, not talk time — instead of
+						// "completed (Xs)", which made an unanswered ring look like a real conversation.
+						const wasAnswered = callControlId ? answeredCalls.has(callControlId) : true;
+						const outboundNoAnswer = direction === 'outbound' && !wasAnswered && !isDropCall;
+						const callVerb = isDropCall ? 'attempted' : outboundNoAnswer ? 'not answered' : 'completed';
 						const createdLog = await prisma.communicationLog.create({
 							data: {
 								type: 'voice',
 								direction: direction as 'inbound' | 'outbound',
-								status: isDropCall ? 'failed' : 'completed',
+								status: isDropCall ? 'failed' : outboundNoAnswer ? 'missed' : 'completed',
 								source: direction === 'outbound' ? companyNumber : contactNumber,
 								destination: direction === 'outbound' ? contactNumber : finalDestination,
 								companyId: numberInfo.companyId,
@@ -1175,17 +1187,20 @@ export const POST: RequestHandler = async ({ request }) => {
 								duration: hangupDuration,
 								content:
 									hangupDuration != null
-										? `Call ${isDropCall ? 'attempted' : 'completed'} (${Math.round(hangupDuration)}s)`
-										: `Call ${isDropCall ? 'attempted' : 'completed'}`,
-								metadata: { 
-									call_control_id: callControlId, 
+										? `Call ${callVerb} (${Math.round(hangupDuration)}s${outboundNoAnswer ? ' ring' : ''})`
+										: `Call ${callVerb}`,
+								metadata: {
+									call_control_id: callControlId,
 									origin: directionFromMeta,
+									answered: wasAnswered,
+									no_answer: outboundNoAnswer,
 									ivr_intent: intentInfo?.intentName,
 									ivr_digit: intentInfo?.digit,
 									ivr_confidence: intentInfo?.confidence
 								}
 							}
 						});
+						if (callControlId) answeredCalls.delete(callControlId);
 						console.log(
 							'📝 Created CommunicationLog on hangup (duration, recording link added when saved)',
 							callControlId
@@ -1202,11 +1217,11 @@ export const POST: RequestHandler = async ({ request }) => {
 							source_name: contact?.name || contactNumber,
 							source_identifier: contactNumber,
 							message_preview: hangupDuration != null
-								? `Call completed (${Math.round(hangupDuration)}s)`
-								: 'Call completed',
+								? `Call ${callVerb} (${Math.round(hangupDuration)}s${outboundNoAnswer ? ' ring' : ''})`
+								: `Call ${callVerb}`,
 							content: hangupDuration != null
-								? `Call completed (${Math.round(hangupDuration)}s)`
-								: 'Call completed',
+								? `Call ${callVerb} (${Math.round(hangupDuration)}s${outboundNoAnswer ? ' ring' : ''})`
+								: `Call ${callVerb}`,
 							communication_log_id: createdLog.id,
 							thread_id: contactNumber
 						});
