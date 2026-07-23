@@ -242,9 +242,20 @@ export const POST: RequestHandler = async ({ request }) => {
 
 				// Incoming: "to" is the number that received the call. Resolve company by that number.
 				const toRaw = (payload?.to as string) || '';
-				const fromNumber = (payload?.from as string) || '';
+				let fromNumber = (payload?.from as string) || '';
 				const callerName = (payload?.caller_id_name as string) || 'Unknown Caller';
 				const isIncomingCall = payload?.direction === 'incoming';
+
+				let isWebRTCDialer = false;
+				if (payload?.client_state) {
+					const decoded = safeDecodeClientState(payload.client_state);
+					if (decoded?.isWebRTCDialer) {
+						isWebRTCDialer = true;
+						if (decoded.companyNumber) {
+							fromNumber = decoded.companyNumber;
+						}
+					}
+				}
 
 				if (isIncomingCall) {
 					const numberInfo = await getCompanyAndFlowByPhoneNumber(prisma, toRaw);
@@ -270,13 +281,20 @@ export const POST: RequestHandler = async ({ request }) => {
 					}
 
 					const fromNumberE164 = toE164(fromNumber);
-					const fromIsCompany = fromNumberE164
+					let fromIsCompany = fromNumberE164
 						? await getCompanyAndFlowByPhoneNumber(prisma, fromNumberE164)
 						: null;
+
+					if (isWebRTCDialer && !fromIsCompany) {
+						// Force fromIsCompany to truthy since we know it's our dialer
+						// @ts-ignore
+						fromIsCompany = { companyId: 'webrtc-dialer' };
+					}
 
 					console.log('fromIsCompany check:', {
 						fromNumber,
 						fromNumberE164,
+						isWebRTCDialer,
 						fromIsCompany: !!fromIsCompany
 					});
                     
@@ -321,6 +339,20 @@ export const POST: RequestHandler = async ({ request }) => {
 							} catch (err) {
 								console.error('❌ Answer failed for unassigned number:', err);
 							}
+						} else {
+							console.log('🌉 WebRTC Outbound Dial detected! Transferring to PSTN:', toRaw);
+							try {
+								await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/transfer`, {
+									method: 'POST',
+									headers: TELNYX_HEADERS,
+									body: JSON.stringify({
+										to: toRaw,
+										from: fromNumber
+									})
+								});
+							} catch (err) {
+								console.error('❌ Failed to transfer WebRTC call to PSTN:', err);
+							}
 						}
 					} else if (!numberInfo.callFlowId) {
 						addPendingCall({ name: callerName, phone: fromNumber, callId: callControlId });
@@ -344,6 +376,20 @@ export const POST: RequestHandler = async ({ request }) => {
 								console.log('✅ Unconfigured IVR call answered for unavailability message');
 							} catch (err) {
 								console.error('❌ Answer failed for unconfigured IVR:', err);
+							}
+						} else {
+							console.log('🌉 WebRTC Outbound Dial detected (unconfigured IVR)! Transferring to PSTN:', toRaw);
+							try {
+								await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/transfer`, {
+									method: 'POST',
+									headers: TELNYX_HEADERS,
+									body: JSON.stringify({
+										to: toRaw,
+										from: fromNumber
+									})
+								});
+							} catch (err) {
+								console.error('❌ Failed to transfer WebRTC call to PSTN:', err);
 							}
 						}
 					} else {
@@ -712,6 +758,17 @@ export const POST: RequestHandler = async ({ request }) => {
 					if (digits === '1' && customer_number && callControlId) {
 						console.log(`✅ Tech pressed 1. Originating bridge leg to customer: ${customer_number}`);
 						try {
+							// Find the company number that originated this tech call
+							let companyNumber = '+18005550199'; // fallback
+							try {
+								const techCallLog = await prisma.callLog.findFirst({
+									where: { callId: callControlId }
+								});
+								if (techCallLog?.from) {
+									companyNumber = techCallLog.from;
+								}
+							} catch(e) {}
+
 							const bridgeState = Buffer.from(
 								JSON.stringify({ isCustomerBridgeLeg: true, techCallControlId: callControlId, comm_id: dl_comm_id })
 							).toString('base64');
@@ -721,7 +778,7 @@ export const POST: RequestHandler = async ({ request }) => {
 								headers: TELNYX_HEADERS,
 								body: JSON.stringify({
 									to: customer_number,
-									from: '+18005550199', // TODO: Use company number
+									from: companyNumber,
 									connection_id: process.env.TELNYX_CONNECTION_ID,
 									client_state: bridgeState,
 									webhook_url: `${PUBLIC_BASE_URL}/api/telnyx/call-webhook`,
@@ -2392,15 +2449,21 @@ async function telnyxTransfer(
 	const clientState = Buffer.from(JSON.stringify(clientStateObj)).toString('base64');
 
 	console.log(`📡 Sending Telnyx transfer request for ${callControlId} to ${to} (timeout: ${timeoutSecs}s)...`);
+	const bodyPayload: Record<string, any> = {
+		to,
+		timeout_secs: timeoutSecs,
+		ringback_tone: defaultRingbackAudio,
+		client_state: clientState
+	};
+	
+	if (fromNumber) {
+		bodyPayload.from = fromNumber;
+	}
+
 	const res = await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/transfer`, {
 		method: 'POST',
 		headers: TELNYX_HEADERS,
-		body: JSON.stringify({
-			to,
-			timeout_secs: timeoutSecs,
-			ringback_tone: defaultRingbackAudio,
-			client_state: clientState
-		})
+		body: JSON.stringify(bodyPayload)
 	});
 
 	const data = await res.json().catch(() => null);
