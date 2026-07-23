@@ -116,9 +116,9 @@ export const GET: RequestHandler = async ({ locals }) => {
 	const callerIdName = company?.name ?? 'ClearSky';
 
 	// WebRTC tokens must come from a CREDENTIAL (SIP) connection, not the Call Control app.
-	// Use TELNYX_SIP_CONNECTION_ID when provided; otherwise fall back (and log the 422 above so the
-	// misconfiguration is visible).
-	const sipConnectionId = env.TELNYX_SIP_CONNECTION_ID?.trim() || TELNYX_CONNECTION_ID;
+	// Strip any stray quotes that might be left by the environment variable parser.
+	const rawSipId = env.TELNYX_SIP_CONNECTION_ID || TELNYX_CONNECTION_ID;
+	const sipConnectionId = rawSipId.replace(/['"]/g, '').trim();
 	const webrtcToken = await generateWebRtcToken(sipConnectionId);
 
 	return json({
