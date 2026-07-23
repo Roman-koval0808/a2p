@@ -275,9 +275,6 @@
 					destinationNumber: target,
 					callerNumber: selectedFromNumber,
 					clientState: btoa(JSON.stringify({ isWebRTCDialer: true, companyNumber: selectedFromNumber })),
-					customHeaders: {
-						'X-Caller-Id': selectedFromNumber
-					},
 					audio: true,
 					video: false
 				});
