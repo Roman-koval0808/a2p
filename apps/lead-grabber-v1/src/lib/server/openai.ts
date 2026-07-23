@@ -24,6 +24,11 @@ const ANALYSIS_SCHEMA = {
 		datetime: {
 			type: 'string',
 			description: 'appointment time as YYYY-MM-DDTHH:mm:ss, or empty string if none'
+		},
+		date_confidence: {
+			type: 'string',
+			enum: ['explicit', 'inferred', 'conflict', 'none'],
+			description: '"explicit" if they give full date, "inferred" if bare weekday (e.g. "Tuesday"), "conflict" if weekday and date do not match, "none" if no date mentioned.'
 		}
 	},
 	required: [
@@ -36,7 +41,8 @@ const ANALYSIS_SCHEMA = {
 		'callerName',
 		'buyingSignals',
 		'estimatedPrice',
-		'datetime'
+		'datetime',
+		'date_confidence'
 	]
 };
 
@@ -97,17 +103,18 @@ export async function transcribeAudio(audioUrl: string): Promise<string> {
 }
 
 
-export function getReferenceCalendar(): string {
+export function getReferenceCalendar(callStartTime?: Date): string {
 	const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-	const now = new Date();
+	const now = callStartTime || new Date();
 	
-	let calendarPrompt = `Today's current date and time: ${now.toLocaleString()} (timezone of the server).
-Reference Calendar for resolving relative days (like "saturday", "tomorrow", "next week Monday", etc.):\n`;
+	let calendarPrompt = `Call Start Time: ${now.toLocaleString('en-US', { timeZone: 'America/Toronto' })} (America/Toronto timezone).
+All relative days (tomorrow, next week, Saturday) MUST be resolved relative to the Call Start Time, NOT the current processing time.\n
+Reference Calendar:\n`;
 	
-	for (let i = 0; i < 10; i++) {
+	for (let i = 0; i < 14; i++) {
 		const d = new Date(now.getTime() + i * 24 * 60 * 60 * 1000);
 		const dayName = daysOfWeek[d.getDay()];
-		const dateString = d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+		const dateString = d.toLocaleDateString('en-US', { timeZone: 'America/Toronto', month: 'long', day: 'numeric', year: 'numeric' });
 		const label = i === 0 ? ' (Today)' : i === 1 ? ' (Tomorrow)' : '';
 		calendarPrompt += `- ${dayName}${label}: ${dateString}\n`;
 	}
@@ -120,7 +127,8 @@ Reference Calendar for resolving relative days (like "saturday", "tomorrow", "ne
  */
 export async function analyzeCallLog(
 	transcript: string,
-	department?: string | null
+	department?: string | null,
+    callStartTime?: Date
 ): Promise<{
 	summary: string;
 	intent: string;
@@ -132,10 +140,19 @@ export async function analyzeCallLog(
 	buyingSignals: string[];
 	estimatedPrice: number | null;
 	datetime: string | null;
+    date_confidence: 'explicit' | 'inferred' | 'conflict' | 'none';
+	emergency_source: 'ai' | 'keyword' | 'both' | 'none';
 	analysisSucceeded: boolean;
 }> {
+	// Regional emergency keywords list
+	const emergencyKeywords = [
+		'burst', 'flooding', 'no heat', 'gas', 'sewage', 'backing up', 'water everywhere', 'fire', 'emergency'
+	];
+	const lowerTranscript = transcript.toLowerCase();
+	const hasKeywordHit = emergencyKeywords.some(kw => lowerTranscript.includes(kw));
+
 	try {
-		const calendarReference = getReferenceCalendar();
+		const calendarReference = getReferenceCalendar(callStartTime);
 		const prompt = `
     Analyze the following phone call transcript / voicemail message.
     IMPORTANT: The transcript may START with an automated IVR greeting/menu spoken by the system,
@@ -165,7 +182,8 @@ export async function analyzeCallLog(
       - Mentioning a competitor or comparison → "comparison_shopping"
       Return an empty array if no buying signals are detected.
     - "estimatedPrice": A number representing the estimated dollar value or price for the job if discussed or can be reasonably estimated based on the type of work described (e.g., water heater replacement: 1500, repair burst pipe: 500, simple leak: 200, faucet install: 150, standard inspection: 99). If the caller mentions a specific budget, price, or quote amount, use that value. If no specific service is described to estimate a price, return 0.
-    - "datetime": If the caller mentions a specific date or time they want to book an appointment for (e.g. "July 1 at 2pm" or "Saturday at 8am"), resolve it to the exact date using the Reference Calendar and output it in YYYY-MM-DDTHH:mm:ss format (e.g. "2026-06-27T08:00:00"). If no time is specified but a day is, set time to "12:00:00". If no appointment datetime is mentioned, return an empty string.
+    - "datetime": If the caller mentions a specific date or time they want to book an appointment for, resolve it to the exact date using the Reference Calendar (YYYY-MM-DDTHH:mm:ss). If no time is specified but a day is, set time to "12:00:00". If no appointment datetime is mentioned, return an empty string.
+    - "date_confidence": Follow strict consistency checks. If they say "Tuesday August 5th" but August 5th is a Wednesday on the calendar, YOU MUST SET THIS TO "conflict" and leave datetime empty. Do NOT book/guess. If they just say "Tuesday" (bare-weekday), set to "inferred" and resolve to the NEXT occurrence of Tuesday. If they say a full explicit date that matches the calendar, set to "explicit". If no date mentioned, set "none".
 
     Transcript:
     "${transcript}"
@@ -195,11 +213,26 @@ export async function analyzeCallLog(
 		const rawUrgency = result.urgency?.toLowerCase();
 		const parsedUrgency = rawUrgency === 'critical' ? 'high' : rawUrgency;
 
+		const isAiEmergency = parsedUrgency === 'high' || result.intent?.toLowerCase() === 'emergency';
+		let finalUrgency = parsedUrgency;
+		let emergencySource: 'ai' | 'keyword' | 'both' | 'none' = 'none';
+
+		if (isAiEmergency && hasKeywordHit) {
+			finalUrgency = 'high';
+			emergencySource = 'both';
+		} else if (isAiEmergency) {
+			finalUrgency = 'high';
+			emergencySource = 'ai';
+		} else if (hasKeywordHit) {
+			finalUrgency = 'high';
+			emergencySource = 'keyword';
+		}
+
 		return {
 			summary: result.summary || 'No summary generated',
 			intent: result.intent ?? '',
 			sub_intent: result.sub_intent || null,
-			urgency: validUrgencies.includes(parsedUrgency) ? parsedUrgency : 'medium',
+			urgency: finalUrgency,
 			actionItems: result.actionItems || [],
 			sentiment: result.sentiment || 'Neutral',
 			callerName: result.callerName || null,
@@ -209,21 +242,25 @@ export async function analyzeCallLog(
 					? result.estimatedPrice
 					: null,
 			datetime: result.datetime || null,
+            date_confidence: result.date_confidence || 'none',
+			emergency_source: emergencySource,
 			analysisSucceeded: true
 		};
 	} catch (error) {
 		console.error('Error in analyzeCallLog:', error);
 		return {
-			summary: 'Analysis failed',
-			intent: '',
+			summary: 'Analysis failed (Processing Timeout/Error) - Defaulting to Emergency',
+			intent: 'Emergency',
 			sub_intent: null,
-			urgency: 'medium',
+			urgency: 'high', // Spec: default to emergency on failure
 			actionItems: [],
 			sentiment: 'Unknown',
 			callerName: null,
 			buyingSignals: [],
 			estimatedPrice: null,
 			datetime: null,
+            date_confidence: 'none',
+			emergency_source: 'none',
 			analysisSucceeded: false
 		};
 	}

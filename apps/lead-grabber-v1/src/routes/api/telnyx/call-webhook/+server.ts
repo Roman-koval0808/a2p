@@ -17,6 +17,7 @@ import { createNotification } from '$lib/utils/notifications';
 import { setIntent, setVoicemail, removeVoicemail, getState, deleteState, addVoicemailRecordingId, hasVoicemailRecordingId, removeVoicemailRecordingId } from '$lib/server/call-state';
 import { logCommunication } from '$lib/utils/communication-log';
 import { ingestTelemetryEvent } from '$lib/server/profiledb/telemetry';
+import { processIntake } from '$lib/orchestrator/Intake';
 const TELNYX_PUBLIC_KEY = process.env.TELNYX_PUBLIC_KEY;
 
 const playPublic = false;
@@ -278,7 +279,24 @@ export const POST: RequestHandler = async ({ request }) => {
 						fromNumberE164,
 						fromIsCompany: !!fromIsCompany
 					});
-
+                    
+                    let commId: string | null = null;
+                    if (numberInfo?.companyId) {
+                        try {
+                            const intake = await processIntake({
+                                companyId: numberInfo.companyId,
+                                direction: 'inbound',
+                                channel: 'voice',
+                                from_party: fromNumber,
+                                to_party: toRaw,
+                                occurred_at: new Date()
+                            });
+                            commId = intake.container.comm_id;
+                            console.log(`[Intake] Created container ${commId} (ref: ${intake.container.comm_ref}) for call ${callControlId}`);
+                        } catch (err) {
+                            console.error('[Intake] Failed to process intake:', err);
+                        }
+                    }
 
 					if (!numberInfo) {
 						addPendingCall({ name: callerName, phone: fromNumber, callId: callControlId });
@@ -287,7 +305,8 @@ export const POST: RequestHandler = async ({ request }) => {
 							const clientState = Buffer.from(
 								JSON.stringify({
 									isUnavailable: true,
-									allUnavailableAudioUrl: null
+									allUnavailableAudioUrl: null,
+                                    comm_id: commId
 								})
 							).toString('base64');
 							try {
@@ -310,7 +329,8 @@ export const POST: RequestHandler = async ({ request }) => {
 							const clientState = Buffer.from(
 								JSON.stringify({
 									isUnavailable: true,
-									allUnavailableAudioUrl: null
+									allUnavailableAudioUrl: null,
+                                    comm_id: commId
 								})
 							).toString('base64');
 							try {
@@ -342,7 +362,8 @@ export const POST: RequestHandler = async ({ request }) => {
 								JSON.stringify({ 
 									ivrFlowId: active.flow.id, 
 									ivrRuleId: active.rule.id,
-									ivrPath: active.flow.title
+									ivrPath: active.flow.title,
+                                    comm_id: commId
 								})
 							).toString('base64');
 							try {
@@ -377,7 +398,8 @@ export const POST: RequestHandler = async ({ request }) => {
 									JSON.stringify({
 										isUnavailable: true,
 										allUnavailableAudioUrl,
-										ivrFlowId: numberInfo.callFlowId
+										ivrFlowId: numberInfo.callFlowId,
+                                        comm_id: commId
 									})
 								).toString('base64');
 								try {
@@ -438,6 +460,31 @@ export const POST: RequestHandler = async ({ request }) => {
 				break;
 			}
 
+			case 'call.bridged': {
+				console.log('🔗 Call bridged:', callControlId);
+				try {
+					const decoded = safeDecodeClientState(payload?.client_state);
+					const comm_id = decoded?.comm_id || null;
+					const recordState = Buffer.from(
+						JSON.stringify({ comm_id, isBridgedRecording: true })
+					).toString('base64');
+					
+					await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/record_start`, {
+						method: 'POST',
+						headers: TELNYX_HEADERS,
+						body: JSON.stringify({
+							format: 'mp3',
+							channels: 'dual',
+							client_state: recordState
+						})
+					});
+					console.log('🎙️ Dual-channel bridged recording started');
+				} catch (err) {
+					console.error('❌ Failed to start bridged recording:', err);
+				}
+				break;
+			}
+
 			case 'call.playback.started': {
 				// Silent acknowledgement
 				break;
@@ -448,9 +495,75 @@ export const POST: RequestHandler = async ({ request }) => {
 				if (callControlId) answeredCalls.add(callControlId);
 				await logCallEvent(callControlId, 'answered', payload);
 
+				let isDialLadderCall = false;
+				let isCustomerBridgeLeg = false;
+				let techCallControlId: string | null = null;
+				let whisperText = '';
+				let comm_id: string | null = null;
+
+				if (payload?.client_state) {
+					const decoded = safeDecodeClientState(payload.client_state);
+					if (decoded) {
+						isDialLadderCall = decoded.isDialLadderCall ?? false;
+						isCustomerBridgeLeg = decoded.isCustomerBridgeLeg ?? false;
+						techCallControlId = decoded.techCallControlId ?? null;
+						whisperText = decoded.whisper_text ?? '';
+						comm_id = decoded.comm_id ?? null;
+					}
+				}
+
 				// Bypass IVR logic for outbound calls (e.g. transfer legs to reps)
 				if (payload?.direction === 'outbound') {
-					console.log('📞 Outbound transfer leg answered, bypassing IVR logic for control ID:', callControlId);
+					if (isCustomerBridgeLeg && callControlId && techCallControlId) {
+						console.log(`🌉 Customer answered. Bridging to tech (${techCallControlId})...`);
+						try {
+							const bridgeState = Buffer.from(
+								JSON.stringify({ isBridgedRecording: true, comm_id })
+							).toString('base64');
+
+							await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/bridge`, {
+								method: 'POST',
+								headers: TELNYX_HEADERS,
+								body: JSON.stringify({
+									call_control_id: techCallControlId,
+									client_state: bridgeState
+								})
+							});
+						} catch (e) {
+							console.error('❌ Failed to bridge customer to tech:', e);
+						}
+					} else if (isDialLadderCall && callControlId) {
+						console.log(`🪜 Dial Ladder tech leg answered. Playing whisper: "${whisperText}"`);
+						
+						const nextState = Buffer.from(
+							JSON.stringify({
+								isDialLadderGather: true,
+								comm_id,
+								customer_number: safeDecodeClientState(payload.client_state)?.customer_number
+							})
+						).toString('base64');
+
+						try {
+							await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/gather_using_speak`, {
+								method: 'POST',
+								headers: TELNYX_HEADERS,
+								body: JSON.stringify({
+									payload: whisperText,
+									voice: 'female',
+									language: 'en-US',
+									minimum_digits: 1,
+									maximum_digits: 1,
+									valid_digits: '12',
+									timeout_millis: 10000,
+									client_state: nextState
+								})
+							});
+						} catch (err) {
+							console.error('❌ Failed to play whisper gather to tech:', err);
+						}
+					} else {
+						console.log('📞 Outbound transfer leg answered, bypassing IVR logic for control ID:', callControlId);
+					}
 					break;
 				}
 
@@ -475,8 +588,8 @@ export const POST: RequestHandler = async ({ request }) => {
 					const nextState = Buffer.from(
 						JSON.stringify(
 							goesToVoicemail
-								? { isVoicemailPrompt: true, ivrFlowId }
-								: { afterPlaybackHangup: true }
+								? { isVoicemailPrompt: true, ivrFlowId, comm_id }
+								: { afterPlaybackHangup: true, comm_id }
 						)
 					).toString('base64');
 
@@ -530,7 +643,8 @@ export const POST: RequestHandler = async ({ request }) => {
 									JSON.stringify({
 										ivrFlowId,
 										ivrRuleId,
-										afterGreetingGather: true
+										afterGreetingGather: true,
+                                        comm_id
 									})
 								).toString('base64');
 
@@ -538,7 +652,7 @@ export const POST: RequestHandler = async ({ request }) => {
 								console.log('▶️ IVR greeting started, waiting for playback end to gather');
 							} else if (promptsUrl) {
 								// No greeting, just Prompts+Gather immediately
-								const nextState = Buffer.from(JSON.stringify({ ivrFlowId, ivrRuleId })).toString(
+								const nextState = Buffer.from(JSON.stringify({ ivrFlowId, ivrRuleId, comm_id })).toString(
 									'base64'
 								);
 
@@ -573,16 +687,74 @@ export const POST: RequestHandler = async ({ request }) => {
 			case 'call.gather.ended': {
 				const digits = (payload?.digits as string) ?? '';
 				const status = (payload?.status as string) ?? '';
+
+				let isDialLadderGather = false;
+				let dl_comm_id: string | null = null;
+				let customer_number: string | null = null;
+
 				let ivrFlowId: string | null = null;
 				let ivrRuleId: string | null = null;
 				let ivrRetry = 0;
 				if (payload?.client_state) {
 					const decoded = safeDecodeClientState(payload.client_state);
 					if (decoded) {
+						isDialLadderGather = decoded.isDialLadderGather ?? false;
+						dl_comm_id = decoded.comm_id ?? null;
+						customer_number = decoded.customer_number ?? null;
+
 						ivrFlowId = decoded.ivrFlowId ?? null;
 						ivrRuleId = decoded.ivrRuleId ?? null;
 						ivrRetry = Number(decoded.ivrRetry) || 0;
 					}
+				}
+
+				if (isDialLadderGather && dl_comm_id) {
+					if (digits === '1' && customer_number && callControlId) {
+						console.log(`✅ Tech pressed 1. Originating bridge leg to customer: ${customer_number}`);
+						try {
+							const bridgeState = Buffer.from(
+								JSON.stringify({ isCustomerBridgeLeg: true, techCallControlId: callControlId, comm_id: dl_comm_id })
+							).toString('base64');
+
+							await fetch('https://api.telnyx.com/v2/calls', {
+								method: 'POST',
+								headers: TELNYX_HEADERS,
+								body: JSON.stringify({
+									to: customer_number,
+									from: '+18005550199', // TODO: Use company number
+									connection_id: process.env.TELNYX_CONNECTION_ID,
+									client_state: bridgeState,
+									webhook_url: `${PUBLIC_BASE_URL}/api/telnyx/call-webhook`,
+									webhook_url_method: 'POST'
+								})
+							});
+
+							// Play holding audio to tech while dialing customer
+							await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/speak`, {
+								method: 'POST',
+								headers: TELNYX_HEADERS,
+								body: JSON.stringify({
+									payload: 'Please hold while we connect you to the customer.',
+									voice: 'female',
+									language: 'en-US'
+								})
+							});
+						} catch (e) {
+							console.error('Failed to originate customer bridge leg:', e);
+						}
+					} else {
+						console.log(`❌ Tech pressed ${digits} or timed out. Advancing dial ladder.`);
+						const { advanceLadder } = await import('$lib/orchestrator/DialLadder');
+						await advanceLadder(dl_comm_id);
+						if (callControlId) {
+							await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/hangup`, {
+								method: 'POST',
+								headers: TELNYX_HEADERS,
+								body: JSON.stringify({ client_state: payload?.client_state })
+							}).catch(e => console.error('Error hanging up tech:', e));
+						}
+					}
+					break;
 				}
 				if (!callControlId || !ivrFlowId || !ivrRuleId) {
 					console.log('📞 gather.ended missing callControlId or IVR state, ignoring');
@@ -615,7 +787,8 @@ export const POST: RequestHandler = async ({ request }) => {
 				const encodeClientState = (extra: Record<string, unknown>) => {
 					const decoded = safeDecodeClientState(payload?.client_state);
 					let ivrPath = decoded?.ivrPath || '';
-					return Buffer.from(JSON.stringify({ ivrFlowId, ivrRuleId, ivrPath, ...extra })).toString('base64');
+                    let comm_id = decoded?.comm_id || null;
+					return Buffer.from(JSON.stringify({ ivrFlowId, ivrRuleId, ivrPath, comm_id, ...extra })).toString('base64');
 				};
 
 				// Timeout or no digits: failover or hangup
@@ -686,7 +859,7 @@ export const POST: RequestHandler = async ({ request }) => {
 								payload: 'Please leave your message after the tone. When you are finished, you may hang up.',
 								voice: 'female',
 								language: 'en-US',
-								client_state: Buffer.from(JSON.stringify({ isVoicemailPrompt: true, ivrFlowId, ivrRuleId })).toString('base64')
+								client_state: encodeClientState({ isVoicemailPrompt: true })
 							})
 						});
 						console.log('📞 IVR voicemail prompt started (#)');
@@ -746,20 +919,16 @@ export const POST: RequestHandler = async ({ request }) => {
 
 					if (transferAudioUrl) {
 						// Play transfer audio first, then transfer on playback.ended
-						const transferState = Buffer.from(
-							JSON.stringify({ 
+						const transferState = encodeClientState({ 
 								afterPlaybackTransfer: true, 
 								transferTo: to, 
-								ivrFlowId, 
-								ivrRuleId, 
 								ivrPath: newPath,
 								callPriority
-							})
-						).toString('base64');
+							});
 						await telnyxPlayback(callControlId, transferAudioUrl, transferState);
 						console.log('▶️ IVR playing transfer audio for', match.name ?? digit, isEmergency ? '(EMERGENCY)' : '');
 					} else {
-						const transferLegId = await telnyxTransfer(callControlId, to, ivrFlowId, ivrRuleId, newPath, callPriority);
+						const transferLegId = await telnyxTransfer(callControlId, to, ivrFlowId, ivrRuleId, newPath, callPriority, comm_id);
 						if (transferLegId) {
 							pendingTransfers.set(transferLegId, {
 								originalCallControlId: callControlId,
@@ -781,7 +950,7 @@ export const POST: RequestHandler = async ({ request }) => {
 							payload: 'Please leave your message after the tone. When you are finished, you may hang up.',
 							voice: 'female',
 							language: 'en-US',
-							client_state: Buffer.from(JSON.stringify({ isVoicemailPrompt: true, ivrFlowId, ivrRuleId })).toString('base64')
+							client_state: encodeClientState({ isVoicemailPrompt: true })
 						})
 					});
 					console.log('📞 IVR key pressed but no extension provided, going to voicemail:', match.name ?? digit);
@@ -1580,21 +1749,19 @@ export const POST: RequestHandler = async ({ request }) => {
 							const recordingChannels =
 								typeof payload?.channels === 'string' ? (payload.channels as string) : null;
 							const isFullCallRecording = recordingChannels === 'dual';
-							const shouldTranscribe = recordingChannels
-								? !isFullCallRecording
-								: !hasVoicemail || isVoicemailRecording;
-							if (isFullCallRecording) {
-								console.log('🎥 Skipping transcription of the dual-channel whole-call recording (voicemail is transcribed separately)');
-							}
+							// We now transcribe dual-channel recordings using the new transcription wrapper
+							const shouldTranscribe = recordingChannels ? true : (!hasVoicemail || isVoicemailRecording);
 
 							const audioUrl = originalAudioUrl;
 							if (audioUrl && shouldTranscribe) {
 								try {
-									const { transcribeAudio, analyzeCallLog } = await import('$lib/server/openai');
-									transcript = await transcribeAudio(audioUrl);
+									const { transcribeAudio } = await import('$lib/orchestrator/Transcription');
+									const { analyzeCallLog } = await import('$lib/server/openai');
+									transcript = await transcribeAudio(audioUrl, { multichannel: isFullCallRecording });
 									if (transcript) {
 										const intentName = callState?.intentName || null;
-										const analysis = await analyzeCallLog(transcript, intentName);
+										const callStartTime = callLog?.createdAt || new Date();
+										const analysis = await analyzeCallLog(transcript, intentName, callStartTime);
 										summary = analysis.summary;
 										intent = intentName || analysis.intent;
 										sub_intent = analysis.sub_intent;
@@ -1605,6 +1772,31 @@ export const POST: RequestHandler = async ({ request }) => {
 										datetime = analysis.datetime;
 										const callerName = analysis.callerName;
 										const buyingSignals = analysis.buyingSignals;
+
+										// --- A2P ORCHESTRATOR PHASE 2 & 4 WIRING ---
+										const currentCommId = decoded?.comm_id || null;
+										if (currentCommId && numberInfo?.companyId && contactNumber) {
+											if (analysis.urgency === 'high') {
+												console.log('🚨 High urgency detected. Triggering Scenario 2 Dial Ladder.');
+												const { initiateEmergencyDialLadder } = await import('$lib/orchestrator/DialLadder');
+												await initiateEmergencyDialLadder(currentCommId, numberInfo.companyId, contactNumber, analysis.summary);
+											} else if (analysis.intent === 'Support' || finalIvrPath === 'Support') {
+												console.log('🛠️ Support intent detected. Triggering Scenario 1 Calendar Check.');
+												const { processSupportCall } = await import('$lib/orchestrator/CalendarService');
+												const owner = await prisma.companyMember.findFirst({ where: { companyId: numberInfo.companyId, role: 'owner' }});
+												if (owner) {
+													await processSupportCall(currentCommId, owner.userId, analysis.datetime, analysis.date_confidence, contact?.email || null);
+												}
+											} else if (analysis.intent === 'Sales' || finalIvrPath === 'Sales') {
+												console.log('💼 Sales intent detected. Triggering Scenario 4 SMS Loop.');
+												const { processSalesVoicemail } = await import('$lib/orchestrator/SmsConfirmationLoop');
+												const owner = await prisma.companyMember.findFirst({ where: { companyId: numberInfo.companyId, role: 'owner' }});
+												if (owner) {
+													await processSalesVoicemail(currentCommId, owner.userId, analysis.datetime, contactNumber, analysis.summary);
+												}
+											}
+										}
+										// ------------------------------------------
 
 										// --- Identity resolution from transcript ---
 										// If the AI extracted a name and the contact has a default name, update the contact record
@@ -2130,7 +2322,8 @@ async function telnyxTransfer(
 	ivrFlowId?: string,
 	ivrRuleId?: string,
 	ivrPath?: string,
-	callPriority?: string
+	callPriority?: string,
+    comm_id?: string | null
 ): Promise<string | null> {
 	// Find the number this call was made TO (which will be the FROM of the outbound transfer)
 	// We can try to find it in the initiated logs
@@ -2172,7 +2365,8 @@ async function telnyxTransfer(
 		ivrRuleId,
 		ivrPath,
 		callPriority,
-		originalCallControlId: callControlId
+		originalCallControlId: callControlId,
+        comm_id
 	};
 	const clientState = Buffer.from(JSON.stringify(clientStateObj)).toString('base64');
 

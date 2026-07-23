@@ -13,20 +13,20 @@ datasource db {
 
 // Auth collections (converted from PocketBase auth type)
 model User {
-  id              String    @id @default(cuid())
-  email           String    @unique
+  id              String       @id @default(cuid())
+  email           String       @unique
   password        String // Hashed password
-  tokenKey        String    @unique @default(cuid())
-  emailVisibility Boolean   @default(false)
-  verified        Boolean   @default(false)
+  tokenKey        String       @unique @default(cuid())
+  emailVisibility Boolean      @default(false)
+  verified        Boolean      @default(false)
   name            String?
   avatar          String? // File path/URL
   role            UserRole?
   platformRole    PlatformRole @default(TENANT_USER)
   companyId       String?
-  company         Company?  @relation(fields: [companyId], references: [id])
-  created         DateTime  @default(now())
-  updated         DateTime  @updatedAt
+  company         Company?     @relation(fields: [companyId], references: [id])
+  created         DateTime     @default(now())
+  updated         DateTime     @updatedAt
 
   // Relations
   ownedCompanies            Company[]                        @relation("CompanyOwner")
@@ -41,6 +41,7 @@ model User {
   personalShortcuts         Shortcut[]
   devices                   UserDevice[]
   assignedTasks             Task[]                           @relation("UserTasks")
+  ActionTask                ActionTask[]
 
   @@index([email])
   @@index([tokenKey])
@@ -162,6 +163,8 @@ model Company {
   pipelineOrchestratorProfile PipelineOrchestratorProfile?
   dropCalls                   DropCall[]
   googleCalendar              GoogleCalendarConnection?
+  Person                      Person[]
+  Container                   Container[]
 
   @@map("companies")
 }
@@ -169,31 +172,31 @@ model Company {
 // Per-company Google Calendar OAuth connection. Kept in its own table (NOT in Company.settings)
 // so refresh tokens are never returned to the browser by any settings loader.
 model GoogleCalendarConnection {
-  id           String    @id @default(cuid())
-  companyId    String    @unique
-  company      Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  email        String?
-  accessToken  String?
-  refreshToken String?
-  expiresAt    DateTime?
-  calendarId   String    @default("primary")
+  id               String    @id @default(cuid())
+  companyId        String    @unique
+  company          Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  email            String?
+  accessToken      String?
+  refreshToken     String?
+  expiresAt        DateTime?
+  calendarId       String    @default("primary")
   representativeId String? // T5.2: per-rep calendar (additive; full per-rep needs the companyId unique relaxed)
-  created      DateTime  @default(now())
-  updated      DateTime  @updatedAt
+  created          DateTime  @default(now())
+  updated          DateTime  @updatedAt
 
   @@map("google_calendar_connections")
 }
 
 // T5.6: short-lived hold on a booking slot to prevent concurrent double-claims.
 model SlotHold {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   companyId        String
   representativeId String?
   startTime        DateTime
   endTime          DateTime?
   heldBy           String? // contact id or booking session
   expiresAt        DateTime
-  created          DateTime @default(now())
+  created          DateTime  @default(now())
 
   @@index([companyId, startTime])
   @@map("slot_holds")
@@ -327,25 +330,25 @@ enum CompanyMemberStatus {
 }
 
 model Contact {
-  id            String   @id @default(cuid())
-  companyId     String
-  company       Company  @relation(fields: [companyId], references: [id])
-  email         String?
-  phone         String?
-  name          String?
-  address       String?
-  landline      String?
-  cell          String?
-  smsPermission Boolean  @default(false)
-  pastNames     Json?
-  contactType   String?  @default("phone") // phone | email | sms | facebook (ClearSky spec)
-  notes         String?
-  companyName   String? // Display name e.g. "Dredhart Inc." (ClearSky spec)
-  avatarUrl     String? // URL to the uploaded avatar
-  accountBalance Float?  // Used for AR/Billing prototype scenario
-  engagementScore Int     @default(0) // Used for routing priority and Sales prototype scenario
-  created       DateTime @default(now())
-  updated       DateTime @updatedAt
+  id              String   @id @default(cuid())
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id])
+  email           String?
+  phone           String?
+  name            String?
+  address         String?
+  landline        String?
+  cell            String?
+  smsPermission   Boolean  @default(false)
+  pastNames       Json?
+  contactType     String?  @default("phone") // phone | email | sms | facebook (ClearSky spec)
+  notes           String?
+  companyName     String? // Display name e.g. "Dredhart Inc." (ClearSky spec)
+  avatarUrl       String? // URL to the uploaded avatar
+  accountBalance  Float? // Used for AR/Billing prototype scenario
+  engagementScore Int      @default(0) // Used for routing priority and Sales prototype scenario
+  created         DateTime @default(now())
+  updated         DateTime @updatedAt
 
   // Relations
   communicationLogs    CommunicationLog[]
@@ -588,21 +591,21 @@ model CallRecording {
   urls        Json? // recording_urls from Telnyx
   createdAt   DateTime @default(now())
 
-  @@index([callId])
   @@unique([callId, recordingId])
+  @@index([callId])
   @@map("call_recordings")
 }
 
 model CallState {
-  callId             String   @id // call_control_id
-  hasVoicemail       Boolean  @default(false)
-  intentDigit        String?
-  intentName         String?
-  intentConfidence   String?
-  intentTimestamp    DateTime?
-  voicemailRecordingIds Json? @default("[]") // Array of strings
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  callId                String    @id // call_control_id
+  hasVoicemail          Boolean   @default(false)
+  intentDigit           String?
+  intentName            String?
+  intentConfidence      String?
+  intentTimestamp       DateTime?
+  voicemailRecordingIds Json?     @default("[]") // Array of strings
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   @@map("call_states")
 }
@@ -849,15 +852,15 @@ model PipelineDecision {
 }
 
 model PipelineActionQueue {
-  id            String           @id @default(cuid())
-  queueTraceId  String?          @unique // qtrace_abc123
-  decisionId    String
-  decision      PipelineDecision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
-  actionId      String // ACT-REV-001, ACT-A2P-002, etc.
-  executionLane String // automatic, approval_required, blocked, manual
-  parameters    Json             @default("{}")
-  status        String           @default("pending")
-  dueAt         DateTime?
+  id             String           @id @default(cuid())
+  queueTraceId   String?          @unique // qtrace_abc123
+  decisionId     String
+  decision       PipelineDecision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  actionId       String // ACT-REV-001, ACT-A2P-002, etc.
+  executionLane  String // automatic, approval_required, blocked, manual
+  parameters     Json             @default("{}")
+  status         String           @default("pending")
+  dueAt          DateTime?
   slaEscalatedAt DateTime? // set when an SLA-breach escalation has fired, to avoid repeats (T3.4)
 
   // Consultant context
@@ -1198,40 +1201,166 @@ model Appointment {
 // Cohort 2 trajectory write on job close (Epic 7, T7.5). Aggregate/anonymized
 // model the orchestrator queries to recognize patterns in future customers.
 model Cohort2Trajectory {
-  id               String   @id @default(cuid())
-  companyId        String
-  contactId        String?
-  bucketHistory    Json?
-  scorePath        Json?
-  tierProgression  Json?
-  personaBand      String?
-  channelSequence  Json?
-  bookedJobOutcome String?
+  id                 String   @id @default(cuid())
+  companyId          String
+  contactId          String?
+  bucketHistory      Json?
+  scorePath          Json?
+  tierProgression    Json?
+  personaBand        String?
+  channelSequence    Json?
+  bookedJobOutcome   String?
   /// won | lost — the terminal relationship outcome (Pipeline Reference §10.2 step 3).
-  outcomeResult    String?
+  outcomeResult      String?
   /// Required when outcomeResult = 'lost', null when 'won'. Canonical vocabulary — see LossReason.
-  lossReason       String?
+  lossReason         String?
   /// Anonymized relationship identity. Section 8 writes are "anonymized and PII-redacted" (§1.5),
   /// so the record carries a one-way hash for entry-eligibility (§10.2 step 2) instead of a
   /// contact FK. `contactId` above is retained for legacy rows and is no longer written.
-  relationshipKey  String?
+  relationshipKey    String?
   /// The 5 documented trajectory layers (§10.4 / clearsky-layers-reference.md).
-  behavioural       Json?
-  demographic       Json?
-  languageSentiment Json?
-  timeTrend         Json?
-  interestAffinity  Json?
+  behavioural        Json?
+  demographic        Json?
+  languageSentiment  Json?
+  timeTrend          Json?
+  interestAffinity   Json?
   /// Cross-cutting, not a 6th layer. Business-level Stream B join — never individual-attached.
-  rankContext       Json?
+  rankContext        Json?
   /// Transcript with names/phones stripped, sentence structure intact (§10.2 step 11).
   redactedTranscript String?
   /// Realized revenue. 0 for a loss — never the quoted/at-stake value (§10.4).
-  closeValue        Int     @default(0)
-  touchesToOutcome  Int     @default(0)
-  closedAt         DateTime @default(now())
+  closeValue         Int      @default(0)
+  touchesToOutcome   Int      @default(0)
+  closedAt           DateTime @default(now())
 
   @@index([companyId])
   @@index([companyId, contactId])
   @@index([relationshipKey])
   @@map("cohort2_trajectories")
+}
+
+// =============================================================================
+// A2P ORCHESTRATOR v1.1 MODELS (Developer Specification)
+// =============================================================================
+
+model Person {
+  person_id      String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  status         String   @default("unknown") // unknown | prospect | client | former
+  identifiers    Json // Array of { type: "phone"|"email", value: string }
+  name           String?
+  sms_consent    Boolean  @default(false)
+  consent_source String?
+  sms_capable    Boolean?
+  created_at     DateTime @default(now())
+  merged_into    String?  @db.Uuid
+
+  containers Container[]
+  entries    Entry[]
+
+  @@index([companyId])
+  @@map("a2p_persons")
+}
+
+model Container {
+  comm_id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  comm_ref           String    @unique // e.g. #4412
+  companyId          String
+  company            Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  person_id          String    @db.Uuid
+  person             Person    @relation(fields: [person_id], references: [person_id])
+  subject            String?
+  thread_type        String // emergency | sales | support | general
+  lifecycle          String // provisional | confirmed | merged
+  state              String    @default("open") // open | awaiting_reply | awaiting_approval | closed
+  resolution         String? // resolved | timed_out | lost | null
+  merged_into        String?   @db.Uuid
+  actions_suppressed Boolean   @default(false)
+  sla_deadline       DateTime?
+  closure_policy     String    @default("auto") // auto | indefinite
+  inactivity_timeout String // interval string, e.g. "2 hours", "3 days"
+  previous_thread_id String?   @db.Uuid
+  opened_at          DateTime  @default(now())
+  closed_at          DateTime?
+
+  entries   Entry[]
+  timers    ActionTimer[]
+  tasks     ActionTask[]
+  approvals ActionApproval[]
+
+  @@index([companyId])
+  @@index([person_id])
+  @@map("a2p_containers")
+}
+
+model Entry {
+  entry_id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  comm_id             String    @db.Uuid
+  container           Container @relation(fields: [comm_id], references: [comm_id])
+  person_id           String    @db.Uuid
+  person              Person    @relation(fields: [person_id], references: [person_id])
+  direction           String // inbound | outbound
+  channel             String // voice | sms | email | form
+  from_party          String?
+  to_party            String?
+  party_type          String // customer | rep | system
+  occurred_at         DateTime  @default(now())
+  recording_url       String?
+  transcript          String?
+  analysis_json       Json?
+  dedup_suppressed    Boolean   @default(false)
+  identity_confidence Float?
+  identity_method     String // ani_exact | email_match | transcript_name | manual | none
+
+  @@index([comm_id])
+  @@index([person_id])
+  @@map("a2p_entries")
+}
+
+model ActionTimer {
+  timer_id  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  comm_id   String    @db.Uuid
+  container Container @relation(fields: [comm_id], references: [comm_id])
+  type      String // sla_breach | thread_inactivity | calendar_grace | hold_expiry | approval_deadline | promise_due | customer_retry
+  fires_at  DateTime
+  status    String    @default("pending") // pending | fired | cancelled
+  metadata  Json?
+
+  @@index([comm_id])
+  @@index([status, fires_at])
+  @@map("a2p_action_timers")
+}
+
+model ActionTask {
+  task_id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  comm_id         String    @db.Uuid
+  container       Container @relation(fields: [comm_id], references: [comm_id])
+  source_entry_id String?   @db.Uuid
+  description     String
+  owner_id        String // reference to User/CompanyMember
+  owner           User      @relation(fields: [owner_id], references: [id])
+  due             DateTime
+  category        String // customer_promise | internal_followup
+  confidence      Float?
+  status          String    @default("open") // open | done | escalated | cancelled
+
+  @@index([comm_id])
+  @@index([owner_id])
+  @@map("a2p_action_tasks")
+}
+
+model ActionApproval {
+  approval_id       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  comm_id           String    @db.Uuid
+  container         Container @relation(fields: [comm_id], references: [comm_id])
+  draft_type        String // email | sms
+  draft_content     String
+  context_payload   Json?
+  requires_approval Boolean   @default(true)
+  approval_deadline DateTime?
+  state             String    @default("pending") // pending | approved | rejected | expired
+
+  @@index([comm_id])
+  @@map("a2p_action_approvals")
 }
