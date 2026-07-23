@@ -630,6 +630,10 @@ export const POST: RequestHandler = async ({ request }) => {
 				let whisperText = '';
 				let comm_id: string | null = null;
 
+				let isWebRTCDialer = false;
+				let targetNumber = '';
+				let companyNumber = '';
+
 				if (payload?.client_state) {
 					const decoded = safeDecodeClientState(payload.client_state);
 					if (decoded) {
@@ -638,7 +642,32 @@ export const POST: RequestHandler = async ({ request }) => {
 						techCallControlId = decoded.techCallControlId ?? null;
 						whisperText = decoded.whisper_text ?? '';
 						comm_id = decoded.comm_id ?? null;
+						
+						isWebRTCDialer = decoded.isWebRTCDialer ?? false;
+						targetNumber = decoded.targetNumber ?? '';
+						companyNumber = decoded.companyNumber ?? '';
 					}
+				}
+
+				if (isWebRTCDialer && targetNumber) {
+					console.log('✅ WebRTC Leg Answered! Now transferring to PSTN:', targetNumber);
+					try {
+						const res = await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/transfer`, {
+							method: 'POST',
+							headers: TELNYX_HEADERS,
+							body: JSON.stringify({
+								to: targetNumber,
+								from: companyNumber,
+								client_state: comm_id ? Buffer.from(JSON.stringify({ comm_id })).toString('base64') : undefined
+							})
+						});
+						if (!res.ok) {
+							console.error('❌ Failed to transfer WebRTC call to PSTN after answer:', res.status, await res.text());
+						}
+					} catch (err) {
+						console.error('❌ Failed to transfer WebRTC call to PSTN after answer:', err);
+					}
+					return json({ success: true });
 				}
 
 				// Bypass IVR logic for outbound calls (e.g. transfer legs to reps)
