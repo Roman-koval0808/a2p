@@ -153,9 +153,9 @@
 			try {
 				const res = await fetch('/api/sip/credentials');
 				const json = await res.json();
-				if (!json.success || !json.data.webrtcToken) {
-					console.warn('Failed to retrieve WebRTC credentials or token');
-					callStatus = 'Fallback Mode';
+				if (!json.success || !json.data?.webrtcToken) {
+					console.warn('Failed to retrieve WebRTC credentials or token:', json);
+					callStatus = `Fallback Mode (${json.error || 'Token fetch failed'})`;
 					return;
 				}
 
@@ -174,7 +174,7 @@
 
 				clientInstance.on('telnyx.error', (error: any) => {
 					console.error('Telnyx RTC error:', error);
-					callStatus = 'Fallback Mode';
+					callStatus = `Fallback Mode (${error.message || 'RTC Error'})`;
 				});
 
 				clientInstance.on('telnyx.notification', (notification: any) => {
