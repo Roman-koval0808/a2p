@@ -259,11 +259,22 @@
 		// 1. If WebRTC client is ready, make direct WebRTC call
 		if (telnyxClient && callStatus === 'Ready') {
 			try {
+				await navigator.mediaDevices.getUserMedia({ audio: true });
+			} catch (err) {
+				console.error('Microphone access denied:', err);
+				toast.error('Microphone access is required to use the dialer');
+				isDialing = false;
+				return;
+			}
+			try {
 				startRingingTone();
 				currentCall = telnyxClient.newCall({
 					destinationNumber: target,
 					callerNumber: selectedFromNumber,
 					clientState: btoa(JSON.stringify({ isWebRTCDialer: true, companyNumber: selectedFromNumber })),
+					customHeaders: {
+						'X-Caller-Id': selectedFromNumber
+					},
 					audio: true,
 					video: false
 				});
