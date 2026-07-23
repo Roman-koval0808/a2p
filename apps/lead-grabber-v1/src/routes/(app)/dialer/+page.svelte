@@ -263,6 +263,7 @@
 				currentCall = telnyxClient.newCall({
 					destinationNumber: target,
 					callerNumber: selectedFromNumber,
+					clientState: btoa(JSON.stringify({ isWebRTCDialer: true, companyNumber: selectedFromNumber })),
 					audio: true,
 					video: false
 				});

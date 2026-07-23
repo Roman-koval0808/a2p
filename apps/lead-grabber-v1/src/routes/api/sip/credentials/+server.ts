@@ -35,32 +35,47 @@ import { prisma } from '$lib/db';
  */
 async function generateWebRtcToken(connectionId: string): Promise<string | null> {
 	try {
-		// Step 1 – create a short-lived telephony credential bound to this connection
-		const credRes = await fetch('https://api.telnyx.com/v2/telephony_credentials', {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-				Authorization: `Bearer ${TELNYX_API_KEY}`
-			},
-			body: JSON.stringify({
-				connection_id: connectionId,
-				name: `webrtc-${Date.now()}`
-			})
+		// Step 1 - Try to find an existing active credential first
+		let credentialId: string | undefined;
+		const listRes = await fetch(`https://api.telnyx.com/v2/telephony_credentials?filter[connection_id]=${connectionId}`, {
+			headers: { Authorization: `Bearer ${TELNYX_API_KEY}` }
 		});
-
-		if (!credRes.ok) {
-			const body = await credRes.text().catch(() => '');
-			console.warn(
-				`[sip/credentials] Could not create telephony credential: ${credRes.status}. ` +
-					`connection_id=${connectionId} — telephony_credentials require a Telnyx CREDENTIAL ` +
-					`(SIP) connection, NOT a Call Control application. Set TELNYX_SIP_CONNECTION_ID to a ` +
-					`Credential Connection id. ${body}`
-			);
-			return null;
+		if (listRes.ok) {
+			const listData = await listRes.json();
+			const activeCred = listData?.data?.find((c: any) => c.status === 'active');
+			if (activeCred) {
+				credentialId = activeCred.id;
+			}
 		}
 
-		const credData = await credRes.json();
-		const credentialId: string | undefined = credData?.data?.id;
+		if (!credentialId) {
+			// Create a short-lived telephony credential bound to this connection
+			const credRes = await fetch('https://api.telnyx.com/v2/telephony_credentials', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					Authorization: `Bearer ${TELNYX_API_KEY}`
+				},
+				body: JSON.stringify({
+					connection_id: connectionId,
+					name: `webrtc-${Date.now()}`
+				})
+			});
+
+			if (!credRes.ok) {
+				const body = await credRes.text().catch(() => '');
+				console.warn(
+					`[sip/credentials] Could not create telephony credential: ${credRes.status}. ` +
+						`connection_id=${connectionId} — telephony_credentials require a Telnyx CREDENTIAL ` +
+						`(SIP) connection, NOT a Call Control application. Set TELNYX_SIP_CONNECTION_ID to a ` +
+						`Credential Connection id. ${body}`
+				);
+				return null;
+			}
+
+			const credData = await credRes.json();
+			credentialId = credData?.data?.id;
+		}
 		if (!credentialId) return null;
 
 		// Step 2 – exchange the credential for a short-lived JWT token
