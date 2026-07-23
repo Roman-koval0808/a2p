@@ -15,6 +15,7 @@
 	let isCallActive = $state(false);
 	let callStatus = $state('Initializing...');
 	let isWebRTCReady = $state(false);
+	let receivingNumber = $state('');
 	let activeTab = $state('Phone');
 	let searchQuery = $state('');
 
@@ -160,6 +161,8 @@
 					return;
 				}
 
+				receivingNumber = json.data.receivingNumber || '';
+
 				const { TelnyxRTC } = await import('@telnyx/webrtc');
 				clientInstance = new TelnyxRTC({
 					login_token: json.data.webrtcToken
@@ -271,10 +274,17 @@
 			}
 			try {
 				startRingingTone();
+				const targetNumber = target;
+				const dialDestination = receivingNumber || targetNumber; // Fallback to target if receivingNumber is not configured
+
 				currentCall = telnyxClient.newCall({
-					destinationNumber: target,
+					destinationNumber: dialDestination,
 					callerNumber: selectedFromNumber,
-					clientState: btoa(JSON.stringify({ isWebRTCDialer: true, companyNumber: selectedFromNumber })),
+					clientState: btoa(JSON.stringify({ 
+						isWebRTCDialer: true, 
+						companyNumber: selectedFromNumber,
+						targetNumber: targetNumber
+					})),
 					audio: true,
 					video: false
 				});
