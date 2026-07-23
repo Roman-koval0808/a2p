@@ -20,8 +20,7 @@ export default defineConfig({
 			external: (id) =>
 				id.includes('clearsky-db-client') ||
 				id.includes('profiledb-client') ||
-				id.includes('firebase-admin') ||
-				id.includes('@telnyx/webrtc'),
+				id.includes('firebase-admin'),
 			output: {
 				manualChunks: {
 					vendor: ['svelte'],
