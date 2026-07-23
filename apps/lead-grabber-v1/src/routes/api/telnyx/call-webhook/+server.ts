@@ -650,22 +650,51 @@ export const POST: RequestHandler = async ({ request }) => {
 				}
 
 				if (isWebRTCDialer && targetNumber) {
-					console.log('✅ WebRTC Leg Answered! Now transferring to PSTN:', targetNumber);
+					console.log('✅ WebRTC Leg Answered! Now dialing PSTN and bridging with ringtone:', targetNumber);
 					try {
-						const res = await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/transfer`, {
+						// 1. Dial the PSTN destination
+						const dialRes = await fetch('https://api.telnyx.com/v2/calls', {
 							method: 'POST',
 							headers: TELNYX_HEADERS,
 							body: JSON.stringify({
+								connection_id: payload.connection_id,
 								to: targetNumber,
 								from: companyNumber,
-								client_state: comm_id ? Buffer.from(JSON.stringify({ comm_id })).toString('base64') : undefined
+								client_state: comm_id ? Buffer.from(JSON.stringify({ 
+									comm_id, 
+									isPSTNOutboundFromWebRTC: true, 
+									webrtcCallControlId: callControlId 
+								})).toString('base64') : undefined
 							})
 						});
-						if (!res.ok) {
-							console.error('❌ Failed to transfer WebRTC call to PSTN after answer:', res.status, await res.text());
+						
+						if (!dialRes.ok) {
+							console.error('❌ Failed to dial PSTN leg:', dialRes.status, await dialRes.text());
+							return json({ success: true });
+						}
+						
+						const dialData = await dialRes.json();
+						const pstnCallControlId = dialData.data.call_control_id;
+						
+						// 2. Immediately bridge WebRTC to the PSTN leg and play a US ringtone while waiting
+						const bridgeRes = await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/bridge`, {
+							method: 'POST',
+							headers: TELNYX_HEADERS,
+							body: JSON.stringify({
+								call_control_id: pstnCallControlId,
+								play_ringtone: true,
+								ringtone: 'us',
+								client_state: comm_id ? Buffer.from(JSON.stringify({ comm_id, isBridgedRecording: true })).toString('base64') : undefined
+							})
+						});
+						
+						if (!bridgeRes.ok) {
+							console.error('❌ Failed to bridge WebRTC to PSTN:', bridgeRes.status, await bridgeRes.text());
+						} else {
+							console.log('✅ Bridge command issued with US ringback tone!');
 						}
 					} catch (err) {
-						console.error('❌ Failed to transfer WebRTC call to PSTN after answer:', err);
+						console.error('❌ Error during WebRTC outbound B2BUA:', err);
 					}
 					return json({ success: true });
 				}
