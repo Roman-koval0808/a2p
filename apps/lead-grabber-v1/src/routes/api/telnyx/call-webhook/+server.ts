@@ -1328,7 +1328,12 @@ export const POST: RequestHandler = async ({ request }) => {
 				await logCallEvent(callControlId, 'ended', payload);
 				
 				// --- B2BUA WebRTC <-> PSTN Hangup Propagation ---
-				const decodedClientState = getDecodedClientState(payload) as any;
+				let decodedClientState: any = {};
+				try {
+					if (payload?.client_state) {
+						decodedClientState = JSON.parse(Buffer.from(payload.client_state, 'base64').toString('utf8'));
+					}
+				} catch (e) {}
 				const linkedWebrtcLeg = decodedClientState?.webrtcCallControlId;
 				
 				if (linkedWebrtcLeg) {
