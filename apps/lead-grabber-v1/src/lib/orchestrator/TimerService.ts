@@ -92,3 +92,20 @@ export class TimerService {
 }
 
 export const timerService = new TimerService();
+
+export async function createTimer(data: {
+    comm_id: string;
+    type: string;
+    fires_at: Date;
+    condition_payload?: any;
+}) {
+    return prisma.actionTimer.create({
+        data: {
+            comm_id: data.comm_id,
+            type: data.type,
+            fires_at: data.fires_at,
+            condition_payload: data.condition_payload ?? {},
+            status: 'pending'
+        }
+    });
+}
