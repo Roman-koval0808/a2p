@@ -343,20 +343,26 @@ export const POST: RequestHandler = async ({ request }) => {
 					}
 
 					try {
-						const res = await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/transfer`, {
+						const clientStateData = {
+							isWebRTCDialer: true,
+							companyNumber: fromNumber,
+							targetNumber: targetNumber,
+							comm_id: commId
+						};
+						const res = await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/answer`, {
 							method: 'POST',
 							headers: TELNYX_HEADERS,
 							body: JSON.stringify({
-								to: toRaw,
-								from: fromNumber,
-								client_state: commId ? Buffer.from(JSON.stringify({ comm_id: commId })).toString('base64') : undefined
+								client_state: Buffer.from(JSON.stringify(clientStateData)).toString('base64')
 							})
 						});
 						if (!res.ok) {
-							console.error('❌ Failed to transfer WebRTC call to PSTN:', res.status, await res.text());
+							console.error('❌ Failed to answer WebRTC call:', res.status, await res.text());
+						} else {
+							console.log('✅ WebRTC Call Answered (Awaiting call.answered event to transfer)');
 						}
 					} catch (err) {
-						console.error('❌ Failed to transfer WebRTC call to PSTN:', err);
+						console.error('❌ Failed to answer WebRTC call:', err);
 					}
 
 					return json({ success: true });
