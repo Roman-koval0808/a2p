@@ -19,6 +19,7 @@ const ANALYSIS_SCHEMA = {
 			enum: ['Positive', 'Negative', 'Neutral', 'Angry', 'Anxious']
 		},
 		callerName: { type: 'string', description: "caller's full name, or empty string if not stated" },
+		callerEmail: { type: 'string', description: "caller's email address if they provide/spell it out, or empty string if not stated" },
 		buyingSignals: { type: 'array', items: { type: 'string' } },
 		estimatedPrice: { type: 'number', description: 'estimated dollar value, or 0 if none' },
 		datetime: {
@@ -39,6 +40,7 @@ const ANALYSIS_SCHEMA = {
 		'actionItems',
 		'sentiment',
 		'callerName',
+		'callerEmail',
 		'buyingSignals',
 		'estimatedPrice',
 		'datetime',
@@ -137,6 +139,7 @@ export async function analyzeCallLog(
 	actionItems: string[];
 	sentiment: string;
 	callerName: string | null;
+	callerEmail: string | null;
 	buyingSignals: string[];
 	estimatedPrice: number | null;
 	datetime: string | null;
@@ -172,6 +175,7 @@ export async function analyzeCallLog(
     - "actionItems": A list of action items or next steps.
     - "sentiment": One of "Positive", "Negative", "Neutral", "Angry", "Anxious" based on the overall tone.
     - "callerName": Extract the caller's full name if they introduce themselves (e.g., "Hi, this is John Smith" → "John Smith"). If no name is mentioned, return an empty string.
+    - "callerEmail": Extract the caller's email address if they provide or spell it out (e.g., "R-O-R-Y dot D-R-E-H-A-R-D at gmail dot com" -> "rory.drehard@gmail.com"). Return empty string if not stated.
     - "buyingSignals": An array of detected buying intent signals. Look for phrases like:
       - Wanting to book an appointment → "appointment_request"
       - Wanting to speak to a representative → "rep_request"
@@ -236,6 +240,7 @@ export async function analyzeCallLog(
 			actionItems: result.actionItems || [],
 			sentiment: result.sentiment || 'Neutral',
 			callerName: result.callerName || null,
+			callerEmail: result.callerEmail || null,
 			buyingSignals: result.buyingSignals || [],
 			estimatedPrice:
 				typeof result.estimatedPrice === 'number' && result.estimatedPrice > 0
@@ -256,6 +261,7 @@ export async function analyzeCallLog(
 			actionItems: [],
 			sentiment: 'Unknown',
 			callerName: null,
+			callerEmail: null,
 			buyingSignals: [],
 			estimatedPrice: null,
 			datetime: null,

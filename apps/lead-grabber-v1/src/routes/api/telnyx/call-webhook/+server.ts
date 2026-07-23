@@ -1785,7 +1785,7 @@ export const POST: RequestHandler = async ({ request }) => {
 												const { processSupportCall } = await import('$lib/orchestrator/CalendarService');
 												const owner = await prisma.companyMember.findFirst({ where: { companyId: numberInfo.companyId, role: 'owner' }});
 												if (owner) {
-													await processSupportCall(currentCommId, owner.userId, analysis.datetime, analysis.date_confidence, contact?.email || null);
+													await processSupportCall(currentCommId, owner.userId, analysis.datetime, analysis.date_confidence, analysis.callerEmail || contact?.email || null);
 												}
 											} else if (analysis.intent === 'Sales' || finalIvrPath === 'Sales') {
 												console.log('💼 Sales intent detected. Triggering Scenario 4 SMS Loop.');
@@ -1818,6 +1818,27 @@ export const POST: RequestHandler = async ({ request }) => {
 												}
 											} catch (nameErr) {
 												console.error('⚠️ Failed to update contact name:', nameErr);
+											}
+										}
+										
+										// If the AI extracted an email, optionally update the contact record
+										if (analysis.callerEmail && contact && (!contact.email || contact.email === '')) {
+											try {
+												await prisma.contact.update({
+													where: { id: contact.id },
+													data: { email: analysis.callerEmail }
+												});
+												contact = { ...contact, email: analysis.callerEmail };
+												console.log(`✉️ Contact email resolved from transcript: "${analysis.callerEmail}" (${contact.id})`);
+												
+												if (contact.phone) {
+													await prisma.pipelineCustomerProfile.updateMany({
+														where: { companyId: contact.companyId, phoneNumber: contact.phone },
+														data: { email: analysis.callerEmail }
+													});
+												}
+											} catch (emailErr) {
+												console.error('⚠️ Failed to update contact email:', emailErr);
 											}
 										}
 
