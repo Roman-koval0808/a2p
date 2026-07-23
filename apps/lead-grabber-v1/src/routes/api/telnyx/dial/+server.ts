@@ -8,10 +8,13 @@ import { logCommunication } from '$lib/utils/communication-log';
 
 export const POST: RequestHandler = async ({ request, locals }) => {
 	try {
-		const { to, from: fromParam, clientId } = await request.json();
+		const { to, from: fromParam, clientId, techNumber } = await request.json();
 
 		if (!to) {
 			return json({ success: false, error: 'Missing destination phone number' }, { status: 400 });
+		}
+		if (!techNumber) {
+			return json({ success: false, error: 'Missing your personal cell number (techNumber)' }, { status: 400 });
 		}
 
 		const companyId = locals.user?.company?.id;
@@ -36,11 +39,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			from = companyNumber.phoneNumber;
 		}
 
-		// Format phone number for dialing (E.164 format)
-		const formattedPhone = formatPhoneForDialing(to);
+		// Format phone numbers for dialing (E.164 format)
+		const formattedTargetPhone = formatPhoneForDialing(to);
+		const formattedTechPhone = formatPhoneForDialing(techNumber);
 
-		// Create the call using Telnyx API
-		const response = await fetch('https://api.telnyx.com/v2/calls', {
+		// Create Leg A: Dial the Technician
+		const legAResponse = await fetch('https://api.telnyx.com/v2/calls', {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
@@ -48,11 +52,37 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			},
 			body: JSON.stringify({
 				connection_id: TELNYX_CONNECTION_ID,
-				to: formattedPhone,
-				from,
+				to: formattedTechPhone,
+				from, // Tech sees the company number calling them
+				webhook_url: `${request.headers.get('origin')}/api/telnyx/call-webhook`
+			})
+		});
+
+		const legAData = await legAResponse.json();
+		if (!legAResponse.ok) {
+			console.error('Telnyx API error (Leg A):', legAData);
+			return json(
+				{ success: false, error: legAData.errors?.[0]?.detail || 'Failed to initiate call to your cell' },
+				{ status: 500 }
+			);
+		}
+		const legAControlId = legAData.data.call_control_id;
+
+		// Create Leg B: Dial the Customer and link it to the Technician
+		const legBResponse = await fetch('https://api.telnyx.com/v2/calls', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				Authorization: `Bearer ${TELNYX_API_KEY}`
+			},
+			body: JSON.stringify({
+				connection_id: TELNYX_CONNECTION_ID,
+				to: formattedTargetPhone,
+				from, // Customer sees the company number calling them
+				link_to: legAControlId, // Automatically bridge this leg to the technician's leg
 				send_silence_when_idle: false, // Ensures continuous audio
 				record: 'record-from-answer',
-				client_state: clientId ? btoa(JSON.stringify({ clientId })) : undefined,
+				client_state: clientId ? btoa(JSON.stringify({ clientId, isWebRTCDialer: true })) : undefined,
 				webhook_url: `${request.headers.get('origin')}/api/telnyx/call-webhook`, // Ensure webhooks are properly routed
 				// Optional: Enable answering machine detection if needed
 				answering_machine_detection: 'premium',
@@ -71,18 +101,20 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			})
 		});
 
-		const data = await response.json();
+		const data = await legBResponse.json();
 
-		if (!response.ok) {
-			console.error('Telnyx API error:', data);
+		if (!legBResponse.ok) {
+			console.error('Telnyx API error (Leg B):', data);
 			return json(
 				{
 					success: false,
-					error: data.errors?.[0]?.detail || 'Failed to initiate call'
+					error: data.errors?.[0]?.detail || 'Failed to initiate call to the customer'
 				},
 				{ status: 500 }
 			);
 		}
+		
+		const formattedPhone = formattedTargetPhone; // For SLA checks
 
 		// --- SLA CLEARANCE ---
 		// When the technician successfully initiates a call to the customer using the dialer,
