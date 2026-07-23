@@ -127,7 +127,8 @@ export const GET: RequestHandler = async ({ locals }) => {
 			connectionId: sipConnectionId,
 			callerIdName,
 			callerIdNumber,
-			webrtcToken
+			webrtcToken,
+			receivingNumber: env.TELNYX_RECEIVING_NUMBER
 		}
 	});
 };
