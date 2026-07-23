@@ -191,7 +191,12 @@
 								console.log(`Incoming call from ${call.remotePartyNumber}`);
 								callStatus = `Ringing: ${call.remotePartyNumber}`;
 								if (confirm(`Answer incoming call from ${call.remotePartyNumber}?`)) {
-									call.answer();
+									call.answer({
+										remoteElement: 'remoteAudio',
+										attach: true,
+										audio: true,
+										video: false
+									});
 									isCallActive = true;
 									callStatus = 'Connected';
 								} else {
