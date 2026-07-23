@@ -43,6 +43,12 @@ const intentToTransfer = new Map<
 	{ originalCallControlId: string; ivrFlowId: string; ivrRuleId: string; timestamp: number }
 >();
 
+/**
+ * Tracks WebRTC to PSTN legs to ensure both ends hang up together.
+ * Key = webrtcCallControlId, Value = pstnCallControlId
+ */
+const b2buaLegs = new Map<string, string>();
+
 // Periodic cleanup of stale in-memory transfer state (5 min TTL)
 setInterval(() => {
 	const now = Date.now();
@@ -50,6 +56,7 @@ setInterval(() => {
 	for (const [key, val] of intentToTransfer) {
 		if (now - val.timestamp > FIVE_MIN) intentToTransfer.delete(key);
 	}
+	// Note: b2buaLegs will naturally be cleaned up on hangup
 }, 60_000);
 
 const processedEventIds = new Set<string>();
@@ -676,7 +683,6 @@ export const POST: RequestHandler = async ({ request }) => {
 						const dialData = await dialRes.json();
 						const pstnCallControlId = dialData.data.call_control_id;
 						
-						// 2. Immediately bridge WebRTC to the PSTN leg and play a US ringtone while waiting
 						const bridgeRes = await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/bridge`, {
 							method: 'POST',
 							headers: TELNYX_HEADERS,
@@ -687,6 +693,8 @@ export const POST: RequestHandler = async ({ request }) => {
 								client_state: comm_id ? Buffer.from(JSON.stringify({ comm_id, isBridgedRecording: true })).toString('base64') : undefined
 							})
 						});
+						
+						b2buaLegs.set(callControlId, pstnCallControlId);
 						
 						if (!bridgeRes.ok) {
 							console.error('❌ Failed to bridge WebRTC to PSTN:', bridgeRes.status, await bridgeRes.text());
@@ -1318,6 +1326,22 @@ export const POST: RequestHandler = async ({ request }) => {
 			case 'call.hangup': {
 				console.log('📞 Call hangup:', callControlId);
 				await logCallEvent(callControlId, 'ended', payload);
+				
+				// --- B2BUA WebRTC <-> PSTN Hangup Propagation ---
+				const decodedClientState = getDecodedClientState(payload) as any;
+				const linkedWebrtcLeg = decodedClientState?.webrtcCallControlId;
+				
+				if (linkedWebrtcLeg) {
+					console.log('📞 B2BUA PSTN leg hung up. Hanging up linked WebRTC leg:', linkedWebrtcLeg);
+					fetch(`https://api.telnyx.com/v2/calls/${linkedWebrtcLeg}/actions/hangup`, { method: 'POST', headers: TELNYX_HEADERS }).catch(() => {});
+				}
+				
+				const linkedPstnLeg = b2buaLegs.get(callControlId);
+				if (linkedPstnLeg) {
+					b2buaLegs.delete(callControlId);
+					console.log('📞 B2BUA WebRTC leg hung up. Hanging up linked PSTN leg:', linkedPstnLeg);
+					fetch(`https://api.telnyx.com/v2/calls/${linkedPstnLeg}/actions/hangup`, { method: 'POST', headers: TELNYX_HEADERS }).catch(() => {});
+				}
 
 				// --- Transfer no-answer → voicemail ---
 				// If this hangup is for a transfer leg that timed out/was not answered,

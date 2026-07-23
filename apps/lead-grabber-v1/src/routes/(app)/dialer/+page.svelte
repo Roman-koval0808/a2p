@@ -168,9 +168,7 @@
 					login_token: json.data.webrtcToken
 				});
 
-				// Bind target audio element for incoming media streams
-				clientInstance.remoteElement = 'remoteAudio';
-
+				// Remote element will be bound on the call object directly or during 'active' state
 				clientInstance.on('telnyx.ready', () => {
 					console.log('Telnyx RTC ready');
 					isWebRTCReady = true;
@@ -205,7 +203,13 @@
 								break;
 							case 'active':
 								console.log('Call is active');
-								stopRingingTone();
+								
+								// Explicitly bind the media stream to ensure audio plays
+								const audioElement = document.getElementById('remoteAudio') as HTMLAudioElement;
+								if (audioElement && call.remoteStream) {
+									audioElement.srcObject = call.remoteStream;
+								}
+								
 								startCallTimer();
 								isCallActive = true;
 								isDialing = false;
@@ -213,7 +217,6 @@
 								break;
 							case 'hangup':
 								console.log('Call ended');
-								stopRingingTone();
 								stopCallTimer();
 								isCallActive = false;
 								isDialing = false;
@@ -273,13 +276,13 @@
 				return;
 			}
 			try {
-				startRingingTone();
 				const targetNumber = target;
 				const dialDestination = receivingNumber || targetNumber; // Fallback to target if receivingNumber is not configured
 
 				currentCall = telnyxClient.newCall({
 					destinationNumber: dialDestination,
 					callerNumber: selectedFromNumber,
+					remoteElement: 'remoteAudio', // Explicitly tell the SDK to use this element
 					clientState: btoa(JSON.stringify({ 
 						isWebRTCDialer: true, 
 						companyNumber: selectedFromNumber,
@@ -290,7 +293,6 @@
 				});
 				isCallActive = true;
 			} catch (error) {
-				stopRingingTone();
 				console.error('WebRTC Call error:', error);
 				toast.error('WebRTC call failed, falling back to Server Dial...');
 				await initiateServerCall(target);
@@ -520,7 +522,7 @@
 </script>
 
 <!-- Hidden HTML audio element required for WebRTC audio playback -->
-<audio id="remoteAudio" autoplay></audio>
+<audio id="remoteAudio" autoplay playsinline="true"></audio>
 
 <!-- Active Call Dialog Overlay -->
 {#if isCallActive || isDialing}
