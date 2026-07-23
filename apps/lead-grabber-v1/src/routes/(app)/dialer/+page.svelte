@@ -14,6 +14,7 @@
 	let isDialing = $state(false);
 	let isCallActive = $state(false);
 	let callStatus = $state('Initializing...');
+	let isWebRTCReady = $state(false);
 	let activeTab = $state('Phone');
 	let searchQuery = $state('');
 
@@ -169,11 +170,13 @@
 
 				clientInstance.on('telnyx.ready', () => {
 					console.log('Telnyx RTC ready');
+					isWebRTCReady = true;
 					callStatus = 'Ready';
 				});
 
 				clientInstance.on('telnyx.error', (error: any) => {
 					console.error('Telnyx RTC error:', error);
+					isWebRTCReady = false;
 					callStatus = `Fallback Mode (${error.message || 'RTC Error'})`;
 				});
 
@@ -257,7 +260,7 @@
 		}
 
 		// 1. If WebRTC client is ready, make direct WebRTC call
-		if (telnyxClient && callStatus === 'Ready') {
+		if (telnyxClient && isWebRTCReady) {
 			try {
 				await navigator.mediaDevices.getUserMedia({ audio: true });
 			} catch (err) {
