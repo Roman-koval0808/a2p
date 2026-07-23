@@ -208,6 +208,7 @@
 								const audioElement = document.getElementById('remoteAudio') as HTMLAudioElement;
 								if (audioElement && call.remoteStream) {
 									audioElement.srcObject = call.remoteStream;
+									audioElement.play().catch(e => console.error('Error playing remote audio:', e));
 								}
 								
 								startCallTimer();
@@ -283,6 +284,7 @@
 					destinationNumber: dialDestination,
 					callerNumber: selectedFromNumber,
 					remoteElement: 'remoteAudio', // Explicitly tell the SDK to use this element
+					attach: true, // Explicitly tell the SDK to attach media
 					clientState: btoa(JSON.stringify({ 
 						isWebRTCDialer: true, 
 						companyNumber: selectedFromNumber,
