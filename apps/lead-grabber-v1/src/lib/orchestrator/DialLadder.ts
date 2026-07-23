@@ -2,7 +2,7 @@ import { prisma } from '$lib/db';
 import { createTimer } from './TimerService';
 import { TELNYX_API_KEY } from '$env/static/private';
 import { PUBLIC_BASE_URL } from '$env/static/public';
-import { sendSMS } from '$lib/server/a2p-client'; // Assuming standard SMS function exists
+// Assuming standard SMS function is replaced with inline fetch
 
 export interface Rung {
 	rep_id: string; // User ID of the tech/owner
@@ -34,11 +34,18 @@ export async function initiateEmergencyDialLadder(
 
 	// 1. Send immediate customer SMS
 	try {
-		await sendSMS(
-			companyId,
-			customerNumber,
-			'We have received your emergency request. A technician is being dispatched and will call you momentarily.'
-		);
+		await fetch('https://api.telnyx.com/v2/messages', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				Authorization: `Bearer ${TELNYX_API_KEY}`
+			},
+			body: JSON.stringify({
+				from: '+18005550199', // TODO: Use company's actual Telnyx number
+				to: customerNumber,
+				text: 'We have received your emergency request. A technician is being dispatched and will call you momentarily.'
+			})
+		});
 		console.log('✅ Sent immediate emergency confirmation SMS to customer');
 	} catch (e) {
 		console.error('Failed to send immediate SMS to customer, proceeding anyway', e);
