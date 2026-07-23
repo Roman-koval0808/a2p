@@ -350,13 +350,89 @@ export const POST: RequestHandler = async ({ request }) => {
 							}
 						} else {
 							console.log('🌉 WebRTC Outbound Dial detected! Transferring to PSTN:', toRaw);
+							
+							// Run processIntake and logCommunication for WebRTC outbound call
+							let commId: string | null = null;
+							const companyId = fromIsCompany.companyId;
+							
+							if (companyId) {
+								try {
+									const intake = await processIntake({
+										companyId: companyId,
+										direction: 'outbound',
+										channel: 'voice',
+										from_party: fromNumber,
+										to_party: toRaw,
+										occurred_at: new Date()
+									});
+									commId = intake.container.comm_id;
+									console.log(`[WebRTC Dialer] Created intake container ${commId} for outbound call ${callControlId}`);
+								} catch (err) {
+									console.error('[WebRTC Dialer] Failed to process intake for outbound call:', err);
+								}
+
+								try {
+									// Resolve contact for logging
+									const last10 = (ph: string) => (ph || '').replace(/\D/g, '').slice(-10);
+									const targetLast10 = last10(toRaw);
+									const contacts = await prisma.contact.findMany({
+										where: { companyId },
+										select: { id: true, name: true, phone: true }
+									});
+									let callee = contacts.find((c) => last10(c.phone || '') === targetLast10) || null;
+									if (!callee) {
+										callee = await prisma.contact.create({
+											data: { companyId, phone: toRaw, name: null },
+											select: { id: true, name: true, phone: true }
+										});
+									}
+									
+									// Find recent thread
+									const recentThreaded = await prisma.communicationLog.findMany({
+										where: {
+											companyId,
+											communicationThreadId: { not: null },
+											created: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+										},
+										orderBy: { created: 'desc' },
+										select: { source: true, destination: true, communicationThreadId: true },
+										take: 100
+									});
+									const threadRow = recentThreaded.find(
+										(r) => last10(r.source || '') === targetLast10 || last10(r.destination || '') === targetLast10
+									);
+									
+									await logCommunication({
+										type: 'voice',
+										direction: 'outbound',
+										status: 'completed',
+										source: fromNumber,
+										destination: toRaw,
+										company_id: companyId,
+										customer_id: callee?.id,
+										summary: `Outbound call to ${callee?.name || toRaw}`,
+										metadata: {
+											dialer_outbound: true,
+											call_control_id: callControlId,
+											placed_at: new Date().toISOString(),
+											thread_id: toRaw,
+											commId: threadRow?.communicationThreadId || undefined
+										}
+									});
+									console.log(`[WebRTC Dialer] Logged outbound call to ${callee?.name || toRaw}.`);
+								} catch (logErr) {
+									console.error('[WebRTC Dialer] Failed to log outbound call:', logErr);
+								}
+							}
+
 							try {
 								await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/transfer`, {
 									method: 'POST',
 									headers: TELNYX_HEADERS,
 									body: JSON.stringify({
 										to: toRaw,
-										from: fromNumber
+										from: fromNumber,
+										client_state: commId ? Buffer.from(JSON.stringify({ comm_id: commId })).toString('base64') : undefined
 									})
 								});
 							} catch (err) {
