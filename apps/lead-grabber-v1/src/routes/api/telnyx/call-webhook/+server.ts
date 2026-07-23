@@ -255,6 +255,15 @@ export const POST: RequestHandler = async ({ request }) => {
 							fromNumber = decoded.companyNumber;
 						}
 					}
+				} else if (payload?.direction === 'outgoing' && (payload?.from as string).startsWith('sip:')) {
+					// Detect WebRTC outbound call by checking if it's an outgoing call from a SIP URI
+					isWebRTCDialer = true;
+					// Try to extract caller ID from custom headers if available
+					const headers = payload?.custom_headers as Array<{name: string, value: string}> | undefined;
+					const callerHeader = headers?.find((h) => h.name === 'X-Caller-Id');
+					if (callerHeader) {
+						fromNumber = callerHeader.value;
+					}
 				}
 
 				if (isIncomingCall) {
