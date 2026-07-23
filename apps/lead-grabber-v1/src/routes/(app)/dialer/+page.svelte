@@ -143,102 +143,21 @@
 		}
 	});
 
-	// Initialize WebRTC client on Mount/Effect (Browser-only)
+	let techPhoneNumber = $state(browser ? localStorage.getItem('techPhoneNumber') || '' : '');
 	$effect(() => {
-		if (!browser) return;
-
-		let clientInstance: any = null;
-
-		async function initTelnyx() {
-			try {
-				const res = await fetch('/api/sip/credentials');
-				const json = await res.json();
-				if (!json.success || !json.data.webrtcToken) {
-					console.warn('Failed to retrieve WebRTC credentials or token');
-					callStatus = 'Fallback Mode';
-					return;
-				}
-
-				const { TelnyxRTC } = await import('@telnyx/webrtc');
-				clientInstance = new TelnyxRTC({
-					login_token: json.data.webrtcToken
-				});
-
-				// Bind target audio element for incoming media streams
-				clientInstance.remoteElement = 'remoteAudio';
-
-				clientInstance.on('telnyx.ready', () => {
-					console.log('Telnyx RTC ready');
-					callStatus = 'Ready';
-				});
-
-				clientInstance.on('telnyx.error', (error: any) => {
-					console.error('Telnyx RTC error:', error);
-					callStatus = 'Fallback Mode';
-				});
-
-				clientInstance.on('telnyx.notification', (notification: any) => {
-					if (notification.type === 'callUpdate') {
-						const call = notification.call;
-						currentCall = call;
-
-						switch (call.state) {
-							case 'ringing':
-								console.log(`Incoming call from ${call.remotePartyNumber}`);
-								callStatus = `Ringing: ${call.remotePartyNumber}`;
-								if (confirm(`Answer incoming call from ${call.remotePartyNumber}?`)) {
-									call.answer();
-									isCallActive = true;
-									callStatus = 'Connected';
-								} else {
-									call.hangup();
-									isCallActive = false;
-									currentCall = null;
-									callStatus = 'Ready';
-								}
-								break;
-							case 'active':
-								console.log('Call is active');
-								stopRingingTone();
-								startCallTimer();
-								isCallActive = true;
-								isDialing = false;
-								callStatus = 'Connected';
-								break;
-							case 'hangup':
-								console.log('Call ended');
-								stopRingingTone();
-								stopCallTimer();
-								isCallActive = false;
-								isDialing = false;
-								currentCall = null;
-								callStatus = 'Ready';
-								toast.success('Call ended');
-								break;
-						}
-					}
-				});
-
-				clientInstance.connect();
-				telnyxClient = clientInstance;
-			} catch (err) {
-				console.error('Error initializing WebRTC client:', err);
-				callStatus = 'Fallback Mode';
-			}
+		if (browser && techPhoneNumber) {
+			localStorage.setItem('techPhoneNumber', techPhoneNumber);
 		}
-
-		initTelnyx();
-
-		return () => {
-			if (clientInstance) {
-				clientInstance.disconnect();
-			}
-		};
 	});
 
 	async function initiateCall() {
 		if (!phoneNumber || phoneNumber.length < 10) {
 			toast.error('Please enter a valid phone number');
+			return;
+		}
+
+		if (!techPhoneNumber || techPhoneNumber.length < 10) {
+			toast.error('Please enter your personal cell number above so we can call you first!');
 			return;
 		}
 
@@ -256,29 +175,9 @@
 			}
 		}
 
-		// 1. If WebRTC client is ready, make direct WebRTC call
-		if (telnyxClient && callStatus === 'Ready') {
-			try {
-				startRingingTone();
-				currentCall = telnyxClient.newCall({
-					destinationNumber: target,
-					callerNumber: selectedFromNumber,
-					clientState: btoa(JSON.stringify({ isWebRTCDialer: true, companyNumber: selectedFromNumber })),
-					audio: true,
-					video: false
-				});
-				isCallActive = true;
-			} catch (error) {
-				stopRingingTone();
-				console.error('WebRTC Call error:', error);
-				toast.error('WebRTC call failed, falling back to Server Dial...');
-				await initiateServerCall(target);
-			}
-		} else {
-			// 2. Fallback to Server-side REST API dial
-			console.log('WebRTC not ready or registered. Using REST fallback.');
-			await initiateServerCall(target);
-		}
+		// Fallback to Server-side REST API dial (dials tech, then dials customer)
+		console.log('Using REST two-leg dialer.');
+		await initiateServerCall(target);
 	}
 
 	async function initiateServerCall(target: string) {
@@ -289,7 +188,8 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					to: target,
-					from: selectedFromNumber
+					from: selectedFromNumber,
+					techNumber: techPhoneNumber
 				})
 			});
 
@@ -790,16 +690,27 @@
 				{/if}
 
 				<!-- Outbound Caller ID Selector -->
-				<div class="mb-4 flex items-center justify-center gap-2">
-					<span class="text-xs text-gray-500 font-sans">Outbound Number:</span>
-					<select
-						bind:value={selectedFromNumber}
-						class="rounded border border-[#BEBEBE] bg-white px-2 py-1 text-xs font-sans text-gray-700 outline-none"
-					>
-						{#each phoneNumbers as num}
-							<option value={num.phoneNumber}>{num.phoneNumber} {num.connectionLabel ? `(${num.connectionLabel})` : ''}</option>
-						{/each}
-					</select>
+				<div class="mb-4 flex flex-col items-center justify-center gap-2">
+					<div class="flex items-center gap-2">
+						<span class="text-xs text-gray-500 font-sans w-[110px] text-right">Your Cell:</span>
+						<input
+							type="text"
+							bind:value={techPhoneNumber}
+							placeholder="e.g. +14155552671"
+							class="w-[180px] rounded border border-[#BEBEBE] bg-white px-2 py-1 text-xs font-sans text-gray-700 outline-none"
+						/>
+					</div>
+					<div class="flex items-center gap-2">
+						<span class="text-xs text-gray-500 font-sans w-[110px] text-right">Outbound Number:</span>
+						<select
+							bind:value={selectedFromNumber}
+							class="w-[180px] rounded border border-[#BEBEBE] bg-white px-2 py-1 text-xs font-sans text-gray-700 outline-none"
+						>
+							{#each phoneNumbers as num}
+								<option value={num.phoneNumber}>{num.phoneNumber} {num.connectionLabel ? `(${num.connectionLabel})` : ''}</option>
+							{/each}
+						</select>
+					</div>
 				</div>
 
 				<!-- Input Field -->
