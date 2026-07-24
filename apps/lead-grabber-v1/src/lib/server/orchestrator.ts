@@ -389,35 +389,65 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		olog('[Orchestrator] Detected Scenario 4: Sales / Booking');
 
 		try {
-			// Route through the wiring helper so the hold/approval/timer are keyed to the customer's
-			// real CommContainer (created at intake by the voice bridge). Passing commLog.id here would
-			// violate the comm_containers FK and throw — which silently broke Scenario 4.
-			const { runSalesVoicemailBooking } = await import('./sales-booking');
-			const salesRes = await runSalesVoicemailBooking({
-				companyId: company.id,
-				customerPhone: customer.phone || commLog.source || '',
-				contactId: customer.id,
-				customerName: customer.name,
-				isLandline: false, // Could enrich via number-lookup cache
-				transcript: rawMessage,
-				datetimeIso: datetime,
-				vehicleInterest: sub_intent || undefined,
-				callStartTime: new Date(commLog.created || Date.now()),
-				availableResources: {
-					salespeople: ['u_sales_owner'],
-					vehicles: ['v_default']
-				}
-			});
+			// A booking always buckets to "sales" (wants_appointment). But the CHANNEL is decided by
+			// what the caller gave us: an EMAIL means an email confirmation (Scenario 1 — a scheduled
+			// meeting), while no email means SMS is the only channel (Scenario 4 — spec §Scenario 4
+			// Stage 1). A test-drive/vehicle cue keeps it on the sales SMS path even if an email slips in.
+			const emailInMsg = (rawMessage.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/) || [])[0];
+			const looksLikeVehicle =
+				/\btest[-\s]?drive\b|\bvehicle\b|\bcar\b|\bcivic\b|\bhonda\b|\btoyota\b|\bsedan\b|\bsuv\b|\btruck\b|\bdealership\b/i.test(
+					rawMessage
+				) || /vehicle|car|drive/i.test(sub_intent || '');
+			const preferEmailMeeting = !!(emailInMsg || customer.email) && !looksLikeVehicle;
 
-			if (salesRes.smsDrafted && salesRes.approval) {
-				draftedResponse = salesRes.approval.draftContent;
-				scenarioLocked = true; // wait for YES/NO reply loop
-			} else if (salesRes.ran) {
-				draftedResponse = `Hi! Thanks for contacting ${company.name || 'us'}. We received your booking request, and a representative will call you shortly to schedule it.`;
-				scenarioLocked = true;
+			if (preferEmailMeeting) {
+				olog('[Orchestrator] Booking has an email + no vehicle cue → Scenario 1 email meeting confirmation.');
+				const { runSupportMeetingConfirmation } = await import('./support-meeting');
+				const s1 = await runSupportMeetingConfirmation({
+					companyId: company.id,
+					customerPhone: customer.phone || commLog.source || '',
+					customerName: customer.name,
+					repEnteredEmail: customer.email || emailInMsg || null,
+					transcript: rawMessage,
+					datetimeIso: datetime,
+					callStartTime: new Date(commLog.created || Date.now())
+				});
+				if (s1.ran) {
+					draftedResponse = `Thanks! We're confirming your meeting by email shortly.`;
+					scenarioLocked = true;
+					olog(`[Orchestrator] Scenario 1 → draftCreated=${s1.draftCreated} blocked=${s1.blocked} (${s1.reason || ''}).`);
+				}
+			} else {
+				// Route through the wiring helper so the hold/approval/timer are keyed to the customer's
+				// real CommContainer (created at intake by the voice bridge). Passing commLog.id here would
+				// violate the comm_containers FK and throw — which silently broke Scenario 4.
+				const { runSalesVoicemailBooking } = await import('./sales-booking');
+				const salesRes = await runSalesVoicemailBooking({
+					companyId: company.id,
+					customerPhone: customer.phone || commLog.source || '',
+					contactId: customer.id,
+					customerName: customer.name,
+					isLandline: false, // Could enrich via number-lookup cache
+					transcript: rawMessage,
+					datetimeIso: datetime,
+					vehicleInterest: sub_intent || undefined,
+					callStartTime: new Date(commLog.created || Date.now()),
+					availableResources: {
+						salespeople: ['u_sales_owner'],
+						vehicles: ['v_default']
+					}
+				});
+
+				if (salesRes.smsDrafted && salesRes.approval) {
+					draftedResponse = salesRes.approval.draftContent;
+					scenarioLocked = true; // wait for YES/NO reply loop
+				} else if (salesRes.ran) {
+					draftedResponse = `Hi! Thanks for contacting ${company.name || 'us'}. We received your booking request, and a representative will call you shortly to schedule it.`;
+					scenarioLocked = true;
+				}
 			}
 		} catch (e) {
-			oerr('[Orchestrator] sales voicemail booking failed:', e);
+			oerr('[Orchestrator] booking (sales/meeting) failed:', e);
 			draftedResponse = `Hi! Thanks for contacting ${company.name || 'us'}. We received your booking request. What day and time works best for you?`;
 		}
 	}
