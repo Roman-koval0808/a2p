@@ -638,31 +638,38 @@ export const POST: RequestHandler = async ({ request }) => {
 
 					// --- SCENARIO 4: Intercept SMS replies for pending holds ---
 					if (inboundCommLog?.id && effectiveCompanyId && smsText.trim()) {
-						// 1. Look for any active containers for this phone
-						// Match by the linked Contact OR the resolved customer profile phone. The prior
-						// `customer: { phone }` referenced a relation that does not exist on CommContainer
-						// (it is `contact`), so this query threw and Scenario 4's reply loop never ran.
-						const activeContainers = await prisma.commContainer.findMany({
-							where: {
-								companyId: effectiveCompanyId,
-								state: 'open',
-								OR: [
-									{ contact: { phone: smsSender } },
-									{ customerProfile: { phoneNumber: smsSender } }
-								]
-							},
-							orderBy: { createdAt: 'desc' }
-						});
+						// 1. Find open containers with a pending (tentative) hold, then match the sender by the
+						// LAST 10 DIGITS of the phone. Matching the raw string is fragile — the stored
+						// contact/profile number and the inbound `from` can differ by formatting (+1, spaces,
+						// dashes), which silently broke the Scenario 4 reply loop. (The relation is `contact`,
+						// not `customer` — the earlier query referenced a field that doesn't exist and threw.)
+						const digitsKey = (p: string | null | undefined) => (p || '').replace(/\D/g, '').slice(-10);
+						const senderKey = digitsKey(smsSender);
+						const holdCandidates = senderKey.length >= 7
+							? await prisma.commContainer.findMany({
+									where: {
+										companyId: effectiveCompanyId,
+										state: 'open',
+										holds: { some: { status: 'tentative' } }
+									},
+									include: {
+										contact: true,
+										customerProfile: true,
+										holds: { where: { status: 'tentative' } }
+									},
+									orderBy: { createdAt: 'desc' }
+								})
+							: [];
+						const activeContainers = holdCandidates.filter(
+							(c) =>
+								digitsKey((c as any).contact?.phone) === senderKey ||
+								digitsKey((c as any).customerProfile?.phoneNumber) === senderKey
+						);
 
 						let intercepted = false;
 						if (activeContainers.length > 0) {
-							// 2. Look for tentative holds across these containers
-							const pendingHolds = await prisma.commHold.findMany({
-								where: {
-									commId: { in: activeContainers.map(c => c.id) },
-									status: 'tentative'
-								}
-							});
+							// 2. Collect the tentative holds already loaded with these containers.
+							const pendingHolds = activeContainers.flatMap((c) => (c as any).holds || []);
 
 							if (pendingHolds.length > 0) {
 								console.log(`[SMS Webhook] Intercepting SMS for pending hold validation (found ${pendingHolds.length} holds).`);
