@@ -13,6 +13,7 @@
 	let phoneNumber = $state('');
 	let isDialing = $state(false);
 	let isCallActive = $state(false);
+	let micGranted = $state(false);
 	let callStatus = $state('Initializing...');
 	let activeTab = $state('Phone');
 	let searchQuery = $state('');
@@ -159,6 +160,20 @@
 					return;
 				}
 
+				// Ask for the microphone up front (needs HTTPS + a user having visited the page).
+				// getUserMedia is what actually triggers the browser's mic prompt — the WebRTC SDK
+				// otherwise only asks on the first call, so granting it here means the first call has
+				// audio immediately, and a denial is surfaced now instead of failing mid-call.
+				try {
+					const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+					stream.getTracks().forEach((t) => t.stop()); // release; the SDK re-acquires on call
+					micGranted = true;
+				} catch (micErr) {
+					console.error('Microphone permission denied/unavailable:', micErr);
+					micGranted = false;
+					toast.error('Microphone blocked — allow mic access for the browser to make calls.');
+				}
+
 				const { TelnyxRTC } = await import('@telnyx/webrtc');
 				clientInstance = new TelnyxRTC({
 					login_token: json.data.webrtcToken
@@ -170,6 +185,11 @@
 				clientInstance.on('telnyx.ready', () => {
 					console.log('Telnyx RTC ready');
 					callStatus = 'Ready';
+				});
+				// Surface socket/registration failures explicitly instead of a silent fallback.
+				clientInstance.on('telnyx.socket.error', (e: any) => {
+					console.error('Telnyx socket error:', e);
+					callStatus = 'Fallback Mode';
 				});
 
 				clientInstance.on('telnyx.error', (error: any) => {
@@ -799,6 +819,31 @@
 							<option value={num.phoneNumber}>{num.phoneNumber} {num.connectionLabel ? `(${num.connectionLabel})` : ''}</option>
 						{/each}
 					</select>
+				</div>
+
+				<!-- WebRTC / mic status: at-a-glance whether a call uses the browser softphone (real
+				     two-way audio) or the audioless REST fallback. -->
+				<div class="mb-4 flex items-center justify-center gap-3 text-xs">
+					<span class="flex items-center gap-1.5">
+						<span
+							class="h-2 w-2 rounded-full {callStatus === 'Ready' || callStatus === 'Connected'
+								? 'bg-emerald-500'
+								: callStatus === 'Fallback Mode'
+									? 'bg-red-500'
+									: 'bg-amber-400'}"
+						></span>
+						<span class="text-gray-600">
+							{callStatus === 'Ready' || callStatus === 'Connected'
+								? 'Browser calling ready'
+								: callStatus === 'Fallback Mode'
+									? 'Fallback (no audio) — WebRTC not registered'
+									: callStatus}
+						</span>
+					</span>
+					<span class="flex items-center gap-1.5">
+						<span class="h-2 w-2 rounded-full {micGranted ? 'bg-emerald-500' : 'bg-red-500'}"></span>
+						<span class="text-gray-600">{micGranted ? 'Mic ready' : 'Mic blocked'}</span>
+					</span>
 				</div>
 
 				<!-- Input Field -->
