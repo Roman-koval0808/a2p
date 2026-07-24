@@ -21,6 +21,10 @@
 	const phoneNumbers = $derived(data.phoneNumbers || []);
 	let selectedFromNumber = $state('');
 	let telnyxClient: any = $state(null);
+	// TRUE only after the SDK fires `telnyx.ready` (actual SIP registration). The client OBJECT
+	// existing is not the same as being registered — conflating them made the status badge and the
+	// call-gate report "Ready" for an unregistered client, so every call silently used the fallback.
+	let webrtcReady = $state(false);
 	let currentCall: any = $state(null);
 	let serverCallId = $state('');
 
@@ -183,17 +187,24 @@
 				clientInstance.remoteElement = 'remoteAudio';
 
 				clientInstance.on('telnyx.ready', () => {
-					console.log('Telnyx RTC ready');
+					console.log('[WebRTC] telnyx.ready — SIP registered ✅');
+					webrtcReady = true;
 					callStatus = 'Ready';
 				});
-				// Surface socket/registration failures explicitly instead of a silent fallback.
+				// Socket lifecycle — tells us EXACTLY where it stalls:
+				//   no socket.open   → the wss:// to Telnyx is blocked (network/VPN/CSP)
+				//   socket.open, no ready → the socket connects but SIP REGISTER is rejected (auth)
+				clientInstance.on('telnyx.socket.open', () => console.log('[WebRTC] socket.open — websocket connected, registering…'));
+				clientInstance.on('telnyx.socket.close', (e: any) => console.warn('[WebRTC] socket.close', e));
 				clientInstance.on('telnyx.socket.error', (e: any) => {
-					console.error('Telnyx socket error:', e);
+					console.error('[WebRTC] socket.error', e);
+					webrtcReady = false;
 					callStatus = 'Fallback Mode';
 				});
 
 				clientInstance.on('telnyx.error', (error: any) => {
 					console.error('Telnyx RTC error:', error);
+					webrtcReady = false;
 					callStatus = 'Fallback Mode';
 				});
 
@@ -277,7 +288,7 @@
 		}
 
 		// 1. If WebRTC client is ready, make direct WebRTC call
-		if (telnyxClient && callStatus === 'Ready') {
+		if (telnyxClient && webrtcReady) {
 			try {
 				startRingingTone();
 				currentCall = telnyxClient.newCall({
@@ -378,14 +389,14 @@
 					serverCallId = '';
 					isCallActive = false;
 					isDialing = false;
-					callStatus = telnyxClient ? 'Ready' : 'Fallback Mode';
+					callStatus = webrtcReady ? 'Ready' : 'Fallback Mode';
 				});
 			return;
 		}
 
 		isCallActive = false;
 		isDialing = false;
-		callStatus = telnyxClient ? 'Ready' : 'Fallback Mode';
+		callStatus = webrtcReady ? 'Ready' : 'Fallback Mode';
 	}
 
 	const contacts = $derived(data.contacts);
