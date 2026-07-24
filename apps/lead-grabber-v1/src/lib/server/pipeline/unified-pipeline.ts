@@ -8,6 +8,8 @@ import { runExecution } from './execution-engine';
 import { runOutcome } from './outcome-engine';
 import { runFeedback } from './feedback-engine';
 import { resolveAndMergeLocalProfile } from './profile-service';
+import { resolveIdentityAtIntake, enrichProfilePostTranscription } from '$lib/server/identity/identity-service';
+import { createContainerAtIntake, classifyThreadType, createEntry } from '$lib/server/container/container-service';
 import { ingestTelemetryEvent } from '$lib/server/profiledb/telemetry';
 
 export interface PipelinePayload {
@@ -63,25 +65,58 @@ export class UnifiedPipeline {
 			}
 			log(`[Step 2] Company resolved: ${company.name} (${company.id})`);
 
-			// STEP 3: Identity Resolution (Progressive Profile Binding)
-			let customerProfile = null;
+			// STEP 3: Identity & Container Resolution (Intake — Always (§1.1.2))
+			let customerProfile: any = null;
+			let containerResult: any = null;
+			let commContainer: any = null;
+			let actionsSuppressed = false;
+
 			const hasIdentity = !!(payload.customerPhone || payload.customerEmail || payload.customerName || payload.sessionId);
 
 			if (hasIdentity && company) {
 				log(`[Step 3] Identity Resolution: Resolving profile...`);
-				customerProfile = await prisma.$transaction(async (tx: any) => {
-					return await resolveAndMergeLocalProfile(tx, {
-						companyId: company.id,
-						email: payload.customerEmail,
-						phone: payload.customerPhone,
-						name: payload.customerName,
-						sessionId: payload.sessionId
-					});
+				const identityRes = await resolveIdentityAtIntake(prisma, {
+					companyId: company.id,
+					phoneNumber: payload.customerPhone
 				});
-				log(`[Step 3] Identity Resolution Complete: profile ID ${customerProfile.id}`);
-			} else {
-				log(`[Step 3] Identity Resolution: SKIPPED (no phone, email, name, or session provided)`);
+				customerProfile = identityRes.customerProfile;
+				log(`[Step 3] Identity Resolution Complete: profile ID ${customerProfile.id} (method: ${identityRes.method})`);
 			}
+
+			// Stage 1 Container creation at intake, always, before transcription (§1.1.2)
+			const threadType = classifyThreadType({
+				ivrOption: payload.metadata?.ivr_option,
+				keywordHit: payload.metadata?.keyword_hit,
+				text: payload.textContent
+			});
+
+			containerResult = await createContainerAtIntake(prisma, {
+				companyId: company.id,
+				customerProfileId: customerProfile?.id || null,
+				threadType,
+				subject: payload.metadata?.subject,
+				now: payload.occurredAt || receivedAt
+			});
+
+			commContainer = containerResult.container;
+			actionsSuppressed = containerResult.actionsSuppressed;
+
+			log(`[Step 3b] Container Created: ${commContainer.commRef} (ID: ${commContainer.id}, type: ${threadType}, actionsSuppressed: ${actionsSuppressed})`);
+
+			// Create CommEntry immediately (§1.1.2)
+			await createEntry(prisma, {
+				commId: commContainer.id,
+				customerProfileId: customerProfile?.id || null,
+				direction: payload.provider.includes('inbound') ? 'inbound' : 'outbound',
+				channel: payload.provider.includes('sms') ? 'sms' : payload.provider.includes('email') ? 'email' : 'voice',
+				fromParty: payload.customerPhone || payload.customerEmail || 'unknown',
+				toParty: company.name || 'system',
+				fromPartyType: 'customer',
+				toPartyType: 'system',
+				occurredAt: payload.occurredAt || receivedAt,
+				transcript: payload.textContent,
+				analysisJson: payload.metadata || {}
+			});
 
 			// STEP 4: Duplicate / Suppression Logic (Identity-Based & Content-Based)
 			let isDuplicate = false;
@@ -252,7 +287,7 @@ export class UnifiedPipeline {
 			let feedbackResult: any = null;
 			let signalCandidates: any[] = [];
 
-			if (!isDuplicate && !isSuppressed) {
+			if (!isDuplicate && !isSuppressed && !actionsSuppressed) {
 				// STEP 7-9: Signal Engine
 				evalResult = await SignalEngine.evaluate(event.id, pipelineSteps);
 				const fullTrace = [...evalResult.trace];

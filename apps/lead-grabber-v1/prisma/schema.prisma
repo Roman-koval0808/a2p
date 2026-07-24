@@ -162,6 +162,7 @@ model Company {
   pipelineOrchestratorProfile PipelineOrchestratorProfile?
   dropCalls                   DropCall[]
   googleCalendar              GoogleCalendarConnection?
+  commContainers              CommContainer[]
 
   @@map("companies")
 }
@@ -351,6 +352,7 @@ model Contact {
   communicationLogs    CommunicationLog[]
   communicationThreads CommunicationThread[]
   tasks                Task[]
+  commContainers       CommContainer[]
 
   @@index([companyId])
   @@map("contacts")
@@ -989,13 +991,23 @@ model PipelineCustomerProfile {
   displayName String?
   email       String?
   phoneNumber String?
+  status      String?  @default("unknown") // unknown | prospect | client | former
+  smsConsent  Boolean  @default(false)
+  consentSource String?
+  smsCapable  Boolean?
+  mergedInto  String?
+  lineType    String?
+  carrier     String?
+  lookupDate  DateTime?
   tags        Json     @default("[]")
   metadata    Json     @default("{}")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   // Relations
-  events PipelineEvent[]
+  events         PipelineEvent[]
+  commContainers CommContainer[]
+  identifiers    CommIdentifier[]
 
   @@unique([companyId, phoneNumber])
   @@unique([companyId, email])
@@ -1234,4 +1246,290 @@ model Cohort2Trajectory {
   @@index([companyId, contactId])
   @@index([relationshipKey])
   @@map("cohort2_trajectories")
+}
+
+// ==========================================
+// A2P ORCHESTRATOR MODELS & ENUMS (§1.1)
+// ==========================================
+
+enum ContainerLifecycle {
+  provisional
+  confirmed
+  merged
+}
+
+enum ContainerState {
+  open
+  awaiting_reply
+  awaiting_approval
+  closed
+}
+
+enum ContainerResolution {
+  resolved
+  timed_out
+  lost
+}
+
+enum ThreadType {
+  emergency
+  sales
+  support
+  general
+}
+
+enum ClosurePolicy {
+  auto
+  indefinite
+}
+
+enum EntryDirection {
+  inbound
+  outbound
+}
+
+enum EntryChannel {
+  voice
+  sms
+  email
+  form
+}
+
+enum PartyType {
+  customer
+  rep
+  system
+}
+
+enum IdentityMethod {
+  ani_exact
+  email_match
+  transcript_name
+  manual
+  none
+}
+
+enum TimerType {
+  sla_breach
+  thread_inactivity
+  calendar_grace
+  hold_expiry
+  approval_deadline
+  promise_due
+  customer_retry
+}
+
+enum TimerStatus {
+  registered
+  fired
+  cancelled
+  superseded
+}
+
+enum DraftType {
+  email
+  sms
+}
+
+enum ApprovalState {
+  pending
+  approved
+  rejected
+  expired
+}
+
+enum TaskCategory {
+  customer_promise
+  internal_followup
+}
+
+enum CommTaskStatus {
+  open
+  done
+  escalated
+  cancelled
+}
+
+model CommIdentifier {
+  id                String                  @id @default(cuid())
+  customerProfileId String
+  customerProfile   PipelineCustomerProfile @relation(fields: [customerProfileId], references: [id], onDelete: Cascade)
+  kind              String                  // phone | email
+  value             String
+  createdAt         DateTime                @default(now())
+
+  @@unique([customerProfileId, kind, value])
+  @@index([kind, value])
+  @@map("comm_identifiers")
+}
+
+model CommContainer {
+  id                       String               @id @default(cuid())
+  commRef                  String               @unique
+  companyId                String
+  company                  Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customerProfileId        String?
+  customerProfile          PipelineCustomerProfile? @relation(fields: [customerProfileId], references: [id], onDelete: SetNull)
+  contactId                String?
+  contact                  Contact?             @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  subject                  String?
+  threadType               ThreadType
+  lifecycle                ContainerLifecycle   @default(provisional)
+  state                    ContainerState       @default(open)
+  resolution               ContainerResolution?
+  mergedInto               String?
+  actionsSuppressed        Boolean              @default(false)
+  slaDeadline              DateTime?
+  closurePolicy            ClosurePolicy        @default(auto)
+  inactivityTimeoutSeconds Int
+  joinWindowSeconds        Int
+  previousThreadId         String?
+  lastActivityAt           DateTime             @default(now())
+  openedAt                 DateTime             @default(now())
+  closedAt                 DateTime?
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
+
+  entries    CommEntry[]
+  timers     PipelineTimer[]
+  commTasks  CommTask[]
+  holds      CommHold[]
+  approvals  CommApproval[]
+  refAliases CommRefAlias[]                     @relation("AliasTarget")
+
+  @@index([companyId])
+  @@index([customerProfileId])
+  @@index([companyId, threadType, state])
+  @@index([companyId, lifecycle, state])
+  @@index([mergedInto])
+  @@map("comm_containers")
+}
+
+model CommEntry {
+  id                 String         @id @default(cuid())
+  commId             String
+  container          CommContainer  @relation(fields: [commId], references: [id], onDelete: Cascade)
+  customerProfileId  String?
+  direction          EntryDirection
+  channel            EntryChannel
+  fromParty          String
+  toParty            String
+  fromPartyType      PartyType
+  toPartyType        PartyType
+  occurredAt         DateTime       @default(now())
+  recordingUrl       String?
+  transcript         String?
+  analysisJson       Json?
+  dedupSuppressed    Boolean        @default(false)
+  identityConfidence Float?
+  identityMethod     IdentityMethod @default(none)
+  createdAt          DateTime       @default(now())
+
+  @@index([commId, occurredAt])
+  @@map("comm_entries")
+}
+
+model CommRefAlias {
+  id           String        @id @default(cuid())
+  ref          String        @unique
+  targetCommId String
+  target       CommContainer @relation("AliasTarget", fields: [targetCommId], references: [id], onDelete: Cascade)
+  note         String?
+  createdAt    DateTime      @default(now())
+
+  @@index([targetCommId])
+  @@map("comm_ref_aliases")
+}
+
+model ThreadReassignmentLog {
+  id         String   @id @default(cuid())
+  recordId   String
+  recordType String
+  fromCommId String?
+  toCommId   String
+  actor      String?
+  reason     String?
+  createdAt  DateTime @default(now())
+
+  @@index([recordId])
+  @@index([toCommId])
+  @@map("thread_reassignment_logs")
+}
+
+model PipelineTimer {
+  id           String        @id @default(cuid())
+  commId       String
+  container    CommContainer @relation(fields: [commId], references: [id], onDelete: Cascade)
+  companyId    String?
+  type         TimerType
+  fireAt       DateTime
+  status       TimerStatus   @default(registered)
+  payload      Json?         @default("{}")
+  fireEventKey String?       @unique
+  firedAt      DateTime?
+  cancelledAt  DateTime?
+  cancelReason String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([status, fireAt])
+  @@index([commId, type, status])
+  @@map("pipeline_timers")
+}
+
+model CommTask {
+  id            String         @id @default(cuid())
+  commId        String
+  container     CommContainer  @relation(fields: [commId], references: [id], onDelete: Cascade)
+  sourceEntryId String?
+  description   String
+  ownerUserId   String
+  due           DateTime
+  category      TaskCategory
+  confidence    Float          @default(1.0)
+  status        CommTaskStatus @default(open)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([commId])
+  @@index([ownerUserId, status])
+  @@map("comm_tasks")
+}
+
+model CommHold {
+  id              String        @id @default(cuid())
+  commId          String
+  container       CommContainer @relation(fields: [commId], references: [id], onDelete: Cascade)
+  resourceIds     Json          @default("[]")
+  startTime       DateTime
+  endTime         DateTime?
+  status          String        @default("tentative")
+  holdExpiresAt   DateTime
+  calendarEventId String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([commId])
+  @@index([status, holdExpiresAt])
+  @@map("comm_holds")
+}
+
+model CommApproval {
+  id               String        @id @default(cuid())
+  commId           String
+  container        CommContainer @relation(fields: [commId], references: [id], onDelete: Cascade)
+  draftType        DraftType
+  draftContent     String
+  contextPayload   Json          @default("{}")
+  approvalDeadline DateTime
+  state            ApprovalState @default(pending)
+  approvedBy       String?
+  rejectedReason   String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([commId])
+  @@index([state, approvalDeadline])
+  @@map("comm_approvals")
 }

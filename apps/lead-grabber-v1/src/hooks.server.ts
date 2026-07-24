@@ -44,6 +44,21 @@ if (!cohort2CronGlobal.__cohort2CronStarted) {
 	timer.unref?.();
 }
 
+// A2P Orchestrator general timer service sweep (runs every 30 seconds).
+const timerCronGlobal = globalThis as unknown as { __timerSweepStarted?: boolean };
+if (!timerCronGlobal.__timerSweepStarted) {
+	timerCronGlobal.__timerSweepStarted = true;
+	const timer = setInterval(async () => {
+		try {
+			const { sweepTimers } = await import('$lib/server/timer/timer-service');
+			await sweepTimers();
+		} catch (e: any) {
+			console.error('[Timer cron] sweep failed:', e?.message || e);
+		}
+	}, 30_000);
+	timer.unref?.();
+}
+
 // Cache for auth refresh timestamps to avoid refreshing too frequently
 const authRefreshCache = new Map<string, number>();
 const AUTH_REFRESH_CACHE_MS = 60000; // Cache auth refresh for 60 seconds

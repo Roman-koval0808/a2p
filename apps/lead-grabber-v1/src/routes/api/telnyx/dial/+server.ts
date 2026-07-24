@@ -8,7 +8,7 @@ import { logCommunication } from '$lib/utils/communication-log';
 
 export const POST: RequestHandler = async ({ request, locals }) => {
 	try {
-		const { to, from: fromParam, clientId } = await request.json();
+		const { to, from: fromParam, clientId, commId, leg, priority } = await request.json();
 
 		if (!to) {
 			return json({ success: false, error: 'Missing destination phone number' }, { status: 400 });
@@ -39,6 +39,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		// Format phone number for dialing (E.164 format)
 		const formattedPhone = formatPhoneForDialing(to);
 
+		const clientStatePayload = {
+			comm_id: commId || null,
+			clientId: clientId || null,
+			leg: leg || 'outbound_dial',
+			priority: priority || 'normal'
+		};
+		const client_state = Buffer.from(JSON.stringify(clientStatePayload)).toString('base64');
+
 		// Create the call using Telnyx API
 		const response = await fetch('https://api.telnyx.com/v2/calls', {
 			method: 'POST',
@@ -52,7 +60,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				from,
 				send_silence_when_idle: false, // Ensures continuous audio
 				record: 'record-from-answer',
-				client_state: clientId ? btoa(JSON.stringify({ clientId })) : undefined,
+				client_state,
 				webhook_url: `${request.headers.get('origin')}/api/telnyx/call-webhook`, // Ensure webhooks are properly routed
 				// Optional: Enable answering machine detection if needed
 				answering_machine_detection: 'premium',
