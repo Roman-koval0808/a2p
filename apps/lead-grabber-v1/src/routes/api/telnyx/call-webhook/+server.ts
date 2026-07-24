@@ -544,11 +544,10 @@ export const POST: RequestHandler = async ({ request }) => {
 					decoded = safeDecodeClientState(payload.client_state);
 				}
 				if (decoded) {
-						ivrFlowId = decoded.ivrFlowId ?? null;
-						ivrRuleId = decoded.ivrRuleId ?? null;
-						isUnavailable = decoded.isUnavailable ?? false;
-						allUnavailableAudioUrl = decoded.allUnavailableAudioUrl ?? null;
-					}
+					ivrFlowId = decoded.ivrFlowId ?? null;
+					ivrRuleId = decoded.ivrRuleId ?? null;
+					isUnavailable = decoded.isUnavailable ?? false;
+					allUnavailableAudioUrl = decoded.allUnavailableAudioUrl ?? null;
 				}
 				if (isUnavailable && callControlId) {
 					const baseUrl = PUBLIC_BASE_URL || 'https://example.com';
