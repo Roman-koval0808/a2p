@@ -891,7 +891,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 							direction: 'outbound',
 							status: 'completed',
 							source: dispatchFrom || companyNumber,
-							destination: sentTo.map((r) => r.number).join(', '),
+							destination: workOrder.dialLadder.map((r) => r.phone).join(', '),
 							company_id: company.id,
 							customer_id: customer.id,
 							summary: `Emergency dispatch to ${dispatched} on-call number(s) — call ${callbackNumber}`,
@@ -899,7 +899,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 							metadata: {
 								is_emergency_dispatch: true,
 								emergency_dispatch: true,
-								recipients: sentTo,
+								recipients: workOrder.dialLadder,
 								recipient_count: dispatched,
 								callback_number: callbackNumber,
 								trigger_comm_id: commId,
