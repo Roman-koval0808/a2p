@@ -12,6 +12,7 @@
 		ChevronUp,
 		SquareSlash,
 		Reply,
+		Activity,
 		Building,
 		Phone,
 		LayoutDashboard,
@@ -48,6 +49,7 @@
 		{ title: 'Inbox', url: '/inbox', icon: Home, href: '/inbox' },
 		{ title: 'Profiles', url: '/profiles', icon: UserCircle, href: '/profiles' },
 		{ title: 'Dialer', url: '/dialer', icon: Phone, href: '/dialer' },
+		{ title: 'Orchestrator', url: '/orchestrator', icon: Activity, href: '/orchestrator' },
 		{
 			title: 'Buy Number',
 			url: '/buy-number',
@@ -95,6 +97,7 @@
 		{ title: 'Inbox', url: '/inbox', icon: Home, href: '/inbox' },
 		{ title: 'Profiles', url: '/profiles', icon: UserCircle, href: '/profiles' },
 		{ title: 'Dialer', url: '/dialer', icon: Phone, href: '/dialer' },
+		{ title: 'Orchestrator', url: '/orchestrator', icon: Activity, href: '/orchestrator' },
 		{
 			title: 'Buy Number',
 			url: '/buy-number',

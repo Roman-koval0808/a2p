@@ -20,7 +20,6 @@ export const POST: RequestHandler = async ({ locals }) => {
 			prisma.pipelineTimer.deleteMany({ where: { container: { companyId } } }),
 			prisma.commEntry.deleteMany({ where: { container: { companyId } } }),
 			prisma.commRefAlias.deleteMany({ where: { target: { companyId } } }),
-			prisma.threadReassignmentLog.deleteMany({ where: { companyId } }),
 			prisma.commContainer.deleteMany({ where: { companyId } }),
 			prisma.pipelineCustomerProfile.deleteMany({ where: { companyId } }),
 			prisma.communicationLog.deleteMany({ where: { companyId } }),
