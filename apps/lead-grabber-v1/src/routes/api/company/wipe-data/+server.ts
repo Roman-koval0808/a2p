@@ -11,8 +11,18 @@ export const POST: RequestHandler = async ({ locals }) => {
 	const companyId = locals.user.company.id;
 
 	try {
-		// 1. Wipe local Prisma database
+		// 1. Wipe local Prisma database (including dropped calls, A2P containers, messages, logs, and contacts)
 		await prisma.$transaction([
+			prisma.dropCall.deleteMany({ where: { companyId } }),
+			prisma.commApproval.deleteMany({ where: { commContainer: { companyId } } }),
+			prisma.commHold.deleteMany({ where: { commContainer: { companyId } } }),
+			prisma.commTask.deleteMany({ where: { commContainer: { companyId } } }),
+			prisma.pipelineTimer.deleteMany({ where: { commContainer: { companyId } } }),
+			prisma.commEntry.deleteMany({ where: { commContainer: { companyId } } }),
+			prisma.commRefAlias.deleteMany({ where: { commContainer: { companyId } } }),
+			prisma.threadReassignmentLog.deleteMany({ where: { companyId } }),
+			prisma.commContainer.deleteMany({ where: { companyId } }),
+			prisma.pipelineCustomerProfile.deleteMany({ where: { companyId } }),
 			prisma.communicationLog.deleteMany({ where: { companyId } }),
 			prisma.communicationThread.deleteMany({ where: { companyId } }),
 			prisma.message.deleteMany({ where: { companyId } }),

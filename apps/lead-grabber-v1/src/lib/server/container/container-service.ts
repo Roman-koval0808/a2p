@@ -139,25 +139,36 @@ export async function createContainerAtIntake(
 
 	const joinWindowSeconds = joinWindowSecondsFor(input.threadType);
 	const inactivityTimeoutSeconds = inactivityTimeoutSecondsFor(input.threadType);
-	const commRef = await allocateCommRef(db);
-
-	const container = await db.commContainer.create({
-		data: {
-			commRef,
-			companyId: input.companyId,
-			customerProfileId: input.customerProfileId || null,
-			contactId: input.contactId || null,
-			subject: input.subject || null,
-			threadType: input.threadType,
-			lifecycle: 'provisional',
-			state: 'open',
-			actionsSuppressed: suppression.suppress,
-			joinWindowSeconds,
-			inactivityTimeoutSeconds,
-			openedAt: now,
-			lastActivityAt: now
+	let commRef = await allocateCommRef(db);
+	let container;
+	for (let attempt = 0; attempt < 5; attempt++) {
+		try {
+			container = await db.commContainer.create({
+				data: {
+					commRef,
+					companyId: input.companyId,
+					customerProfileId: input.customerProfileId || null,
+					contactId: input.contactId || null,
+					subject: input.subject || null,
+					threadType: input.threadType,
+					lifecycle: 'provisional',
+					state: 'open',
+					actionsSuppressed: suppression.suppress,
+					joinWindowSeconds,
+					inactivityTimeoutSeconds,
+					openedAt: now,
+					lastActivityAt: now
+				}
+			});
+			break;
+		} catch (err: any) {
+			if (err?.code === 'P2002' && attempt < 4) {
+				commRef = `#${4000 + Math.floor(1000 + Math.random() * 900000)}`;
+				continue;
+			}
+			throw err;
 		}
-	});
+	}
 
 	return {
 		container,

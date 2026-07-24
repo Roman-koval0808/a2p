@@ -429,17 +429,17 @@
 							<div class="space-y-0.5">
 								<h4 class="font-medium text-gray-900">Wipe Test Data</h4>
 								<p class="text-sm text-gray-500">
-									Permanently delete all customer profiles and message threads across LeadGrabber and CDP.
+									Permanently delete all customer profiles, communication threads, dropped calls, and A2P orchestrator records across LeadGrabber and CDP.
 								</p>
 							</div>
 							<Button
 								variant="destructive"
 								onclick={async () => {
-									if (confirm('Are you absolutely sure you want to wipe all profiles and messages? This cannot be undone.')) {
+									if (confirm('Are you absolutely sure you want to wipe all profiles, dropped calls, and communication logs? This cannot be undone.')) {
 										try {
 											const res = await fetch('/api/company/wipe-data', { method: 'POST' });
 											if (res.ok) {
-												toast.success('All profiles and messages have been wiped successfully.');
+												toast.success('All profiles, dropped calls, and communication records wiped successfully.');
 												window.location.reload();
 											} else {
 												const err = await res.json();

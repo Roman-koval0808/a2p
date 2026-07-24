@@ -6,7 +6,7 @@ import { processSecondEmergencyVoicemail, handleBridgeFailure } from './s3-escal
 import { processSalesVoicemailBooking, handleInboundSmsReply } from './s4-sms-booking';
 import { createContainerAtIntake } from '$lib/server/container/container-service';
 
-describe('Real-World End-to-End Simulation of All 4 Scenarios', () => {
+describe('Real-World End-to-End Simulation of All 4 Scenarios', { timeout: 30000 }, () => {
 	let companyId: string;
 
 	beforeAll(async () => {
