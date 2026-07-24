@@ -5,7 +5,7 @@
 
 	let teamShortcuts = [{ id: 1, trigger: '23', message: 'Test 1234123123123213' }];
 
-	let personalShortcuts = $state([]);
+	let personalShortcuts = $state<{ id: number; trigger: string; message: string; }[]>([]);
 
 	function addPersonalShortcut() {
 		personalShortcuts = [...personalShortcuts, { id: Date.now(), trigger: '', message: '' }];
@@ -70,9 +70,9 @@
 
 			{#if personalShortcuts.length === 0}
 				<div class="py-4">
-					<a href="#" class="text-primary hover:underline" onclick={addPersonalShortcut}>
+					<button class="text-primary hover:underline bg-transparent border-none p-0 cursor-pointer text-left font-normal" onclick={addPersonalShortcut}>
 						Add your first personal shortcut
-					</a>
+					</button>
 				</div>
 			{/if}
 		</div>

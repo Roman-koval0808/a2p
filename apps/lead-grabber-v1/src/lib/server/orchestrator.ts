@@ -1,3 +1,4 @@
+import { processSalesVoicemailBooking } from "./scenarios/s4-sms-booking";
 import { prisma } from '$lib/db';
 import { logCommunication } from '$lib/utils/communication-log';
 import { toE164 } from '$lib/company-numbers';
@@ -384,49 +385,36 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		// below acknowledges it naturally ("Great, see you tomorrow!").
 	}
 
-	// --- SCENARIO 2: SALES / BOOKING (message is about sales/booking) ---
+	// --- SCENARIO 4: SALES / BOOKING (message is about sales/booking) ---
 	else if (messageCategory === 'sales') {
-		olog('[Orchestrator] Detected Scenario 2: Sales / Booking');
+		olog('[Orchestrator] Detected Scenario 4: Sales / Booking');
 
-		// (Engagement score is bumped centrally above based on the reclassified category.)
-		// Scenario 2: check the requested time against the LIVE calendar and propose a specific
-		// slot the customer can confirm by replying YES (which auto-books — see top of function).
-		if (datetime) {
-			try {
-				const { requestedFree, proposal } = await proposeAppointment(company.id, datetime);
-				if (proposal) {
-					proposedAppointment = proposal;
-					draftedResponse =
-						requestedFree === false
-							? `Hi ${customer.name || 'there'}! ${formatDatetime(datetime)} is already booked, but our next opening is ${proposal.proposedLabel}. Does that work? Reply YES to confirm.`
-							: `Hi ${customer.name || 'there'}! ${proposal.proposedLabel} works for your appointment — reply YES to confirm and we'll lock it in.`;
+		try {
+			const salesRes = await processSalesVoicemailBooking({
+				commId: commLog.id,
+				companyId: company.id,
+				customerProfileId: customer.id,
+				customerPhone: customer.phone || commLog.source,
+				isLandline: false, // Could enrich via number-lookup cache
+				datetimeStr: datetime,
+				vehicleInterest: sub_intent || undefined,
+				callStartTime: new Date(commLog.created || Date.now()),
+				availableResources: {
+					salespeople: ['u_sales_owner'],
+					vehicles: ['v_default']
 				}
-			} catch (e) {
-				oerr('[Orchestrator] proposeAppointment failed:', e);
-			}
-		}
+			});
 
-		// Fallback: self-service booking link / legacy flow if we couldn't propose a live slot.
-		if (!draftedResponse) {
-			const bookingLink = getBookingUrl(company) || (await getBookingLinkIfConnected(company.id));
-			if (bookingLink) {
-				const link = bookingLinkWith(bookingLink, {
-					time: datetime,
-					name: customer.name,
-					phone: customer.phone || commLog.source
-				});
-				draftedResponse = datetime
-					? `Hi! Thanks for reaching out to ${company.name || 'us'}. ${formatDatetime(datetime)} works — just confirm it here: ${link}`
-					: `Hi! Thanks for contacting ${company.name || 'us'}. Book a time that works for you here: ${link}`;
-			} else if (datetime) {
-				const formattedDatetime = formatDatetime(datetime);
-				const isAvailable = checkCalendarAvailability(datetime, company.locations || []);
-				draftedResponse = isAvailable
-					? `Hi! Thanks for reaching out to ${company.name || 'us'}. We see you'd like to book an appointment for ${formattedDatetime}. A representative will confirm this time with you shortly.`
-					: `Hi! Thanks for reaching out to ${company.name || 'us'}. Unfortunately, ${formattedDatetime} is outside our normal business hours or unavailable. What other day or time works best for you?`;
-			} else {
-				draftedResponse = `Hi! Thanks for contacting ${company.name || 'us'}. We received your booking request. What day and time works best for you?`;
+			if (salesRes.smsDrafted && salesRes.approval) {
+				draftedResponse = salesRes.approval.draftContent;
+				scenarioLocked = true; // wait for YES/NO reply loop
+			} else if (salesRes.taskCreated) {
+				draftedResponse = `Hi! Thanks for contacting ${company.name || 'us'}. We received your booking request, and a representative will call you shortly to schedule it.`;
+				scenarioLocked = true;
 			}
+		} catch (e) {
+			oerr('[Orchestrator] processSalesVoicemailBooking failed:', e);
+			draftedResponse = `Hi! Thanks for contacting ${company.name || 'us'}. We received your booking request. What day and time works best for you?`;
 		}
 	}
 
@@ -833,7 +821,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				// Determine tech rota from settings
 				const companySettings = (company.settings || {}) as Record<string, any>;
 				const smsNumbers = companySettings.notifications?.phone_numbers || [];
-				const customerName = customer?.firstName || customer?.name || 'A customer';
+				const customerName = customer?.name || 'A customer';
 				const callbackNumber = extractCallbackNumber(rawMessage) || (metadata.callback_number as string) || customerPhone;
 				const { resolveSmsSender } = await import('./company-sender');
 				const dispatchFrom = (await resolveSmsSender(company.id, companyNumber)) || companyNumber || undefined;

@@ -7,22 +7,24 @@
 
 	let { data } = $props();
 
+	const initialData = $state.snapshot(data);
+
 	// Initialize state from saved data or defaults
-	let textAutoReply = $state(data?.autoReply?.textAutoReply ?? false);
+	let textAutoReply = $state(initialData?.autoReply?.textAutoReply ?? false);
 	let businessHoursMessage = $state(
-		data?.autoReply?.businessHoursMessage ??
+		initialData?.autoReply?.businessHoursMessage ??
 			'Hello, thank you for messaging us. Our team will respond shortly.'
 	);
 	let afterHoursMessage = $state(
-		data?.autoReply?.afterHoursMessage ??
+		initialData?.autoReply?.afterHoursMessage ??
 			'Hello, we are not available at the moment, but we will get in touch with you by {date}.'
 	);
 	let leadformBusinessHoursMessage = $state(
-		data?.autoReply?.leadformBusinessHoursMessage ??
+		initialData?.autoReply?.leadformBusinessHoursMessage ??
 			'Hello, thank you for submitting the form. Our team will respond shortly.'
 	);
 	let leadformAfterHoursMessage = $state(
-		data?.autoReply?.leadformAfterHoursMessage ??
+		initialData?.autoReply?.leadformAfterHoursMessage ??
 			'Hello, we are not available at the moment, but we will get in touch with you by {date}.'
 	);
 
@@ -72,7 +74,7 @@
 	}
 
 	// Initialize business hours from saved data
-	const savedBusinessHours = data?.autoReply?.businessHours || {};
+	const savedBusinessHours = initialData?.autoReply?.businessHours || {};
 	const defaultBusinessHours = {
 		sunday: { isOpen: false, hours: null },
 		monday: { isOpen: true, hours: '8:00 AM - 6:00 PM' },

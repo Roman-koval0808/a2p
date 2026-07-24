@@ -14,6 +14,7 @@
 	import RoleBadge from '$lib/components/RoleBadge.svelte';
 	import { formatDate } from '$lib/utils/date';
 	import { goto } from '$app/navigation';
+	import type { ActionResult } from '@sveltejs/kit';
 
 	interface CompanyMember {
 		id: string;
@@ -71,8 +72,8 @@
 			googleConfigured?: boolean;
 		};
 	}>();
-	let company = data.company;
-	let phoneNumbers = $state(company?.settings?.notifications?.phone_numbers || []);
+	const company = $derived(data.company);
+	let phoneNumbers = $state(data.company?.settings?.notifications?.phone_numbers || []);
 	let form: any;
 	let loading = $state(false);
 	let previewUrl: string | null = $state(null);
@@ -176,11 +177,11 @@
 							action="?/updateCompany"
 							use:enhance={() => {
 								loading = true;
-								return async ({ result }) => {
+								return async ({ result }: { result: ActionResult }) => {
 									if (result.type === 'success') {
 										toast.success('Company settings updated successfully');
 									} else if (result.type === 'failure') {
-										toast.error(result.data?.error || 'Failed to update company');
+										toast.error((result.data?.error as any) || 'Failed to update company');
 									} else if (result.type === 'error') {
 										toast.error(result.error || 'An error occurred');
 									}

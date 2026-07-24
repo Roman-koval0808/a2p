@@ -5,6 +5,7 @@
 	import { toast } from 'svelte-sonner';
 	import { goto } from '$app/navigation';
 	import { Input } from '$lib/components/ui/input';
+	import type { ActionResult } from '@sveltejs/kit';
 	import { Label } from '$lib/components/ui/label';
 
 	let { data } = $props<{
@@ -39,14 +40,16 @@
 	}
 
 	function handleAccept() {
-		return async ({ result }) => {
+		return async ({ result }: { result: ActionResult }) => {
 			loading = false;
 
 			if (result.type === 'success') {
 				toast.success('Invitation accepted successfully');
 				goto('/dashboard'); // Redirect to dashboard
-			} else {
-				toast.error(result.data?.error || 'Failed to accept invitation');
+			} else if (result.type === 'failure') {
+				toast.error((result.data?.error as any) || 'Failed to accept invitation');
+			} else if (result.type === 'error') {
+				toast.error(result.error?.message || 'An error occurred');
 			}
 		};
 	}

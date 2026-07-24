@@ -64,6 +64,7 @@ export async function processSalesVoicemailBooking(input: {
 	customerPhone: string;
 	isLandline?: boolean;
 	transcriptWeekday?: string;
+	datetimeStr?: string;
 	transcriptTimeStr?: string;
 	hour?: number;
 	minute?: number;
@@ -97,7 +98,7 @@ export async function processSalesVoicemailBooking(input: {
 	const dateRes = resolveRelativeDate(
 		input.callStartTime,
 		input.transcriptWeekday,
-		null,
+		input.datetimeStr,
 		input.hour || 10,
 		input.minute || 0
 	);

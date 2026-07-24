@@ -1,10 +1,18 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 
+	interface TestResponse {
+		success: boolean;
+		status?: number;
+		error?: string;
+		response?: any;
+		payload?: any;
+	}
+
 	let from = $state('+18005551234');
 	let text = $state("Hello, I'm a test customer");
 	let to = $state('+17059800835');
-	let response = $state(null);
+	let response = $state<TestResponse | null>(null);
 	let loading = $state(false);
 
 	async function sendTestMessage() {
@@ -16,7 +24,7 @@
 			response = await res.json();
 		} catch (err) {
 			console.error('Error sending test message:', err);
-			response = { success: false, error: err.message };
+			response = { success: false, error: err instanceof Error ? err.message : String(err) };
 		} finally {
 			loading = false;
 		}

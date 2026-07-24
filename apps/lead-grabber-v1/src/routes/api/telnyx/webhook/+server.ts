@@ -1,3 +1,4 @@
+import { handleInboundSmsReply } from "$lib/server/scenarios/s4-sms-booking";
 // src/routes/api/telnyx/webhook/+server.ts
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
@@ -635,8 +636,50 @@ export const POST: RequestHandler = async ({ request }) => {
 						}
 					}
 
-					// --- SMS → Orchestrator: extract intent and route through orchestrator ---
+					// --- SCENARIO 4: Intercept SMS replies for pending holds ---
 					if (inboundCommLog?.id && effectiveCompanyId && smsText.trim()) {
+						// 1. Look for any active containers for this phone
+						const activeContainers = await prisma.commContainer.findMany({
+							where: {
+								companyId: effectiveCompanyId,
+								state: 'open',
+								customer: { phone: smsSender }
+							},
+							orderBy: { createdAt: 'desc' }
+						});
+
+						let intercepted = false;
+						if (activeContainers.length > 0) {
+							// 2. Look for tentative holds across these containers
+							const pendingHolds = await prisma.commHold.findMany({
+								where: {
+									commId: { in: activeContainers.map(c => c.id) },
+									status: 'tentative'
+								}
+							});
+
+							if (pendingHolds.length > 0) {
+								console.log(`[SMS Webhook] Intercepting SMS for pending hold validation (found ${pendingHolds.length} holds).`);
+								try {
+									await handleInboundSmsReply({
+										commId: activeContainers[0].id, // bind to the most recent open container
+										customerPhone: smsSender,
+										replyText: smsText.trim(),
+										pendingHolds
+									});
+									intercepted = true;
+								} catch (err) {
+									console.error('[SMS Webhook] Error in handleInboundSmsReply:', err);
+								}
+							}
+						}
+
+						if (intercepted) {
+							// We processed this as a reply to a hold (yes/no/counter) — skip the AI categorizer + orchestrator
+							return;
+						}
+
+						// --- SMS → Orchestrator: extract intent and route through orchestrator ---
 						try {
 							const { analyzeCallLog } = await import('$lib/server/openai');
 							const analysis = await analyzeCallLog(smsText);

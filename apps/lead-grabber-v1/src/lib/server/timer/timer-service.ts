@@ -132,6 +132,26 @@ export async function sweepTimers(now = new Date()): Promise<{ due: number; fire
 				continue;
 			}
 
+			if (timer.type === 'hold_expiry') {
+				const holdId = (timer.payload as any)?.holdId;
+				if (holdId) {
+					await prisma.commHold.update({
+						where: { id: holdId },
+						data: { status: 'released' }
+					});
+					await prisma.commTask.create({
+						data: {
+							commId: timer.commId,
+							description: `Tentative hold expired without confirmation. Slot released.`,
+							ownerUserId: 'u_sales_owner',
+							due: now,
+							category: 'internal_followup',
+							status: 'open'
+						}
+					});
+				}
+			}
+
 			// Fire synthetic event into Stage 1 Intake
 			const fireEventKey = timer.fireEventKey || `tmr_${timer.id}`;
 			const payload = {

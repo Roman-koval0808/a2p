@@ -20,7 +20,7 @@
 	let selected = $state<{ value: string; label: string; day: string } | null>(preselected);
 	let step = $state<1 | 2>(preselected ? 2 : 1);
 	let submitting = $state(false);
-	const requestedButUnavailable = !!data.requestedTime && data.connected && !preselected;
+	const requestedButUnavailable = $derived(!!data.requestedTime && data.connected && !preselected);
 
 	function pick(dayLabel: string, slot: { value: string; label: string }) {
 		selected = { value: slot.value, label: slot.label, day: dayLabel };
