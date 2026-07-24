@@ -885,6 +885,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					
 					// ONE communication-log record for the whole dispatch (not one per recipient), so the a2p
 					// Communication Log shows a SINGLE emergency-dispatch row carrying the SLA countdown.
+					const alertText = `🚨 EMERGENCY DISPATCH (Via Dial Ladder):\n${customerName || 'Customer'} (${callbackNumber}) reported an emergency: ${rawMessage.substring(0, 100)}`;
 					if (dispatched > 0) {
 						await logCommunication({
 							type: 'sms',
