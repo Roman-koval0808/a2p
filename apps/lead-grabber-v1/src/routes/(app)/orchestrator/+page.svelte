@@ -20,6 +20,20 @@
 	let approvals = $derived(containers.flatMap((c: any) => c.approvals.map((a: any) => ({ ...a, commRef: c.commRef }))));
 	let timers = $derived(containers.flatMap((c: any) => c.timers.map((t: any) => ({ ...t, commRef: c.commRef }))));
 	let tasks = $derived(containers.flatMap((c: any) => c.commTasks.map((t: any) => ({ ...t, commRef: c.commRef }))));
+
+	async function handleApproval(id: string, action: 'approve' | 'reject') {
+		const res = await fetch(`/api/orchestrator/approvals/${id}`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ action, rejectReason: action === 'reject' ? 'Rejected in UI' : undefined })
+		});
+		if (res.ok) {
+			location.reload();
+		} else {
+			const data = await res.json();
+			alert('Failed to process approval: ' + (data.error || 'Unknown error'));
+		}
+	}
 </script>
 
 <div class="flex h-full flex-col bg-background">
@@ -131,8 +145,12 @@
 							</div>
 							<div class="bg-muted p-4 rounded text-sm mb-4 whitespace-pre-wrap font-mono">{approval.draftContent}</div>
 							<div class="flex justify-end gap-2">
-								<Button variant="outline" size="sm" class="border-red-200 text-red-600 hover:bg-red-50">Reject</Button>
-								<Button size="sm" class="bg-green-600 hover:bg-green-700">Approve & Send</Button>
+								{#if approval.state === 'pending'}
+									<Button variant="outline" size="sm" class="border-red-200 text-red-600 hover:bg-red-50" onclick={() => handleApproval(approval.id, 'reject')}>Reject</Button>
+									<Button size="sm" class="bg-green-600 hover:bg-green-700" onclick={() => handleApproval(approval.id, 'approve')}>Approve & Send</Button>
+								{:else}
+									<span class="text-sm text-muted-foreground">Action taken: {approval.state}</span>
+								{/if}
 							</div>
 						</div>
 					{/each}

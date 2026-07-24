@@ -448,6 +448,88 @@ export const POST: RequestHandler = async ({ request }) => {
 				if (callControlId) answeredCalls.add(callControlId);
 				await logCallEvent(callControlId, 'answered', payload);
 
+				let decoded: any = null;
+				if (payload?.client_state) {
+					decoded = safeDecodeClientState(payload.client_state);
+				}
+
+				if (decoded?.isDialLadderTechLeg) {
+					console.log('📞 Emergency Tech Leg Answered. Playing whisper and gathering DTMF...');
+					const nextState = Buffer.from(
+						JSON.stringify({
+							isDialLadderTechLegGather: true,
+							commId: decoded.commId,
+							workOrder: decoded.workOrder
+						})
+					).toString('base64');
+
+					try {
+						await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/gather`, {
+							method: 'POST',
+							headers: {
+								'Content-Type': 'application/json',
+								Authorization: `Bearer ${TELNYX_API_KEY}`
+							},
+							body: JSON.stringify({
+								payload: decoded.workOrder.whisperText,
+								voice: 'female',
+								language: 'en-US',
+								minimum_digits: 1,
+								maximum_digits: 1,
+								timeout_millis: 10000,
+								client_state: nextState
+							})
+						});
+					} catch (err) {
+						console.error('❌ Tech whisper gather failed:', err);
+					}
+					break;
+				}
+
+				if (decoded?.isDialLadderCustomerLeg) {
+					console.log('📞 Emergency Customer Leg Answered. Bridging to Tech...');
+					try {
+						// Record the bridged call
+						await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/record_start`, {
+							method: 'POST',
+							headers: {
+								'Content-Type': 'application/json',
+								Authorization: `Bearer ${TELNYX_API_KEY}`
+							},
+							body: JSON.stringify({
+								format: 'mp3',
+								channels: 'dual',
+								client_state: payload.client_state
+							})
+						});
+
+						// Play disclosure, then bridge
+						await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/speak`, {
+							method: 'POST',
+							headers: {
+								'Content-Type': 'application/json',
+								Authorization: `Bearer ${TELNYX_API_KEY}`
+							},
+							body: JSON.stringify({
+								payload: 'This call may be recorded for quality and training purposes.',
+								voice: 'female',
+								language: 'en-US',
+								client_state: Buffer.from(
+									JSON.stringify({
+										isDialLadderCustomerLegBridge: true,
+										techCallControlId: decoded.techCallControlId,
+										commId: decoded.commId,
+										workOrder: decoded.workOrder
+									})
+								).toString('base64')
+							})
+						});
+					} catch(e) {
+						console.error(e);
+					}
+					break;
+				}
+
 				// Bypass IVR logic for outbound calls (e.g. transfer legs to reps)
 				if (payload?.direction === 'outbound') {
 					console.log('📞 Outbound transfer leg answered, bypassing IVR logic for control ID:', callControlId);
@@ -458,9 +540,10 @@ export const POST: RequestHandler = async ({ request }) => {
 				let ivrRuleId: string | null = null;
 				let isUnavailable = false;
 				let allUnavailableAudioUrl: string | null = null;
-				if (payload?.client_state) {
-					const decoded = safeDecodeClientState(payload.client_state);
-					if (decoded) {
+				if (!decoded && payload?.client_state) {
+					decoded = safeDecodeClientState(payload.client_state);
+				}
+				if (decoded) {
 						ivrFlowId = decoded.ivrFlowId ?? null;
 						ivrRuleId = decoded.ivrRuleId ?? null;
 						isUnavailable = decoded.isUnavailable ?? false;
@@ -573,16 +656,46 @@ export const POST: RequestHandler = async ({ request }) => {
 			case 'call.gather.ended': {
 				const digits = (payload?.digits as string) ?? '';
 				const status = (payload?.status as string) ?? '';
+				let decoded: any = null;
+				if (payload?.client_state) {
+					decoded = safeDecodeClientState(payload.client_state);
+				}
+
+				if (decoded?.isDialLadderTechLegGather) {
+					if (status === 'valid' && digits.trim() === '1') {
+						console.log('✅ Tech accepted the emergency bridge. Initiating leg B (Customer)...');
+						// Play hold music or silence while dialing customer
+						await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/speak`, {
+							method: 'POST',
+							headers: {
+								'Content-Type': 'application/json',
+								Authorization: `Bearer ${TELNYX_API_KEY}`
+							},
+							body: JSON.stringify({
+								payload: 'Connecting you to the customer now. Please hold.',
+								voice: 'female',
+								language: 'en-US'
+							})
+						}).catch(console.error);
+
+						import('$lib/server/emergency-dial').then(({ bridgeCustomer }) => {
+							const companyNumber = payload?.from as string;
+							bridgeCustomer(callControlId, decoded.workOrder, companyNumber).catch(console.error);
+						});
+					} else {
+						console.log('❌ Tech rejected or timed out on emergency bridge. Hanging up Tech leg.');
+						await telnyxHangup(callControlId);
+					}
+					break;
+				}
+
 				let ivrFlowId: string | null = null;
 				let ivrRuleId: string | null = null;
 				let ivrRetry = 0;
-				if (payload?.client_state) {
-					const decoded = safeDecodeClientState(payload.client_state);
-					if (decoded) {
-						ivrFlowId = decoded.ivrFlowId ?? null;
-						ivrRuleId = decoded.ivrRuleId ?? null;
-						ivrRetry = Number(decoded.ivrRetry) || 0;
-					}
+				if (decoded) {
+					ivrFlowId = decoded.ivrFlowId ?? null;
+					ivrRuleId = decoded.ivrRuleId ?? null;
+					ivrRetry = Number(decoded.ivrRetry) || 0;
 				}
 				if (!callControlId || !ivrFlowId || !ivrRuleId) {
 					console.log('📞 gather.ended missing callControlId or IVR state, ignoring');
@@ -834,6 +947,25 @@ export const POST: RequestHandler = async ({ request }) => {
 				if (!callControlId || !payload?.client_state) break;
 				const decoded = safeDecodeClientState(payload.client_state);
 				if (decoded) {
+					if (decoded.isDialLadderCustomerLegBridge && decoded.techCallControlId) {
+						console.log('✅ Emergency Customer Leg disclosure ended. Bridging calls now...');
+						try {
+							await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/bridge`, {
+								method: 'POST',
+								headers: {
+									'Content-Type': 'application/json',
+									Authorization: `Bearer ${TELNYX_API_KEY}`
+								},
+								body: JSON.stringify({
+									call_control_id: decoded.techCallControlId
+								})
+							});
+						} catch (e) {
+							console.error('❌ Failed to bridge emergency calls:', e);
+						}
+						break;
+					}
+
 					if (decoded.afterPlaybackHangup) {
 						await telnyxHangup(callControlId);
 						console.log('📞 IVR playback (hangup) ended, hanging up');
@@ -1590,8 +1722,10 @@ export const POST: RequestHandler = async ({ request }) => {
 							const audioUrl = originalAudioUrl;
 							if (audioUrl && shouldTranscribe) {
 								try {
-									const { transcribeAudio, analyzeCallLog } = await import('$lib/server/openai');
-									transcript = await transcribeAudio(audioUrl);
+									const { transcribe } = await import('$lib/server/transcription');
+									const { analyzeCallLog } = await import('$lib/server/openai');
+									const sttResult = await transcribe(audioUrl, { model: 'deepgram/nova-3' });
+									transcript = sttResult.text;
 									if (transcript) {
 										const intentName = callState?.intentName || null;
 										const analysis = await analyzeCallLog(transcript, intentName);
