@@ -940,33 +940,32 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				// engine, we must synthesize the Event/Decision records to hook into the existing SLA.
 				if (dispatched > 0) {
 					const fakeId = `emg_${Math.random().toString(36).substring(2, 9)}`;
-				await prisma.$transaction([
-					prisma.pipelineEvent.create({
-						data: {
-							eventId: `evt_${fakeId}`,
-							traceId: `trc_${fakeId}`,
-							provider: 'orchestrator_emergency',
-							providerEventName: 'emergency_dispatch',
-							providerEventId: commId,
-							eventType: 'emergency_alert',
-							networkCategory: 'Communication',
-							companyId: company.id,
-							processingStatus: 'handoff_eligible',
-							handoffEligible: true,
-							unstructuredText: `Emergency auto-dispatch to ${dispatched} owner(s). Callback: ${callbackNumber}`
+				await prisma.pipelineEvent.create({
+					data: {
+						eventId: `evt_${fakeId}`,
+						traceId: `trc_${fakeId}`,
+						provider: 'orchestrator_emergency',
+						providerEventName: 'emergency_dispatch',
+						providerEventId: commId,
+						eventType: 'emergency_alert',
+						networkCategory: 'Communication',
+						companyId: company.id,
+						processingStatus: 'handoff_eligible',
+						handoffEligible: true,
+						unstructuredText: `Emergency auto-dispatch to ${dispatched} owner(s). Callback: ${callbackNumber}`,
+						decisions: {
+							create: {
+								decisionId: `dec_${fakeId}`,
+								executionMode: 'automatic',
+								owner: 'system',
+								priority: 1,
+								reason: 'Emergency auto-dispatch'
+							}
 						}
-					}),
-					prisma.pipelineDecision.create({
-						data: {
-							decisionId: `dec_${fakeId}`,
-							eventId: `evt_${fakeId}`, // must match PipelineEvent.eventId
-							executionMode: 'automatic',
-							owner: 'system',
-							priority: 1,
-							reason: 'Emergency auto-dispatch'
-						}
-					})
-				]).then(async ([evt, dec]) => {
+					},
+					include: { decisions: true }
+				}).then(async (evt) => {
+					const dec = evt.decisions[0];
 					await prisma.pipelineActionQueue.create({
 						data: {
 							queueTraceId: `q_${fakeId}`,
