@@ -14,12 +14,12 @@ export const POST: RequestHandler = async ({ locals }) => {
 		// 1. Wipe local Prisma database (including dropped calls, A2P containers, messages, logs, and contacts)
 		await prisma.$transaction([
 			prisma.dropCall.deleteMany({ where: { companyId } }),
-			prisma.commApproval.deleteMany({ where: { commContainer: { companyId } } }),
-			prisma.commHold.deleteMany({ where: { commContainer: { companyId } } }),
-			prisma.commTask.deleteMany({ where: { commContainer: { companyId } } }),
-			prisma.pipelineTimer.deleteMany({ where: { commContainer: { companyId } } }),
-			prisma.commEntry.deleteMany({ where: { commContainer: { companyId } } }),
-			prisma.commRefAlias.deleteMany({ where: { commContainer: { companyId } } }),
+			prisma.commApproval.deleteMany({ where: { container: { companyId } } }),
+			prisma.commHold.deleteMany({ where: { container: { companyId } } }),
+			prisma.commTask.deleteMany({ where: { container: { companyId } } }),
+			prisma.pipelineTimer.deleteMany({ where: { container: { companyId } } }),
+			prisma.commEntry.deleteMany({ where: { container: { companyId } } }),
+			prisma.commRefAlias.deleteMany({ where: { target: { companyId } } }),
 			prisma.threadReassignmentLog.deleteMany({ where: { companyId } }),
 			prisma.commContainer.deleteMany({ where: { companyId } }),
 			prisma.pipelineCustomerProfile.deleteMany({ where: { companyId } }),

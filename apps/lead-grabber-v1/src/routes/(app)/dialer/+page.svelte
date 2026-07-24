@@ -28,6 +28,11 @@
 	let currentCall: any = $state(null);
 	let serverCallId = $state('');
 
+	// Direct DOM reference to the <audio> element — avoids the race where
+	// document.getElementById('remoteAudio') returns null if the SDK setter
+	// runs before Svelte has mounted the element.
+	let remoteAudioEl: HTMLAudioElement | null = $state(null);
+
 	// Timer state
 	let callTimer: any = null;
 	let secondsElapsed = $state(0);
@@ -183,8 +188,14 @@
 					login_token: json.data.webrtcToken
 				});
 
-				// Bind target audio element for incoming media streams
-				clientInstance.remoteElement = 'remoteAudio';
+				// Bind target audio element for incoming media streams.
+				// Use the direct DOM reference (bind:this) when available to avoid
+				// a race where getElementById returns null before Svelte mounts.
+				if (remoteAudioEl) {
+					clientInstance.remoteElement = remoteAudioEl;
+				} else {
+					clientInstance.remoteElement = 'remoteAudio';
+				}
 
 				clientInstance.on('telnyx.ready', () => {
 					console.log('[WebRTC] telnyx.ready — SIP registered ✅');
@@ -235,6 +246,18 @@
 								isCallActive = true;
 								isDialing = false;
 								callStatus = 'Connected';
+
+								// Belt-and-suspenders: ensure the remote audio stream is
+								// attached to the <audio> element.  If the SDK's internal
+								// remoteElement resolution raced and resolved to null, the
+								// srcObject was never set — fix it here.
+								if (remoteAudioEl && call.remoteStream) {
+									if (remoteAudioEl.srcObject !== call.remoteStream) {
+										console.log('[Audio Fix] Manually attaching remoteStream to <audio> element');
+										remoteAudioEl.srcObject = call.remoteStream;
+										remoteAudioEl.play().catch((e: any) => console.warn('[Audio Fix] play() rejected:', e));
+									}
+								}
 								break;
 							case 'hangup':
 								console.log('Call ended');
@@ -291,12 +314,18 @@
 		if (telnyxClient && webrtcReady) {
 			try {
 				startRingingTone();
-				currentCall = telnyxClient.newCall({
+				const callOptions: Record<string, any> = {
 					destinationNumber: target,
 					callerNumber: selectedFromNumber,
 					audio: true,
 					video: false
-				});
+				};
+				// Explicitly pass the audio element so the SDK doesn't rely on
+				// the client-level remoteElement (which may have resolved to null).
+				if (remoteAudioEl) {
+					callOptions.remoteElement = remoteAudioEl;
+				}
+				currentCall = telnyxClient.newCall(callOptions);
 				isCallActive = true;
 			} catch (error) {
 				stopRingingTone();
@@ -529,7 +558,7 @@
 </script>
 
 <!-- Hidden HTML audio element required for WebRTC audio playback -->
-<audio id="remoteAudio" autoplay></audio>
+<audio id="remoteAudio" autoplay playsinline bind:this={remoteAudioEl}></audio>
 
 <!-- Active Call Dialog Overlay -->
 {#if isCallActive || isDialing}
