@@ -11,7 +11,7 @@ export default defineConfig({
 	},
 	ssr: {
 		noExternal: ['lucide-svelte'],
-		external: ['firebase-admin', 'clearsky-db-client', 'profiledb-client', '@telnyx/webrtc']
+		external: ['firebase-admin', 'clearsky-db-client', 'profiledb-client']
 	},
 	build: {
 		minify: true,
@@ -20,8 +20,7 @@ export default defineConfig({
 			external: (id) =>
 				id.includes('clearsky-db-client') ||
 				id.includes('profiledb-client') ||
-				id.includes('firebase-admin') ||
-				id.includes('@telnyx/webrtc'),
+				id.includes('firebase-admin'),
 			output: {
 				manualChunks: {
 					vendor: ['svelte'],
@@ -31,6 +30,6 @@ export default defineConfig({
 		}
 	},
 	optimizeDeps: {
-		include: ['lucide-svelte', 'svelte-sonner', 'bits-ui']
+		include: ['lucide-svelte', 'svelte-sonner', 'bits-ui', '@telnyx/webrtc']
 	}
 });
