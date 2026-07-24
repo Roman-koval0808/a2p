@@ -827,7 +827,6 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				const dispatchFrom = (await resolveSmsSender(company.id, companyNumber)) || companyNumber || undefined;
 				const slaDueAt = new Date(Date.now() + 10 * 60 * 1000);
 
-				const { startDialLadder } = await import('./emergency-dial');
 				const rota: any[] = [];
 				for (let i = 0; i < smsNumbers.length; i++) {
 					const contactEntry = smsNumbers[i];
@@ -842,29 +841,25 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				if (rota.length === 0) {
 					oerr('[Orchestrator] EMERGENCY but no on-call numbers configured (Settings → notifications.phone_numbers) — nobody was alerted.');
 				} else {
-					const workOrder = {
-						commId: commLog.communicationThreadId || commId,
-						personId: customer.id,
-						customerNumber: callbackNumber,
-						dialLadder: rota,
-						currentRung: 1,
-						maxAttemptsPerRung: 1,
-						whisperText: `Emergency call, ${customerName}, ${rawMessage.substring(0, 50)}. Press 1 to connect, press 2 to decline.`,
-						emergencySummary: rawMessage.substring(0, 50),
-						slaDeadline: slaDueAt,
-						escalationPolicy: 'ladder_with_dtmf'
-					};
-
-					await startDialLadder(workOrder, dispatchFrom || companyNumber || "");
-					olog(`[Orchestrator] EMERGENCY auto-dispatched to ${dispatched} on-call number(s) from ${dispatchFrom} — callback ${callbackNumber} via Dial Ladder.`);
-
+					// Single idempotent dispatch path (Scenarios 2 & 3). Handles the FIRST dispatch and, for a
+					// repeat emergency during the open incident, ADVANCES the ladder one rung with the transcript
+					// delta folded into the whisper — instead of restarting from rung 1 or ignoring it. Ladder
+					// state lives in the container's sla_breach timer payload (the voice intake bridge registers
+					// the container + timer). This also fixes the SLA sync: the old updateMany matched a Contact id
+					// against the customerProfileId column and never updated anything.
 					try {
-						await prisma.commContainer.updateMany({
-							where: { companyId: company.id, customerProfileId: customer.id, state: 'open' },
-							data: { slaDeadline: slaDueAt }
+						const { startOrAdvanceEmergencyLadder } = await import('./emergency-ladder');
+						const ladderResult = await startOrAdvanceEmergencyLadder({
+							companyId: company.id,
+							customerNumber: callbackNumber,
+							transcript: rawMessage,
+							customerName,
+							dispatchFrom: dispatchFrom || companyNumber || '',
+							rota
 						});
+						olog(`[Orchestrator] EMERGENCY dial ladder → ${ladderResult.mode} (rung ${ladderResult.rungDialed ?? '—'}) — callback ${callbackNumber} from ${dispatchFrom}.`);
 					} catch (e) {
-						oerr('[Orchestrator] Failed to sync SLA to CommContainer:', e);
+						oerr('[Orchestrator] Emergency dial ladder dispatch failed:', e);
 					}
 				}
 

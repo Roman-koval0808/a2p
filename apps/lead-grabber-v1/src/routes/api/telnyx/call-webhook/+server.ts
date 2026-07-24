@@ -1762,6 +1762,37 @@ export const POST: RequestHandler = async ({ request }) => {
 											}
 										}
 
+										// A2P container platform seam (spec §1.1.2): create the CommContainer + comm_ref
+										// + inbound entry at intake, resolve identity, apply the suppression gate, and — for a
+										// non-suppressed emergency — register the per-container SLA timer. This is what lets the
+										// emergency dispatch in process_orchestrator (below) attach its SLA to a real container,
+										// and is the voice path's I-8/I-9/3-1/3-8 guarantee. Guarded so it can never break the
+										// existing voice flow; skipped for drop calls (noise), same as the pipeline run below.
+										if (!isDropCall && contactNumber) {
+											try {
+												const ivrDigit = decoded?.ivrDigit ?? callState?.intentDigit ?? null;
+												const ivrOption = ivrDigit ? parseInt(String(ivrDigit), 10) : undefined;
+												const { ingestVoiceIntake } = await import('$lib/server/scenarios/voice-intake-bridge');
+												const intake = await ingestVoiceIntake(prisma, {
+													companyId: numberInfo.companyId,
+													callControlId,
+													customerPhone: contactNumber,
+													customerName: contact?.name || analysis.callerName || null,
+													transcript,
+													ivrOption,
+													recordingUrl: audioUrl || null
+												});
+												console.log(
+													`📦 Voice intake container ${intake.container.commRef} (type ${intake.threadType}, suppressed ${intake.actionsSuppressed})`
+												);
+												webhookTrace.push(
+													`📦 [Container] ${intake.container.commRef} created at intake (${intake.threadType}${intake.actionsSuppressed ? ', actions suppressed' : ''})`
+												);
+											} catch (containerErr) {
+												console.error('⚠️ Voice intake container bridge failed (non-fatal):', containerErr);
+											}
+										}
+
 										// Resolve final path and priority from client state
 										let finalIvrPath = 'Direct Call';
 										let finalPriority = 'standard';
