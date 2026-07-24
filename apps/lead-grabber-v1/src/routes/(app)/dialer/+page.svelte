@@ -33,6 +33,206 @@
 	// runs before Svelte has mounted the element.
 	let remoteAudioEl: HTMLAudioElement | null = $state(null);
 
+	// ── Audio Debug Panel state ──
+	let showAudioDebug = $state(false);
+	interface TrackInfo {
+		id: string;
+		kind: string;
+		label: string;
+		direction: 'inbound' | 'outbound';
+		enabled: boolean;
+		muted: boolean;
+		readyState: string;
+		level: number;
+		stream: MediaStream | null;
+	}
+	let debugTracks: TrackInfo[] = $state([]);
+	let debugAudioCtx: AudioContext | null = null;
+	let debugAnalysers: Map<string, { analyser: AnalyserNode; source: MediaStreamAudioSourceNode }> = new Map();
+	let debugInterval: any = null;
+	let debugAudioElements: Map<string, HTMLAudioElement> = new Map();
+	let debugRemoteElInfo = $state({ srcObject: false, paused: true, muted: false, volume: 1 });
+
+	function startAudioDebug() {
+		if (!browser || !currentCall) return;
+		showAudioDebug = true;
+
+		const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+		if (!debugAudioCtx || debugAudioCtx.state === 'closed') {
+			debugAudioCtx = new AudioCtxClass();
+		}
+
+		refreshDebugTracks();
+		if (debugInterval) clearInterval(debugInterval);
+		debugInterval = setInterval(refreshDebugTracks, 250);
+	}
+
+	function stopAudioDebug() {
+		showAudioDebug = false;
+		if (debugInterval) { clearInterval(debugInterval); debugInterval = null; }
+		debugAnalysers.forEach(({ analyser, source }) => {
+			try { source.disconnect(); } catch (_) {}
+		});
+		debugAnalysers.clear();
+		debugAudioElements.forEach(el => { el.pause(); el.srcObject = null; });
+		debugAudioElements.clear();
+		if (debugAudioCtx && debugAudioCtx.state !== 'closed') {
+			debugAudioCtx.close().catch(() => {});
+			debugAudioCtx = null;
+		}
+	}
+
+	function refreshDebugTracks() {
+		if (!currentCall) { debugTracks = []; return; }
+
+		const pc: RTCPeerConnection | null = currentCall.peer?.instance ?? null;
+		const tracks: TrackInfo[] = [];
+
+		// Refresh <audio> element info
+		const audioEl = remoteAudioEl ?? document.getElementById('remoteAudio') as HTMLAudioElement | null;
+		if (audioEl) {
+			debugRemoteElInfo = {
+				srcObject: !!audioEl.srcObject,
+				paused: audioEl.paused,
+				muted: audioEl.muted,
+				volume: audioEl.volume
+			};
+		}
+
+		if (pc) {
+			// Inbound (receivers)
+			for (const receiver of pc.getReceivers()) {
+				const t = receiver.track;
+				if (!t) continue;
+				const stream = new MediaStream([t]);
+				const level = getTrackLevel(t.id, stream);
+				tracks.push({
+					id: t.id,
+					kind: t.kind,
+					label: t.label || `${t.kind} (remote)`,
+					direction: 'inbound',
+					enabled: t.enabled,
+					muted: t.muted,
+					readyState: t.readyState,
+					level,
+					stream
+				});
+			}
+			// Outbound (senders)
+			for (const sender of pc.getSenders()) {
+				const t = sender.track;
+				if (!t) continue;
+				const stream = new MediaStream([t]);
+				const level = getTrackLevel(t.id, stream);
+				tracks.push({
+					id: t.id,
+					kind: t.kind,
+					label: t.label || `${t.kind} (local)`,
+					direction: 'outbound',
+					enabled: t.enabled,
+					muted: t.muted,
+					readyState: t.readyState,
+					level,
+					stream
+				});
+			}
+		}
+
+		// Also add SDK-level streams if available
+		const sdkRemote = currentCall.remoteStream ?? currentCall.options?.remoteStream;
+		if (sdkRemote && sdkRemote instanceof MediaStream) {
+			for (const t of sdkRemote.getTracks()) {
+				if (!tracks.find(x => x.id === t.id)) {
+					const stream = new MediaStream([t]);
+					tracks.push({
+						id: t.id,
+						kind: t.kind,
+						label: `SDK remote: ${t.label || t.kind}`,
+						direction: 'inbound',
+						enabled: t.enabled,
+						muted: t.muted,
+						readyState: t.readyState,
+						level: getTrackLevel(t.id, stream),
+						stream
+					});
+				}
+			}
+		}
+		const sdkLocal = currentCall.localStream ?? currentCall.options?.localStream;
+		if (sdkLocal && sdkLocal instanceof MediaStream) {
+			for (const t of sdkLocal.getTracks()) {
+				if (!tracks.find(x => x.id === t.id)) {
+					const stream = new MediaStream([t]);
+					tracks.push({
+						id: t.id,
+						kind: t.kind,
+						label: `SDK local: ${t.label || t.kind}`,
+						direction: 'outbound',
+						enabled: t.enabled,
+						muted: t.muted,
+						readyState: t.readyState,
+						level: getTrackLevel(t.id, stream),
+						stream
+					});
+				}
+			}
+		}
+
+		debugTracks = tracks;
+	}
+
+	function getTrackLevel(trackId: string, stream: MediaStream): number {
+		if (!debugAudioCtx || debugAudioCtx.state === 'closed') return 0;
+		try {
+			if (!debugAnalysers.has(trackId)) {
+				const source = debugAudioCtx.createMediaStreamSource(stream);
+				const analyser = debugAudioCtx.createAnalyser();
+				analyser.fftSize = 256;
+				source.connect(analyser);
+				// Don't connect to destination — we don't want to hear it twice
+				debugAnalysers.set(trackId, { analyser, source });
+			}
+			const { analyser } = debugAnalysers.get(trackId)!;
+			const data = new Uint8Array(analyser.frequencyBinCount);
+			analyser.getByteFrequencyData(data);
+			// RMS-ish level, 0-100
+			const sum = data.reduce((a, v) => a + v, 0);
+			return Math.min(100, Math.round((sum / data.length) * (100 / 128)));
+		} catch {
+			return 0;
+		}
+	}
+
+	function playDebugTrack(track: TrackInfo) {
+		if (!track.stream) return;
+		const existing = debugAudioElements.get(track.id);
+		if (existing) {
+			if (existing.paused) {
+				existing.play().catch(() => {});
+			} else {
+				existing.pause();
+			}
+			return;
+		}
+		const el = document.createElement('audio');
+		el.srcObject = track.stream;
+		el.autoplay = true;
+		el.volume = 1;
+		el.play().catch((e) => console.warn('[Debug Play] rejected:', e));
+		debugAudioElements.set(track.id, el);
+	}
+
+	function forceAttachToRemoteAudio(track: TrackInfo) {
+		if (!track.stream) return;
+		const el = remoteAudioEl ?? document.getElementById('remoteAudio') as HTMLAudioElement | null;
+		if (!el) { toast.error('No <audio> element found'); return; }
+		el.srcObject = track.stream;
+		el.muted = false;
+		el.volume = 1;
+		el.play().catch((e) => console.warn('[Force Attach] play rejected:', e));
+		toast.success(`Attached "${track.label}" to remote audio element`);
+	}
+
 	// Timer state
 	let callTimer: any = null;
 	let secondsElapsed = $state(0);
@@ -124,6 +324,7 @@
 	onDestroy(() => {
 		stopRingingTone();
 		stopCallTimer();
+		stopAudioDebug();
 	});
 
 	// Set initial selected number when phoneNumbers are loaded
@@ -247,15 +448,43 @@
 								isDialing = false;
 								callStatus = 'Connected';
 
-								// Belt-and-suspenders: ensure the remote audio stream is
-								// attached to the <audio> element.  If the SDK's internal
-								// remoteElement resolution raced and resolved to null, the
-								// srcObject was never set — fix it here.
-								if (remoteAudioEl && call.remoteStream) {
-									if (remoteAudioEl.srcObject !== call.remoteStream) {
-										console.log('[Audio Fix] Manually attaching remoteStream to <audio> element');
-										remoteAudioEl.srcObject = call.remoteStream;
-										remoteAudioEl.play().catch((e: any) => console.warn('[Audio Fix] play() rejected:', e));
+								// ── Audio diagnostic + force-attach ──
+								{
+									const audioEl = remoteAudioEl ?? document.getElementById('remoteAudio') as HTMLAudioElement | null;
+									const stream = call.remoteStream
+										?? call.options?.remoteStream
+										?? call.peer?.instance?.getReceivers?.()?.reduce(
+											(s: MediaStream, r: RTCRtpReceiver) => { if (r.track) s.addTrack(r.track); return s; },
+											new MediaStream()
+										);
+
+									console.log('[Audio Debug] remoteAudioEl:', remoteAudioEl);
+									console.log('[Audio Debug] audioEl (fallback):', audioEl);
+									console.log('[Audio Debug] call.remoteStream:', call.remoteStream);
+									console.log('[Audio Debug] call.options?.remoteStream:', call.options?.remoteStream);
+									console.log('[Audio Debug] stream to attach:', stream);
+									console.log('[Audio Debug] stream active:', stream?.active, 'tracks:', stream?.getTracks?.()?.length);
+									console.log('[Audio Debug] current srcObject:', audioEl?.srcObject);
+									console.log('[Audio Debug] audioEl paused:', audioEl?.paused, 'muted:', audioEl?.muted, 'volume:', audioEl?.volume);
+									if (call.peer?.instance) {
+										const pc = call.peer.instance;
+										console.log('[Audio Debug] PC state:', pc.connectionState, 'ice:', pc.iceConnectionState);
+										console.log('[Audio Debug] receivers:', pc.getReceivers().map((r: RTCRtpReceiver) => ({
+											kind: r.track?.kind, enabled: r.track?.enabled, muted: r.track?.muted, readyState: r.track?.readyState
+										})));
+										console.log('[Audio Debug] senders:', pc.getSenders().map((s: RTCRtpSender) => ({
+											kind: s.track?.kind, enabled: s.track?.enabled, muted: s.track?.muted, readyState: s.track?.readyState
+										})));
+									}
+
+									if (audioEl && stream && stream.getTracks().length > 0) {
+										console.log('[Audio Fix] Force-attaching stream to <audio>');
+										audioEl.srcObject = stream;
+										audioEl.muted = false;
+										audioEl.volume = 1.0;
+										audioEl.play().catch((e: any) => console.warn('[Audio Fix] play() rejected:', e));
+									} else {
+										console.warn('[Audio Fix] CANNOT attach — audioEl:', !!audioEl, 'stream:', !!stream, 'tracks:', stream?.getTracks?.()?.length);
 									}
 								}
 								break;
@@ -327,6 +556,28 @@
 				}
 				currentCall = telnyxClient.newCall(callOptions);
 				isCallActive = true;
+
+				// Direct peer connection track listener as a last-resort fallback.
+				// If the SDK's remoteElement attachment fails for any reason, this
+				// ensures we still pipe the remote audio into the <audio> element.
+				try {
+					const pc = currentCall?.peer?.instance as RTCPeerConnection | undefined;
+					if (pc) {
+						pc.addEventListener('track', (ev: RTCTrackEvent) => {
+							console.log('[PC Track] Got track event:', ev.track.kind, ev.streams.length, 'streams');
+							const el = remoteAudioEl ?? document.getElementById('remoteAudio') as HTMLAudioElement | null;
+							if (el && ev.streams[0]) {
+								console.log('[PC Track] Attaching stream to <audio>');
+								el.srcObject = ev.streams[0];
+								el.play().catch(() => {});
+							}
+						});
+					} else {
+						console.warn('[PC Track] peer.instance not available yet at newCall time');
+					}
+				} catch (e) {
+					console.warn('[PC Track] Failed to attach track listener:', e);
+				}
 			} catch (error) {
 				stopRingingTone();
 				console.error('WebRTC Call error:', error);
@@ -563,7 +814,7 @@
 <!-- Active Call Dialog Overlay -->
 {#if isCallActive || isDialing}
 	<div class="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-		<div class="w-[360px] rounded-2xl bg-white p-8 text-center shadow-2xl border border-gray-100 flex flex-col items-center">
+		<div class="{showAudioDebug ? 'w-[480px]' : 'w-[360px]'} rounded-2xl bg-white p-8 text-center shadow-2xl border border-gray-100 flex flex-col items-center transition-all duration-200">
 			
 			<!-- Animated Pulse Ring -->
 			<div class="relative flex items-center justify-center w-24 h-24 rounded-full bg-indigo-50 mb-6">
@@ -593,9 +844,113 @@
 				</div>
 			{/if}
 
+			<!-- Audio Debug Toggle -->
+			<button
+				onclick={() => showAudioDebug ? stopAudioDebug() : startAudioDebug()}
+				type="button"
+				class="mb-3 text-xs font-mono px-3 py-1.5 rounded-lg transition-colors {showAudioDebug ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}"
+			>
+				{showAudioDebug ? '▼ Hide Audio Debug' : '▶ Audio Debug'}
+			</button>
+
+			<!-- Audio Debug Panel -->
+			{#if showAudioDebug}
+				<div class="w-full mb-4 rounded-xl bg-gray-900 text-gray-200 p-4 text-left text-xs font-mono max-h-[340px] overflow-y-auto">
+					<!-- Remote Audio Element status -->
+					<div class="mb-3 pb-2 border-b border-gray-700">
+						<div class="text-[10px] uppercase tracking-widest text-gray-500 mb-1">Remote &lt;audio&gt; Element</div>
+						<div class="flex flex-wrap gap-2">
+							<span class="px-1.5 py-0.5 rounded {debugRemoteElInfo.srcObject ? 'bg-emerald-900/50 text-emerald-400' : 'bg-red-900/50 text-red-400'}">
+								srcObject: {debugRemoteElInfo.srcObject ? 'SET' : 'NULL'}
+							</span>
+							<span class="px-1.5 py-0.5 rounded {debugRemoteElInfo.paused ? 'bg-red-900/50 text-red-400' : 'bg-emerald-900/50 text-emerald-400'}">
+								{debugRemoteElInfo.paused ? 'PAUSED' : 'PLAYING'}
+							</span>
+							<span class="px-1.5 py-0.5 rounded {debugRemoteElInfo.muted ? 'bg-red-900/50 text-red-400' : 'bg-gray-800 text-gray-400'}">
+								{debugRemoteElInfo.muted ? 'MUTED' : 'unmuted'}
+							</span>
+							<span class="px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">
+								vol: {debugRemoteElInfo.volume}
+							</span>
+						</div>
+					</div>
+
+					{#if debugTracks.length === 0}
+						<div class="text-gray-500 text-center py-2">No tracks found — is the PeerConnection active?</div>
+					{/if}
+
+					<!-- Inbound Tracks -->
+					{@const inbound = debugTracks.filter(t => t.direction === 'inbound')}
+					{#if inbound.length > 0}
+						<div class="mb-2">
+							<div class="text-[10px] uppercase tracking-widest text-teal-500 mb-1.5">⬇ Inbound (Remote → You)</div>
+							{#each inbound as track}
+								<div class="mb-2 p-2 rounded-lg bg-gray-800/60">
+									<div class="flex items-center justify-between mb-1">
+										<span class="truncate text-gray-300" title={track.id}>{track.label}</span>
+										<div class="flex gap-1 shrink-0 ml-2">
+											<button onclick={() => playDebugTrack(track)} class="px-1.5 py-0.5 rounded bg-teal-800 hover:bg-teal-700 text-teal-200 text-[10px]" title="Play this track independently">
+												{debugAudioElements.get(track.id) && !debugAudioElements.get(track.id)?.paused ? '⏸' : '▶'} Play
+											</button>
+											<button onclick={() => forceAttachToRemoteAudio(track)} class="px-1.5 py-0.5 rounded bg-indigo-800 hover:bg-indigo-700 text-indigo-200 text-[10px]" title="Force attach to the main audio element">
+												⚡ Attach
+											</button>
+										</div>
+									</div>
+									<div class="flex items-center gap-2 mb-1">
+										<span class="text-[10px] {track.readyState === 'live' ? 'text-emerald-400' : 'text-red-400'}">{track.readyState}</span>
+										<span class="text-[10px] {track.enabled ? 'text-emerald-400' : 'text-red-400'}">{track.enabled ? 'enabled' : 'disabled'}</span>
+										<span class="text-[10px] {track.muted ? 'text-amber-400' : 'text-gray-500'}">{track.muted ? 'muted' : 'unmuted'}</span>
+									</div>
+									<!-- Level meter -->
+									<div class="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+										<div
+											class="h-full rounded-full transition-all duration-150 {track.level > 50 ? 'bg-emerald-400' : track.level > 10 ? 'bg-teal-500' : 'bg-gray-600'}"
+											style="width: {track.level}%"
+										></div>
+									</div>
+									<div class="text-[10px] text-gray-500 mt-0.5">Level: {track.level}% · {track.kind} · ID: {track.id.slice(0, 8)}…</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
+
+					<!-- Outbound Tracks -->
+					{@const outbound = debugTracks.filter(t => t.direction === 'outbound')}
+					{#if outbound.length > 0}
+						<div>
+							<div class="text-[10px] uppercase tracking-widest text-indigo-400 mb-1.5">⬆ Outbound (You → Remote)</div>
+							{#each outbound as track}
+								<div class="mb-2 p-2 rounded-lg bg-gray-800/60">
+									<div class="flex items-center justify-between mb-1">
+										<span class="truncate text-gray-300" title={track.id}>{track.label}</span>
+										<button onclick={() => playDebugTrack(track)} class="px-1.5 py-0.5 rounded bg-indigo-800 hover:bg-indigo-700 text-indigo-200 text-[10px] shrink-0 ml-2" title="Play loopback of your mic">
+											{debugAudioElements.get(track.id) && !debugAudioElements.get(track.id)?.paused ? '⏸' : '▶'} Loopback
+										</button>
+									</div>
+									<div class="flex items-center gap-2 mb-1">
+										<span class="text-[10px] {track.readyState === 'live' ? 'text-emerald-400' : 'text-red-400'}">{track.readyState}</span>
+										<span class="text-[10px] {track.enabled ? 'text-emerald-400' : 'text-red-400'}">{track.enabled ? 'enabled' : 'disabled'}</span>
+										<span class="text-[10px] {track.muted ? 'text-amber-400' : 'text-gray-500'}">{track.muted ? 'muted' : 'unmuted'}</span>
+									</div>
+									<!-- Level meter -->
+									<div class="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+										<div
+											class="h-full rounded-full transition-all duration-150 {track.level > 50 ? 'bg-indigo-400' : track.level > 10 ? 'bg-indigo-600' : 'bg-gray-600'}"
+											style="width: {track.level}%"
+										></div>
+									</div>
+									<div class="text-[10px] text-gray-500 mt-0.5">Level: {track.level}% · {track.kind} · ID: {track.id.slice(0, 8)}…</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</div>
+			{/if}
+
 			<!-- Hangup Button -->
 			<button
-				onclick={hangup}
+				onclick={() => { stopAudioDebug(); hangup(); }}
 				type="button"
 				class="w-full py-3 rounded-xl bg-red-600 hover:bg-red-700 active:scale-95 transition-all text-white font-sans font-semibold text-lg shadow-lg shadow-red-600/25 flex items-center justify-center gap-2"
 			>
