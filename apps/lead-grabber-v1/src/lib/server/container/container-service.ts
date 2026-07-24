@@ -92,14 +92,14 @@ export async function allocateCommRef(tx?: any): Promise<string> {
 		const result: Array<{ nextval: bigint | number }> = await db.$queryRawUnsafe(
 			`SELECT nextval('comm_ref_seq') as nextval`
 		);
-		if (result && result.length > 0) {
+		if (result && result.length > 0 && result[0].nextval) {
 			return `#${result[0].nextval}`;
 		}
 	} catch (e) {
-		// Fallback if sequence isn't supported in test environment
+		// Fallback
 	}
-	const count = await db.commContainer.count();
-	return `#${4000 + count + 1}`;
+	const uniqueRand = Math.floor(1000 + Math.random() * 9000);
+	return `#${4000 + uniqueRand}`;
 }
 
 export async function createContainerAtIntake(
