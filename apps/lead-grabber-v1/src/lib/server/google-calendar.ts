@@ -317,6 +317,57 @@ export async function isTimeFree(
 	}
 }
 
+export interface CalendarEventLite {
+	id: string;
+	title?: string;
+	startTime: Date;
+	attendees?: string[];
+}
+
+/**
+ * List events on the business calendar within a window. Used by Scenario 1 calendar VERIFICATION
+ * (§Scenario 1 Stage 3) — "did the owner actually enter this meeting?". Returns [] when the calendar
+ * isn't connected or on error, so verification degrades to "not found" rather than throwing.
+ */
+export async function listEvents(
+	companyId: string,
+	timeMinISO: string,
+	timeMaxISO: string
+): Promise<CalendarEventLite[]> {
+	const auth = await getAccessToken(companyId);
+	if (!auth) return [];
+	try {
+		const qs = new URLSearchParams({
+			timeMin: toUtcInstant(timeMinISO).toISOString(),
+			timeMax: toUtcInstant(timeMaxISO).toISOString(),
+			singleEvents: 'true',
+			orderBy: 'startTime',
+			maxResults: '25'
+		});
+		const res = await fetch(
+			`${CAL_API}/calendars/${encodeURIComponent(auth.calendarId)}/events?${qs.toString()}`,
+			{ headers: { Authorization: `Bearer ${auth.token}` } }
+		);
+		if (!res.ok) {
+			const body = await res.text();
+			console.error('[google-calendar] listEvents failed:', body);
+			await clearIfScopeError(companyId, res.status, body);
+			return [];
+		}
+		const data = await res.json();
+		const items = (data?.items || []) as any[];
+		return items.map((ev) => ({
+			id: ev.id,
+			title: ev.summary || '',
+			startTime: new Date(ev.start?.dateTime || ev.start?.date),
+			attendees: (ev.attendees || []).map((a: any) => a.email).filter(Boolean)
+		}));
+	} catch (e) {
+		console.error('[google-calendar] listEvents error:', e);
+		return [];
+	}
+}
+
 export interface CreatedEvent {
 	eventId: string;
 	htmlLink: string | null;

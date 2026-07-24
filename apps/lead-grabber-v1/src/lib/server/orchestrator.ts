@@ -1,4 +1,3 @@
-import { processSalesVoicemailBooking } from "./scenarios/s4-sms-booking";
 import { prisma } from '$lib/db';
 import { logCommunication } from '$lib/utils/communication-log';
 import { toE164 } from '$lib/company-numbers';
@@ -390,13 +389,18 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		olog('[Orchestrator] Detected Scenario 4: Sales / Booking');
 
 		try {
-			const salesRes = await processSalesVoicemailBooking({
-				commId: commLog.id,
+			// Route through the wiring helper so the hold/approval/timer are keyed to the customer's
+			// real CommContainer (created at intake by the voice bridge). Passing commLog.id here would
+			// violate the comm_containers FK and throw — which silently broke Scenario 4.
+			const { runSalesVoicemailBooking } = await import('./sales-booking');
+			const salesRes = await runSalesVoicemailBooking({
 				companyId: company.id,
-				customerProfileId: customer.id,
-				customerPhone: customer.phone || commLog.source,
+				customerPhone: customer.phone || commLog.source || '',
+				contactId: customer.id,
+				customerName: customer.name,
 				isLandline: false, // Could enrich via number-lookup cache
-				datetimeStr: datetime,
+				transcript: rawMessage,
+				datetimeIso: datetime,
 				vehicleInterest: sub_intent || undefined,
 				callStartTime: new Date(commLog.created || Date.now()),
 				availableResources: {
@@ -408,12 +412,12 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			if (salesRes.smsDrafted && salesRes.approval) {
 				draftedResponse = salesRes.approval.draftContent;
 				scenarioLocked = true; // wait for YES/NO reply loop
-			} else if (salesRes.taskCreated) {
+			} else if (salesRes.ran) {
 				draftedResponse = `Hi! Thanks for contacting ${company.name || 'us'}. We received your booking request, and a representative will call you shortly to schedule it.`;
 				scenarioLocked = true;
 			}
 		} catch (e) {
-			oerr('[Orchestrator] processSalesVoicemailBooking failed:', e);
+			oerr('[Orchestrator] sales voicemail booking failed:', e);
 			draftedResponse = `Hi! Thanks for contacting ${company.name || 'us'}. We received your booking request. What day and time works best for you?`;
 		}
 	}
@@ -422,6 +426,29 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	else {
 		olog('[Orchestrator] Detected Support request.');
 		draftedResponse = `Hi ${customer.name || 'there'}, thanks for reaching out to ${company.name || 'us'}. We received your message and a support agent will get back to you shortly.`;
+
+		// Scenario 1: if the support call scheduled a meeting, verify the owner's calendar and draft
+		// a confirmation email into the approval queue (calendar is a VERIFICATION target, §Scenario
+		// 1). Guarded and additive — never blocks the generic support acknowledgement above.
+		if (datetime) {
+			try {
+				const { runSupportMeetingConfirmation } = await import('./support-meeting');
+				const s1 = await runSupportMeetingConfirmation({
+					companyId: company.id,
+					customerPhone: customer.phone || commLog.source || '',
+					customerName: customer.name,
+					repEnteredEmail: customer.email,
+					transcript: rawMessage,
+					datetimeIso: datetime,
+					callStartTime: new Date(commLog.created || Date.now())
+				});
+				if (s1.ran) {
+					olog(`[Orchestrator] Scenario 1 meeting confirmation → draftCreated=${s1.draftCreated} blocked=${s1.blocked} (${s1.reason || ''}).`);
+				}
+			} catch (e) {
+				oerr('[Orchestrator] Scenario 1 meeting confirmation failed:', e);
+			}
+		}
 	}
 
 	// If this caller has prior cross-channel history (past calls OR SMS), make the reply

@@ -17,6 +17,7 @@ import { createNotification } from '$lib/utils/notifications';
 import { setIntent, setVoicemail, removeVoicemail, getState, deleteState, addVoicemailRecordingId, hasVoicemailRecordingId, removeVoicemailRecordingId } from '$lib/server/call-state';
 import { logCommunication } from '$lib/utils/communication-log';
 import { ingestTelemetryEvent } from '$lib/server/profiledb/telemetry';
+import { EMERGENCY_KEYWORDS } from '$lib/server/ai/emergency';
 const TELNYX_PUBLIC_KEY = process.env.TELNYX_PUBLIC_KEY;
 
 const playPublic = false;
@@ -1803,7 +1804,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
 										let bucketSignal = 'research';
 										const lowerTranscript = transcript.toLowerCase();
-										const emergencyKeywords = ['burst', 'flood', 'leak', 'emergency', 'pipe', 'water', 'immediate', 'urgent'];
+										const emergencyKeywords = EMERGENCY_KEYWORDS; // unified deterministic floor (§1.8)
 										const bookingKeywords = ['book', 'appointment', 'estimate', 'quote', 'schedule', 'renovate', 'renovation', 'toilet', 'shower', 'fixture'];
 
 										if (finalPriority === 'emergency' || emergencyKeywords.some(kw => lowerTranscript.includes(kw))) {
@@ -1846,7 +1847,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
 											let bucketSignal = 'research';
 											const lowerTranscript = transcript.toLowerCase();
-											const emergencyKeywords = ['burst', 'flood', 'leak', 'emergency', 'pipe', 'water', 'immediate', 'urgent'];
+											const emergencyKeywords = EMERGENCY_KEYWORDS; // unified deterministic floor (§1.8)
 											const bookingKeywords = ['book', 'appointment', 'estimate', 'quote', 'schedule', 'renovate', 'renovation', 'toilet', 'shower', 'fixture'];
 
 											const hasEmergency = finalPriority === 'emergency' || emergencyKeywords.some(kw => lowerTranscript.includes(kw));

@@ -72,10 +72,16 @@ export async function ingestVoiceIntake(
 	}
 
 	// 2. Deterministic thread_type at intake (§1.1.4) — keyword floor + IVR selection.
+	//    OR in the orchestrator's own active-emergency detector so the container's threadType always
+	//    agrees with the dispatch gate in process_orchestrator (messageCategory). If they disagreed,
+	//    an emergency the orchestrator dispatches could land on a non-emergency container and lose its
+	//    per-container SLA + repeat-advance (Scenario 3).
 	const emergencyEval = evaluateEmergency(transcript);
+	const { looksLikeActiveEmergency } = await import('$lib/server/message-intent');
+	const keywordHit = emergencyEval.isEmergency || looksLikeActiveEmergency(transcript);
 	const threadType = classifyThreadType({
 		ivrOption: input.ivrOption,
-		keywordHit: emergencyEval.isEmergency,
+		keywordHit,
 		text: transcript
 	});
 

@@ -639,11 +639,17 @@ export const POST: RequestHandler = async ({ request }) => {
 					// --- SCENARIO 4: Intercept SMS replies for pending holds ---
 					if (inboundCommLog?.id && effectiveCompanyId && smsText.trim()) {
 						// 1. Look for any active containers for this phone
+						// Match by the linked Contact OR the resolved customer profile phone. The prior
+						// `customer: { phone }` referenced a relation that does not exist on CommContainer
+						// (it is `contact`), so this query threw and Scenario 4's reply loop never ran.
 						const activeContainers = await prisma.commContainer.findMany({
 							where: {
 								companyId: effectiveCompanyId,
 								state: 'open',
-								customer: { phone: smsSender }
+								OR: [
+									{ contact: { phone: smsSender } },
+									{ customerProfile: { phoneNumber: smsSender } }
+								]
 							},
 							orderBy: { createdAt: 'desc' }
 						});
