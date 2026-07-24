@@ -880,8 +880,8 @@
 					{/if}
 
 					<!-- Inbound Tracks -->
-					{@const inbound = debugTracks.filter(t => t.direction === 'inbound')}
-					{#if inbound.length > 0}
+					{#if debugTracks.filter((t) => t.direction === 'inbound').length > 0}
+						{@const inbound = debugTracks.filter((t) => t.direction === 'inbound')}
 						<div class="mb-2">
 							<div class="text-[10px] uppercase tracking-widest text-teal-500 mb-1.5">⬇ Inbound (Remote → You)</div>
 							{#each inbound as track}
@@ -916,8 +916,8 @@
 					{/if}
 
 					<!-- Outbound Tracks -->
-					{@const outbound = debugTracks.filter(t => t.direction === 'outbound')}
-					{#if outbound.length > 0}
+					{#if debugTracks.filter((t) => t.direction === 'outbound').length > 0}
+						{@const outbound = debugTracks.filter((t) => t.direction === 'outbound')}
 						<div>
 							<div class="text-[10px] uppercase tracking-widest text-indigo-400 mb-1.5">⬆ Outbound (You → Remote)</div>
 							{#each outbound as track}
