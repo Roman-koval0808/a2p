@@ -148,18 +148,21 @@ export async function startOrAdvanceEmergencyLadder(
 		return { mode: 'skipped_already_dialed', dispatchedCount: 0, commId: container.id };
 	}
 
-	// Build the transcript delta from the two most recent emergency entries on this incident.
+	// Build the transcript delta: the incident's ORIGINAL message (first entry on the incident
+	// container) vs. THIS repeat call's message. The repeat's own entry lives on the newly-created
+	// suppressed container (it is only folded in at review), so the current transcript passed by the
+	// caller is the reliable "second" side — not another read of the incident container.
 	const entries = await db.commEntry.findMany({
 		where: { commId: container.id, channel: 'voice' },
 		orderBy: { occurredAt: 'asc' }
 	});
 	const firstEntry = entries[0];
-	const lastEntry = entries[entries.length - 1];
+	const secondTranscript = input.transcript || entries[entries.length - 1]?.transcript || '';
 	const delta = analyzeRepeatContactDelta(
 		firstEntry?.transcript || '',
-		lastEntry?.transcript || input.transcript || '',
+		secondTranscript,
 		firstEntry?.fromParty,
-		lastEntry?.fromParty
+		input.customerNumber
 	);
 
 	let whisperText = ladderState.whisperText || baseWhisper;
