@@ -1708,13 +1708,21 @@ export const POST: RequestHandler = async ({ request }) => {
 							// intent), overwrote the log's content with the greeting, and fired the whole
 							// downstream twice. `channels` is the reliable discriminator: unlike the call-state
 							// flags it survives the deleteState() that call.hangup performs before we get here.
+							const isOutboundCall =
+								direction === 'outbound' ||
+								direction === 'outgoing' ||
+								existingLog?.direction === 'outbound' ||
+								!!existingLog?.metadata?.dialer_outbound;
+
 							const recordingChannels =
 								typeof payload?.channels === 'string' ? (payload.channels as string) : null;
 							const isFullCallRecording = recordingChannels === 'dual';
-							const shouldTranscribe = recordingChannels
-								? !isFullCallRecording
-								: !hasVoicemail || isVoicemailRecording;
-							if (isFullCallRecording) {
+							const shouldTranscribe = isOutboundCall
+								? true
+								: recordingChannels
+									? !isFullCallRecording
+									: !hasVoicemail || isVoicemailRecording;
+							if (isFullCallRecording && !isOutboundCall) {
 								console.log('🎥 Skipping transcription of the dual-channel whole-call recording (voicemail is transcribed separately)');
 							}
 
@@ -1876,7 +1884,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
 											// Check if the pipeline decided to dispatch a safety SMS (emergency route) or if it's an emergency
 											const action = pipelineResult?.decision?.action_queue?.[0];
-											if (hasEmergency || (action && (action.action_id === 'ACT-A2P-002' || action.title?.toLowerCase().includes('owner notification')))) {
+											if (!isOutboundCall && (hasEmergency || (action && (action.action_id === 'ACT-A2P-002' || action.title?.toLowerCase().includes('owner notification'))))) {
 												console.log('🚨 Emergency action detected!');
 
 												// NOTE: the owner SMS alert is sent by process_orchestrator (its emergency branch texts the
@@ -2113,18 +2121,13 @@ export const POST: RequestHandler = async ({ request }) => {
 							}
 
 							// Only the recording that actually produced the transcript may drive the reply.
-							//
-							// Telnyx delivers TWO recordings per voicemail call and we skip transcribing the
-							// dual-channel whole-call one. Firing the orchestrator from that leg too meant it
-							// often ran FIRST, with the placeholder content ("Call completed (30s)") and no
-							// transcript — so it drafted "I'm not able to listen to recordings through text".
-							// The voicemail leg then transcribed correctly a second later, but its (correct)
-							// draft was discarded by the trigger_comm_id de-dup because a draft already
-							// existed. The log ended up showing the right transcript beside the wrong reply.
-							if (finalLogId && !isFullCallRecording) {
+							// Outbound dialer calls skip draft reply generation.
+							if (finalLogId && !isFullCallRecording && !isOutboundCall) {
 								import('$lib/server/orchestrator').then(({ process_orchestrator }) => {
 									process_orchestrator(finalLogId as string, 'ai_ready').catch(e => console.error('[Orchestrator] Error:', e));
 								});
+							} else if (isOutboundCall) {
+								console.log('🎥 Outbound dialer call logged and transcribed — skipping draft reply generation');
 							} else if (isFullCallRecording) {
 								console.log('🎥 Not triggering the orchestrator from the whole-call recording — the voicemail leg owns the reply');
 							}
