@@ -1017,7 +1017,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 							direction: 'outbound',
 							status: 'completed',
 							source: dispatchFrom || companyNumber,
-							destination: sentTo.map((r) => r.number).join(', '),
+							destination: rota.map((r) => r.phone).join(', '),
 							company_id: company.id,
 							customer_id: customer.id,
 							summary: `Emergency dispatch to ${dispatched} on-call number(s) — call ${callbackNumber}`,

@@ -464,7 +464,7 @@ export const POST: RequestHandler = async ({ request }) => {
 					).toString('base64');
 
 					try {
-						await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/gather`, {
+						await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/gather_using_speak`, {
 							method: 'POST',
 							headers: {
 								'Content-Type': 'application/json',

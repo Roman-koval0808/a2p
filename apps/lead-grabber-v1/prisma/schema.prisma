@@ -1390,6 +1390,7 @@ model CommContainer {
   closedAt                 DateTime?
   createdAt                DateTime             @default(now())
   updatedAt                DateTime             @updatedAt
+  metadata                 Json?
 
   entries    CommEntry[]
   timers     PipelineTimer[]
