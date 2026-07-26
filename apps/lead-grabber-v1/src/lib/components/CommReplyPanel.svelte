@@ -611,8 +611,6 @@
 									bind:value={draftValue}
 									class="w-full min-h-[100px] font-sans text-xs text-gray-800 leading-relaxed outline-none border-none resize-y"
 								></textarea>
-							</div>
-
 							<!-- Footer Toolbar -->
 							<div class="flex items-center justify-between mt-4 pt-3 border-t border-gray-100">
 								<!-- Left side: Send button with dropdown -->
