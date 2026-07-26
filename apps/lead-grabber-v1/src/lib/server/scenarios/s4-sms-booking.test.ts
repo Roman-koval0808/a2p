@@ -35,9 +35,9 @@ describe('Scenario 4 Acceptance Tests — Sales Voicemail & SMS Loop (§Part 3 &
 			companyId: 'comp_1',
 			customerPhone: '+15551234567',
 			transcriptWeekday: 'Tuesday',
-			vehicleInterest: 'Civic',
+			productInterest: 'Civic',
 			callStartTime,
-			availableResources: { salespeople: ['u_sales1'], vehicles: ['v_civic1'] }
+			availableResources: { personnel: ['u_sales1'], assets: ['v_civic1'] }
 		});
 
 		expect(res.slotAvailable).toBe(true);
@@ -47,15 +47,15 @@ describe('Scenario 4 Acceptance Tests — Sales Voicemail & SMS Loop (§Part 3 &
 		expect(res.approval.draftContent).toContain('August 4');
 	});
 
-	it('4-3: Vehicle/slot taken -> DOES NOT send confirmation, creates human task', async () => {
+	it('4-3: Personnel/slot taken -> DOES NOT send confirmation, creates human task', async () => {
 		const res = await processSalesVoicemailBooking({
 			commId: 'c_sales_2',
 			companyId: 'comp_1',
 			customerPhone: '+15551234567',
 			transcriptWeekday: 'Tuesday',
-			vehicleInterest: 'Civic',
+			productInterest: 'Civic',
 			callStartTime,
-			availableResources: { salespeople: [], vehicles: [] } // No resource available!
+			availableResources: { personnel: [], assets: [] } // No resource available!
 		});
 
 		expect(res.slotAvailable).toBe(false);
@@ -159,7 +159,7 @@ describe('Scenario 4 Acceptance Tests — Sales Voicemail & SMS Loop (§Part 3 &
 			customerPhone: '+15551234567',
 			isLandline: true,
 			callStartTime,
-			availableResources: { salespeople: ['u_sales1'], vehicles: ['v_civic1'] }
+			availableResources: { personnel: ['u_sales1'], assets: ['v_civic1'] }
 		});
 
 		expect(res.isLandline).toBe(true);

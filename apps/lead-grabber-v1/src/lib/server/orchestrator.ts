@@ -836,32 +836,74 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			// Only draft a customer-facing response if it's NOT an emergency, preventing the
 			// confusing 3 AM "Confirm Response" card when auto-dispatch should handle it.
 			if (!isEmergency) {
-				await logCommunication({
-					type: 'sms',
-					direction: 'outbound',
-					status: 'pending_approval',
-					source: companyNumber,
-					destination: customerPhone,
-					company_id: company.id,
-					customer_id: customer.id,
-					summary: (shouldDefer ? '[DEFERRED] ' : '') + draftedResponse.substring(0, 40) + '...',
-					content: draftedResponse,
-					metadata: {
-						thread_id: customerPhone,
-						commId: commLog.communicationThreadId,
-						is_draft: true,
-						orchestrator_draft: true,
-						trigger_comm_id: commId,
-						proposed_appointment: proposedAppointment || undefined,
-						confirm_action: metadata.confirm_action || undefined,
-						callback_number: metadata.callback_number || undefined,
-						deferred_after_hours: shouldDefer,
-						message_category: messageCategory || null,
-						sentiment: aiIntent?.sentiment ?? null,
-						urgency: aiIntent?.urgency ?? null,
-						sub_intent: aiIntent?.intent_bucket ?? null
+				const isSalesBooking = messageCategory === 'sales' && !!aiIntent?.datetime;
+
+				if (isSalesBooking) {
+					olog('[Orchestrator] Detected Sales Voicemail Booking Request, initiating SMS Confirmation Loop...');
+					const { processSalesVoicemailBooking } = await import('./scenarios/s4-sms-booking');
+					
+					// Stubbed resources since this is a platform-agnostic setup
+					const availableResources = {
+						personnel: ['u_sales_owner'],
+						assets: ['asset_1']
+					};
+
+					let hour = 10;
+					let minute = 0;
+					let transcriptWeekday = 'Wednesday';
+					if (aiIntent?.datetime) {
+						try {
+							const dt = new Date(aiIntent.datetime);
+							if (!isNaN(dt.getTime())) {
+								hour = dt.getHours();
+								minute = dt.getMinutes();
+								transcriptWeekday = dt.toLocaleDateString('en-US', { weekday: 'long' });
+							}
+						} catch (e) {}
 					}
-				});
+
+					await processSalesVoicemailBooking({
+						commId: commLog.communicationThreadId || commId,
+						companyId: company.id,
+						customerProfileId: customer.id,
+						customerPhone: customerPhone,
+						isLandline: false,
+						transcriptWeekday,
+						hour,
+						minute,
+						productInterest: aiIntent?.sub_intent || 'product/service',
+						callStartTime: new Date(),
+						availableResources,
+						now: new Date()
+					});
+				} else {
+					await logCommunication({
+						type: 'sms',
+						direction: 'outbound',
+						status: 'pending_approval',
+						source: companyNumber,
+						destination: customerPhone,
+						company_id: company.id,
+						customer_id: customer.id,
+						summary: (shouldDefer ? '[DEFERRED] ' : '') + draftedResponse.substring(0, 40) + '...',
+						content: draftedResponse,
+						metadata: {
+							thread_id: customerPhone,
+							commId: commLog.communicationThreadId,
+							is_draft: true,
+							orchestrator_draft: true,
+							trigger_comm_id: commId,
+							proposed_appointment: proposedAppointment || undefined,
+							confirm_action: metadata.confirm_action || undefined,
+							callback_number: metadata.callback_number || undefined,
+							deferred_after_hours: shouldDefer,
+							message_category: messageCategory || null,
+							sentiment: aiIntent?.sentiment ?? null,
+							urgency: aiIntent?.urgency ?? null,
+							sub_intent: aiIntent?.intent_bucket ?? null
+						}
+					});
+				}
 			}
 
 			if (isEmergency) {

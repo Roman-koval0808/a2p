@@ -227,12 +227,54 @@ export const POST: RequestHandler = async ({ request }) => {
 
 				}
 
+				// --- SMS Confirmation Loop (Scenario 4) ---
+				let handledByConfirmationLoop = false;
+				if (companyId) {
+					try {
+						const cid = companyId as string;
+						const contact = await prisma.contact.findFirst({
+							where: { companyId: cid, phone: normalizedPhoneNumber }
+						});
+						if (contact) {
+							const pendingHolds = await prisma.commHold.findMany({
+								where: { 
+									status: 'tentative', 
+									commContainer: { customerProfileId: contact.id } 
+								}
+							});
+
+							if (pendingHolds && pendingHolds.length > 0) {
+								console.log(`[SMS Webhook] Found ${pendingHolds.length} tentative hold(s) for ${normalizedPhoneNumber}. Triggering Confirmation Loop...`);
+								const { handleInboundSmsReply } = await import('$lib/server/scenarios/s4-sms-booking');
+								const result = await handleInboundSmsReply({
+									commId: pendingHolds[0].commId,
+									customerPhone: normalizedPhoneNumber,
+									replyText: smsText,
+									pendingHolds
+								});
+								
+								handledByConfirmationLoop = true;
+								if (result.intent === 'confirm') {
+									draftText = 'Thank you! Your appointment is confirmed.';
+								} else if (result.intent === 'decline' || result.intent === 'opt_out') {
+									draftText = 'Understood. Your tentative hold has been cancelled.';
+								} else {
+									draftText = 'A team member will review your request and get back to you shortly.';
+								}
+								console.log(`[SMS Webhook] Handled by Confirmation Loop, intent: ${result.intent}`);
+							}
+						}
+					} catch (e) {
+						console.error('[SMS Webhook] Error in SMS Confirmation Loop:', e);
+					}
+				}
+
 				// Conversational reply: draft a natural, context-aware response that continues the
 				// thread — and if the customer proposed an appointment time, check it against the
 				// company's business hours and confirm or suggest an alternative. Overrides the
 				// generic pipeline draft above. Falls back to it if this fails.
 				try {
-					if (companyId) {
+					if (companyId && !handledByConfirmationLoop) {
 						const cid = companyId as string;
 						const last10 = (p: string | null | undefined) =>
 							(p || '').replace(/\D/g, '').slice(-10);

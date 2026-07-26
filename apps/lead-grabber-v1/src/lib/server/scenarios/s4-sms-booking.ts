@@ -67,9 +67,9 @@ export async function processSalesVoicemailBooking(input: {
 	transcriptTimeStr?: string;
 	hour?: number;
 	minute?: number;
-	vehicleInterest?: string;
+	productInterest?: string;
 	callStartTime: Date;
-	availableResources: { salespeople: string[]; vehicles: string[] };
+	availableResources: { personnel: string[]; assets: string[] };
 	now?: Date;
 }) {
 	const now = input.now || new Date();
@@ -78,8 +78,8 @@ export async function processSalesVoicemailBooking(input: {
 	if (input.isLandline) {
 		const task = await createTask(prisma, {
 			commId: input.commId,
-			description: `Call customer back at ${input.customerPhone} (Landline cannot receive SMS) regarding test drive request for ${input.vehicleInterest || 'vehicle'}.`,
-			ownerUserId: input.availableResources.salespeople[0] || 'u_sales_owner',
+			description: `Call customer back at ${input.customerPhone} (Landline cannot receive SMS) regarding appointment request for ${input.productInterest || 'product/service'}.`,
+			ownerUserId: input.availableResources.personnel[0] || 'u_sales_owner',
 			due: new Date(now.getTime() + 2 * 3600 * 1000),
 			category: 'internal_followup',
 			confidence: 0.95
@@ -105,18 +105,19 @@ export async function processSalesVoicemailBooking(input: {
 	const proposedDate = dateRes.resolvedDate;
 	const explicitDateText = formatDateExplicit(proposedDate);
 
-	// Availability check on resource (salesperson + vehicle)
+	// Availability check on resource (personnel + asset)
 	if (
-		input.availableResources.salespeople.length === 0 ||
-		input.availableResources.vehicles.length === 0
+		input.availableResources.personnel.length === 0 ||
+		input.availableResources.assets.length === 0
 	) {
 		// Slot taken / no resource -> DO NOT send confirmation, create human task (Test 4-3)
 		const task = await createTask(prisma, {
 			commId: input.commId,
-			description: `Call customer ${input.customerPhone} with alternative slots for test drive (${input.vehicleInterest || 'vehicle'} unavailable on ${explicitDateText}).`,
+			description: `Call customer ${input.customerPhone} with alternative slots for appointment (${input.productInterest || 'product/service'} unavailable on ${explicitDateText}).`,
 			ownerUserId: 'u_sales_owner',
 			due: new Date(now.getTime() + 2 * 3600 * 1000),
 			category: 'internal_followup',
+
 			confidence: 0.9
 		});
 
@@ -133,8 +134,8 @@ export async function processSalesVoicemailBooking(input: {
 	const hold = await createHold(prisma, {
 		commId: input.commId,
 		resourceIds: {
-			salesperson: input.availableResources.salespeople[0],
-			vehicle: input.availableResources.vehicles[0]
+			personnel: input.availableResources.personnel[0],
+			asset: input.availableResources.assets[0]
 		},
 		startTime: proposedDate,
 		endTime: new Date(proposedDate.getTime() + 60 * 60 * 1000),
@@ -151,7 +152,7 @@ export async function processSalesVoicemailBooking(input: {
 	});
 
 	// Draft SMS with full explicit date (Correction 1)
-	const smsDraft = `Hi! We set a tentative hold for your test drive of the ${input.vehicleInterest || 'vehicle'} on ${explicitDateText}. Please reply YES to confirm or CANCEL to decline.`;
+	const smsDraft = `Hi! We set a tentative hold for your appointment regarding the ${input.productInterest || 'product/service'} on ${explicitDateText}. Please reply YES to confirm or CANCEL to decline.`;
 	const approvalDeadline = new Date(now.getTime() + 30 * 60 * 1000); // 30 min approval deadline
 
 	const approval = await createCustomerFacingApproval(prisma, {
@@ -162,7 +163,7 @@ export async function processSalesVoicemailBooking(input: {
 			proposedDate: proposedDate.toISOString(),
 			explicitDateText,
 			holdId: hold.id,
-			vehicle: input.vehicleInterest
+			product: input.productInterest
 		},
 		approvalDeadline
 	});
