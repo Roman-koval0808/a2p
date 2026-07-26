@@ -682,8 +682,22 @@ export const POST: RequestHandler = async ({ request }) => {
 							bridgeCustomer(callControlId, decoded.workOrder, companyNumber).catch(console.error);
 						});
 					} else {
-						console.log('❌ Tech rejected or timed out on emergency bridge. Hanging up Tech leg.');
+						console.log('❌ Tech rejected or timed out on emergency bridge. Hanging up Tech leg and advancing ladder.');
 						await telnyxHangup(callControlId);
+
+						const { handleBridgeFailure } = await import('$lib/server/scenarios/s3-escalation');
+						const result = await handleBridgeFailure({
+							commId: decoded.workOrder.commId,
+							failureType: 'tech_voicemail_no_dtmf',
+							workOrder: decoded.workOrder
+						});
+
+						if (result.action === 'next_rung_immediately') {
+							decoded.workOrder.currentRung++;
+							const { startDialLadder } = await import('$lib/server/emergency-dial');
+							// payload.from is the company number that originated the outbound call to the tech
+							await startDialLadder(decoded.workOrder, payload?.from as string).catch(console.error);
+						}
 					}
 					break;
 				}
@@ -1088,6 +1102,30 @@ export const POST: RequestHandler = async ({ request }) => {
 				// play the failover (voicemail) audio on the original caller's leg.
 				const hangupCause = (payload?.hangup_cause as string) ?? '';
 				const noAnswerCauses = ['timeout', 'user_busy', 'no_answer', 'busy', 'call_rejected'];
+
+				// --- Emergency Bridge Tech No-Answer ---
+				let decodedHangupState: any = null;
+				if (payload?.client_state) {
+					decodedHangupState = safeDecodeClientState(payload.client_state);
+				}
+				
+				if (decodedHangupState?.isDialLadderTechLeg && noAnswerCauses.some((c) => hangupCause.toLowerCase().includes(c))) {
+					console.log(`❌ Tech leg failed with cause ${hangupCause}. Advancing ladder.`);
+					const { handleBridgeFailure } = await import('$lib/server/scenarios/s3-escalation');
+					const result = await handleBridgeFailure({
+						commId: decodedHangupState.workOrder.commId,
+						failureType: 'tech_no_answer',
+						workOrder: decodedHangupState.workOrder
+					});
+
+					if (result.action === 'next_rung_immediately') {
+						decodedHangupState.workOrder.currentRung++;
+						const { startDialLadder } = await import('$lib/server/emergency-dial');
+						// payload.from is the company number
+						await startDialLadder(decodedHangupState.workOrder, payload?.from as string).catch(console.error);
+					}
+				}
+
 				const pendingTransfer = pendingTransfers.get(callControlId);
 				if (pendingTransfer && noAnswerCauses.some((c) => hangupCause.toLowerCase().includes(c))) {
 					pendingTransfers.delete(callControlId);

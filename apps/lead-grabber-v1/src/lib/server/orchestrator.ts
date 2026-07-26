@@ -890,18 +890,63 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				if (rota.length === 0) {
 					oerr('[Orchestrator] EMERGENCY but no on-call numbers configured (Settings → notifications.phone_numbers) — nobody was alerted.');
 				} else {
-					const workOrder = {
-						commId: commLog.communicationThreadId || commId,
-						personId: customer.id,
-						customerNumber: callbackNumber,
-						dialLadder: rota,
-						currentRung: 1,
-						maxAttemptsPerRung: 1,
-						whisperText: `Emergency call, ${customerName}, ${rawMessage.substring(0, 50)}. Press 1 to connect, press 2 to decline.`,
-						emergencySummary: rawMessage.substring(0, 50),
-						slaDeadline: slaDueAt,
-						escalationPolicy: 'ladder_with_dtmf'
-					};
+					let workOrder: any = null;
+
+					// Check for an existing open emergency container (Scenario 3: Repeat Escalation)
+					const openEmergencyContainer = customer?.id ? await prisma.commContainer.findFirst({
+						where: {
+							companyId: company.id,
+							customerProfileId: customer.id,
+							state: 'open',
+							threadType: 'emergency'
+						},
+						orderBy: { openedAt: 'desc' }
+					}) : null;
+
+					const existingWorkOrder = openEmergencyContainer?.metadata 
+						? (openEmergencyContainer.metadata as Record<string, any>).active_work_order 
+						: null;
+
+					if (openEmergencyContainer && existingWorkOrder) {
+						olog(`[Orchestrator] Found open emergency container ${openEmergencyContainer.id}, handling repeat escalation...`);
+						const { processSecondEmergencyVoicemail } = await import('./scenarios/s3-escalation');
+						
+						// Get the previous transcript
+						const firstEntry = await prisma.commEntry.findFirst({
+							where: { commId: openEmergencyContainer.id, direction: 'inbound', channel: 'voice' },
+							orderBy: { occurredAt: 'asc' }
+						});
+
+						const result = await processSecondEmergencyVoicemail({
+							companyId: company.id,
+							customerProfileId: customer.id,
+							customerPhone: customerPhone,
+							firstTranscript: firstEntry?.transcript || '',
+							secondTranscript: rawMessage,
+							firstCallbackNum: existingWorkOrder.customerNumber,
+							secondCallbackNum: callbackNumber,
+							existingContainer: openEmergencyContainer,
+							workOrder: existingWorkOrder,
+							now: new Date()
+						});
+
+						workOrder = result.updatedWorkOrder;
+						olog(`[Orchestrator] Processed repeat voicemail. Escalating to rung ${workOrder.currentRung}.`);
+					} else {
+						// Scenario 2: Standard Emergency
+						workOrder = {
+							commId: commLog.communicationThreadId || commId,
+							personId: customer.id,
+							customerNumber: callbackNumber,
+							dialLadder: rota,
+							currentRung: 1,
+							maxAttemptsPerRung: 1,
+							whisperText: `Emergency call, ${customerName}, ${rawMessage.substring(0, 50)}. Press 1 to connect, press 2 to decline.`,
+							emergencySummary: rawMessage.substring(0, 50),
+							slaDeadline: slaDueAt,
+							escalationPolicy: 'ladder_with_dtmf'
+						};
+					}
 
 					await startDialLadder(workOrder, dispatchFrom || companyNumber || "");
 					olog(`[Orchestrator] EMERGENCY auto-dispatched to ${dispatched} on-call number(s) from ${dispatchFrom} — callback ${callbackNumber} via Dial Ladder.`);
@@ -909,10 +954,13 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					try {
 						await prisma.commContainer.updateMany({
 							where: { companyId: company.id, customerProfileId: customer.id, state: 'open' },
-							data: { slaDeadline: slaDueAt }
+							data: { 
+								slaDeadline: slaDueAt,
+								metadata: { active_work_order: workOrder } as any
+							}
 						});
 					} catch (e) {
-						oerr('[Orchestrator] Failed to sync SLA to CommContainer:', e);
+						oerr('[Orchestrator] Failed to sync SLA and workOrder to CommContainer:', e);
 					}
 				}
 
