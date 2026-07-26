@@ -1013,7 +1013,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					// Communication Log shows a SINGLE emergency-dispatch row carrying the SLA countdown.
 					if (dispatched > 0) {
 						await logCommunication({
-							type: 'sms',
+							type: 'voice',
 							direction: 'outbound',
 							status: 'completed',
 							source: dispatchFrom || companyNumber,
@@ -1021,11 +1021,11 @@ export async function process_orchestrator(commId: string, trigger: string) {
 							company_id: company.id,
 							customer_id: customer.id,
 							summary: `Emergency dispatch to ${dispatched} on-call number(s) — call ${callbackNumber}`,
-							content: alertText,
+							content: `System dispatched dial ladder. Whisper text: "${workOrder.whisperText}"`,
 							metadata: {
 								is_emergency_dispatch: true,
 								emergency_dispatch: true,
-								recipients: sentTo,
+								recipients: rota,
 								recipient_count: dispatched,
 								callback_number: callbackNumber,
 								trigger_comm_id: commId,
