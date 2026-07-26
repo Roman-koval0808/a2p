@@ -489,15 +489,42 @@
 								}
 								break;
 							case 'hangup':
-								console.log('Call ended');
-								stopRingingTone();
-								stopCallTimer();
-								isCallActive = false;
-								isDialing = false;
-								currentCall = null;
-								callStatus = 'Ready';
-								toast.success('Call ended');
-								break;
+							console.log('Call ended');
+							stopRingingTone();
+							stopCallTimer();
+
+							// Log the WebRTC call to the server so it appears in communication logs
+							try {
+								const wasAnswered = secondsElapsed > 0;
+								fetch('/api/telnyx/log-webrtc-call', {
+									method: 'POST',
+									headers: { 'Content-Type': 'application/json' },
+									body: JSON.stringify({
+										to: phoneNumber,
+										from: selectedFromNumber,
+										duration: secondsElapsed,
+										wasAnswered
+									})
+								})
+									.then((r) => r.json())
+									.then((r) => {
+										if (r.success) {
+											console.log('[Dialer] WebRTC call logged to server');
+										} else {
+											console.warn('[Dialer] Failed to log WebRTC call:', r.error);
+										}
+									})
+									.catch((e) => console.error('[Dialer] Log WebRTC call error:', e));
+							} catch (e) {
+								console.error('[Dialer] Error sending call log:', e);
+							}
+
+							isCallActive = false;
+							isDialing = false;
+							currentCall = null;
+							callStatus = 'Ready';
+							toast.success('Call ended');
+							break;
 						}
 					}
 				});
