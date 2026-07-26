@@ -617,8 +617,11 @@
 		{ivrPath}
 		editable={selectedComm.raw?.status === 'pending_approval'}
 		onSaveDraft={handleSaveDraft}
-		requestedEmailContact={Boolean(meta.requested_email_contact || meta.confirm_email || selectedComm.raw?.type === 'email')}
-		targetEmail={meta.target_email || selectedComm.raw?.destination || ''}
+		requestedEmailContact={Boolean(
+			selectedComm.raw?.direction === 'inbound' &&
+			(meta.requested_email_contact || meta.confirm_email)
+		)}
+		targetEmail={meta.target_email || ''}
 		emailConfirmed={Boolean(meta.email_confirmed)}
 		onConfirmEmail={handleConfirmEmail}
 	/>

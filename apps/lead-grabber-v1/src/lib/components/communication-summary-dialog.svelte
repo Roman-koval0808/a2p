@@ -273,11 +273,11 @@
 				</div>
 			</div>
 
-			{#if requestedEmailContact || isEmail() || targetEmail}
+			{#if requestedEmailContact}
 				<div class="mt-3 flex flex-shrink-0 items-center justify-between rounded border border-blue-200 bg-blue-50/80 p-3">
 					<div class="flex flex-col gap-0.5">
 						<span class="text-[13px] font-semibold text-blue-900">Email Response Requested</span>
-						<span class="text-xs text-blue-700">{targetEmail || email || 'Caller asked for email follow-up'}</span>
+						<span class="text-xs text-blue-700">{targetEmail || 'Caller asked for email follow-up'}</span>
 					</div>
 					{#if emailConfirmed}
 						<span class="inline-flex items-center gap-1 rounded bg-green-100 px-3 py-1.5 text-xs font-semibold text-green-800">
