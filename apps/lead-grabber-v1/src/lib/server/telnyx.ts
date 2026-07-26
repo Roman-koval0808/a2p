@@ -1,5 +1,8 @@
 import { TELNYX_API_KEY, TELNYX_CONNECTION_ID, TELNYX_MESSAGING_PROFILE_ID } from '$env/static/private';
+import { PUBLIC_BASE_URL } from '$env/static/public';
 import { prisma } from '$lib/db';
+import { formatPhoneForDialing } from '$lib/utils/phone';
+import { normalizeUrl } from '$lib/utils';
 
 const TELNYX_API_BASE = 'https://api.telnyx.com/v2';
 
@@ -574,4 +577,70 @@ export async function ensureCompanyNumbersAssignedToApp(): Promise<{
 		console.error('Error in ensureCompanyNumbersAssignedToApp:', error);
 		return { assigned: 0, skipped: 0, failed: companyNumbers.length };
 	}
+}
+
+/**
+ * Automatically dial an outbound number from the server.
+ * @param to - The destination phone number.
+ * @param from - The caller ID (must be a valid company number).
+ * @param clientStateObj - Optional object to serialize as base64 client_state.
+ * @param customWebhookUrl - Optional custom webhook URL. Defaults to the main call webhook.
+ * @returns The call control ID and call leg ID, or throws an error.
+ */
+export async function dialNumber(
+	to: string,
+	from: string,
+	clientStateObj?: Record<string, any>,
+	customWebhookUrl?: string
+): Promise<{ callId: string; callLegId: string }> {
+	const formattedPhone = formatPhoneForDialing(to);
+
+	const clientState = clientStateObj
+		? Buffer.from(JSON.stringify(clientStateObj)).toString('base64')
+		: undefined;
+
+	const webhook_url = customWebhookUrl
+		? customWebhookUrl
+		: normalizeUrl(PUBLIC_BASE_URL, '/api/telnyx/call-webhook');
+
+	const response = await fetch(`${TELNYX_API_BASE}/calls`, {
+		method: 'POST',
+		headers: TELNYX_HEADERS,
+		body: JSON.stringify({
+			connection_id: TELNYX_CONNECTION_ID,
+			to: formattedPhone,
+			from,
+			client_state: clientState,
+			webhook_url,
+			// For automated calls, we typically want to detect answering machines
+			answering_machine_detection: 'premium',
+			answering_machine_detection_config: {
+				total_analysis_time_millis: 5000,
+				after_greeting_silence_millis: 1000,
+				between_words_silence_millis: 1000,
+				greeting_duration_millis: 1000,
+				initial_silence_millis: 1000,
+				maximum_number_of_words: 50,
+				maximum_word_length_millis: 2000,
+				silence_threshold: 512,
+				greeting_total_analysis_time_millis: 50000,
+				greeting_silence_duration_millis: 2000
+			}
+		})
+	});
+
+	const data = await response.json();
+
+	if (!response.ok) {
+		const error = data as TelnyxError;
+		const errorMessage =
+			error.errors?.[0]?.detail || error.errors?.[0]?.title || 'Unknown Telnyx API error';
+		console.error('Telnyx dial failed:', data);
+		throw new Error(`Failed to dial number: ${errorMessage}`);
+	}
+
+	return {
+		callId: data.data.call_control_id,
+		callLegId: data.data.call_leg_id
+	};
 }
