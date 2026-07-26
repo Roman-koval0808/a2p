@@ -18,12 +18,19 @@ const ANALYSIS_SCHEMA = {
 			type: 'string',
 			enum: ['Positive', 'Negative', 'Neutral', 'Angry', 'Anxious']
 		},
-		callerName: { type: 'string', description: "caller's full name, or empty string if not stated" },
+		callerName: {
+			type: 'string',
+			description: "caller's full name, or empty string if not stated"
+		},
 		buyingSignals: { type: 'array', items: { type: 'string' } },
 		estimatedPrice: { type: 'number', description: 'estimated dollar value, or 0 if none' },
 		datetime: {
 			type: 'string',
 			description: 'appointment time as YYYY-MM-DDTHH:mm:ss, or empty string if none'
+		},
+		ai_extracted_email: {
+			type: 'string',
+			description: 'The email address of the caller if mentioned, otherwise empty string'
 		}
 	},
 	required: [
@@ -36,7 +43,8 @@ const ANALYSIS_SCHEMA = {
 		'callerName',
 		'buyingSignals',
 		'estimatedPrice',
-		'datetime'
+		'datetime',
+		'ai_extracted_email'
 	]
 };
 
@@ -96,18 +104,21 @@ export async function transcribeAudio(audioUrl: string): Promise<string> {
 	}
 }
 
-
 export function getReferenceCalendar(): string {
 	const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 	const now = new Date();
-	
+
 	let calendarPrompt = `Today's current date and time: ${now.toLocaleString()} (timezone of the server).
 Reference Calendar for resolving relative days (like "saturday", "tomorrow", "next week Monday", etc.):\n`;
-	
+
 	for (let i = 0; i < 10; i++) {
 		const d = new Date(now.getTime() + i * 24 * 60 * 60 * 1000);
 		const dayName = daysOfWeek[d.getDay()];
-		const dateString = d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+		const dateString = d.toLocaleDateString('en-US', {
+			month: 'long',
+			day: 'numeric',
+			year: 'numeric'
+		});
 		const label = i === 0 ? ' (Today)' : i === 1 ? ' (Tomorrow)' : '';
 		calendarPrompt += `- ${dayName}${label}: ${dateString}\n`;
 	}
@@ -132,6 +143,7 @@ export async function analyzeCallLog(
 	buyingSignals: string[];
 	estimatedPrice: number | null;
 	datetime: string | null;
+	ai_extracted_email: string | null;
 	analysisSucceeded: boolean;
 }> {
 	try {
@@ -166,6 +178,7 @@ export async function analyzeCallLog(
       Return an empty array if no buying signals are detected.
     - "estimatedPrice": A number representing the estimated dollar value or price for the job if discussed or can be reasonably estimated based on the type of work described (e.g., water heater replacement: 1500, repair burst pipe: 500, simple leak: 200, faucet install: 150, standard inspection: 99). If the caller mentions a specific budget, price, or quote amount, use that value. If no specific service is described to estimate a price, return 0.
     - "datetime": If the caller mentions a specific date or time they want to book an appointment for (e.g. "July 1 at 2pm" or "Saturday at 8am"), resolve it to the exact date using the Reference Calendar and output it in YYYY-MM-DDTHH:mm:ss format (e.g. "2026-06-27T08:00:00"). If no time is specified but a day is, set time to "12:00:00". If no appointment datetime is mentioned, return an empty string.
+    - "ai_extracted_email": Extract the caller's email address if they state it (e.g. "my email is john at example dot com" -> "john@example.com"). Return an empty string if no email is mentioned.
 
     Transcript:
     "${transcript}"
@@ -209,6 +222,7 @@ export async function analyzeCallLog(
 					? result.estimatedPrice
 					: null,
 			datetime: result.datetime || null,
+			ai_extracted_email: result.ai_extracted_email || null,
 			analysisSucceeded: true
 		};
 	} catch (error) {
@@ -224,12 +238,16 @@ export async function analyzeCallLog(
 			buyingSignals: [],
 			estimatedPrice: null,
 			datetime: null,
+			ai_extracted_email: null,
 			analysisSucceeded: false
 		};
 	}
 }
 
-export async function matchThreadOpenAI(currentMessage: string, recentMessages: { id: string; content: string }[]): Promise<string | null> {
+export async function matchThreadOpenAI(
+	currentMessage: string,
+	recentMessages: { id: string; content: string }[]
+): Promise<string | null> {
 	if (!recentMessages || recentMessages.length === 0) return null;
 
 	try {

@@ -1688,6 +1688,7 @@ export const POST: RequestHandler = async ({ request }) => {
 							let actionItems: string[] = [];
 							let estimatedPrice: number | null = null;
 							let datetime: string | null = null;
+							let ai_extracted_email: string | null = null;
 							// Declared HERE, not inside the pipeline's .then() callback: recordingMetadata
 							// below references it on every path, including the one where the pipeline is
 							// skipped. Scoping it to the callback threw "webhookTrace is not defined" and
@@ -1780,6 +1781,7 @@ export const POST: RequestHandler = async ({ request }) => {
 										actionItems = analysis.actionItems;
 										estimatedPrice = analysis.estimatedPrice;
 										datetime = analysis.datetime;
+										ai_extracted_email = analysis.ai_extracted_email;
 										const callerName = analysis.callerName;
 										const buyingSignals = analysis.buyingSignals;
 
@@ -2038,6 +2040,7 @@ export const POST: RequestHandler = async ({ request }) => {
 								intent: intent || undefined,
 								sub_intent: sub_intent || undefined,
 								datetime: datetime || undefined,
+								ai_extracted_email: ai_extracted_email || undefined,
 								actionItems,
 								tasks: actionItems,
 								origin: direction,
