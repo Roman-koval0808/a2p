@@ -1,7 +1,9 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { TELNYX_API_KEY, TELNYX_CONNECTION_ID } from '$env/static/private';
+import { PUBLIC_BASE_URL } from '$env/static/public';
 import { formatPhoneForDialing } from '$lib/utils/phone';
+import { normalizeUrl } from '$lib/utils';
 import { getFirstCompanyNumber } from '$lib/company-numbers';
 import { prisma } from '$lib/db';
 import { logCommunication } from '$lib/utils/communication-log';
@@ -61,7 +63,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				send_silence_when_idle: false, // Ensures continuous audio
 				record: 'record-from-answer',
 				client_state,
-				webhook_url: `${request.headers.get('origin')}/api/telnyx/call-webhook`, // Ensure webhooks are properly routed
+				webhook_url: normalizeUrl(PUBLIC_BASE_URL, '/api/telnyx/call-webhook'),
 				// Optional: Enable answering machine detection if needed
 				answering_machine_detection: 'premium',
 				answering_machine_detection_config: {
