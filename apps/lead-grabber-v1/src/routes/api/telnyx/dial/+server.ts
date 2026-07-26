@@ -92,6 +92,31 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			);
 		}
 
+		const callControlId = data.data.call_control_id;
+
+		// Create callLog in Prisma so call webhooks (call.hangup, call.recording.saved)
+		// immediately match companyId, direction, and destination numbers.
+		try {
+			await prisma.callLog.create({
+				data: {
+					callId: callControlId,
+					status: 'initiated',
+					from,
+					to: formattedPhone,
+					metadata: {
+						direction: 'outgoing',
+						companyId,
+						dialer_outbound: true,
+						call_control_id: callControlId,
+						call_session_id: data.data.call_session_id || null,
+						call_leg_id: data.data.call_leg_id || null
+					}
+				}
+			});
+		} catch (callLogErr) {
+			console.error('[Dialer] Failed to create callLog:', callLogErr);
+		}
+
 		// --- SLA CLEARANCE ---
 		// When the technician successfully initiates a call to the customer using the dialer,
 		// we must clear any pending emergency SLA tasks for this phone number.

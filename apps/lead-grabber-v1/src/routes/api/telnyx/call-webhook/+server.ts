@@ -1256,8 +1256,35 @@ export const POST: RequestHandler = async ({ request }) => {
 						);
 						if (existingForCall) {
 							console.log(
-								'📝 CommunicationLog already exists for this call (recording.saved) — skipping duplicate on hangup'
+								'📝 Updating existing CommunicationLog with duration & status on hangup:',
+								callControlId
 							);
+							try {
+								const wasAnswered = callControlId ? answeredCalls.has(callControlId) : true;
+								const outboundNoAnswer = direction === 'outbound' && !wasAnswered;
+								const callVerb = outboundNoAnswer ? 'not answered' : 'completed';
+								await prisma.communicationLog.update({
+									where: { id: existingForCall.id },
+									data: {
+										duration: hangupDuration ?? existingForCall.duration,
+										status: outboundNoAnswer ? 'missed' : 'completed',
+										content:
+											hangupDuration != null
+												? `Outbound call ${callVerb} (${Math.round(hangupDuration)}s${outboundNoAnswer ? ' ring' : ''})`
+												: existingForCall.content || `Outbound call ${callVerb}`,
+										metadata: {
+											...((existingForCall.metadata as Record<string, unknown>) || {}),
+											call_control_id: callControlId,
+											answered: wasAnswered,
+											no_answer: outboundNoAnswer,
+											hangup_at: new Date().toISOString()
+										} as any
+									}
+								});
+							} catch (updateErr) {
+								console.error('[Hangup Update Error]', updateErr);
+							}
+							if (callControlId) answeredCalls.delete(callControlId);
 							await deleteState(callControlId);
 							break;
 						}
@@ -1639,7 +1666,16 @@ export const POST: RequestHandler = async ({ request }) => {
 							const existingLog = existingLogs.find(
 								(l) => {
 									const meta = l.metadata as Record<string, unknown>;
-									return meta?.call_control_id === targetCallControlId || meta?.call_control_id === callControlId;
+									const isMatchCallId =
+										meta?.call_control_id === targetCallControlId ||
+										meta?.call_control_id === callControlId ||
+										meta?.call_leg_id === callControlId ||
+										meta?.call_session_id === (payload?.call_session_id as string);
+									const isMatchPhone =
+										l.direction === 'outbound' &&
+										(l.destination === contactNumber ||
+											(contactNumber && l.destination?.includes(contactNumber)));
+									return isMatchCallId || isMatchPhone;
 								}
 							);
 
@@ -2003,6 +2039,7 @@ export const POST: RequestHandler = async ({ request }) => {
 								sub_intent: sub_intent || undefined,
 								datetime: datetime || undefined,
 								actionItems,
+								tasks: actionItems,
 								origin: direction,
 								estimatedPrice,
 								pipeline_logs: webhookTrace
