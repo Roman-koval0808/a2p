@@ -721,27 +721,63 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		}
 	}
 
-	// Email draft (Scenario 1): itemized balance email → approval queue → sent via Brevo on confirm.
-	if (draftChannel === 'email' && customer.email && draftedResponse) {
+	// Detect if caller asked to be gotten back to via email or provided an email address
+	const emailMatch = rawMessage.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+	const targetEmail = emailMatch ? emailMatch[0] : (metadata.ai_extracted_email || metadata.email || customer.email || null);
+	const asksEmail = !!emailMatch || /\b(email|send an? email|email me|reach me by email|get back to me at email|contact me by email)\b/i.test(rawMessage) || (customer.email && wantsEmailedBalance(rawMessage));
+
+	if (asksEmail && targetEmail) {
+		draftChannel = 'email';
+		if (!emailSubject) {
+			emailSubject = `Follow-up regarding your request`;
+		}
+		// Save customer email if not set
+		if (targetEmail && !customer.email) {
+			try {
+				await prisma.contact.update({
+					where: { id: customer.id },
+					data: { email: targetEmail }
+				});
+				customer.email = targetEmail;
+			} catch (e) {}
+		}
+	}
+
+	// Email draft: created when caller requested email follow-up or draftChannel === 'email' → approval queue.
+	if (draftChannel === 'email' && (targetEmail || customer.email) && draftedResponse) {
+		const destinationEmail = targetEmail || customer.email!;
 		try {
 			await logCommunication({
 				type: 'email',
 				direction: 'outbound',
 				status: 'pending_approval',
-				destination: customer.email,
+				destination: destinationEmail,
 				company_id: company.id,
 				customer_id: customer.id,
-				summary: emailSubject || 'Account balance',
+				summary: emailSubject || 'Email Follow-up',
 				content: draftedResponse,
 				metadata: {
 					subject: emailSubject,
 					is_draft: true,
 					orchestrator_draft: true,
+					confirm_email: true,
+					target_email: destinationEmail,
 					trigger_comm_id: commId,
 					message_category: messageCategory || null
 				}
 			});
-			olog('[Orchestrator] Email draft queued for approval.');
+			// Annotate the triggering call row so UI highlights requested email contact
+			await prisma.communicationLog.update({
+				where: { id: commId },
+				data: {
+					metadata: {
+						...metadata,
+						requested_email_contact: true,
+						target_email: destinationEmail
+					} as any
+				}
+			});
+			olog(`[Orchestrator] Email draft to ${destinationEmail} queued for approval.`);
 		} catch (err) {
 			oerr('[Orchestrator] Failed to log pending email:', err);
 		}

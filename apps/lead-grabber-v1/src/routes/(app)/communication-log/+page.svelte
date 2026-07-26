@@ -124,6 +124,30 @@
 		goto(`/communication-log?${params.toString()}`);
 	}
 
+	async function handleConfirmEmail() {
+		const targetId = selectedComm?.raw?.id || selectedComm?.id;
+		if (!targetId) return;
+		try {
+			const res = await fetch(`/api/communication-logs/${targetId}/confirm`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' }
+			});
+			const json = await res.json();
+			if (json.success) {
+				toast.success('Email draft confirmed! (Email sending queued for later)');
+				if (selectedComm.raw) {
+					selectedComm.raw.status = 'completed';
+					if (!selectedComm.raw.metadata) selectedComm.raw.metadata = {};
+					selectedComm.raw.metadata.email_confirmed = true;
+				}
+			} else {
+				toast.error(json.error || 'Failed to confirm email');
+			}
+		} catch (e: any) {
+			toast.error(e?.message || 'Error confirming email');
+		}
+	}
+
 	// Transform API data to UI format
 	let communications = $derived(
 		data.logs?.map((log: any) => {
@@ -593,6 +617,10 @@
 		{ivrPath}
 		editable={selectedComm.raw?.status === 'pending_approval'}
 		onSaveDraft={handleSaveDraft}
+		requestedEmailContact={Boolean(meta.requested_email_contact || meta.confirm_email || selectedComm.raw?.type === 'email')}
+		targetEmail={meta.target_email || selectedComm.raw?.destination || ''}
+		emailConfirmed={Boolean(meta.email_confirmed)}
+		onConfirmEmail={handleConfirmEmail}
 	/>
 {/if}
 
