@@ -273,27 +273,7 @@
 				</div>
 			</div>
 
-			{#if requestedEmailContact}
-				<div class="mt-3 flex flex-shrink-0 items-center justify-between rounded border border-blue-200 bg-blue-50/80 p-3">
-					<div class="flex flex-col gap-0.5">
-						<span class="text-[13px] font-semibold text-blue-900">Email Response Requested</span>
-						<span class="text-xs text-blue-700">{targetEmail || 'Caller asked for email follow-up'}</span>
-					</div>
-					{#if emailConfirmed}
-						<span class="inline-flex items-center gap-1 rounded bg-green-100 px-3 py-1.5 text-xs font-semibold text-green-800">
-							✓ Email Confirmed
-						</span>
-					{:else}
-						<button
-							onclick={handleConfirmEmail}
-							disabled={confirmingEmail}
-							class="inline-flex items-center gap-1.5 rounded bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50 shadow-sm"
-						>
-							✉️ {confirmingEmail ? 'Confirming…' : 'Confirm Email'}
-						</button>
-					{/if}
-				</div>
-			{/if}
+
 
 			{#if editable}
 				<div class="mt-3 flex flex-shrink-0 flex-col gap-2 rounded border border-amber-200 bg-amber-50/50 p-3">

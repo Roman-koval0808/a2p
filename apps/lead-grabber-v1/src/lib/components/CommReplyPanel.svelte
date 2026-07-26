@@ -584,7 +584,7 @@
 		<div class="border-t border-gray-200 p-4">
 			{#if targetContact}
 				<!-- Quick draft reply (Mockup-matched Gmail Card) -->
-				{#if false && draftValue}
+				{#if draftValue}
 					<div class="mb-4 flex gap-3 border border-gray-200 rounded-xl bg-white shadow-sm overflow-hidden p-4">
 						<!-- User avatar on the left -->
 						<div
@@ -606,38 +606,11 @@
 								</span>
 							</div>
 
-							<!-- Body and Details -->
-							<div>
 								<!-- Editable Text Area -->
 								<textarea
 									bind:value={draftValue}
 									class="w-full min-h-[100px] font-sans text-xs text-gray-800 leading-relaxed outline-none border-none resize-y"
 								></textarea>
-
-								<!-- Structured Appointment Details -->
-								<div class="mt-4 pt-3 border-t border-gray-100 space-y-1.5 text-xs text-gray-600">
-									<div><span class="font-bold text-gray-700">Agent:</span> {user?.name ?? 'Mark Doe'}</div>
-									<div><span class="font-bold text-gray-700">Appointment:</span> 2:30pm - 3:15pm</div>
-									<div><span class="font-bold text-gray-700">Location:</span> 123 Pine St N Timmins Ontario</div>
-									<div><span class="font-bold text-gray-700">Purpose:</span> Test Drive</div>
-									<div class="flex items-center gap-2 mt-3">
-										<span class="font-bold text-gray-700 font-sans">Confirm Appointment:</span>
-										<button 
-											type="button"
-											onclick={sendDraft}
-											class="bg-[#4CAF50] hover:bg-[#43A047] text-white text-[10px] font-semibold px-2 py-0.5 rounded transition-colors shadow-sm"
-										>
-											Yes
-										</button>
-										<button 
-											type="button"
-											onclick={handleClose}
-											class="bg-[#F44336] hover:bg-[#E53935] text-white text-[10px] font-semibold px-2 py-0.5 rounded transition-colors shadow-sm"
-										>
-											No
-										</button>
-									</div>
-								</div>
 							</div>
 
 							<!-- Footer Toolbar -->

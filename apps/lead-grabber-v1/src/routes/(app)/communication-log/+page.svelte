@@ -213,7 +213,9 @@
 			} else if (meta.drop_call) {
 				purpose = 'Missed Call';
 			} else if (log.raw?.status === 'pending_approval') {
-				purpose = 'Confirm';
+				purpose = (meta.requested_email_contact || meta.target_email || meta.confirm_email) 
+					? 'Confirm Email' 
+					: 'Confirm';
 			} else if (meta.message_category) {
 				// The orchestrator reclassifies the call by what was actually said; show that.
 				purpose =

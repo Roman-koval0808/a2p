@@ -341,12 +341,12 @@
 									</span>
 								{:else}
 									<div class="flex flex-col items-start gap-1">
-										{#if comm.purpose === 'Confirm'}
+										{#if comm.purpose === 'Confirm' || comm.purpose === 'Confirm Email'}
 											<button
 												onclick={() => onConfirmClick ? onConfirmClick(comm) : onReplyClick?.(comm)}
 												class="inline-block rounded bg-[#4A72B2] hover:bg-[#3b5d95] px-3.5 py-1 text-xs font-semibold text-white transition-colors"
 											>
-												{comm.raw?.metadata?.confirm_action === 'call' ? 'Confirm call' : 'Confirm'}
+												{comm.purpose === 'Confirm Email' ? 'Confirm Email' : (comm.raw?.metadata?.confirm_action === 'call' ? 'Confirm call' : 'Confirm')}
 											</button>
 										{:else if comm.purpose}
 											<span>{comm.purpose}</span>
