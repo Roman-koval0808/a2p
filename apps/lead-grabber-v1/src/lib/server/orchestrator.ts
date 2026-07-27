@@ -76,6 +76,14 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	const companyNumber = toE164(cleanDestination);
 	const customerPhone = toE164(commLog.source || '');
 
+	let pipelineCustomerProfileId: string | undefined = undefined;
+	if (customerPhone) {
+		const profile = await prisma.pipelineCustomerProfile.findFirst({
+			where: { companyId: company.id, phoneNumber: customerPhone }
+		});
+		if (profile) pipelineCustomerProfileId = profile.id;
+	}
+
 	// Prevent drafting multiple SMS if already processed
 	if (metadata.orchestrator_processed) {
 		olog('[Orchestrator] Already processed. Aborting.');
@@ -175,11 +183,11 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// Repeat Escalation backstop (Scenario 3): if this customer already has an OPEN emergency
 	// container, then this new message is a frantic callback (e.g. "it's getting worse!"). 
 	// We MUST force this into the emergency flow even if the AI didn't explicitly flag the words.
-	if (messageCategory !== 'emergency' && customer?.id) {
+	if (messageCategory !== 'emergency' && pipelineCustomerProfileId) {
 		const hasOpenEmergency = await prisma.commContainer.findFirst({
 			where: {
 				companyId: company.id,
-				customerProfileId: customer.id,
+				customerProfileId: pipelineCustomerProfileId,
 				state: 'open',
 				threadType: 'emergency'
 			}
@@ -883,7 +891,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					await processSalesVoicemailBooking({
 						commId: commLog.communicationThreadId || commId,
 						companyId: company.id,
-						customerProfileId: customer.id,
+						customerProfileId: pipelineCustomerProfileId || customer.id,
 						customerPhone: customerPhone,
 						isLandline: false,
 						transcriptWeekday,
@@ -953,10 +961,10 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					let workOrder: any = null;
 
 					// Check for an existing open emergency container (Scenario 3: Repeat Escalation)
-					const openEmergencyContainer = customer?.id ? await prisma.commContainer.findFirst({
+					const openEmergencyContainer = pipelineCustomerProfileId ? await prisma.commContainer.findFirst({
 						where: {
 							companyId: company.id,
-							customerProfileId: customer.id,
+							customerProfileId: pipelineCustomerProfileId,
 							state: 'open',
 							threadType: 'emergency'
 						},
@@ -982,7 +990,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 						const result = await processSecondEmergencyVoicemail({
 							companyId: company.id,
-							customerProfileId: customer.id,
+							customerProfileId: pipelineCustomerProfileId || customer.id,
 							customerPhone: customerPhone,
 							firstTranscript: firstEntry?.transcript || '',
 							secondTranscript: rawMessage,
@@ -1015,13 +1023,19 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					olog(`[Orchestrator] EMERGENCY auto-dispatched to ${dispatched} on-call number(s) from ${dispatchFrom} — callback ${callbackNumber} via Dial Ladder.`);
 
 					try {
-						await prisma.commContainer.updateMany({
-							where: { companyId: company.id, customerProfileId: customer.id, state: 'open' },
-							data: { 
-								slaDeadline: slaDueAt,
-								metadata: { active_work_order: workOrder } as any
+						if (pipelineCustomerProfileId) {
+							for (let attempt = 0; attempt < 10; attempt++) {
+								const updateRes = await prisma.commContainer.updateMany({
+									where: { companyId: company.id, customerProfileId: pipelineCustomerProfileId, state: 'open', threadType: 'emergency' },
+									data: { 
+										slaDeadline: slaDueAt,
+										metadata: { active_work_order: workOrder } as any
+									}
+								});
+								if (updateRes.count > 0) break;
+								await new Promise(r => setTimeout(r, 500));
 							}
-						});
+						}
 					} catch (e) {
 						oerr('[Orchestrator] Failed to sync SLA and workOrder to CommContainer:', e);
 					}
