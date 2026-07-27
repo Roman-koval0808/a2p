@@ -172,6 +172,24 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		messageCategory = 'emergency';
 	}
 
+	// Repeat Escalation backstop (Scenario 3): if this customer already has an OPEN emergency
+	// container, then this new message is a frantic callback (e.g. "it's getting worse!"). 
+	// We MUST force this into the emergency flow even if the AI didn't explicitly flag the words.
+	if (messageCategory !== 'emergency' && customer?.id) {
+		const hasOpenEmergency = await prisma.commContainer.findFirst({
+			where: {
+				companyId: company.id,
+				customerProfileId: customer.id,
+				state: 'open',
+				threadType: 'emergency'
+			}
+		});
+		if (hasOpenEmergency) {
+			olog(`[Orchestrator] Scenario 3 backstop: customer has an OPEN emergency container. Forcing "${messageCategory}" to emergency.`);
+			messageCategory = 'emergency';
+		}
+	}
+
 	const reclassified = !!(digitCategory && digitCategory !== messageCategory);
 	if (reclassified) {
 		olog(
