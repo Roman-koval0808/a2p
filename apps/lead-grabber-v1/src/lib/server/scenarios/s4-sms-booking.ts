@@ -179,6 +179,7 @@ export async function processSalesVoicemailBooking(input: {
 
 export async function handleInboundSmsReply(input: {
 	commId: string;
+	companyId?: string;
 	customerPhone: string;
 	replyText: string;
 	pendingHolds: any[];
@@ -213,6 +214,33 @@ export async function handleInboundSmsReply(input: {
 					data: { status: 'booked' }
 				});
 				await cancelTimersForContainer(input.commId, 'hold_expiry', 'confirmed_by_customer');
+
+				if (input.companyId && activeHold.startTime) {
+					try {
+						const { createEvent } = await import('$lib/server/google-calendar');
+						const startISO = new Date(activeHold.startTime).toISOString();
+						const endISO = activeHold.endTime
+							? new Date(activeHold.endTime).toISOString()
+							: new Date(new Date(activeHold.startTime).getTime() + 60 * 60 * 1000).toISOString();
+
+						const ev = await createEvent(input.companyId, {
+							summary: `Appointment for ${input.customerPhone}`,
+							startISO,
+							endISO,
+							phone: input.customerPhone,
+							addMeet: true
+						});
+
+						if (ev?.eventId) {
+							await prisma.commHold.update({
+								where: { id: activeHold.id },
+								data: { calendarEventId: ev.eventId }
+							});
+						}
+					} catch (err) {
+						console.error('[SMS Booking] Google Calendar booking failed:', err);
+					}
+				}
 			}
 			return {
 				intent: 'confirm',

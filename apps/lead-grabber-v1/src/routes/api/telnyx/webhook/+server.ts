@@ -250,6 +250,7 @@ export const POST: RequestHandler = async ({ request }) => {
 								const { handleInboundSmsReply } = await import('$lib/server/scenarios/s4-sms-booking');
 								const result = await handleInboundSmsReply({
 									commId: pendingHolds[0].commId,
+									companyId: cid,
 									customerPhone: normalizedPhoneNumber,
 									replyText: smsText,
 									pendingHolds

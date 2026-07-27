@@ -778,6 +778,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				direction: 'outbound',
 				status: 'pending_approval',
 				destination: destinationEmail,
+				source: 'rory.clearskysoftware@gmail.com',
 				company_id: company.id,
 				customer_id: customer.id,
 				summary: emailSubject || 'Email Follow-up',

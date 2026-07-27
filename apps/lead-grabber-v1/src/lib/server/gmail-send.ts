@@ -53,7 +53,8 @@ function buildRawEmail(opts: {
 	fromName?: string;
 	fromEmail?: string;
 }): string {
-	const from = opts.fromEmail || GMAIL_FROM_EMAIL || 'rory.clearskysoftware@gmail.com';
+	// Hardcoded to ensure Gmail API doesn't reject it due to alias mismatch
+	const from = 'rory.clearskysoftware@gmail.com';
 	const fromHeader = opts.fromName ? `"${opts.fromName}" <${from}>` : from;
 	const boundary = `----=_Part_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
