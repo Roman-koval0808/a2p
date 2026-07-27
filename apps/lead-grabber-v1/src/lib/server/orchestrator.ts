@@ -941,7 +941,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				const callbackNumber = extractCallbackNumber(rawMessage) || (metadata.callback_number as string) || customerPhone;
 				const { resolveSmsSender } = await import('./company-sender');
 				const dispatchFrom = (await resolveSmsSender(company.id, companyNumber)) || companyNumber || undefined;
-				const slaDueAt = new Date(Date.now() + 10 * 60 * 1000);
+				let slaDueAt = new Date(Date.now() + 10 * 60 * 1000);
 
 				const { startDialLadder } = await import('./emergency-dial');
 				const rota: any[] = [];
