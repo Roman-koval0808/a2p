@@ -509,7 +509,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				const result = await processSupportCallMeetingConfirmation({
 					commId: commLog.communicationThreadId || commId,
 					companyId: company.id,
-					customerProfileId: pipelineCustomerProfileId || customer.id,
+					customerProfileId: pipelineCustomerProfileId || undefined,
 					contactId: customer.id,
 					repEnteredEmail: undefined,
 					aiExtractedEmail: targetEmail,
