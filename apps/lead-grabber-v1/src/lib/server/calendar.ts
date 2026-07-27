@@ -217,7 +217,8 @@ export function formatDatetime(datetimeStr: string): string {
 				month: 'long',
 				day: 'numeric',
 				hour: 'numeric',
-				minute: '2-digit'
+				minute: '2-digit',
+				timeZone: 'America/Toronto'
 			})
 			.replace(/, 20\d\d/, '');
 	}

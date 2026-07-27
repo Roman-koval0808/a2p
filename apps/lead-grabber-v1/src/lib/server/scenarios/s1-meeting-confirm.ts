@@ -137,7 +137,8 @@ export async function processSupportCallMeetingConfirmation(input: {
 	const calMatch = searchCalendarForMeeting(
 		input.calendarEntries,
 		dateRes.resolvedDate,
-		undefined,
+		undefined, // customerName
+		finalEmail // pass the extracted/entered email!
 	);
 
 	// Create a CommContainer to hold the SLA timer and the Approval draft (required for Prisma foreign keys)
