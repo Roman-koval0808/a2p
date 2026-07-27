@@ -477,18 +477,6 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			try {
 				const { processSupportCallMeetingConfirmation } = await import('./scenarios/s1-meeting-confirm');
 				
-				// For testing Scenario 1, we provide a mock calendar entry that matches the requested time
-				// so that it proceeds to draft the email instead of waiting for the grace period.
-				let mockCalendarEntries: any[] = [];
-				if (datetime) {
-					mockCalendarEntries = [{
-						id: 'mock-event-123',
-						title: 'Meeting with ' + (customer.name || 'Customer'),
-						startTime: new Date(datetime),
-						attendees: customer.email ? [customer.email] : []
-					}];
-				}
-
 				let hour = 10;
 				let minute = 0;
 				let transcriptWeekday = 'Wednesday';
@@ -503,9 +491,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					} catch (e) {}
 				}
 
-				// Look for email in message
+				// Look for email in message (or rely on AI extraction)
 				const emailMatch = rawMessage.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-				const targetEmail = emailMatch ? emailMatch[0] : customer.email || undefined;
+				const targetEmail = emailMatch ? emailMatch[0] : (aiIntent?.email || metadata.ai_extracted_email || customer.email || undefined);
 
 				const result = await processSupportCallMeetingConfirmation({
 					commId: commLog.communicationThreadId || commId,
@@ -518,7 +506,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					transcriptHour: hour,
 					transcriptMinute: minute,
 					callStartTime: new Date(),
-					calendarEntries: mockCalendarEntries,
+					calendarEntries: [], // Pass empty so it realistically fails and triggers the 15m grace period
 					hasMeetingSignal: true,
 					now: new Date()
 				});
