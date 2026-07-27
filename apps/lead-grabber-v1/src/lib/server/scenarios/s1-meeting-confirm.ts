@@ -210,3 +210,80 @@ export async function processSupportCallMeetingConfirmation(input: {
 		reason: 'calendar_grace_started'
 	};
 }
+
+export async function processGraceExpiration(prisma: any, timer: any) {
+	console.log(`[Scenario 1] Processing calendar grace expiration for timer ${timer.id}`);
+	
+	const { targetTime, email } = (timer.payload as any) || {};
+	if (!targetTime) return;
+
+	const { getUpcomingAppointments } = await import('$lib/server/google-calendar');
+	const rawAppts = await getUpcomingAppointments(timer.companyId, 7);
+	
+	const calendarEntries = rawAppts.map(a => ({
+		id: a.id,
+		title: a.summary || 'Appointment',
+		startTime: new Date(a.start?.dateTime || a.start?.date),
+		attendees: (a.attendees || []).map((att: any) => att.email)
+	}));
+
+	const calMatch = searchCalendarForMeeting(
+		calendarEntries,
+		new Date(targetTime),
+		undefined,
+		email
+	);
+
+	if (calMatch.status === 'found') {
+		console.log(`[Scenario 1] Meeting FOUND after grace period!`);
+		
+		const dateRes = new Date(targetTime);
+		const draftContent = `Hi, confirming our meeting scheduled for ${dateRes.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}.`;
+		
+		await createCustomerFacingApproval(prisma, {
+			commId: timer.commId,
+			draftType: 'email',
+			draftContent,
+			contextPayload: {
+				systemHas: { calendarStatus: 'found', eventId: calMatch.matchingEntry?.id },
+				contactDetail: { value: email, source: 'timer_verified' },
+				flags: []
+			},
+			approvalDeadline: new Date(Date.now() + 2 * 3600 * 1000)
+		});
+
+		// Clear pending state
+		const comm = await prisma.communicationLog.findFirst({ where: { communicationThreadId: timer.commId } }) || 
+					 await prisma.communicationLog.findFirst({ where: { id: timer.commId } });
+		
+		if (comm) {
+			const m = (comm.metadata as any) || {};
+			delete m.waiting_for_calendar;
+			delete m.timer_due_at;
+			m.calendar_verified_after_grace = true;
+			
+			await prisma.communicationLog.update({
+				where: { id: comm.id },
+				data: { metadata: m }
+			});
+		}
+	} else {
+		console.log(`[Scenario 1] Meeting still NOT FOUND after grace period.`);
+		
+		// Clear pending state but mark as failed
+		const comm = await prisma.communicationLog.findFirst({ where: { communicationThreadId: timer.commId } }) || 
+					 await prisma.communicationLog.findFirst({ where: { id: timer.commId } });
+		
+		if (comm) {
+			const m = (comm.metadata as any) || {};
+			// We DO NOT delete waiting_for_calendar if we want the badge to show "Verification Failed",
+			// but wait! If it's left there, it stays red forever. That's fine for the UI.
+			m.calendar_failed_after_grace = true;
+			
+			await prisma.communicationLog.update({
+				where: { id: comm.id },
+				data: { metadata: m }
+			});
+		}
+	}
+}

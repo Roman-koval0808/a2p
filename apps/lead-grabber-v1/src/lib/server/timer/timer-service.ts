@@ -157,6 +157,11 @@ export async function sweepTimers(now = new Date()): Promise<{ due: number; fire
 					firedAt: now
 				}
 			});
+			
+			if (timer.type === 'calendar_grace') {
+				const { processGraceExpiration } = await import('../scenarios/s1-meeting-confirm');
+				await processGraceExpiration(prisma, timer);
+			}
 
 			fired++;
 		} catch (err: any) {
