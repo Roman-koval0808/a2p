@@ -955,10 +955,10 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				}
 
 				let dispatched = rota.length;
+				let workOrder: any = null;
 				if (rota.length === 0) {
 					oerr('[Orchestrator] EMERGENCY but no on-call numbers configured (Settings → notifications.phone_numbers) — nobody was alerted.');
 				} else {
-					let workOrder: any = null;
 
 					// Check for an existing open emergency container (Scenario 3: Repeat Escalation)
 					const openEmergencyContainer = pipelineCustomerProfileId ? await prisma.commContainer.findFirst({
@@ -1024,7 +1024,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 					try {
 						if (pipelineCustomerProfileId) {
-							for (let attempt = 0; attempt < 10; attempt++) {
+							for (let attempt = 0; attempt < 30; attempt++) {
 								const updateRes = await prisma.commContainer.updateMany({
 									where: { companyId: company.id, customerProfileId: pipelineCustomerProfileId, state: 'open', threadType: 'emergency' },
 									data: { 
@@ -1032,8 +1032,11 @@ export async function process_orchestrator(commId: string, trigger: string) {
 										metadata: { active_work_order: workOrder } as any
 									}
 								});
-								if (updateRes.count > 0) break;
-								await new Promise(r => setTimeout(r, 500));
+								if (updateRes.count > 0) {
+									olog(`[Orchestrator] SLA+WorkOrder synced to CommContainer after ${attempt + 1} attempt(s).`);
+									break;
+								}
+								await new Promise(r => setTimeout(r, 1000));
 							}
 						}
 					} catch (e) {
@@ -1056,7 +1059,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 							company_id: company.id,
 							customer_id: customer.id,
 							summary: `Emergency dispatch to ${dispatched} on-call number(s) — call ${callbackNumber}`,
-							content: `System dispatched dial ladder. Whisper text: "${workOrder.whisperText}"`,
+							content: `System dispatched dial ladder. Whisper text: "${workOrder?.whisperText || 'Emergency dispatch'}"`,
 							metadata: {
 								is_emergency_dispatch: true,
 								emergency_dispatch: true,
