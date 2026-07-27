@@ -1343,14 +1343,35 @@ export const POST: RequestHandler = async ({ request }) => {
 								})
 							: null;
 
-						let commThread = await prisma.communicationThread.create({
-							data: {
-								companyId: numberInfo.companyId,
-								contactId: contact.id,
-								status: 'open',
-								summary: 'Voice Call'
-							}
-						});
+						const providedCommId = decodedHangupState?.commId || decodedHangupState?.workOrder?.commId;
+						let commThread: any = null;
+						if (providedCommId) {
+							commThread = await prisma.communicationThread.findUnique({
+								where: { id: providedCommId }
+							});
+						}
+
+						if (!commThread) {
+							commThread = await prisma.communicationThread.findFirst({
+								where: {
+									companyId: numberInfo.companyId,
+									contactId: contact.id,
+									status: 'open'
+								},
+								orderBy: { created: 'desc' }
+							});
+						}
+
+						if (!commThread) {
+							commThread = await prisma.communicationThread.create({
+								data: {
+									companyId: numberInfo.companyId,
+									contactId: contact.id,
+									status: 'open',
+									summary: 'Voice Call'
+								}
+							});
+						}
 
 						let finalDestination = companyNumber || '';
 						if (direction === 'incoming' || directionFromMeta === 'incoming') {
