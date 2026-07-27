@@ -183,11 +183,14 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// Repeat Escalation backstop (Scenario 3): if this customer already has an OPEN emergency
 	// container, then this new message is a frantic callback (e.g. "it's getting worse!"). 
 	// We MUST force this into the emergency flow even if the AI didn't explicitly flag the words.
-	if (messageCategory !== 'emergency' && pipelineCustomerProfileId) {
+	if (messageCategory !== 'emergency') {
 		const hasOpenEmergency = await prisma.commContainer.findFirst({
 			where: {
 				companyId: company.id,
-				customerProfileId: pipelineCustomerProfileId,
+				OR: [
+					...(pipelineCustomerProfileId ? [{ customerProfileId: pipelineCustomerProfileId }] : []),
+					{ contactId: customer.id }
+				],
 				state: 'open',
 				threadType: 'emergency'
 			}
@@ -196,6 +199,13 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			olog(`[Orchestrator] Scenario 3 backstop: customer has an OPEN emergency container. Forcing "${messageCategory}" to emergency.`);
 			messageCategory = 'emergency';
 		}
+	}
+
+	// Scenario 1 backstop: if the caller explicitly pressed Support, but asked for a meeting,
+	// keep it in the Support flow so the Calendar Verification logic can run, instead of hijacking it to Sales.
+	if (digitCategory === 'support' && messageCategory === 'sales' && aiIntent?.wants_appointment) {
+		olog(`[Orchestrator] Scenario 1 backstop: caller pressed Support but asked for a meeting. Keeping as Support.`);
+		messageCategory = 'support';
 	}
 
 	const reclassified = !!(digitCategory && digitCategory !== messageCategory);
@@ -460,6 +470,79 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	else {
 		olog('[Orchestrator] Detected Support request.');
 		draftedResponse = `Hi ${customer.name || 'there'}, thanks for reaching out to ${company.name || 'us'}. We received your message and a support agent will get back to you shortly.`;
+
+		// Scenario 1: Support Call Calendar Verification
+		if (aiIntent?.wants_appointment) {
+			olog('[Orchestrator] Support call requested a meeting. Triggering Scenario 1 Verification...');
+			try {
+				const { processSupportCallMeetingConfirmation } = await import('./scenarios/s1-meeting-confirm');
+				
+				// For testing Scenario 1, we provide a mock calendar entry that matches the requested time
+				// so that it proceeds to draft the email instead of waiting for the grace period.
+				let mockCalendarEntries: any[] = [];
+				if (datetime) {
+					mockCalendarEntries = [{
+						id: 'mock-event-123',
+						title: 'Meeting with ' + (customer.name || 'Customer'),
+						startTime: new Date(datetime),
+						attendees: customer.email ? [customer.email] : []
+					}];
+				}
+
+				let hour = 10;
+				let minute = 0;
+				let transcriptWeekday = 'Wednesday';
+				if (datetime) {
+					try {
+						const dt = new Date(datetime);
+						if (!isNaN(dt.getTime())) {
+							hour = dt.getHours();
+							minute = dt.getMinutes();
+							transcriptWeekday = dt.toLocaleDateString('en-US', { weekday: 'long' });
+						}
+					} catch (e) {}
+				}
+
+				// Look for email in message
+				const emailMatch = rawMessage.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+				const targetEmail = emailMatch ? emailMatch[0] : customer.email || undefined;
+
+				const result = await processSupportCallMeetingConfirmation({
+					commId: commLog.communicationThreadId || commId,
+					companyId: company.id,
+					customerProfileId: pipelineCustomerProfileId || customer.id,
+					repEnteredEmail: undefined,
+					aiExtractedEmail: targetEmail,
+					transcriptWeekday,
+					transcriptDateStr: undefined,
+					transcriptHour: hour,
+					transcriptMinute: minute,
+					callStartTime: new Date(),
+					calendarEntries: mockCalendarEntries,
+					hasMeetingSignal: true,
+					now: new Date()
+				});
+
+				if (result.draftCreated && result.approval) {
+					olog('[Orchestrator] Scenario 1: Calendar verified, drafting email.');
+					draftChannel = 'email';
+					if (targetEmail) {
+						emailSubject = 'Meeting Confirmation';
+						draftedResponse = result.approval.draftContent;
+						scenarioLocked = true;
+					}
+				} else if (result.blocked) {
+					olog(`[Orchestrator] Scenario 1 Verification Blocked: ${result.reason}`);
+				} else if (result.inGracePeriod) {
+					olog(`[Orchestrator] Scenario 1: Meeting not found, started grace period timer.`);
+					// Don't draft anything yet, the timer will handle it
+					draftedResponse = ''; 
+					scenarioLocked = true;
+				}
+			} catch (e) {
+				oerr('[Orchestrator] Scenario 1 execution failed:', e);
+			}
+		}
 	}
 
 	// If this caller has prior cross-channel history (past calls OR SMS), make the reply
@@ -985,21 +1068,27 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				} else {
 
 					// Check for an existing open emergency container (Scenario 3: Repeat Escalation)
-					const openEmergencyContainer = pipelineCustomerProfileId ? await prisma.commContainer.findFirst({
+					let openEmergencyContainer = await prisma.commContainer.findFirst({
 						where: {
 							companyId: company.id,
-							customerProfileId: pipelineCustomerProfileId,
+							OR: [
+								...(pipelineCustomerProfileId ? [{ customerProfileId: pipelineCustomerProfileId }] : []),
+								{ contactId: customer.id }
+							],
 							state: 'open',
 							threadType: 'emergency'
 						},
 						orderBy: { openedAt: 'desc' }
-					}) : null;
+					});
 
 					const existingWorkOrder = openEmergencyContainer?.metadata 
 						? (openEmergencyContainer.metadata as Record<string, any>).active_work_order 
 						: null;
 
+					let isRepeatEscalation = false;
+
 					if (openEmergencyContainer && existingWorkOrder) {
+						isRepeatEscalation = true;
 						olog(`[Orchestrator] Found open emergency container ${openEmergencyContainer.id}, handling repeat escalation...`);
 						const { processSecondEmergencyVoicemail } = await import('./scenarios/s3-escalation');
 						
@@ -1029,6 +1118,15 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						olog(`[Orchestrator] Processed repeat voicemail. Escalating to rung ${workOrder.currentRung}.`);
 					} else {
 						// Scenario 2: Standard Emergency
+						olog(`[Orchestrator] No open emergency container found. Creating new emergency container.`);
+						const { createContainerAtIntake } = await import('$lib/server/container/container-service');
+						openEmergencyContainer = await createContainerAtIntake(prisma, {
+							companyId: company.id,
+							customerProfileId: pipelineCustomerProfileId || null,
+							contactId: customer.id,
+							threadType: 'emergency'
+						});
+
 						workOrder = {
 							commId: commLog.communicationThreadId || commId,
 							personId: customer.id,
@@ -1047,21 +1145,15 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					olog(`[Orchestrator] EMERGENCY auto-dispatched to ${dispatched} on-call number(s) from ${dispatchFrom} — callback ${callbackNumber} via Dial Ladder.`);
 
 					try {
-						if (pipelineCustomerProfileId) {
-							for (let attempt = 0; attempt < 30; attempt++) {
-								const updateRes = await prisma.commContainer.updateMany({
-									where: { companyId: company.id, customerProfileId: pipelineCustomerProfileId, state: 'open', threadType: 'emergency' },
-									data: { 
-										slaDeadline: slaDueAt,
-										metadata: { active_work_order: workOrder } as any
-									}
-								});
-								if (updateRes.count > 0) {
-									olog(`[Orchestrator] SLA+WorkOrder synced to CommContainer after ${attempt + 1} attempt(s).`);
-									break;
+						if (openEmergencyContainer) {
+							await prisma.commContainer.update({
+								where: { id: openEmergencyContainer.id },
+								data: { 
+									slaDeadline: slaDueAt,
+									metadata: { active_work_order: workOrder } as any
 								}
-								await new Promise(r => setTimeout(r, 1000));
-							}
+							});
+							olog(`[Orchestrator] SLA+WorkOrder synced to CommContainer ${openEmergencyContainer.id}.`);
 						}
 					} catch (e) {
 						oerr('[Orchestrator] Failed to sync SLA and workOrder to CommContainer:', e);
@@ -1074,35 +1166,62 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					// ONE communication-log record for the whole dispatch (not one per recipient), so the a2p
 					// Communication Log shows a SINGLE emergency-dispatch row carrying the SLA countdown.
 					if (dispatched > 0) {
-						await logCommunication({
-							type: 'voice',
-							direction: 'outbound',
-							status: 'completed',
-							source: dispatchFrom || companyNumber,
-							destination: rota.map((r) => r.phone).join(', '),
-							company_id: company.id,
-							customer_id: customer.id,
-							summary: `Emergency dispatch to ${dispatched} on-call number(s) — call ${callbackNumber}`,
-							content: `System dispatched dial ladder. Whisper text: "${workOrder?.whisperText || 'Emergency dispatch'}"`,
-							metadata: {
-								is_emergency_dispatch: true,
-								emergency_dispatch: true,
-								recipients: rota,
-								recipient_count: dispatched,
-								callback_number: callbackNumber,
-								trigger_comm_id: commId,
-								// Thread this dispatch into the customer's conversation (the inbound emergency
-								// call's thread) so the inbound call, this alert, and the callback all connect.
-								commId: commLog.communicationThreadId || commId,
-								thread_id: callbackNumber,
-								message_category: 'emergency',
-								sla_minutes: 10,
-								sla_due_at: slaDueAt.toISOString(),
-								sla_status: 'pending'
-							}
-						}).catch((e) =>
-							oerr('[Orchestrator] Emergency SMS sent but failed to log the record:', e)
-						);
+						if (isRepeatEscalation) {
+							await logCommunication({
+								type: 'voice',
+								direction: 'outbound',
+								status: 'completed',
+								source: dispatchFrom || companyNumber,
+								destination: rota.map((r) => r.phone).join(', '),
+								company_id: company.id,
+								customer_id: customer.id,
+								summary: `Escalation: emergency dispatch advanced to rung ${workOrder?.currentRung}`,
+								content: `System advanced dial ladder for repeat call. Whisper text: "${workOrder?.whisperText || 'Emergency dispatch'}"`,
+								metadata: {
+									is_escalation: true,
+									recipients: rota,
+									callback_number: callbackNumber,
+									trigger_comm_id: commId,
+									commId: commLog.communicationThreadId || commId,
+									thread_id: callbackNumber,
+									message_category: 'emergency',
+									sla_due_at: slaDueAt.toISOString()
+								}
+							}).catch((e) =>
+								oerr('[Orchestrator] Emergency escalation logged but failed to save record:', e)
+							);
+							olog('[Orchestrator] Logged escalation row (no duplicate SLA timer created).');
+						} else {
+							await logCommunication({
+								type: 'voice',
+								direction: 'outbound',
+								status: 'completed',
+								source: dispatchFrom || companyNumber,
+								destination: rota.map((r) => r.phone).join(', '),
+								company_id: company.id,
+								customer_id: customer.id,
+								summary: `Emergency dispatch to ${dispatched} on-call number(s) — call ${callbackNumber}`,
+								content: `System dispatched dial ladder. Whisper text: "${workOrder?.whisperText || 'Emergency dispatch'}"`,
+								metadata: {
+									is_emergency_dispatch: true,
+									emergency_dispatch: true,
+									recipients: rota,
+									recipient_count: dispatched,
+									callback_number: callbackNumber,
+									trigger_comm_id: commId,
+									// Thread this dispatch into the customer's conversation (the inbound emergency
+									// call's thread) so the inbound call, this alert, and the callback all connect.
+									commId: commLog.communicationThreadId || commId,
+									thread_id: callbackNumber,
+									message_category: 'emergency',
+									sla_minutes: 10,
+									sla_due_at: slaDueAt.toISOString(),
+									sla_status: 'pending'
+								}
+							}).catch((e) =>
+								oerr('[Orchestrator] Emergency SMS sent but failed to log the record:', e)
+							);
+						}
 					}
 
 				// --- SLA BREACH TRACKER ---
