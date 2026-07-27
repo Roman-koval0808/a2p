@@ -1069,7 +1069,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				const companySettings = (company.settings || {}) as Record<string, any>;
 				const smsNumbers = companySettings.notifications?.phone_numbers || [];
 				const customerName = customer?.firstName || customer?.name || 'A customer';
-				const callbackNumber = extractCallbackNumber(rawMessage) || (metadata.callback_number as string) || customerPhone;
+				const callbackNumber = customerPhone;
 				const { resolveSmsSender } = await import('./company-sender');
 				const dispatchFrom = (await resolveSmsSender(company.id, companyNumber)) || companyNumber || undefined;
 				let slaDueAt = new Date(Date.now() + 10 * 60 * 1000);

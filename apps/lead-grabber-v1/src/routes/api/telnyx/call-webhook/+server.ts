@@ -1092,6 +1092,22 @@ export const POST: RequestHandler = async ({ request }) => {
 				}
 				break;
 			}
+			case 'call.bridged': {
+				console.log('📞 Call bridged:', callControlId);
+				await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/record_start`, {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+						Authorization: `Bearer ${TELNYX_API_KEY}`
+					},
+					body: JSON.stringify({
+						format: 'mp3',
+						channels: 'dual',
+						client_state: payload.client_state || ''
+					})
+				}).catch(e => console.error('❌ Failed to start recording on bridge:', e));
+				break;
+			}
 
 			case 'call.hangup': {
 				console.log('📞 Call hangup:', callControlId);
