@@ -512,6 +512,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					companyId: company.id,
 					customerProfileId: pipelineCustomerProfileId || undefined,
 					contactId: customer.id,
+					customerName: customer.name || undefined,
 					repEnteredEmail: undefined,
 					aiExtractedEmail: targetEmail,
 					transcriptWeekday,

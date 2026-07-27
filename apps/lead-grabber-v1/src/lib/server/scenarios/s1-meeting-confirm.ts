@@ -65,6 +65,7 @@ export async function processSupportCallMeetingConfirmation(input: {
 	companyId: string;
 	customerProfileId?: string;
 	contactId: string;
+	customerName?: string;
 	repEnteredEmail?: string;
 	aiExtractedEmail?: string;
 	transcriptWeekday?: string;
@@ -198,7 +199,8 @@ export async function processSupportCallMeetingConfirmation(input: {
 		fireAt: graceDeadline,
 		payload: {
 			targetTime: dateRes.resolvedDate.toISOString(),
-			email: finalEmail
+			email: finalEmail,
+			customerName: input.customerName || undefined
 		}
 	});
 
@@ -214,11 +216,13 @@ export async function processSupportCallMeetingConfirmation(input: {
 export async function processGraceExpiration(prisma: any, timer: any) {
 	console.log(`[Scenario 1] Processing calendar grace expiration for timer ${timer.id}`);
 	
-	const { targetTime, email } = (timer.payload as any) || {};
+	const { targetTime, email, customerName } = (timer.payload as any) || {};
 	if (!targetTime) return;
 
 	const { getUpcomingAppointments } = await import('$lib/server/google-calendar');
 	const rawAppts = await getUpcomingAppointments(timer.companyId, 7);
+	
+	console.log(`[Scenario 1] Fetched ${rawAppts.length} calendar entries for company ${timer.companyId}`);
 	
 	const calendarEntries = rawAppts.map(a => ({
 		id: a.id,
@@ -227,12 +231,21 @@ export async function processGraceExpiration(prisma: any, timer: any) {
 		attendees: (a.attendees || []).map((att: any) => att.email)
 	}));
 
+	console.log(`[Scenario 1] Calendar entries:`, calendarEntries.map(e => ({
+		title: e.title,
+		startTime: e.startTime.toISOString(),
+		attendees: e.attendees
+	})));
+	console.log(`[Scenario 1] Looking for targetTime=${targetTime}, email=${email}, customerName=${customerName}`);
+
 	const calMatch = searchCalendarForMeeting(
 		calendarEntries,
 		new Date(targetTime),
-		undefined,
+		customerName,
 		email
 	);
+	
+	console.log(`[Scenario 1] Match result: status=${calMatch.status}, score=${calMatch.score}`);
 
 	if (calMatch.status === 'found') {
 		console.log(`[Scenario 1] Meeting FOUND after grace period!`);

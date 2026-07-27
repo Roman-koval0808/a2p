@@ -545,7 +545,8 @@ export async function getCustomerAppointments(
 
 /**
  * Retrieves ALL upcoming appointments within the specified number of days.
- * Does not filter by customer information (phone/email/name).
+ * Queries ALL calendars the user has access to (not just primary), so manually
+ * added events on secondary calendars (e.g. "Studio Blopp") are included.
  */
 export async function getUpcomingAppointments(
 	companyId: string,
@@ -557,31 +558,58 @@ export async function getUpcomingAppointments(
 	const now = new Date();
 	const end = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
 
+	// Step 1: Get all calendar IDs the user can see
+	let calendarIds: string[] = [auth.calendarId];
 	try {
-		const params = new URLSearchParams({
-			timeMin: now.toISOString(),
-			timeMax: end.toISOString(),
-			singleEvents: 'true',
-			orderBy: 'startTime',
-			maxResults: '250'
-		});
-		
-		const res = await fetch(
-			`${CAL_API}/calendars/${encodeURIComponent(auth.calendarId)}/events?${params.toString()}`,
+		const listRes = await fetch(
+			`${CAL_API}/users/me/calendarList?fields=items(id,accessRole)`,
 			{ headers: { Authorization: `Bearer ${auth.token}` } }
 		);
-		
-		if (!res.ok) {
-			console.error('[google-calendar] getUpcomingAppointments failed:', await res.text());
-			return [];
+		if (listRes.ok) {
+			const listData = await listRes.json();
+			const ids = (listData.items || [])
+				.filter((c: any) => c.accessRole === 'owner' || c.accessRole === 'writer' || c.accessRole === 'reader')
+				.map((c: any) => c.id as string);
+			if (ids.length > 0) calendarIds = ids;
 		}
-		
-		const data = await res.json();
-		return data.items || [];
 	} catch (e) {
-		console.error('[google-calendar] getUpcomingAppointments error:', e);
-		return [];
+		console.error('[google-calendar] calendarList fetch failed, falling back to primary:', e);
 	}
+
+	// Step 2: Query events from each calendar in parallel
+	const params = new URLSearchParams({
+		timeMin: now.toISOString(),
+		timeMax: end.toISOString(),
+		singleEvents: 'true',
+		orderBy: 'startTime',
+		maxResults: '250'
+	});
+
+	const byId = new Map<string, any>();
+	const fetches = calendarIds.map(async (calId) => {
+		try {
+			const res = await fetch(
+				`${CAL_API}/calendars/${encodeURIComponent(calId)}/events?${params.toString()}`,
+				{ headers: { Authorization: `Bearer ${auth.token}` } }
+			);
+			if (!res.ok) {
+				console.error(`[google-calendar] getUpcomingAppointments failed for calendar ${calId}:`, await res.text());
+				return;
+			}
+			const data = await res.json();
+			for (const item of (data.items || [])) {
+				if (item?.id && item.status !== 'cancelled') {
+					byId.set(item.id, item);
+				}
+			}
+		} catch (e) {
+			console.error(`[google-calendar] getUpcomingAppointments error for calendar ${calId}:`, e);
+		}
+	});
+
+	await Promise.all(fetches);
+	console.log(`[google-calendar] getUpcomingAppointments: queried ${calendarIds.length} calendar(s), found ${byId.size} events`);
+	return Array.from(byId.values());
 }
 
 /**
