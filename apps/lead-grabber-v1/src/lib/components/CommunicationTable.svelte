@@ -204,6 +204,22 @@
 		onSummaryClick?.(comm);
 	}
 
+	async function fastForwardTimer(comm: Communication) {
+		try {
+			const res = await fetch(`/api/communication-logs/${comm.id}/fast-forward-timer`, {
+				method: 'POST'
+			});
+			if (res.ok) {
+				alert('Timer fast-forwarded successfully. Please refresh the page in a moment to see updates.');
+			} else {
+				const data = await res.json();
+				alert(`Failed to fast forward: ${data.error || 'Unknown error'}`);
+			}
+		} catch (e: any) {
+			alert(`Error: ${e.message}`);
+		}
+	}
+
 	function handleActionClick(action: string, comm: any) {
 		onActionClick?.(action, comm);
 		openOptionsMenu = null;
@@ -390,6 +406,15 @@
 											>
 												⏳ {cal?.label}
 											</span>
+											{#if cal?.label !== 'Verification Failed'}
+												<button
+													class="ml-1 inline-flex items-center justify-center rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-600 hover:bg-indigo-100 border border-indigo-200"
+													title="Fast-forward timer for testing"
+													onclick={(e) => { e.stopPropagation(); fastForwardTimer(comm); }}
+												>
+													⏭️ FF
+												</button>
+											{/if}
 										{/if}
 										{#if dept}
 											<span class="inline-flex items-center rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 leading-none">
