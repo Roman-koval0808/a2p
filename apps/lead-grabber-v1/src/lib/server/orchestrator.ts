@@ -953,6 +953,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						olog(`[Orchestrator] Found open emergency container ${openEmergencyContainer.id}, handling repeat escalation...`);
 						const { processSecondEmergencyVoicemail } = await import('./scenarios/s3-escalation');
 						
+						// Inherit the original SLA deadline so it doesn't reset on a frantic callback!
+						slaDueAt = new Date(existingWorkOrder.slaDeadline);
+
 						// Get the previous transcript
 						const firstEntry = await prisma.commEntry.findFirst({
 							where: { commId: openEmergencyContainer.id, direction: 'inbound', channel: 'voice' },
