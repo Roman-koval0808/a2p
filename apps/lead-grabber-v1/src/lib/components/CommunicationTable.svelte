@@ -106,6 +106,26 @@
 		};
 	}
 
+	/**
+	 * Calendar Grace Period badge state for an in-progress verification.
+	 */
+	function calendarGraceBadge(comm: any): { label: string; tone: string } | null {
+		const m = comm?.raw?.metadata;
+		if (!m?.waiting_for_calendar || !m?.timer_due_at) return null;
+		
+		const dueMs = new Date(m.timer_due_at).getTime();
+		const remaining = dueMs - nowMs;
+		
+		if (remaining <= 0) return { label: 'Verification Failed', tone: 'bg-red-100 text-red-700' };
+		
+		const mm = Math.floor(remaining / 60000);
+		const ss = Math.floor((remaining % 60000) / 1000);
+		return {
+			label: `Verifying... ${mm}:${String(ss).padStart(2, '0')}`,
+			tone: 'bg-indigo-100 text-indigo-700 border border-indigo-200'
+		};
+	}
+
 	const filteredCommunications = $derived.by(() => {
 		let filtered = communications;
 		if (activeFilter !== 'All') {
@@ -360,6 +380,15 @@
 												title="Emergency callback SLA — escalates if the tech doesn't call back in time"
 											>
 												🚨 {sla?.label}
+											</span>
+										{/if}
+										{#if calendarGraceBadge(comm)}
+											{@const cal = calendarGraceBadge(comm)}
+											<span
+												class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold leading-none {cal?.tone}"
+												title="Waiting 15 minutes for calendar verification"
+											>
+												⏳ {cal?.label}
 											</span>
 										{/if}
 										{#if dept}

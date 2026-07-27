@@ -535,7 +535,28 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					olog(`[Orchestrator] Scenario 1 Verification Blocked: ${result.reason}`);
 				} else if (result.inGracePeriod) {
 					olog(`[Orchestrator] Scenario 1: Meeting not found, started grace period timer.`);
-					// Don't draft anything yet, the timer will handle it
+					
+					await logCommunication({
+						type: 'voice',
+						direction: 'outbound',
+						status: 'pending',
+						source: 'System',
+						destination: customer.name || customerPhone,
+						company_id: company.id,
+						customer_id: customer.id,
+						summary: `Waiting for Calendar Verification (15m)`,
+						content: `System checked calendar for ${transcriptWeekday} at ${hour}:${minute.toString().padStart(2, '0')} but found no matching event. Waiting 15 minutes for representative to add it before failing.`,
+						metadata: {
+							is_system_note: true,
+							commId: commLog.communicationThreadId || commId,
+							thread_id: customerPhone,
+							message_category: 'support',
+							waiting_for_calendar: true,
+							timer_due_at: new Date(Date.now() + 15 * 60 * 1000).toISOString()
+						}
+					});
+
+					// Don't draft a response yet, the timer will handle it
 					draftedResponse = ''; 
 					scenarioLocked = true;
 				}
