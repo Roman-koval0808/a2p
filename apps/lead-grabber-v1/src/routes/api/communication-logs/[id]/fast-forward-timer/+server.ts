@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { prisma } from '$lib/db';
-import { processTimers } from '$lib/server/timer/timer-service';
+import { sweepTimers } from '$lib/server/timer/timer-service';
 
 export async function POST({ params }) {
 	const logId = params.id;
@@ -27,7 +27,7 @@ export async function POST({ params }) {
 		
 		if (result.count > 0) {
 			// Trigger processing immediately
-			await processTimers(prisma);
+			await sweepTimers();
 			return json({ success: true, message: 'Timer fast-forwarded and processed.' });
 		} else {
 			return json({ error: 'No active timer found for this thread' }, { status: 404 });
