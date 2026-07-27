@@ -495,6 +495,17 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				const emailMatch = rawMessage.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
 				const targetEmail = emailMatch ? emailMatch[0] : (aiIntent?.email || metadata.ai_extracted_email || customer.email || undefined);
 
+				// Fetch ALL upcoming calendar events (don't pre-filter by customer, so we catch manually added events)
+				const { getUpcomingAppointments } = await import('$lib/server/google-calendar');
+				const rawAppts = await getUpcomingAppointments(company.id, 7);
+				
+				const realCalendarEntries = rawAppts.map(a => ({
+					id: a.id,
+					title: a.summary || 'Appointment',
+					startTime: new Date(a.start?.dateTime || a.start?.date),
+					attendees: (a.attendees || []).map((att: any) => att.email)
+				}));
+
 				const result = await processSupportCallMeetingConfirmation({
 					commId: commLog.communicationThreadId || commId,
 					companyId: company.id,
@@ -506,7 +517,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					transcriptHour: hour,
 					transcriptMinute: minute,
 					callStartTime: new Date(),
-					calendarEntries: [], // Pass empty so it realistically fails and triggers the 15m grace period
+					calendarEntries: realCalendarEntries,
 					hasMeetingSignal: true,
 					now: new Date()
 				});

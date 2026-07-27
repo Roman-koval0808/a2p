@@ -544,6 +544,47 @@ export async function getCustomerAppointments(
 }
 
 /**
+ * Retrieves ALL upcoming appointments within the specified number of days.
+ * Does not filter by customer information (phone/email/name).
+ */
+export async function getUpcomingAppointments(
+	companyId: string,
+	days: number = 7
+): Promise<any[]> {
+	const auth = await getAccessToken(companyId);
+	if (!auth) return [];
+
+	const now = new Date();
+	const end = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+
+	try {
+		const params = new URLSearchParams({
+			timeMin: now.toISOString(),
+			timeMax: end.toISOString(),
+			singleEvents: 'true',
+			orderBy: 'startTime',
+			maxResults: '250'
+		});
+		
+		const res = await fetch(
+			`${CAL_API}/calendars/${encodeURIComponent(auth.calendarId)}/events?${params.toString()}`,
+			{ headers: { Authorization: `Bearer ${auth.token}` } }
+		);
+		
+		if (!res.ok) {
+			console.error('[google-calendar] getUpcomingAppointments failed:', await res.text());
+			return [];
+		}
+		
+		const data = await res.json();
+		return data.items || [];
+	} catch (e) {
+		console.error('[google-calendar] getUpcomingAppointments error:', e);
+		return [];
+	}
+}
+
+/**
  * Pick which upcoming appointment a reschedule request refers to — SAFELY:
  *  - exactly one upcoming → that one;
  *  - the message names a day/date that matches exactly one → that one;
