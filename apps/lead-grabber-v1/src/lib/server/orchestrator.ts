@@ -1141,12 +1141,13 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						// Scenario 2: Standard Emergency
 						olog(`[Orchestrator] No open emergency container found. Creating new emergency container.`);
 						const { createContainerAtIntake } = await import('$lib/server/container/container-service');
-						openEmergencyContainer = await createContainerAtIntake(prisma, {
+						const createResult = await createContainerAtIntake(prisma, {
 							companyId: company.id,
 							customerProfileId: pipelineCustomerProfileId || null,
 							contactId: customer.id,
 							threadType: 'emergency'
 						});
+						openEmergencyContainer = createResult.container;
 
 						workOrder = {
 							commId: commLog.communicationThreadId || commId,
