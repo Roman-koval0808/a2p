@@ -487,45 +487,21 @@ export const POST: RequestHandler = async ({ request }) => {
 				}
 
 				if (decoded?.isDialLadderCustomerLeg) {
-					console.log('📞 Emergency Customer Leg Answered. Bridging to Tech...');
+					console.log('📞 Emergency Customer Leg Answered. Bridging instantly to Tech...');
 					try {
-						// Record the bridged call
-						await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/record_start`, {
+						await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/bridge`, {
 							method: 'POST',
 							headers: {
 								'Content-Type': 'application/json',
 								Authorization: `Bearer ${TELNYX_API_KEY}`
 							},
 							body: JSON.stringify({
-								format: 'mp3',
-								channels: 'dual',
-								client_state: payload.client_state
+								call_control_id: decoded.techCallControlId,
+								client_state: payload.client_state || ''
 							})
 						});
-
-						// Play disclosure, then bridge
-						await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/speak`, {
-							method: 'POST',
-							headers: {
-								'Content-Type': 'application/json',
-								Authorization: `Bearer ${TELNYX_API_KEY}`
-							},
-							body: JSON.stringify({
-								payload: 'This call may be recorded for quality and training purposes.',
-								voice: 'female',
-								language: 'en-US',
-								client_state: Buffer.from(
-									JSON.stringify({
-										isDialLadderCustomerLegBridge: true,
-										techCallControlId: decoded.techCallControlId,
-										commId: decoded.commId,
-										workOrder: decoded.workOrder
-									})
-								).toString('base64')
-							})
-						});
-					} catch(e) {
-						console.error(e);
+					} catch (err) {
+						console.error('❌ Error in Customer Leg Answer bridge:', err);
 					}
 					break;
 				}
@@ -960,24 +936,7 @@ export const POST: RequestHandler = async ({ request }) => {
 				if (!callControlId || !payload?.client_state) break;
 				const decoded = safeDecodeClientState(payload.client_state);
 				if (decoded) {
-					if (decoded.isDialLadderCustomerLegBridge && decoded.techCallControlId) {
-						console.log('✅ Emergency Customer Leg disclosure ended. Bridging calls now...');
-						try {
-							await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/bridge`, {
-								method: 'POST',
-								headers: {
-									'Content-Type': 'application/json',
-									Authorization: `Bearer ${TELNYX_API_KEY}`
-								},
-								body: JSON.stringify({
-									call_control_id: decoded.techCallControlId
-								})
-							});
-						} catch (e) {
-							console.error('❌ Failed to bridge emergency calls:', e);
-						}
-						break;
-					}
+
 
 					if (decoded.afterPlaybackHangup) {
 						await telnyxHangup(callControlId);
