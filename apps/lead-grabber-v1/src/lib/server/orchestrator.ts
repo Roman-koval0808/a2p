@@ -789,6 +789,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					confirm_email: true,
 					target_email: destinationEmail,
 					trigger_comm_id: commId,
+					commId: commLog.communicationThreadId || commId,
 					message_category: messageCategory || null
 				}
 			});
