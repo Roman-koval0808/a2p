@@ -22,6 +22,35 @@ const MONTHS: Record<string, number> = {
 	dec: 11, december: 11
 };
 
+function offsetMsAt(instant: Date, timeZone: string): number {
+	const dtf = new Intl.DateTimeFormat('en-US', {
+		timeZone,
+		hour12: false,
+		year: 'numeric',
+		month: '2-digit',
+		day: '2-digit',
+		hour: '2-digit',
+		minute: '2-digit',
+		second: '2-digit'
+	});
+	const p: Record<string, string> = {};
+	for (const part of dtf.formatToParts(instant)) p[part.type] = part.value;
+	const rendered = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute, +p.second);
+	return rendered - instant.getTime();
+}
+
+export function zonedNaiveToUtc(naive: string, timeZone = 'America/Toronto'): Date {
+	const asIfUtc = new Date(`${naive}Z`);
+	if (isNaN(asIfUtc.getTime())) return new Date(naive);
+	const first = offsetMsAt(asIfUtc, timeZone);
+	const refined = offsetMsAt(new Date(asIfUtc.getTime() - first), timeZone);
+	return new Date(asIfUtc.getTime() - refined);
+}
+
+function pad(n: number) {
+	return String(n).padStart(2, '0');
+}
+
 export function resolveRelativeDate(
 	referenceTime: Date,
 	transcriptWeekday?: string | null,
@@ -30,13 +59,15 @@ export function resolveRelativeDate(
 	minute = 0
 ): RelativeDateResolution {
 	const ref = new Date(referenceTime);
-	const refDayIndex = ref.getDay();
+	// We use the actual timezone offset for the current time to determine what day it is locally
+	// But it's safer to just do a simple fallback if needed.
 
 	// If explicit date string is present, e.g., "August 4th" or "2026-08-04"
 	if (transcriptDateStr) {
 		const parsedDate = parseDateString(transcriptDateStr, ref.getFullYear());
 		if (parsedDate) {
-			parsedDate.setUTCHours(hour, minute, 0, 0);
+			const naiveStr = `${parsedDate.getUTCFullYear()}-${pad(parsedDate.getUTCMonth() + 1)}-${pad(parsedDate.getUTCDate())}T${pad(hour)}:${pad(minute)}:00`;
+			const finalDate = zonedNaiveToUtc(naiveStr, 'America/Toronto');
 
 			// Check weekday consistency if weekday was also mentioned
 			if (transcriptWeekday) {
@@ -44,7 +75,7 @@ export function resolveRelativeDate(
 				const actualWeekday = transcriptWeekday.toLowerCase().trim();
 				if (!expectedWeekday.startsWith(actualWeekday.slice(0, 3))) {
 					return {
-						resolvedDate: parsedDate,
+						resolvedDate: finalDate,
 						dateConfidence: 'conflict',
 						hasConflict: true,
 						conflictReason: `Weekday/date conflict: "${transcriptWeekday}" does not match date "${transcriptDateStr}" (which is a ${expectedWeekday})`
@@ -53,10 +84,10 @@ export function resolveRelativeDate(
 			}
 
 			return {
-				resolvedDate: parsedDate,
+				resolvedDate: finalDate,
 				dateConfidence: 'exact',
 				hasConflict: false,
-				formattedExplicitText: formatDateExplicit(parsedDate)
+				formattedExplicitText: formatDateExplicit(finalDate)
 			};
 		}
 	}
@@ -73,13 +104,14 @@ export function resolveRelativeDate(
 
 			const resolved = new Date(ref);
 			resolved.setUTCDate(ref.getUTCDate() + daysAhead);
-			resolved.setUTCHours(hour, minute, 0, 0);
+			const naiveStr = `${resolved.getUTCFullYear()}-${pad(resolved.getUTCMonth() + 1)}-${pad(resolved.getUTCDate())}T${pad(hour)}:${pad(minute)}:00`;
+			const finalDate = zonedNaiveToUtc(naiveStr, 'America/Toronto');
 
 			return {
-				resolvedDate: resolved,
+				resolvedDate: finalDate,
 				dateConfidence: 'inferred',
 				hasConflict: false,
-				formattedExplicitText: formatDateExplicit(resolved)
+				formattedExplicitText: formatDateExplicit(finalDate)
 			};
 		}
 	}
