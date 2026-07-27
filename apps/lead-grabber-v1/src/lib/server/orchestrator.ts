@@ -304,6 +304,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	let draftChannel: 'sms' | 'email' = 'sms';
 	let emailSubject = '';
 	let proposedAppointment: any = null;
+	let skipSafetyNet = false;
 	let scenarioLocked = false; // a scenario produced a specific draft — don't let the conversational reply override it
 
 	olog(`[Orchestrator] Debug -> digit: "${digit}", intent: "${intent}", sub_intent: "${sub_intent}"`);

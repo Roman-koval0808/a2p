@@ -10,13 +10,16 @@ export async function POST({ params }) {
 			where: { id: logId }
 		});
 		
-		if (!comm || !comm.communicationThreadId) {
-			return json({ error: 'Communication log or thread not found' }, { status: 404 });
+		if (!comm) {
+			return json({ error: 'Communication log not found' }, { status: 404 });
 		}
+		
+		// Timer commId could be the thread ID or the log ID itself
+		const possibleIds = [comm.communicationThreadId, comm.id].filter(Boolean) as string[];
 		
 		const result = await prisma.pipelineTimer.updateMany({
 			where: { 
-				commId: comm.communicationThreadId,
+				commId: { in: possibleIds },
 				status: 'registered',
 				type: 'calendar_grace'
 			},
