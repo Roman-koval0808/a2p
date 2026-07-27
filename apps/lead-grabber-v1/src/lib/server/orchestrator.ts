@@ -888,7 +888,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						} catch (e) {}
 					}
 
-					await processSalesVoicemailBooking({
+					const bookingResult = await processSalesVoicemailBooking({
 						commId: commLog.communicationThreadId || commId,
 						companyId: company.id,
 						customerProfileId: pipelineCustomerProfileId || customer.id,
@@ -902,6 +902,28 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						availableResources,
 						now: new Date()
 					});
+
+					if (bookingResult.smsDrafted && bookingResult.approval) {
+						await logCommunication({
+							type: 'sms',
+							direction: 'outbound',
+							status: 'pending_approval',
+							source: companyNumber,
+							destination: customerPhone,
+							company_id: company.id,
+							customer_id: customer.id,
+							summary: 'Booking Confirmation Approval',
+							content: bookingResult.approval.draftContent,
+							metadata: {
+								thread_id: customerPhone,
+								commId: commLog.communicationThreadId || commId,
+								is_draft: true,
+								orchestrator_draft: true,
+								trigger_comm_id: commId,
+								message_category: messageCategory || null
+							}
+						});
+					}
 				} else {
 					await logCommunication({
 						type: 'sms',

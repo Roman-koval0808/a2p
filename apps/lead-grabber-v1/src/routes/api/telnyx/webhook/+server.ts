@@ -229,6 +229,8 @@ export const POST: RequestHandler = async ({ request }) => {
 
 				// --- SMS Confirmation Loop (Scenario 4) ---
 				let handledByConfirmationLoop = false;
+				let skipOrchestrator = false;
+				let autoSent = false;
 				if (companyId) {
 					try {
 						const cid = companyId as string;
@@ -262,6 +264,19 @@ export const POST: RequestHandler = async ({ request }) => {
 									draftText = 'A team member will review your request and get back to you shortly.';
 								}
 								console.log(`[SMS Webhook] Handled by Confirmation Loop, intent: ${result.intent}`);
+
+								if (result.terminalState) {
+									skipOrchestrator = true;
+									try {
+										const { sendAutomatedSms } = await import('$lib/server/sms');
+										await sendAutomatedSms(normalizedPhoneNumber, draftText, toNumber || undefined);
+										autoSent = true;
+									} catch (err) {
+										console.error('[SMS Webhook] Failed to auto-send confirmation SMS:', err);
+									}
+								} else if (result.routedToHuman) {
+									skipOrchestrator = true;
+								}
 							}
 						}
 					} catch (e) {
@@ -646,13 +661,13 @@ export const POST: RequestHandler = async ({ request }) => {
 						// drafter — it owns the billing balance/email + scenario logic, populates the
 						// action items, and records the orchestrator logs. If we also drafted here, this
 						// draft would win the de-dup race and suppress all of that.
-						const orchestratorWillDraft = !!(inboundCommLog?.id && effectiveCompanyId && smsText.trim());
+						const orchestratorWillDraft = !!(inboundCommLog?.id && effectiveCompanyId && smsText.trim() && !skipOrchestrator);
 						try {
-							if (!orchestratorWillDraft) {
+							if (!orchestratorWillDraft || skipOrchestrator) {
 								await logCommunication({
 									type: 'sms',
 									direction: 'outbound',
-									status: 'pending_approval',
+									status: autoSent ? 'completed' : 'pending_approval',
 									source: toNumber || 'Inbox',
 									destination: phoneNumber,
 									company_id: compId,
@@ -678,7 +693,7 @@ export const POST: RequestHandler = async ({ request }) => {
 					}
 
 					// --- SMS → Orchestrator: extract intent and route through orchestrator ---
-					if (inboundCommLog?.id && effectiveCompanyId && smsText.trim()) {
+					if (inboundCommLog?.id && effectiveCompanyId && smsText.trim() && !skipOrchestrator) {
 						try {
 							const { analyzeCallLog } = await import('$lib/server/openai');
 							const analysis = await analyzeCallLog(smsText);
