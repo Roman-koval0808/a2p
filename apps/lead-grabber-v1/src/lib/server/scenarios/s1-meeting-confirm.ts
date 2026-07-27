@@ -64,6 +64,7 @@ export async function processSupportCallMeetingConfirmation(input: {
 	commId: string;
 	companyId: string;
 	customerProfileId?: string;
+	contactId: string;
 	repEnteredEmail?: string;
 	aiExtractedEmail?: string;
 	transcriptWeekday?: string;
@@ -139,13 +140,23 @@ export async function processSupportCallMeetingConfirmation(input: {
 		finalEmail
 	);
 
+	// Create a CommContainer to hold the SLA timer and the Approval draft (required for Prisma foreign keys)
+	const { createContainerAtIntake } = await import('$lib/server/container/container-service');
+	const container = await createContainerAtIntake(prisma, {
+		companyId: input.companyId,
+		customerProfileId: input.customerProfileId,
+		contactId: input.contactId,
+		threadType: 'support',
+		sourceCommId: input.commId
+	});
+
 	// Case 1: Match found -> proceed to draft immediately (Test 1-4a)
 	if (calMatch.status === 'found') {
 		const draftContent = `Hi, confirming our meeting scheduled for ${dateRes.formattedExplicitText || dateRes.resolvedDate.toISOString()}.`;
 		const approvalDeadline = new Date(now.getTime() + 2 * 3600 * 1000);
 
 		const approval = await createCustomerFacingApproval(prisma, {
-			commId: input.commId,
+			commId: container.id, // Use container ID for foreign key!
 			draftType: 'email',
 			draftContent,
 			contextPayload: {
@@ -181,7 +192,7 @@ export async function processSupportCallMeetingConfirmation(input: {
 	// Case 3: Missing at T+0 -> Start calendar_grace timer (15 min), DO NOT alert yet (Test 1-4c)
 	const graceDeadline = new Date(now.getTime() + 15 * 60 * 1000);
 	await registerTimer(prisma, {
-		commId: input.commId,
+		commId: container.id, // Use container ID for foreign key!
 		companyId: input.companyId,
 		type: 'calendar_grace',
 		fireAt: graceDeadline,
