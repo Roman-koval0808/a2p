@@ -1087,6 +1087,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 				let dispatched = rota.length;
 				let workOrder: any = null;
+				let isRepeatEscalation = false;
 				if (rota.length === 0) {
 					oerr('[Orchestrator] EMERGENCY but no on-call numbers configured (Settings → notifications.phone_numbers) — nobody was alerted.');
 				} else {
@@ -1109,7 +1110,6 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						? (openEmergencyContainer.metadata as Record<string, any>).active_work_order 
 						: null;
 
-					let isRepeatEscalation = false;
 
 					if (openEmergencyContainer && existingWorkOrder) {
 						isRepeatEscalation = true;

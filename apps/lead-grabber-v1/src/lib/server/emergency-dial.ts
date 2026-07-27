@@ -5,10 +5,17 @@ import { logCommunication } from '$lib/utils/communication-log';
 import { getCompanyAndFlowByPhoneNumber } from '$lib/company-numbers';
 
 export async function startDialLadder(workOrder: EmergencyBridgeWorkOrder, companyNumber: string) {
-	const currentTech = workOrder.dialLadder[workOrder.currentRung - 1];
+	let currentTech = workOrder.dialLadder[workOrder.currentRung - 1];
 	if (!currentTech) {
-		console.error('[EmergencyDial] No tech at rung', workOrder.currentRung);
-		return false;
+		// Ladder exhausted — wrap around to the first tech so emergencies always get bridged
+		if (workOrder.dialLadder.length > 0) {
+			workOrder.currentRung = 1;
+			currentTech = workOrder.dialLadder[0];
+			console.log(`[EmergencyDial] Rung ${workOrder.currentRung} exhausted, wrapping back to rung 1: ${currentTech.name}`);
+		} else {
+			console.error('[EmergencyDial] No techs in dial ladder at all — cannot bridge');
+			return false;
+		}
 	}
 
 	const clientStateObj = {
@@ -50,7 +57,7 @@ export async function startDialLadder(workOrder: EmergencyBridgeWorkOrder, compa
 			to,
 			from: companyNumber,
 			client_state: clientState,
-			timeout_secs: 15
+			timeout_secs: 45
 		})
 	});
 
