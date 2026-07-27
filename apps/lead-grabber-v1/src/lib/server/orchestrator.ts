@@ -559,6 +559,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					// Don't draft a response yet, the timer will handle it
 					draftedResponse = ''; 
 					scenarioLocked = true;
+					skipSafetyNet = true;
 				}
 			} catch (e) {
 				oerr('[Orchestrator] Scenario 1 execution failed:', e);
@@ -769,7 +770,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	}
 
 	// Safety net: never leave a non-emergency inbound without a drafted reply.
-	if (!draftedResponse && messageCategory !== 'emergency') {
+	if (!draftedResponse && messageCategory !== 'emergency' && !skipSafetyNet) {
 		olog('[Orchestrator] No draft produced upstream — using the generic follow-up safety net.');
 		draftedResponse = `Hi ${customer.name || 'there'}, thanks for reaching out to ${company.name || 'us'}. Someone from our team will follow up with you shortly.`;
 	}
