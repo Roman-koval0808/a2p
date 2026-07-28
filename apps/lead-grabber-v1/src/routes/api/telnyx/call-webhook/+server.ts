@@ -2215,13 +2215,14 @@ export const POST: RequestHandler = async ({ request }) => {
 
 							// Only the recording that actually produced the transcript may drive the reply.
 							// Outbound dialer calls skip draft reply generation.
-							if (finalLogId && !isFullCallRecording && !isOutboundCall) {
+							const shouldTriggerOrchestrator = finalLogId && !isOutboundCall && (hasVoicemail ? !isFullCallRecording : true);
+							if (shouldTriggerOrchestrator) {
 								import('$lib/server/orchestrator').then(({ process_orchestrator }) => {
 									process_orchestrator(finalLogId as string, 'ai_ready').catch(e => console.error('[Orchestrator] Error:', e));
 								});
 							} else if (isOutboundCall) {
 								console.log('🎥 Outbound dialer call logged and transcribed — skipping draft reply generation');
-							} else if (isFullCallRecording) {
+							} else if (isFullCallRecording && hasVoicemail) {
 								console.log('🎥 Not triggering the orchestrator from the whole-call recording — the voicemail leg owns the reply');
 							}
 
