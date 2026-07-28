@@ -589,7 +589,7 @@
 					ivrDigit
 						? `Pressed ${ivrDigit}${ivrIntentLabel ? ` (${ivrIntentLabel})` : ''}`
 						: ivrIntentLabel || null,
-					leftMessage ? 'Voicemail left' : null
+					leftMessage ? (meta.is_voicemail === false || meta.bridging ? 'Call recorded' : 'Voicemail left') : null
 				]
 					.filter(Boolean)
 					.join(' · ') || null

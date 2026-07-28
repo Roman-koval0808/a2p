@@ -78,6 +78,8 @@ export async function transcribeAudio(audioUrl: string): Promise<string> {
 		formData.append('model', 'whisper-1');
 		formData.append('response_format', 'text');
 		formData.append('prompt', 'ClearSky Software, support, bank account');
+		formData.append('language', 'en');
+		formData.append('temperature', '0');
 
 		console.log('🎙️ Sending to OpenAI for transcription...');
 		const response = await fetch(`${OPENAI_API_URL}/audio/transcriptions`, {

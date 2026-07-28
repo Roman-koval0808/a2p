@@ -1179,7 +1179,8 @@ export const POST: RequestHandler = async ({ request }) => {
 						: null;
 					const numberInfo = toInfo ?? fromInfo;
 					const companyNumber = toInfo ? callLog.to : fromInfo ? callLog.from : null;
-					const contactNumber = toInfo ? callLog.from : fromInfo ? callLog.to : null;
+					const contactNumberRaw = toInfo ? callLog.from : fromInfo ? callLog.to : null;
+					const contactNumber = contactNumberRaw?.includes('anonymous') ? 'Anonymous' : contactNumberRaw;
 					if (numberInfo?.companyId && contactNumber && companyNumber) {
 						let contact = await prisma.contact.findFirst({
 							where: { companyId: numberInfo.companyId, phone: contactNumber }
@@ -1660,7 +1661,8 @@ export const POST: RequestHandler = async ({ request }) => {
 
 						const numberInfo = toInfo ?? fromInfo;
 						const companyNumber = toInfo ? callLog.to : fromInfo ? callLog.from : null;
-						const contactNumber = toInfo ? callLog.from : fromInfo ? callLog.to : null;
+						const contactNumberRaw = toInfo ? callLog.from : fromInfo ? callLog.to : null;
+						const contactNumber = contactNumberRaw?.includes('anonymous') ? 'Anonymous' : contactNumberRaw;
 						const direction = (callLog.metadata as { direction?: string })?.direction ?? 'incoming';
 
 						if (!numberInfo?.companyId || !contactNumber) {
@@ -2069,6 +2071,7 @@ export const POST: RequestHandler = async ({ request }) => {
 								recording_urls: recUrls as Record<string, unknown>,
 								recording_id: recId,
 								call_control_id: targetCallControlId,
+								is_voicemail: hasVoicemail,
 								urgency,
 								sentiment,
 								intent: intent || undefined,
