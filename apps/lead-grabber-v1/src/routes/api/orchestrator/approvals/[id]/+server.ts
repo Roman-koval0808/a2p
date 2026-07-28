@@ -43,6 +43,26 @@ export const POST: RequestHandler = async ({ params, request }) => {
 			}
 			// For email, you'd integrate Brevo/SendGrid here if needed.
 
+			const contextPayload: any = approval.contextPayload || {};
+			if (contextPayload.proposedDate) {
+				try {
+					const { bookAppointment } = await import('$lib/server/google-calendar');
+					await bookAppointment(
+						approval.container.companyId,
+						contextPayload.proposedDate,
+						{
+							summary: `Appointment: ${contextPayload.product || 'Services'}`,
+							description: 'Booked via AI Assistant',
+							attendeeEmail: contextPayload.extractedEmail || null,
+							phone: approval.container.customerProfile?.phoneNumber || null
+						}
+					);
+					console.log(`[Approval API] Booked appointment in Google Calendar for ${contextPayload.proposedDate}`);
+				} catch (e) {
+					console.error(`[Approval API] Failed to book appointment in Google Calendar:`, e);
+				}
+			}
+
 			return json({ success: true, state: 'approved' });
 		} else if (action === 'reject') {
 			await prisma.commApproval.update({

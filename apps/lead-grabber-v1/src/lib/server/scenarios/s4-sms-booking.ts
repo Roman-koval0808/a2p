@@ -158,7 +158,7 @@ export async function processSalesVoicemailBooking(input: {
 	let draftContent = '';
 	let contactMethodResolved = input.requestedContactMethod || 'sms';
 
-	if (contactMethodResolved === 'email' && input.aiExtractedEmail) {
+	if (input.aiExtractedEmail) {
 		draftType = 'email';
 		draftContent = `Subject: Appointment Confirmation for ${explicitDateText}\n\nHi!\n\nYour appointment regarding ${input.productInterest || 'our services'} on ${explicitDateText} is confirmed.\n\nWe look forward to seeing you then.\n\nBest,\nThe Team`;
 	} else if (contactMethodResolved === 'phone' || input.isLandline) {
@@ -166,7 +166,7 @@ export async function processSalesVoicemailBooking(input: {
 		draftContent = `[CALL SCRIPT]\n\n"Hi, this is [Your Name]. I'm calling to confirm your appointment for ${input.productInterest || 'our services'} on ${explicitDateText}. Does this time still work for you?"`;
 	} else {
 		draftType = 'sms';
-		draftContent = `Hi! We set a tentative hold for your appointment regarding the ${input.productInterest || 'product/service'} on ${explicitDateText}. Please reply YES to confirm or CANCEL to decline.`;
+		draftContent = `Okay, appointment confirmed at ${explicitDateText}.`;
 	}
 
 	const approvalDeadline = new Date(now.getTime() + 30 * 60 * 1000); // 30 min approval deadline
