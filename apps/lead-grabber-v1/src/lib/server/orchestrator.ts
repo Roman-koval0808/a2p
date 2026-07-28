@@ -464,7 +464,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					companyId: company.id,
 					customerProfileId: pipelineCustomerProfileId || null,
 					contactId: customer.id,
-					threadType: 'booking'
+					threadType: 'sales'
 				});
 				container = createResult.container;
 			}
