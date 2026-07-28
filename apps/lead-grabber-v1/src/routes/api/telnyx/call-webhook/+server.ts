@@ -1791,7 +1791,7 @@ export const POST: RequestHandler = async ({ request }) => {
 							const shouldTranscribe = isOutboundCall
 								? true
 								: recordingChannels
-									? !isFullCallRecording
+									? (hasVoicemail ? !isFullCallRecording : true)
 									: !hasVoicemail || isVoicemailRecording;
 							if (isFullCallRecording && !isOutboundCall) {
 								console.log('🎥 Skipping transcription of the dual-channel whole-call recording (voicemail is transcribed separately)');
@@ -1915,13 +1915,13 @@ export const POST: RequestHandler = async ({ request }) => {
 														isTest: true,
 														tenantSlug: numberInfo.companyId,
 														fingerprintId: callControlId,
-													eventType: 'telnyx.voice.voicemail',
+													eventType: hasVoicemail ? 'telnyx.voice.voicemail' : 'telnyx.voice.call',
 													phone: contactNumber || null,
 													name: contact?.name || callerName || null,
 													scoreDelta: scoreDelta,
 													payload: {
 														provider: 'telnyx_voice',
-														event_type: 'voicemail_received',
+														event_type: hasVoicemail ? 'voicemail_received' : 'call_received',
 														textContent: transcript,
 														rating: 0,
 														author_name: contact?.name || callerName || contactNumber || 'Unknown Caller',
