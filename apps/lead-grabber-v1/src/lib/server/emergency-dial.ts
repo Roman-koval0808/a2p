@@ -75,23 +75,6 @@ export async function bridgeCustomer(techCallControlId: string, workOrder: Emerg
 	const to = workOrder.customerNumber;
 	console.log(`📞 [EmergencyDial] Tech confirmed. Dialing customer: ${to}`);
 
-	const numberInfo = await getCompanyAndFlowByPhoneNumber(prisma, companyNumber);
-	await logCommunication({
-		type: 'voice',
-		direction: 'outbound',
-		status: 'completed',
-		source: companyNumber,
-		destination: to,
-		company_id: numberInfo?.companyId,
-		summary: `[Bridge] Connecting Tech to Customer`,
-		content: `Technician accepted the bridge. System is dialing customer at ${to} to connect the calls.`,
-		metadata: {
-			workOrder: true,
-			bridging: true,
-			commId: workOrder.commId
-		}
-	});
-
 	const res = await fetch('https://api.telnyx.com/v2/calls', {
 		method: 'POST',
 		headers: {
@@ -112,5 +95,27 @@ export async function bridgeCustomer(techCallControlId: string, workOrder: Emerg
 		console.error('❌ [EmergencyDial] Failed to dial customer:', err);
 		return false;
 	}
+
+	const resData = await res.json();
+	const customerCallControlId = resData?.data?.call_control_id;
+
+	const numberInfo = await getCompanyAndFlowByPhoneNumber(prisma, companyNumber);
+	await logCommunication({
+		type: 'voice',
+		direction: 'outbound',
+		status: 'completed',
+		source: companyNumber,
+		destination: to,
+		company_id: numberInfo?.companyId,
+		summary: `[Bridge] Connecting Tech to Customer`,
+		content: `Technician accepted the bridge. System is dialing customer at ${to} to connect the calls.`,
+		metadata: {
+			workOrder: true,
+			bridging: true,
+			commId: workOrder.commId,
+			call_control_id: customerCallControlId
+		}
+	});
+
 	return true;
 }
