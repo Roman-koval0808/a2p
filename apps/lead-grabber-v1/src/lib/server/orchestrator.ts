@@ -446,8 +446,31 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				}
 			} catch (e) {}
 
+			let container = await prisma.commContainer.findFirst({
+				where: {
+					companyId: company.id,
+					OR: [
+						...(pipelineCustomerProfileId ? [{ customerProfileId: pipelineCustomerProfileId }] : []),
+						{ contactId: customer.id }
+					],
+					state: { not: 'closed' }
+				},
+				orderBy: { openedAt: 'desc' }
+			});
+
+			if (!container) {
+				const { createContainerAtIntake } = await import('$lib/server/container/container-service');
+				const createResult = await createContainerAtIntake(prisma, {
+					companyId: company.id,
+					customerProfileId: pipelineCustomerProfileId || null,
+					contactId: customer.id,
+					threadType: 'booking'
+				});
+				container = createResult.container;
+			}
+
 			const bookingResult = await processSalesVoicemailBooking({
-				commId: commLog.communicationThreadId || commId,
+				commId: container.id,
 				companyId: company.id,
 				customerProfileId: pipelineCustomerProfileId || customer.id,
 				customerPhone: customerPhone,
@@ -531,8 +554,31 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					attendees: (a.attendees || []).map((att: any) => att.email)
 				}));
 
+				let supportContainer = await prisma.commContainer.findFirst({
+					where: {
+						companyId: company.id,
+						OR: [
+							...(pipelineCustomerProfileId ? [{ customerProfileId: pipelineCustomerProfileId }] : []),
+							{ contactId: customer.id }
+						],
+						state: { not: 'closed' }
+					},
+					orderBy: { openedAt: 'desc' }
+				});
+
+				if (!supportContainer) {
+					const { createContainerAtIntake } = await import('$lib/server/container/container-service');
+					const createResult = await createContainerAtIntake(prisma, {
+						companyId: company.id,
+						customerProfileId: pipelineCustomerProfileId || null,
+						contactId: customer.id,
+						threadType: 'general'
+					});
+					supportContainer = createResult.container;
+				}
+
 				const result = await processSupportCallMeetingConfirmation({
-					commId: commLog.communicationThreadId || commId,
+					commId: supportContainer.id,
 					companyId: company.id,
 					customerProfileId: pipelineCustomerProfileId || undefined,
 					contactId: customer.id,
