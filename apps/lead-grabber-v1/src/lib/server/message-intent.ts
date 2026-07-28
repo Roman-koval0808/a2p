@@ -38,7 +38,7 @@ export interface MessageIntent {
 	action_items: string[];
 }
 
-const SYSTEM_PROMPT = `You are a data-extraction engine for a trades service business (plumbing, HVAC, roofing).
+const SYSTEM_PROMPT = `You are a data-extraction engine for a business.
 Analyze the customer's inbound voicemail/SMS and classify it.
 A voicemail transcript may START with an automated IVR greeting/menu spoken by the system (e.g. "Welcome to Acme, for billing press 1, for sales press 2..."). That greeting text is NOT the customer — ignore the greeting and its menu wording, and classify ONLY the customer's own words.
 The menu option a customer pressed is a routing hint (which department they picked), NOT their intent — the customer's actual words always decide the intent. If what they say conflicts with the key they pressed, the message wins.

@@ -75,6 +75,17 @@ function claimLogForCall(callControlId: string): boolean {
 	return true;
 }
 
+const callsWithTranscriptionStarted = new Set<string>();
+function claimTranscriptionForCall(callControlId: string): boolean {
+	if (!callControlId || callsWithTranscriptionStarted.has(callControlId)) return false;
+	callsWithTranscriptionStarted.add(callControlId);
+	if (callsWithTranscriptionStarted.size > MAX_EVENT_IDS) {
+		const first = callsWithTranscriptionStarted.values().next().value;
+		if (first) callsWithTranscriptionStarted.delete(first);
+	}
+	return true;
+}
+
 const defaultBeepAudio = `${(PUBLIC_BASE_URL || 'https://a2p.viewroom.ca').replace(/\/$/, '')}/beep.wav`;
 
 /**
@@ -1796,12 +1807,12 @@ export const POST: RequestHandler = async ({ request }) => {
 								: recordingChannels
 									? (hasVoicemail ? !isFullCallRecording : true)
 									: !hasVoicemail || isVoicemailRecording;
-							if (isFullCallRecording && !isOutboundCall) {
+							if (isFullCallRecording && hasVoicemail) {
 								console.log('🎥 Skipping transcription of the dual-channel whole-call recording (voicemail is transcribed separately)');
 							}
 
 							const audioUrl = originalAudioUrl;
-							if (audioUrl && shouldTranscribe) {
+							if (audioUrl && shouldTranscribe && claimTranscriptionForCall(callControlId)) {
 								try {
 									const { transcribe } = await import('$lib/server/transcription');
 									const { analyzeCallLog } = await import('$lib/server/openai');
