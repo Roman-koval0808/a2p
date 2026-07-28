@@ -41,7 +41,36 @@ export const POST: RequestHandler = async ({ params, request }) => {
 					}
 				}
 			}
-			// For email, you'd integrate Brevo/SendGrid here if needed.
+			// Email: attempt to send the confirmation, but NEVER block the booking on it — mail may
+			// not be configured yet (no Brevo key), and a failed send must not stop the calendar hold
+			// from being confirmed. Best-effort only.
+			if (approval.draftType === 'email') {
+				const cp: any = approval.contextPayload || {};
+				const to = cp.extractedEmail || approval.container.customerProfile?.email || null;
+				if (to) {
+					try {
+						const { sendEmail } = await import('$lib/server/brevo');
+						const raw = approval.draftContent || '';
+						const subjMatch = raw.match(/^\s*Subject:\s*(.+)$/im);
+						const subject = subjMatch ? subjMatch[1].trim() : 'Appointment Confirmation';
+						const body = raw.replace(/^\s*Subject:\s*.+$/im, '').trim();
+						await sendEmail({
+							to: [{ email: to }],
+							subject,
+							htmlContent: `<div style="font-family:sans-serif;white-space:pre-wrap">${body
+								.replace(/&/g, '&amp;')
+								.replace(/</g, '&lt;')
+								.replace(/\n/g, '<br>')}</div>`
+						});
+						console.log(`[Approval API] Email approved and sent to ${to}`);
+					} catch (e) {
+						// Non-fatal: log and continue to booking.
+						console.error(`[Approval API] Email send failed (continuing to booking):`, e);
+					}
+				} else {
+					console.warn('[Approval API] Email draft approved but no recipient email on file — skipping send.');
+				}
+			}
 
 			const contextPayload: any = approval.contextPayload || {};
 			if (contextPayload.proposedDate) {
