@@ -422,48 +422,72 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	}
 
 	// --- SCENARIO 2: SALES / BOOKING (message is about sales/booking) ---
-	else if (messageCategory === 'sales') {
-		olog('[Orchestrator] Detected Scenario 2: Sales / Booking');
-
-		// (Engagement score is bumped centrally above based on the reclassified category.)
-		// Scenario 2: check the requested time against the LIVE calendar and propose a specific
-		// slot the customer can confirm by replying YES (which auto-books — see top of function).
+	else if (messageCategory === 'sales' || String(metadata.ai_intent).toLowerCase() === 'sales') {
+		olog('[Orchestrator] Detected Scenario 2: Sales / Booking Request, initiating Confirmation Loop...');
+		scenarioLocked = true;
 		if (datetime) {
-			try {
-				const { requestedFree, proposal } = await proposeAppointment(company.id, datetime);
-				if (proposal) {
-					proposedAppointment = proposal;
-					draftedResponse =
-						requestedFree === false
-							? `Hi ${customer.name || 'there'}! ${formatDatetime(datetime)} is already booked, but our next opening is ${proposal.proposedLabel}. Does that work? Reply YES to confirm.`
-							: `Hi ${customer.name || 'there'}! ${proposal.proposedLabel} works for your appointment — reply YES to confirm and we'll lock it in.`;
-				}
-			} catch (e) {
-				oerr('[Orchestrator] proposeAppointment failed:', e);
-			}
-		}
+			const { processSalesVoicemailBooking } = await import('./scenarios/s4-sms-booking');
+			
+			// Stubbed resources since this is a platform-agnostic setup
+			const availableResources = {
+				personnel: ['u_sales_owner'],
+				assets: ['asset_1']
+			};
 
-		// Fallback: self-service booking link / legacy flow if we couldn't propose a live slot.
-		if (!draftedResponse) {
-			const bookingLink = getBookingUrl(company) || (await getBookingLinkIfConnected(company.id));
-			if (bookingLink) {
-				const link = bookingLinkWith(bookingLink, {
-					time: datetime,
-					name: customer.name,
-					phone: customer.phone || commLog.source
+			let hour = 10;
+			let minute = 0;
+			let transcriptWeekday = 'Wednesday';
+			try {
+				const dt = new Date(datetime);
+				if (!isNaN(dt.getTime())) {
+					hour = dt.getHours();
+					minute = dt.getMinutes();
+					transcriptWeekday = dt.toLocaleDateString('en-US', { weekday: 'long' });
+				}
+			} catch (e) {}
+
+			const bookingResult = await processSalesVoicemailBooking({
+				commId: commLog.communicationThreadId || commId,
+				companyId: company.id,
+				customerProfileId: pipelineCustomerProfileId || customer.id,
+				customerPhone: customerPhone,
+				isLandline: false,
+				transcriptWeekday,
+				hour,
+				minute,
+				productInterest: aiIntent?.sub_intent || 'product/service',
+				callStartTime: new Date(),
+				availableResources,
+				requestedContactMethod: metadata.requested_contact_method as string | undefined,
+				aiExtractedEmail: metadata.ai_extracted_email as string | undefined,
+				now: new Date()
+			});
+
+			if (bookingResult.smsDrafted && bookingResult.approval) {
+				const isEmailDraft = bookingResult.approval.draftType === 'email';
+				await logCommunication({
+					type: (bookingResult.approval.draftType || 'sms') as any,
+					direction: 'outbound',
+					status: 'pending_approval',
+					source: isEmailDraft ? 'rory.clearskysoftware@gmail.com' : companyNumber,
+					destination: isEmailDraft ? (metadata.ai_extracted_email || customerPhone) : customerPhone,
+					company_id: company.id,
+					customer_id: customer.id,
+					summary: 'Booking Confirmation Approval',
+					content: bookingResult.approval.draftContent,
+					metadata: {
+						thread_id: customerPhone,
+						commId: commLog.communicationThreadId || commId,
+						is_draft: true,
+						orchestrator_draft: true,
+						trigger_comm_id: commId,
+						message_category: messageCategory || null
+					}
 				});
-				draftedResponse = datetime
-					? `Hi! Thanks for reaching out to ${company.name || 'us'}. ${formatDatetime(datetime)} works — just confirm it here: ${link}`
-					: `Hi! Thanks for contacting ${company.name || 'us'}. Book a time that works for you here: ${link}`;
-			} else if (datetime) {
-				const formattedDatetime = formatDatetime(datetime);
-				const isAvailable = checkCalendarAvailability(datetime, company.locations || []);
-				draftedResponse = isAvailable
-					? `Hi! Thanks for reaching out to ${company.name || 'us'}. We see you'd like to book an appointment for ${formattedDatetime}. A representative will confirm this time with you shortly.`
-					: `Hi! Thanks for reaching out to ${company.name || 'us'}. Unfortunately, ${formattedDatetime} is outside our normal business hours or unavailable. What other day or time works best for you?`;
-			} else {
-				draftedResponse = `Hi! Thanks for contacting ${company.name || 'us'}. We received your booking request. What day and time works best for you?`;
 			}
+			return; // Exit early because the draft was logged
+		} else {
+			draftedResponse = `Hi! Thanks for contacting ${company.name || 'us'}. We received your booking request. What day and time works best for you?`;
 		}
 	}
 
@@ -971,71 +995,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			// Only draft a customer-facing response if it's NOT an emergency, preventing the
 			// confusing 3 AM "Confirm Response" card when auto-dispatch should handle it.
 			if (!isEmergency) {
-				const isSalesBooking = messageCategory === 'sales' && !!aiIntent?.datetime;
-
-				if (isSalesBooking) {
-					olog('[Orchestrator] Detected Sales Voicemail Booking Request, initiating SMS Confirmation Loop...');
-					const { processSalesVoicemailBooking } = await import('./scenarios/s4-sms-booking');
-					
-					// Stubbed resources since this is a platform-agnostic setup
-					const availableResources = {
-						personnel: ['u_sales_owner'],
-						assets: ['asset_1']
-					};
-
-					let hour = 10;
-					let minute = 0;
-					let transcriptWeekday = 'Wednesday';
-					if (aiIntent?.datetime) {
-						try {
-							const dt = new Date(aiIntent.datetime);
-							if (!isNaN(dt.getTime())) {
-								hour = dt.getHours();
-								minute = dt.getMinutes();
-								transcriptWeekday = dt.toLocaleDateString('en-US', { weekday: 'long' });
-							}
-						} catch (e) {}
-					}
-
-					const bookingResult = await processSalesVoicemailBooking({
-						commId: commLog.communicationThreadId || commId,
-						companyId: company.id,
-						customerProfileId: pipelineCustomerProfileId || customer.id,
-						customerPhone: customerPhone,
-						isLandline: false,
-						transcriptWeekday,
-						hour,
-						minute,
-						productInterest: aiIntent?.sub_intent || 'product/service',
-						callStartTime: new Date(),
-						availableResources,
-						requestedContactMethod: metadata.requested_contact_method as string | undefined,
-						aiExtractedEmail: metadata.ai_extracted_email as string | undefined,
-						now: new Date()
-					});
-
-					if (bookingResult.smsDrafted && bookingResult.approval) {
-						await logCommunication({
-							type: (bookingResult.approval.draftType || 'sms') as any,
-							direction: 'outbound',
-							status: 'pending_approval',
-							source: companyNumber,
-							destination: customerPhone,
-							company_id: company.id,
-							customer_id: customer.id,
-							summary: 'Booking Confirmation Approval',
-							content: bookingResult.approval.draftContent,
-							metadata: {
-								thread_id: customerPhone,
-								commId: commLog.communicationThreadId || commId,
-								is_draft: true,
-								orchestrator_draft: true,
-								trigger_comm_id: commId,
-								message_category: messageCategory || null
-							}
-						});
-					}
-				} else {
+				// Normal fallback behavior for non-sales messages
 					await logCommunication({
 						type: 'sms',
 						direction: 'outbound',
@@ -1062,7 +1022,6 @@ export async function process_orchestrator(commId: string, trigger: string) {
 							sub_intent: aiIntent?.intent_bucket ?? null
 						}
 					});
-				}
 			}
 
 			if (isEmergency) {

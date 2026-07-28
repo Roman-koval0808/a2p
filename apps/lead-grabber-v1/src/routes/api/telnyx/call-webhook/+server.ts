@@ -1812,7 +1812,11 @@ export const POST: RequestHandler = async ({ request }) => {
 							}
 
 							const audioUrl = originalAudioUrl;
-							if (audioUrl && shouldTranscribe && claimTranscriptionForCall(callControlId)) {
+							let transcriptionClaimed = false;
+							if (audioUrl && shouldTranscribe) {
+								transcriptionClaimed = claimTranscriptionForCall(callControlId);
+							}
+							if (transcriptionClaimed) {
 								try {
 									const { transcribe } = await import('$lib/server/transcription');
 									const { analyzeCallLog } = await import('$lib/server/openai');
@@ -2226,7 +2230,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
 							// Only the recording that actually produced the transcript may drive the reply.
 							// Outbound dialer calls skip draft reply generation.
-							const shouldTriggerOrchestrator = finalLogId && !isOutboundCall && (hasVoicemail ? !isFullCallRecording : true);
+							const shouldTriggerOrchestrator = finalLogId && !isOutboundCall && (hasVoicemail ? !isFullCallRecording : true) && transcriptionClaimed;
 							if (shouldTriggerOrchestrator) {
 								import('$lib/server/orchestrator').then(({ process_orchestrator }) => {
 									process_orchestrator(finalLogId as string, 'ai_ready').catch(e => console.error('[Orchestrator] Error:', e));
@@ -2235,6 +2239,8 @@ export const POST: RequestHandler = async ({ request }) => {
 								console.log('🎥 Outbound dialer call logged and transcribed — skipping draft reply generation');
 							} else if (isFullCallRecording && hasVoicemail) {
 								console.log('🎥 Not triggering the orchestrator from the whole-call recording — the voicemail leg owns the reply');
+							} else if (finalLogId && !transcriptionClaimed) {
+								console.log('🎥 Not triggering the orchestrator because transcription was claimed by another webhook leg');
 							}
 
 							// Retroactively update the call_summary in the message thread with the AI analysis
