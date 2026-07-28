@@ -1009,12 +1009,14 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						productInterest: aiIntent?.sub_intent || 'product/service',
 						callStartTime: new Date(),
 						availableResources,
+						requestedContactMethod: metadata.requested_contact_method as string | undefined,
+						aiExtractedEmail: metadata.ai_extracted_email as string | undefined,
 						now: new Date()
 					});
 
 					if (bookingResult.smsDrafted && bookingResult.approval) {
 						await logCommunication({
-							type: 'sms',
+							type: (bookingResult.approval.draftType || 'sms') as any,
 							direction: 'outbound',
 							status: 'pending_approval',
 							source: companyNumber,

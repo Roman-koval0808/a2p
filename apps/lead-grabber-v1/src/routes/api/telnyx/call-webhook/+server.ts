@@ -1725,6 +1725,7 @@ export const POST: RequestHandler = async ({ request }) => {
 							let estimatedPrice: number | null = null;
 							let datetime: string | null = null;
 							let ai_extracted_email: string | null = null;
+							let requested_contact_method: string | null = null;
 							// Declared HERE, not inside the pipeline's .then() callback: recordingMetadata
 							// below references it on every path, including the one where the pipeline is
 							// skipped. Scoping it to the callback threw "webhookTrace is not defined" and
@@ -1818,6 +1819,7 @@ export const POST: RequestHandler = async ({ request }) => {
 										estimatedPrice = analysis.estimatedPrice;
 										datetime = analysis.datetime;
 										ai_extracted_email = analysis.ai_extracted_email;
+										requested_contact_method = analysis.requested_contact_method;
 										const callerName = analysis.callerName;
 										const buyingSignals = analysis.buyingSignals;
 
@@ -1841,6 +1843,19 @@ export const POST: RequestHandler = async ({ request }) => {
 												}
 											} catch (nameErr) {
 												console.error('⚠️ Failed to update contact name:', nameErr);
+											}
+										}
+
+										if (ai_extracted_email && contact && !contact.email) {
+											try {
+												await prisma.contact.update({
+													where: { id: contact.id },
+													data: { email: ai_extracted_email }
+												});
+												contact = { ...contact, email: ai_extracted_email };
+												console.log(`📧 Contact email resolved from transcript: "${ai_extracted_email}" (${contact.id})`);
+											} catch (emailErr) {
+												console.error('⚠️ Failed to update contact email:', emailErr);
 											}
 										}
 
@@ -2078,6 +2093,7 @@ export const POST: RequestHandler = async ({ request }) => {
 								sub_intent: sub_intent || undefined,
 								datetime: datetime || undefined,
 								ai_extracted_email: ai_extracted_email || undefined,
+								requested_contact_method: requested_contact_method || undefined,
 								actionItems,
 								tasks: actionItems,
 								origin: direction,

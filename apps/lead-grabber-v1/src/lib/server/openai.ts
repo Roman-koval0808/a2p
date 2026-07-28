@@ -31,6 +31,11 @@ const ANALYSIS_SCHEMA = {
 		ai_extracted_email: {
 			type: 'string',
 			description: 'The email address of the caller if mentioned, otherwise empty string'
+		},
+		requested_contact_method: {
+			type: 'string',
+			enum: ['phone', 'email', 'text', 'none'],
+			description: 'The preferred contact method mentioned by the caller. Defaults to none.'
 		}
 	},
 	required: [
@@ -44,7 +49,8 @@ const ANALYSIS_SCHEMA = {
 		'buyingSignals',
 		'estimatedPrice',
 		'datetime',
-		'ai_extracted_email'
+		'ai_extracted_email',
+		'requested_contact_method'
 	]
 };
 

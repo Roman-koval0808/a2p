@@ -206,6 +206,50 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 			}
 		}
 
+		// Finalize booking if this draft was for an appointment hold
+		if (meta.holdId) {
+			try {
+				const activeHold = await prisma.commHold.findUnique({ where: { id: meta.holdId } });
+				if (activeHold && activeHold.status === 'tentative') {
+					await prisma.commHold.update({
+						where: { id: activeHold.id },
+						data: { status: 'booked' }
+					});
+					
+					const { cancelTimersForContainer } = await import('$lib/server/timer/timer-service');
+					if (meta.commId) {
+						await cancelTimersForContainer(meta.commId, 'hold_expiry', 'confirmed_by_agent');
+					}
+
+					if (log.companyId && activeHold.startTime) {
+						const { createEvent } = await import('$lib/server/google-calendar');
+						const startISO = new Date(activeHold.startTime).toISOString();
+						const endISO = activeHold.endTime
+							? new Date(activeHold.endTime).toISOString()
+							: new Date(new Date(activeHold.startTime).getTime() + 60 * 60 * 1000).toISOString();
+
+						const ev = await createEvent(log.companyId, {
+							summary: `Appointment for ${log.destination}`,
+							startISO,
+							endISO,
+							phone: log.destination || undefined,
+							addMeet: true
+						});
+
+						if (ev?.eventId) {
+							await prisma.commHold.update({
+								where: { id: activeHold.id },
+								data: { calendarEventId: ev.eventId }
+							});
+						}
+					}
+					console.log(`📅 Hold ${meta.holdId} finalized and booked to calendar from UI confirmation.`);
+				}
+			} catch (err) {
+				console.error('Failed to finalize booking from UI confirmation:', err);
+			}
+		}
+
 		// Update the log status to completed and record confirmation metadata
 		const updatedLog = await prisma.communicationLog.update({
 			where: { id: log.id },

@@ -70,6 +70,8 @@ export async function processSalesVoicemailBooking(input: {
 	productInterest?: string;
 	callStartTime: Date;
 	availableResources: { personnel: string[]; assets: string[] };
+	requestedContactMethod?: string;
+	aiExtractedEmail?: string;
 	now?: Date;
 }) {
 	const now = input.now || new Date();
@@ -151,19 +153,34 @@ export async function processSalesVoicemailBooking(input: {
 		payload: { holdId: hold.id }
 	});
 
-	// Draft SMS with full explicit date (Correction 1)
-	const smsDraft = `Hi! We set a tentative hold for your appointment regarding the ${input.productInterest || 'product/service'} on ${explicitDateText}. Please reply YES to confirm or CANCEL to decline.`;
+	// Draft the response based on requested contact method
+	let draftType: 'sms' | 'email' | 'call' = 'sms';
+	let draftContent = '';
+	let contactMethodResolved = input.requestedContactMethod || 'sms';
+
+	if (contactMethodResolved === 'email' && input.aiExtractedEmail) {
+		draftType = 'email';
+		draftContent = `Subject: Appointment Confirmation for ${explicitDateText}\n\nHi!\n\nWe have set a tentative hold for your appointment regarding ${input.productInterest || 'our services'} on ${explicitDateText}.\n\nOur team is reviewing this request. We will reach out shortly to finalize.\n\nBest,\nThe Team`;
+	} else if (contactMethodResolved === 'phone' || input.isLandline) {
+		draftType = 'call';
+		draftContent = `[CALL SCRIPT]\n\n"Hi, this is [Your Name]. I'm calling to confirm your appointment for ${input.productInterest || 'our services'} on ${explicitDateText}. Does this time still work for you?"`;
+	} else {
+		draftType = 'sms';
+		draftContent = `Hi! We set a tentative hold for your appointment regarding the ${input.productInterest || 'product/service'} on ${explicitDateText}. Please reply YES to confirm or CANCEL to decline.`;
+	}
+
 	const approvalDeadline = new Date(now.getTime() + 30 * 60 * 1000); // 30 min approval deadline
 
 	const approval = await createCustomerFacingApproval(prisma, {
 		commId: input.commId,
-		draftType: 'sms',
-		draftContent: smsDraft,
+		draftType: draftType as any,
+		draftContent,
 		contextPayload: {
 			proposedDate: proposedDate.toISOString(),
 			explicitDateText,
 			holdId: hold.id,
-			product: input.productInterest
+			product: input.productInterest,
+			extractedEmail: input.aiExtractedEmail
 		},
 		approvalDeadline
 	});
