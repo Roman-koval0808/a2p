@@ -59,13 +59,14 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		// Map comms into the event shape the identity/behaviour passes below already expect.
 		const historyEvents: any[] = historySource.map((log) => {
 			const md = (log.metadata as Record<string, any>) || {};
+			const isEmail = log.type === 'email';
 			return {
 				eventType: `${log.type}.${log.direction}`,
 				occurredAt: log.created,
 				pageUrl: md.pageUrl ?? null,
 				name: md.callerName ?? dbContact.name ?? null,
-				phone: log.direction === 'inbound' ? log.source : log.destination,
-				email: dbContact.email ?? null,
+				phone: isEmail ? null : (log.direction === 'inbound' ? log.source : log.destination),
+				email: isEmail ? (log.direction === 'inbound' ? log.source : log.destination) : (dbContact.email ?? null),
 				payload: { ...md, textContent: log.content ?? undefined }
 			};
 		});
