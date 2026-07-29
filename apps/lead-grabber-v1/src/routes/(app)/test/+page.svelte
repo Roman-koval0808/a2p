@@ -14,6 +14,7 @@
 	let callerPhone = $state('+15550001111');
 	let calledPhone = $state('');
 	let callTranscript = $state('');
+	let callDigit = $state('3');
 
 	let isSubmitting = $state(false);
 
@@ -26,6 +27,13 @@
 	});
 
 	const presets = [
+		{
+			title: '📅 Appointment + Email (books on confirm)',
+			comment:
+				"Hi, this is Alice Johnson. I'd like to book an appointment for next Tuesday at 10am. Please send me a confirmation — my email is alice.johnson@gmail.com, that's a-l-i-c-e dot johnson at gmail dot com.",
+			sender: '+15551234567',
+			digit: '2'
+		},
 		{
 			title: '🚨 Emergency Leak',
 			comment: 'Emergency!, sam here, My roof is leaking after the repair they did last week. I have called 5 times and no one answers. Water is coming into my kitchen right now!',
@@ -48,13 +56,14 @@
 		}
 	];
 
-	function applyPreset(preset: typeof presets[0]) {
+	function applyPreset(preset: { title: string; comment: string; sender: string; digit?: string }) {
 		if (activeTab === 'sms') {
 			senderPhone = preset.sender;
 			messageContent = preset.comment;
 		} else {
 			callerPhone = preset.sender;
 			callTranscript = preset.comment;
+			if (preset.digit) callDigit = preset.digit;
 		}
 		toast.success(`Preset "${preset.title}" applied!`);
 	}
@@ -229,7 +238,7 @@
 					>
 						<h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
 							<Play class="h-5 w-5 text-indigo-500" />
-							Trigger Voicemail Call
+							Trigger Inbound Call
 						</h3>
 
 						<div class="space-y-1.5">
@@ -264,6 +273,7 @@
 							<select
 								id="call-digit"
 								name="digit"
+								bind:value={callDigit}
 								class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-sm bg-white"
 							>
 								<option value="1">1 — Billing</option>
@@ -275,7 +285,7 @@
 						</div>
 
 						<div class="space-y-1.5">
-							<label for="call-comment" class="text-xs font-bold text-slate-500 uppercase tracking-wider">Voicemail Transcript text</label>
+							<label for="call-comment" class="text-xs font-bold text-slate-500 uppercase tracking-wider">Call / Voicemail Transcript text</label>
 
 							<textarea
 								id="call-comment"
@@ -293,7 +303,7 @@
 							disabled={isSubmitting}
 							class="w-full py-3 px-4 bg-primary hover:bg-primary/95 disabled:bg-slate-300 text-white font-semibold rounded-xl shadow-md transition-all flex items-center justify-center gap-2"
 						>
-							{isSubmitting ? 'Processing...' : 'Simulate Voicemail Event'}
+							{isSubmitting ? 'Processing...' : 'Simulate Inbound Call'}
 						</button>
 					</form>
 				{/if}

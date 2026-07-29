@@ -199,6 +199,9 @@ export const actions: Actions = {
 			logs.push(
 				`🧠 analyzeCallLog → intent=${analysis?.intent}, urgency=${analysis?.urgency}, sentiment=${analysis?.sentiment}`
 			);
+			logs.push(
+				`📧 Extracted: datetime=${analysis?.datetime || 'none'}, email=${analysis?.ai_extracted_email || 'none'} ${analysis?.ai_extracted_email ? '→ will draft EMAIL confirmation' : '→ no email → SMS/other path'}`
+			);
 
 			// Resolve the caller name from the transcript, as the real path does.
 			if (
@@ -244,6 +247,10 @@ export const actions: Actions = {
 						intent: analysis?.intent,
 						sub_intent: analysis?.sub_intent,
 						datetime: analysis?.datetime,
+						// The orchestrator routes to an EMAIL draft only when it sees a captured email here.
+						// Omitting it (the previous behaviour) forced every booking to the SMS path, so the
+						// email → calendar flow could never be tested from this console.
+						ai_extracted_email: analysis?.ai_extracted_email || undefined,
 						actionItems: analysis?.actionItems,
 						estimatedPrice: analysis?.estimatedPrice,
 						simulated: true

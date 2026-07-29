@@ -488,6 +488,10 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 			if (bookingResult.smsDrafted && bookingResult.approval) {
 				const isEmailDraft = bookingResult.approval.draftType === 'email';
+				// Pull the "Subject:" line out of the draft so the confirm step emails a real subject
+				// (and not the generic "Booking Confirmation Approval" summary).
+				const subjMatch = (bookingResult.approval.draftContent || '').match(/^\s*Subject:\s*(.+)$/im);
+				const draftSubject = subjMatch ? subjMatch[1].trim() : undefined;
 				await logCommunication({
 					type: (bookingResult.approval.draftType || 'sms') as any,
 					direction: 'outbound',
@@ -500,7 +504,16 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					content: bookingResult.approval.draftContent,
 					metadata: {
 						thread_id: customerPhone,
-						commId: commLog.communicationThreadId || commId,
+						// Real CommContainer id (NOT the thread id) so the confirm step can cancel the
+						// hold_expiry timer, and the hold id so it can flip tentative → booked + create
+						// the calendar event. Without these the /communication-log "Confirm" was a no-op.
+						commId: container.id,
+						holdId: bookingResult.hold?.id,
+						proposedDate: bookingResult.hold?.startTime
+							? new Date(bookingResult.hold.startTime).toISOString()
+							: metadata.datetime || undefined,
+						extractedEmail: isEmailDraft ? metadata.ai_extracted_email || undefined : undefined,
+						subject: draftSubject,
 						is_draft: true,
 						orchestrator_draft: true,
 						trigger_comm_id: commId,

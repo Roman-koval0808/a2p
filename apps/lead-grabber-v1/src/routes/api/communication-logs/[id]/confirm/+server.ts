@@ -228,10 +228,16 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 							? new Date(activeHold.endTime).toISOString()
 							: new Date(new Date(activeHold.startTime).getTime() + 60 * 60 * 1000).toISOString();
 
+						const attendee = meta.extractedEmail || undefined;
+						console.log(
+							`[Confirm → Booking] Attempt → hold=${meta.holdId} company=${log.companyId} start=${startISO} attendee=${attendee || 'none'}`
+						);
 						const ev = await createEvent(log.companyId, {
-							summary: `Appointment for ${log.destination}`,
+							summary: meta.product ? `Appointment — ${meta.product}` : `Appointment for ${log.destination}`,
 							startISO,
 							endISO,
+							attendeeEmail: attendee,
+							email: attendee,
 							phone: log.destination || undefined,
 							addMeet: true
 						});
@@ -241,9 +247,21 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 								where: { id: activeHold.id },
 								data: { calendarEventId: ev.eventId }
 							});
+							console.log(
+								`[Confirm → Booking] ✅ Booked → hold=${meta.holdId} event=${ev.eventId} link=${ev.htmlLink || 'n/a'}`
+							);
+						} else {
+							// createEvent returns null on no connection / token / scope error — the
+							// [google-calendar] log line above names the cause. Hold is still marked booked.
+							console.error(
+								`[Confirm → Booking] ❌ Calendar event NOT created (createEvent returned null) → hold=${meta.holdId}. Likely no Google Calendar connection or a token/scope error — see [google-calendar] logs above.`
+							);
 						}
+					} else {
+						console.log(
+							`📅 Hold ${meta.holdId} marked booked, but no company/startTime → no calendar event created.`
+						);
 					}
-					console.log(`📅 Hold ${meta.holdId} finalized and booked to calendar from UI confirmation.`);
 				}
 			} catch (err) {
 				console.error('Failed to finalize booking from UI confirmation:', err);
