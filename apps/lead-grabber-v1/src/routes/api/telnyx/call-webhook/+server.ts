@@ -517,48 +517,10 @@ export const POST: RequestHandler = async ({ request }) => {
 					break;
 				}
 
-				// Outbound answered. Server-originated outbound calls (server-dial, transfer legs,
-				// emergency legs) ALWAYS carry a client_state and are already recorded (record-from-answer
-				// or on bridge). A WebRTC dialer call is placed client-side with NO client_state — record
-				// it here (Method 2: record_start) and register a CallLog so the existing
-				// call.recording.saved handler attaches the recording + transcribes it, like inbound calls.
-				if (payload?.direction === 'outbound') {
-					if (!payload?.client_state) {
-						console.log('🎙️ WebRTC dialer call answered — starting recording:', callControlId);
-						try {
-							await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/record_start`, {
-								method: 'POST',
-								headers: {
-									'Content-Type': 'application/json',
-									Authorization: `Bearer ${TELNYX_API_KEY}`
-								},
-								body: JSON.stringify({ format: 'mp3', channels: 'dual', recording_track: 'both' })
-							});
-						} catch (err) {
-							console.error('❌ Failed to start recording WebRTC dialer call:', err);
-						}
-						// Register a CallLog so call.recording.saved (below) treats this like any other call:
-						// resolves the company, links to the existing WebRTC comm-log by phone/session id,
-						// and attaches the recording + transcript instead of dropping it.
-						try {
-							const existing = await prisma.callLog.findFirst({ where: { callId: callControlId } });
-							if (!existing) {
-								await prisma.callLog.create({
-									data: {
-										callId: callControlId,
-										status: 'initiated',
-										to: payload?.to || null,
-										from: payload?.from || null,
-										metadata: { direction: 'outgoing', webrtc_dialer: true }
-									}
-								});
-							}
-						} catch (err) {
-							console.error('❌ Failed to register CallLog for WebRTC dialer call:', err);
-						}
-					} else {
-						console.log('📞 Outbound transfer leg answered, bypassing IVR logic for control ID:', callControlId);
-					}
+				// Bypass IVR logic for outbound calls (e.g. transfer legs to reps). Recording for these
+				// is handled on call.bridged (which WebRTC dialer + transfer legs both fire).
+				if (payload?.direction === 'outbound' || payload?.direction === 'outgoing') {
+					console.log('📞 Outbound leg answered, bypassing IVR logic for control ID:', callControlId);
 					break;
 				}
 
@@ -1103,18 +1065,35 @@ export const POST: RequestHandler = async ({ request }) => {
 			}
 			case 'call.bridged': {
 				console.log('📞 Call bridged:', callControlId);
-				await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/record_start`, {
-					method: 'POST',
-					headers: {
-						'Content-Type': 'application/json',
-						Authorization: `Bearer ${TELNYX_API_KEY}`
-					},
-					body: JSON.stringify({
-						format: 'mp3',
-						channels: 'dual',
-						client_state: payload.client_state || ''
-					})
-				}).catch(e => console.error('❌ Failed to start recording on bridge:', e));
+				try {
+					const recRes = await fetch(
+						`https://api.telnyx.com/v2/calls/${callControlId}/actions/record_start`,
+						{
+							method: 'POST',
+							headers: {
+								'Content-Type': 'application/json',
+								Authorization: `Bearer ${TELNYX_API_KEY}`
+							},
+							body: JSON.stringify({
+								format: 'mp3',
+								channels: 'dual',
+								client_state: payload.client_state || ''
+							})
+						}
+					);
+					// A 4xx here RESOLVES the fetch (no throw), so the old .catch() swallowed it — which
+					// is why WebRTC/SIP-connection calls silently went unrecorded. Log the real response.
+					if (recRes.ok) {
+						console.log('🎙️ record_start accepted on bridge:', callControlId);
+					} else {
+						console.error(
+							`❌ record_start REJECTED on bridge (${recRes.status}) for ${callControlId}:`,
+							await recRes.text().catch(() => '')
+						);
+					}
+				} catch (e) {
+					console.error('❌ Failed to start recording on bridge (network error):', e);
+				}
 				break;
 			}
 
