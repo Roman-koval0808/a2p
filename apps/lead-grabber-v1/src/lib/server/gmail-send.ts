@@ -53,8 +53,10 @@ function buildRawEmail(opts: {
 	fromName?: string;
 	fromEmail?: string;
 }): string {
-	// Hardcoded to ensure Gmail API doesn't reject it due to alias mismatch
-	const from = 'rory.clearskysoftware@gmail.com';
+	// Gmail requires From to be the authenticated account (or a verified send-as alias). When
+	// sending via a per-company connection this is that account's own email; otherwise the
+	// single-account default.
+	const from = opts.fromEmail || 'rory.clearskysoftware@gmail.com';
 	const fromHeader = opts.fromName ? `"${opts.fromName}" <${from}>` : from;
 	const boundary = `----=_Part_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
@@ -124,5 +126,50 @@ export async function sendEmailViaGmail(params: GmailSendParams): Promise<{ mess
 
 	const data = await res.json();
 	console.log(`[Gmail Send] ✅ Sent — messageId: ${data.id}`);
+	return { messageId: data.id };
+}
+
+/**
+ * Send an email using the SAME Google account the company connected for Calendar (no separate
+ * GMAIL_* credentials needed). The message goes out FROM that connected account.
+ *
+ * Requires the connection to have been granted the `gmail.send` scope — i.e. the owner must have
+ * reconnected Google Calendar AFTER that scope was added. If the token lacks the scope, Gmail
+ * returns 403 and we throw a clear "reconnect" error so the caller can fall back.
+ */
+export async function sendEmailViaConnectedGmail(
+	companyId: string,
+	params: GmailSendParams
+): Promise<{ messageId: string }> {
+	const { getConnectionAccessToken } = await import('./google-calendar');
+	const auth = await getConnectionAccessToken(companyId);
+	if (!auth) {
+		throw new Error(`No connected Google account for company ${companyId} (connect it in Settings → Company).`);
+	}
+
+	const raw = buildRawEmail({ ...params, fromEmail: auth.email || undefined });
+	console.log(
+		`[Gmail Send · connected] Sending to ${params.to} from ${auth.email || 'default'} — subject: "${params.subject}"`
+	);
+
+	const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+		method: 'POST',
+		headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' },
+		body: JSON.stringify({ raw })
+	});
+
+	if (!res.ok) {
+		const errText = await res.text();
+		console.error(`[Gmail Send · connected] Failed (${res.status}):`, errText);
+		if (res.status === 403 && /insufficient|scope|ACCESS_TOKEN_SCOPE_INSUFFICIENT/i.test(errText)) {
+			throw new Error(
+				'Connected Google account is missing the gmail.send scope — reconnect Google Calendar in Settings → Company to grant it.'
+			);
+		}
+		throw new Error(`Connected Gmail send failed (${res.status}): ${errText}`);
+	}
+
+	const data = await res.json();
+	console.log(`[Gmail Send · connected] ✅ Sent — messageId: ${data.id}`);
 	return { messageId: data.id };
 }

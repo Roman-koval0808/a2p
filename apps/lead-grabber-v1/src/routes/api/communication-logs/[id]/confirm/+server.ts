@@ -193,16 +193,29 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 			}
 		}
 
-		// If it's an outbound EMAIL, attempt Gmail send if available, but do not fail approval if sending is deferred.
+		// If it's an outbound EMAIL, attempt to send — but never fail the confirmation (and never
+		// block the booking below) if mail is deferred. Prefer the company's CONNECTED Google
+		// account (same one used for Calendar); fall back to the single-account GMAIL_* sender.
 		if (log.type === 'email' && log.direction === 'outbound') {
 			const m = (log.metadata as any) || {};
 			const subject = m.subject || log.summary || 'A message from us';
+			// The AI draft body sometimes leads with a "Subject: …" line — strip it so it isn't
+			// duplicated inside the email body.
+			const htmlBody = (log.content || '').replace(/^\s*Subject:\s*.+(\r?\n)+/i, '').trim();
+			const to = log.destination || '';
 			try {
-				const { sendEmailViaGmail } = await import('$lib/server/gmail-send');
-				await sendEmailViaGmail({ to: log.destination || '', subject, htmlContent: log.content || '' });
-				console.log(`[Confirm Outbound Email] Sent to ${log.destination}`);
-			} catch (e: any) {
-				console.warn('[Confirm Outbound Email] Email dispatch deferred/logged for later sending:', e?.message || e);
+				const { sendEmailViaConnectedGmail } = await import('$lib/server/gmail-send');
+				await sendEmailViaConnectedGmail(log.companyId, { to, subject, htmlContent: htmlBody });
+				console.log(`[Confirm Outbound Email] ✅ Sent via connected Google account to ${to}`);
+			} catch (connErr: any) {
+				console.warn('[Confirm Outbound Email] Connected Gmail unavailable:', connErr?.message || connErr);
+				try {
+					const { sendEmailViaGmail } = await import('$lib/server/gmail-send');
+					await sendEmailViaGmail({ to, subject, htmlContent: htmlBody });
+					console.log(`[Confirm Outbound Email] ✅ Sent via fallback Gmail to ${to}`);
+				} catch (e: any) {
+					console.warn('[Confirm Outbound Email] Email dispatch deferred (no sender available):', e?.message || e);
+				}
 			}
 		}
 

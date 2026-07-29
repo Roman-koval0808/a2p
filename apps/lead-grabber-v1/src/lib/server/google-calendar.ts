@@ -28,7 +28,11 @@ const SCOPES = [
 	'openid',
 	'email',
 	'https://www.googleapis.com/auth/calendar.events',
-	'https://www.googleapis.com/auth/calendar.readonly'
+	'https://www.googleapis.com/auth/calendar.readonly',
+	// Lets us send the customer's confirmation email FROM the same connected Google account,
+	// so no separate mail provider is needed. Requires a RE-CONSENT: connections created before
+	// this scope was added won't have it until the owner reconnects Google Calendar.
+	'https://www.googleapis.com/auth/gmail.send'
 ].join(' ');
 
 export function isGoogleConfigured(): boolean {
@@ -226,6 +230,29 @@ async function getAccessToken(companyId: string): Promise<{ token: string; calen
 		console.error('[google-calendar] refresh error:', e);
 		return null;
 	}
+}
+
+/**
+ * A fresh access token for the company's connected Google account, plus the account's email
+ * (the address any Gmail send goes out FROM). Reuses the same refresh logic as calendar calls,
+ * so it's the same connection the owner made in Settings → Company. Returns null if not connected.
+ */
+export async function getConnectionAccessToken(
+	companyId: string
+): Promise<{ token: string; email: string | null } | null> {
+	const auth = await getAccessToken(companyId);
+	if (!auth) return null;
+	let email: string | null = null;
+	try {
+		const conn = await prisma.googleCalendarConnection.findUnique({
+			where: { companyId },
+			select: { email: true }
+		});
+		email = conn?.email ?? null;
+	} catch {
+		/* email is best-effort; send still works with the default From */
+	}
+	return { token: auth.token, email };
 }
 
 /**
