@@ -1385,19 +1385,29 @@ export const POST: RequestHandler = async ({ request }) => {
 							});
 						}
 
-						// De-dup: the recording.saved handler may have already created this call's log
-						// (Telnyx webhook ordering isn't guaranteed). If a log already exists for this
-						// call_control_id, don't create a duplicate thread + log here on hangup.
+						// De-dup: the recording.saved handler or /api/telnyx/log-webrtc-call may have already
+						// created a log for this call. Match by call ID or by phone number within recent window.
 						const dupSince = new Date(Date.now() - 10 * 60 * 1000);
+						const last10Contact = (contactNumber || '').replace(/\D/g, '').slice(-10);
 						const existingForCall = (
 							await prisma.communicationLog.findMany({
 								where: { companyId: numberInfo.companyId, type: 'voice', created: { gte: dupSince } },
 								orderBy: { created: 'desc' },
 								take: 20
 							})
-						).find(
-							(l) => (l.metadata as Record<string, unknown>)?.call_control_id === callControlId
-						);
+						).find((l) => {
+							const meta = l.metadata as Record<string, unknown>;
+							const isMatchCallId =
+								meta?.call_control_id === callControlId ||
+								meta?.call_leg_id === callControlId ||
+								meta?.call_session_id === (payload?.call_session_id as string);
+							const isMatchPhone =
+								l.direction === 'outbound' &&
+								!!last10Contact &&
+								((l.destination || '').replace(/\D/g, '').slice(-10) === last10Contact ||
+									(l.source || '').replace(/\D/g, '').slice(-10) === last10Contact);
+							return isMatchCallId || isMatchPhone;
+						});
 						if (existingForCall) {
 							console.log(
 								'📝 Updating existing CommunicationLog with duration & status on hangup:',

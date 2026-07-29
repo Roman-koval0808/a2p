@@ -39,6 +39,60 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			});
 		}
 
+		const callStatus = wasAnswered === false ? 'missed' : 'completed';
+		const callDuration = typeof duration === 'number' && duration > 0 ? Math.round(duration) : null;
+		const callVerb = wasAnswered === false ? 'not answered' : 'completed';
+		const callLabel = callDuration
+			? `Outbound call ${callVerb} (${callDuration}s)`
+			: `Outbound call ${callVerb}`;
+
+		// De-duplicate: check if call.hangup in call-webhook already created a CommunicationLog
+		const since = new Date(Date.now() - 2 * 60 * 1000);
+		const existingLogs = await prisma.communicationLog.findMany({
+			where: {
+				companyId,
+				type: 'voice',
+				created: { gte: since }
+			},
+			orderBy: { created: 'desc' },
+			take: 20
+		});
+
+		const existingLog = existingLogs.find((l) => {
+			const meta = l.metadata as Record<string, unknown>;
+			const isMatchCallId =
+				(telnyxSessionId && (meta?.call_session_id === telnyxSessionId || meta?.call_control_id === telnyxSessionId)) ||
+				(telnyxLegId && (meta?.call_leg_id === telnyxLegId || meta?.call_control_id === telnyxLegId));
+			const isMatchPhone =
+				l.direction === 'outbound' &&
+				(last10(l.destination || '') === target || last10(l.source || '') === target);
+			return isMatchCallId || isMatchPhone;
+		});
+
+		if (existingLog) {
+			await prisma.communicationLog.update({
+				where: { id: existingLog.id },
+				data: {
+					duration: callDuration ?? existingLog.duration,
+					status: callStatus,
+					content: callLabel,
+					metadata: {
+						...((existingLog.metadata as Record<string, unknown>) || {}),
+						dialer_outbound: true,
+						webrtc_call: true,
+						call_session_id: telnyxSessionId || undefined,
+						call_leg_id: telnyxLegId || undefined,
+						placed_by: locals.user?.id || null,
+						placed_at: new Date().toISOString(),
+						answered: wasAnswered !== false,
+						no_answer: wasAnswered === false
+					} as any
+				}
+			});
+			console.log(`[Dialer WebRTC] Updated existing CommunicationLog for ${callee?.name || to} (${callVerb}, ${callDuration ?? '?'}s)`);
+			return json({ success: true, logId: existingLog.id });
+		}
+
 		// Find existing thread for this contact
 		const recentThreaded = await prisma.communicationLog.findMany({
 			where: {
@@ -53,13 +107,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		const threadRow = recentThreaded.find(
 			(r) => last10(r.source || '') === target || last10(r.destination || '') === target
 		);
-
-		const callStatus = wasAnswered === false ? 'missed' : 'completed';
-		const callDuration = typeof duration === 'number' && duration > 0 ? Math.round(duration) : null;
-		const callVerb = wasAnswered === false ? 'not answered' : 'completed';
-		const callLabel = callDuration
-			? `Outbound call ${callVerb} (${callDuration}s)`
-			: `Outbound call ${callVerb}`;
 
 		const record = await logCommunication({
 			type: 'voice',
