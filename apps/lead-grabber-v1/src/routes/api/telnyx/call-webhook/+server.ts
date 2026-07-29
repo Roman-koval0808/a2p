@@ -517,9 +517,48 @@ export const POST: RequestHandler = async ({ request }) => {
 					break;
 				}
 
-				// Bypass IVR logic for outbound calls (e.g. transfer legs to reps)
+				// Outbound answered. Server-originated outbound calls (server-dial, transfer legs,
+				// emergency legs) ALWAYS carry a client_state and are already recorded (record-from-answer
+				// or on bridge). A WebRTC dialer call is placed client-side with NO client_state — record
+				// it here (Method 2: record_start) and register a CallLog so the existing
+				// call.recording.saved handler attaches the recording + transcribes it, like inbound calls.
 				if (payload?.direction === 'outbound') {
-					console.log('📞 Outbound transfer leg answered, bypassing IVR logic for control ID:', callControlId);
+					if (!payload?.client_state) {
+						console.log('🎙️ WebRTC dialer call answered — starting recording:', callControlId);
+						try {
+							await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/record_start`, {
+								method: 'POST',
+								headers: {
+									'Content-Type': 'application/json',
+									Authorization: `Bearer ${TELNYX_API_KEY}`
+								},
+								body: JSON.stringify({ format: 'mp3', channels: 'dual', recording_track: 'both' })
+							});
+						} catch (err) {
+							console.error('❌ Failed to start recording WebRTC dialer call:', err);
+						}
+						// Register a CallLog so call.recording.saved (below) treats this like any other call:
+						// resolves the company, links to the existing WebRTC comm-log by phone/session id,
+						// and attaches the recording + transcript instead of dropping it.
+						try {
+							const existing = await prisma.callLog.findFirst({ where: { callId: callControlId } });
+							if (!existing) {
+								await prisma.callLog.create({
+									data: {
+										callId: callControlId,
+										status: 'initiated',
+										to: payload?.to || null,
+										from: payload?.from || null,
+										metadata: { direction: 'outgoing', webrtc_dialer: true }
+									}
+								});
+							}
+						} catch (err) {
+							console.error('❌ Failed to register CallLog for WebRTC dialer call:', err);
+						}
+					} else {
+						console.log('📞 Outbound transfer leg answered, bypassing IVR logic for control ID:', callControlId);
+					}
 					break;
 				}
 

@@ -13,7 +13,7 @@ import { logCommunication } from '$lib/utils/communication-log';
  */
 export const POST: RequestHandler = async ({ request, locals }) => {
 	try {
-		const { to, from, duration, wasAnswered } = await request.json();
+		const { to, from, duration, wasAnswered, telnyxSessionId, telnyxLegId } = await request.json();
 
 		const companyId = locals.user?.company?.id;
 		if (!companyId) {
@@ -75,6 +75,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			metadata: {
 				dialer_outbound: true,
 				webrtc_call: true,
+				// Keys the call.recording.saved handler matches on, so the recording (once connection
+				// recording is enabled) attaches to THIS log + gets transcribed, instead of duplicating.
+				call_session_id: telnyxSessionId || undefined,
+				call_leg_id: telnyxLegId || undefined,
 				placed_by: locals.user?.id || null,
 				placed_at: new Date().toISOString(),
 				answered: wasAnswered !== false,

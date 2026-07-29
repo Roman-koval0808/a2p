@@ -503,7 +503,11 @@
 										to: phoneNumber,
 										from: selectedFromNumber,
 										duration: secondsElapsed,
-										wasAnswered
+										wasAnswered,
+										// Telnyx session/leg id so a later call.recording.saved (when connection
+										// recording is enabled) links to THIS log instead of creating a duplicate.
+										telnyxSessionId: call?.telnyxSessionId ?? call?.telnyxCallControlId ?? null,
+										telnyxLegId: call?.telnyxLegId ?? null
 									})
 								})
 									.then((r) => r.json())
