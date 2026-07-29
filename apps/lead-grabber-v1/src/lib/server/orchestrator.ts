@@ -496,7 +496,11 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					type: (bookingResult.approval.draftType || 'sms') as any,
 					direction: 'outbound',
 					status: 'pending_approval',
-					source: isEmailDraft ? 'rory.clearskysoftware@gmail.com' : companyNumber,
+					// Show the customer's actual email as the source in comm logs (the real party this
+					// thread is with) — not the internal sending account.
+					source: isEmailDraft
+						? metadata.ai_extracted_email || customer.email || customerPhone
+						: companyNumber,
 					destination: isEmailDraft ? (metadata.ai_extracted_email || customerPhone) : customerPhone,
 					company_id: company.id,
 					customer_id: customer.id,
@@ -968,7 +972,8 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				direction: 'outbound',
 				status: 'pending_approval',
 				destination: destinationEmail,
-				source: 'rory.clearskysoftware@gmail.com',
+				// Show the customer's actual email as the source in comm logs, not the sending account.
+				source: destinationEmail,
 				company_id: company.id,
 				customer_id: customer.id,
 				summary: emailSubject || 'Email Follow-up',
