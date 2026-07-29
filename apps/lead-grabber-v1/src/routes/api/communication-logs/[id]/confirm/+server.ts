@@ -203,18 +203,26 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 			// duplicated inside the email body.
 			const htmlBody = (log.content || '').replace(/^\s*Subject:\s*.+(\r?\n)+/i, '').trim();
 			const to = log.destination || '';
-			try {
-				const { sendEmailViaConnectedGmail } = await import('$lib/server/gmail-send');
-				await sendEmailViaConnectedGmail(log.companyId, { to, subject, htmlContent: htmlBody });
-				console.log(`[Confirm Outbound Email] ✅ Sent via connected Google account to ${to}`);
-			} catch (connErr: any) {
-				console.warn('[Confirm Outbound Email] Connected Gmail unavailable:', connErr?.message || connErr);
+			// Guard: a half-transcribed address ("romankovalenko", no domain) makes Gmail 400. Don't
+			// attempt to send to a non-address — the booking below still proceeds.
+			if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+				console.warn(
+					`[Confirm Outbound Email] Recipient "${to}" is not a valid email — skipping send. Fix the address before confirming to email the customer.`
+				);
+			} else {
 				try {
-					const { sendEmailViaGmail } = await import('$lib/server/gmail-send');
-					await sendEmailViaGmail({ to, subject, htmlContent: htmlBody });
-					console.log(`[Confirm Outbound Email] ✅ Sent via fallback Gmail to ${to}`);
-				} catch (e: any) {
-					console.warn('[Confirm Outbound Email] Email dispatch deferred (no sender available):', e?.message || e);
+					const { sendEmailViaConnectedGmail } = await import('$lib/server/gmail-send');
+					await sendEmailViaConnectedGmail(log.companyId, { to, subject, htmlContent: htmlBody });
+					console.log(`[Confirm Outbound Email] ✅ Sent via connected Google account to ${to}`);
+				} catch (connErr: any) {
+					console.warn('[Confirm Outbound Email] Connected Gmail unavailable:', connErr?.message || connErr);
+					try {
+						const { sendEmailViaGmail } = await import('$lib/server/gmail-send');
+						await sendEmailViaGmail({ to, subject, htmlContent: htmlBody });
+						console.log(`[Confirm Outbound Email] ✅ Sent via fallback Gmail to ${to}`);
+					} catch (e: any) {
+						console.warn('[Confirm Outbound Email] Email dispatch deferred (no sender available):', e?.message || e);
+					}
 				}
 			}
 		}

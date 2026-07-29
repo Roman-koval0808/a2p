@@ -379,13 +379,23 @@ export async function createEvent(
 			start: { dateTime: opts.startISO, timeZone },
 			end: { dateTime: opts.endISO, timeZone }
 		};
-		if (opts.attendeeEmail) body.attendees = [{ email: opts.attendeeEmail }];
+		// A garbled/half-transcribed email (e.g. "romankovalenko" with no domain) makes Google reject
+		// the WHOLE event ("Invalid attendee email"). The booking must not fail on a bad attendee —
+		// drop the attendee and still create the event on the business calendar.
+		const isEmail = (s?: string | null) => !!s && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
+		if (isEmail(opts.attendeeEmail)) {
+			body.attendees = [{ email: opts.attendeeEmail!.trim() }];
+		} else if (opts.attendeeEmail) {
+			console.warn(
+				`[google-calendar] Skipping invalid attendee email "${opts.attendeeEmail}" — booking event WITHOUT attendee.`
+			);
+		}
 		// Stable identity tags for exact later lookup (phone is the reliable key, not the name).
 		const priv: Record<string, string> = {};
 		const pk = phoneKey(opts.phone);
 		if (pk) priv.customerPhone = pk;
 		const em = (opts.email || opts.attendeeEmail || '').trim().toLowerCase();
-		if (em) priv.customerEmail = em;
+		if (isEmail(em)) priv.customerEmail = em;
 		if (Object.keys(priv).length) body.extendedProperties = { private: priv };
 		if (opts.addMeet) {
 			body.conferenceData = {
