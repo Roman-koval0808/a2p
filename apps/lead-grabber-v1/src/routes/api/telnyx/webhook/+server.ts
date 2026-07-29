@@ -289,34 +289,8 @@ export const POST: RequestHandler = async ({ request }) => {
 				// thread — and if the customer proposed an appointment time, check it against the
 				// company's business hours and confirm or suggest an alternative. Overrides the
 				// generic pipeline draft above. Falls back to it if this fails.
-				// Fresh booking-intent SMS (no pending hold) → run the SAME orchestrator path a call
-				// uses, so "I want an appointment Tuesday at 10, my email is x@y.com" produces the
-				// tentative hold + confirmation draft, not just a chat reply. Only when they actually
-				// proposed a time OR gave an email; otherwise fall through to conversation.
-				let routeBookingToOrchestrator = false;
-				let smsBookingAnalysis: any = null;
-				if (
-					companyId &&
-					!handledByConfirmationLoop &&
-					bookingKeywords.some((kw) => lowerText.includes(kw))
-				) {
-					try {
-						const { analyzeCallLog } = await import('$lib/server/openai');
-						smsBookingAnalysis = await analyzeCallLog(smsText);
-						if (smsBookingAnalysis?.datetime || smsBookingAnalysis?.ai_extracted_email) {
-							routeBookingToOrchestrator = true;
-							draftText = ''; // suppress the chat draft; the orchestrator drafts the confirmation
-							console.log(
-								`[SMS Webhook] Booking-intent SMS → routing to orchestrator (datetime=${smsBookingAnalysis?.datetime || 'none'}, email=${smsBookingAnalysis?.ai_extracted_email || 'none'})`
-							);
-						}
-					} catch (e) {
-						console.error('[SMS Webhook] analyzeCallLog for booking SMS failed:', e);
-					}
-				}
-
 				try {
-					if (companyId && !handledByConfirmationLoop && !routeBookingToOrchestrator) {
+					if (companyId && !handledByConfirmationLoop) {
 						const cid = companyId as string;
 						const last10 = (p: string | null | undefined) =>
 							(p || '').replace(/\D/g, '').slice(-10);
@@ -616,34 +590,6 @@ export const POST: RequestHandler = async ({ request }) => {
 						}
 					});
 
-					// Booking-intent SMS: enrich the inbound log's metadata (datetime + email) and run
-					// the SAME orchestrator a call uses — it creates the tentative hold + confirmation
-					// draft (email if an address was given, else SMS) in the approval queue.
-					if (routeBookingToOrchestrator && inboundCommLog?.id) {
-						try {
-							await prisma.communicationLog.update({
-								where: { id: inboundCommLog.id },
-								data: {
-									metadata: {
-										thread_id: threadId,
-										telnyx_event: eventType,
-										ivr_digit: '2',
-										intent: 'sales',
-										datetime: smsBookingAnalysis?.datetime || undefined,
-										ai_extracted_email: smsBookingAnalysis?.ai_extracted_email || undefined,
-										sub_intent: smsBookingAnalysis?.sub_intent || undefined,
-										summary: smsBookingAnalysis?.summary || undefined
-									}
-								}
-							});
-							const { process_orchestrator } = await import('$lib/server/orchestrator');
-							await process_orchestrator(inboundCommLog.id, 'ai_ready');
-							console.log(`[SMS Webhook] Orchestrator ran for booking SMS ${inboundCommLog.id}`);
-						} catch (e) {
-							console.error('[SMS Webhook] Orchestrator routing for booking SMS failed:', e);
-						}
-					}
-
 					// Log separate outbound draft event if generated
 					if (draftText && effectiveCompanyId) {
 						const compId = effectiveCompanyId as string;
@@ -764,6 +710,9 @@ export const POST: RequestHandler = async ({ request }) => {
 										intent: analysis.intent,
 										sub_intent: analysis.sub_intent,
 										datetime: analysis.datetime,
+										// Without this the orchestrator can't see a captured email and always drafts SMS,
+										// never the email confirmation (the "one email + one SMS" double-draft cause).
+										ai_extracted_email: analysis.ai_extracted_email,
 										urgency: analysis.urgency,
 										sentiment: analysis.sentiment
 									}

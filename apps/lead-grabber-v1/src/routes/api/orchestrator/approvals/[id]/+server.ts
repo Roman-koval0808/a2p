@@ -69,7 +69,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 						const subjMatch = raw.match(/^\s*Subject:\s*(.+)$/im);
 						const subject = subjMatch
 							? subjMatch[1].trim()
-							: cp.subject || `Appointment Confirmation — ${cp.product || 'Sales Opportunity'}`;
+							: cp.subject || `Appointment Confirmation - ${cp.product || 'Sales Opportunity'}`;
 						const body = raw.replace(/^\s*Subject:\s*.+$/im, '').trim();
 						await sendEmail({
 							to: [{ email: to }],

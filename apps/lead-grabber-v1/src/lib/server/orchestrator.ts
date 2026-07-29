@@ -469,6 +469,18 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				container = createResult.container;
 			}
 
+			// Group the inbound message under the SAME container ref as the drafts, so the whole
+			// conversation shares one comm id in the UI (metadata.commId drives the displayed ref).
+			try {
+				metadata.commId = container.id;
+				await prisma.communicationLog.update({
+					where: { id: commLog.id },
+					data: { metadata: { ...metadata } }
+				});
+			} catch (e) {
+				oerr('[Orchestrator] Failed to link inbound log to container:', e);
+			}
+
 			const bookingResult = await processSalesVoicemailBooking({
 				commId: container.id,
 				companyId: company.id,

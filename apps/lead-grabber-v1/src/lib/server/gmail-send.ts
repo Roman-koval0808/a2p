@@ -57,13 +57,17 @@ function buildRawEmail(opts: {
 	// sending via a per-company connection this is that account's own email; otherwise the
 	// single-account default.
 	const from = opts.fromEmail || 'rory.clearskysoftware@gmail.com';
-	const fromHeader = opts.fromName ? `"${opts.fromName}" <${from}>` : from;
+	// RFC 2047: non-ASCII in a header (e.g. an em-dash "—") must be encoded, or clients render it as
+	// mojibake ("Ã¢Â€Â") and spam filters flag it. Pure-ASCII passes through unchanged.
+	const encodeHeader = (s: string) =>
+		/^[\x00-\x7F]*$/.test(s) ? s : `=?UTF-8?B?${Buffer.from(s, 'utf8').toString('base64')}?=`;
+	const fromHeader = opts.fromName ? `"${encodeHeader(opts.fromName)}" <${from}>` : from;
 	const boundary = `----=_Part_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
 	const raw = [
 		`From: ${fromHeader}`,
 		`To: ${opts.to}`,
-		`Subject: ${opts.subject}`,
+		`Subject: ${encodeHeader(opts.subject)}`,
 		`MIME-Version: 1.0`,
 		`Content-Type: multipart/alternative; boundary="${boundary}"`,
 		'',
