@@ -154,7 +154,8 @@ export async function processSupportCallMeetingConfirmation(input: {
 
 	// Case 1: Match found -> proceed to draft immediately (Test 1-4a)
 	if (calMatch.status === 'found') {
-		const draftContent = `Hi, confirming our meeting scheduled for ${dateRes.formattedExplicitText || dateRes.resolvedDate.toISOString()}.`;
+		const dateText = dateRes.formattedExplicitText || dateRes.resolvedDate.toISOString();
+		const draftContent = `Subject: Appointment Confirmation for ${dateText}\n\nHi, confirming our meeting scheduled for ${dateText}.`;
 		const approvalDeadline = new Date(now.getTime() + 2 * 3600 * 1000);
 
 		const approval = await createCustomerFacingApproval(prisma, {
@@ -252,7 +253,8 @@ export async function processGraceExpiration(prisma: any, timer: any) {
 		console.log(`[Scenario 1] Meeting FOUND after grace period!`);
 		
 		const dateRes = new Date(targetTime);
-		const draftContent = `Hi, confirming our meeting scheduled for ${dateRes.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}.`;
+		const dateLabel = dateRes.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+		const draftContent = `Subject: Appointment Confirmation for ${dateLabel}\n\nHi, confirming our meeting scheduled for ${dateLabel}.`;
 		
 		await createCustomerFacingApproval(prisma, {
 			commId: timer.commId,

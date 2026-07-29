@@ -48,7 +48,7 @@ export async function logCommunication(entry: CommunicationLogEntry) {
 
 		// Use a transaction to ensure log and thread are created together
 		const record = await prisma.$transaction(async (tx) => {
-			let threadId = (entry.metadata as { commId?: string })?.commId;
+			let threadId = entry.thread_id || (entry.metadata as { commId?: string })?.commId || (entry.metadata as { communicationThreadId?: string })?.communicationThreadId;
 			if (threadId && entry.company_id) {
 				// Ensure thread exists if an ID was passed in
 				await tx.communicationThread.upsert({

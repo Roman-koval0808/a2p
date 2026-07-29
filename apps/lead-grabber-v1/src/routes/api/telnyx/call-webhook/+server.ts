@@ -2106,6 +2106,7 @@ export const POST: RequestHandler = async ({ request }) => {
 								sentiment,
 								intent: intent || undefined,
 								sub_intent: sub_intent || undefined,
+								booking_reason: (analysis as any)?.booking_reason || sub_intent || intent || undefined,
 								datetime: datetime || undefined,
 								ai_extracted_email: ai_extracted_email || undefined,
 								requested_contact_method: requested_contact_method || undefined,

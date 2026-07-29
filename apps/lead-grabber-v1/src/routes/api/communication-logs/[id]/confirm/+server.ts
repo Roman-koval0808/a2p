@@ -198,9 +198,10 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 		// account (same one used for Calendar); fall back to the single-account GMAIL_* sender.
 		if (log.type === 'email' && log.direction === 'outbound') {
 			const m = (log.metadata as any) || {};
-			const subject = m.subject || log.summary || 'A message from us';
-			// The AI draft body sometimes leads with a "Subject: …" line — strip it so it isn't
-			// duplicated inside the email body.
+			const subjMatch = (log.content || '').match(/^\s*Subject:\s*(.+)$/im);
+			const subject = subjMatch
+				? subjMatch[1].trim()
+				: m.subject || log.summary || `Appointment Confirmation — ${m.product || m.purpose || 'Sales Opportunity'}`;
 			const htmlBody = (log.content || '').replace(/^\s*Subject:\s*.+(\r?\n)+/i, '').trim();
 			const to = log.destination || '';
 			// Guard: a half-transcribed address ("romankovalenko", no domain) makes Gmail 400. Don't
@@ -242,6 +243,23 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 						await cancelTimersForContainer(meta.commId, 'hold_expiry', 'confirmed_by_agent');
 					}
 
+					// Resolve contact name for display
+					let contactName: string | undefined = undefined;
+					if (log.customerId) {
+						const c = await prisma.contact.findUnique({ where: { id: log.customerId }, select: { name: true } });
+						if (c?.name) contactName = c.name;
+					}
+					if (!contactName && log.destination) {
+						const c = await prisma.contact.findFirst({
+							where: { companyId: log.companyId, OR: [{ phone: log.destination }, { cell: log.destination }] },
+							select: { name: true }
+						});
+						if (c?.name) contactName = c.name;
+					}
+					const displayName = contactName || log.destination || 'Customer';
+					const reason = meta.booking_reason || meta.product || meta.purpose || meta.sub_intent || meta.intent || 'Sales Opportunity';
+					const description = `Subject / Reason: ${reason}\n\nSummary:\n${log.summary || log.content || 'N/A'}\n\nBooked via AI Assistant`;
+
 					if (log.companyId && activeHold.startTime) {
 						const { createEvent } = await import('$lib/server/google-calendar');
 						const startISO = new Date(activeHold.startTime).toISOString();
@@ -254,7 +272,8 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 							`[Confirm → Booking] Attempt → hold=${meta.holdId} company=${log.companyId} start=${startISO} attendee=${attendee || 'none'}`
 						);
 						const ev = await createEvent(log.companyId, {
-							summary: meta.product ? `Appointment — ${meta.product}` : `Appointment for ${log.destination}`,
+							summary: `Appointment — ${displayName} (${reason})`,
+							description,
 							startISO,
 							endISO,
 							attendeeEmail: attendee,
@@ -271,17 +290,26 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 							console.log(
 								`[Confirm → Booking] ✅ Booked → hold=${meta.holdId} event=${ev.eventId} link=${ev.htmlLink || 'n/a'}`
 							);
-						} else {
-							// createEvent returns null on no connection / token / scope error — the
-							// [google-calendar] log line above names the cause. Hold is still marked booked.
-							console.error(
-								`[Confirm → Booking] ❌ Calendar event NOT created (createEvent returned null) → hold=${meta.holdId}. Likely no Google Calendar connection or a token/scope error — see [google-calendar] logs above.`
-							);
 						}
-					} else {
-						console.log(
-							`📅 Hold ${meta.holdId} marked booked, but no company/startTime → no calendar event created.`
-						);
+					}
+
+					// Notify Rory / reps internally (no approval needed)
+					try {
+						const { notifyRepsOfBooking } = await import('$lib/server/rep-notify');
+						const dateLabel = new Date(activeHold.startTime).toLocaleString('en-US', {
+							weekday: 'short',
+							month: 'short',
+							day: 'numeric',
+							hour: 'numeric',
+							minute: '2-digit'
+						});
+						await notifyRepsOfBooking(log.companyId, `New appointment: ${displayName} (${reason}) — ${dateLabel}`, {
+							contactName: displayName,
+							reason,
+							commId: log.communicationThreadId || meta.commId
+						});
+					} catch (nErr) {
+						console.error('[Confirm → Booking] Internal notify failed:', nErr);
 					}
 				}
 			} catch (err) {

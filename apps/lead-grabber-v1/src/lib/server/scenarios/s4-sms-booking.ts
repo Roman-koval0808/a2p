@@ -157,16 +157,17 @@ export async function processSalesVoicemailBooking(input: {
 	let draftType: 'sms' | 'email' | 'call' = 'sms';
 	let draftContent = '';
 	let contactMethodResolved = input.requestedContactMethod || 'sms';
+	const reason = input.productInterest || 'Sales Opportunity';
 
 	if (input.aiExtractedEmail) {
 		draftType = 'email';
-		draftContent = `Subject: Appointment Confirmation for ${explicitDateText}\n\nHi!\n\nYour appointment regarding ${input.productInterest || 'our services'} on ${explicitDateText} is confirmed.\n\nWe look forward to seeing you then.\n\nBest,\nThe Team`;
+		draftContent = `Subject: Appointment Confirmation — ${reason} for ${explicitDateText}\n\nHi!\n\nYour appointment regarding ${reason} on ${explicitDateText} is confirmed.\n\nWe look forward to seeing you then.\n\nBest,\nThe Team`;
 	} else if (contactMethodResolved === 'phone' || input.isLandline) {
 		draftType = 'call';
-		draftContent = `[CALL SCRIPT]\n\n"Hi, this is [Your Name]. I'm calling to confirm your appointment for ${input.productInterest || 'our services'} on ${explicitDateText}. Does this time still work for you?"`;
+		draftContent = `[CALL SCRIPT]\n\n"Hi, this is [Your Name]. I'm calling to confirm your appointment for ${reason} on ${explicitDateText}. Does this time still work for you?"`;
 	} else {
 		draftType = 'sms';
-		draftContent = `Okay, appointment confirmed at ${explicitDateText}.`;
+		draftContent = `Okay, appointment confirmed for ${reason} at ${explicitDateText}.`;
 	}
 
 	const approvalDeadline = new Date(now.getTime() + 30 * 60 * 1000); // 30 min approval deadline
@@ -180,6 +181,7 @@ export async function processSalesVoicemailBooking(input: {
 			explicitDateText,
 			holdId: hold.id,
 			product: input.productInterest,
+			purpose: reason,
 			extractedEmail: input.aiExtractedEmail
 		},
 		approvalDeadline
@@ -234,6 +236,20 @@ export async function handleInboundSmsReply(input: {
 
 				if (input.companyId && activeHold.startTime) {
 					try {
+						// Resolve contact name for display
+						let contactName: string | undefined = undefined;
+						try {
+							const c = await prisma.contact.findFirst({
+								where: { companyId: input.companyId, OR: [{ phone: input.customerPhone }, { cell: input.customerPhone }] },
+								select: { name: true }
+							});
+							if (c?.name) contactName = c.name;
+						} catch (e) {}
+
+						const displayName = contactName || input.customerPhone;
+						const reason = (activeHold as any).booking_reason || (activeHold as any).product || (activeHold as any).purpose || 'Sales Opportunity';
+						const description = `Subject / Reason: ${reason}\n\nBooked via AI Assistant (SMS Confirmation)`;
+
 						const { createEvent } = await import('$lib/server/google-calendar');
 						const startISO = new Date(activeHold.startTime).toISOString();
 						const endISO = activeHold.endTime
@@ -241,7 +257,8 @@ export async function handleInboundSmsReply(input: {
 							: new Date(new Date(activeHold.startTime).getTime() + 60 * 60 * 1000).toISOString();
 
 						const ev = await createEvent(input.companyId, {
-							summary: `Appointment for ${input.customerPhone}`,
+							summary: `Appointment — ${displayName} (${reason})`,
+							description,
 							startISO,
 							endISO,
 							phone: input.customerPhone,
@@ -253,6 +270,25 @@ export async function handleInboundSmsReply(input: {
 								where: { id: activeHold.id },
 								data: { calendarEventId: ev.eventId }
 							});
+						}
+
+						// Internal notification to Rory / reps (No approval needed - Requirement 4)
+						try {
+							const { notifyRepsOfBooking } = await import('$lib/server/rep-notify');
+							const dateLabel = new Date(activeHold.startTime).toLocaleString('en-US', {
+								weekday: 'short',
+								month: 'short',
+								day: 'numeric',
+								hour: 'numeric',
+								minute: '2-digit'
+							});
+							await notifyRepsOfBooking(input.companyId, `New appointment: ${displayName} (${reason}) — ${dateLabel}`, {
+								contactName: displayName,
+								reason,
+								commId: input.commId
+							});
+						} catch (nErr) {
+							console.error('[SMS Booking] Rep notification failed:', nErr);
 						}
 					} catch (err) {
 						console.error('[SMS Booking] Google Calendar booking failed:', err);

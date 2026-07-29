@@ -18,9 +18,9 @@ function last10(p: string): string {
 export async function isInternalCaller(companyId: string, fromPhone: string): Promise<boolean> {
 	const norm = last10(fromPhone);
 	if (!norm) return false;
-	const nums = await prisma.companyPhoneNumber.findMany({
+	const nums = (await prisma.companyPhoneNumber?.findMany({
 		where: { companyId },
 		select: { phoneNumber: true }
-	});
+	})) || [];
 	return nums.some((n) => last10(n.phoneNumber) === norm);
 }

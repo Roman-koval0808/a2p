@@ -6,11 +6,30 @@ import { getFcmMessaging } from './push/firebase';
  * best-effort, an FCM push. Fire-and-forget; never throws. Lazy-import this from the
  * request path so firebase-admin stays off the module-load graph.
  */
-export async function notifyRepsOfBooking(companyId: string, message: string): Promise<void> {
+export async function notifyRepsOfBooking(
+	companyId: string,
+	message: string,
+	meta?: { contactName?: string; reason?: string; commId?: string }
+): Promise<void> {
 	try {
 		await prisma.task.create({ data: { companyId, title: message } });
 	} catch (e: any) {
 		console.error('[rep-notify] task create failed:', e?.message || e);
+	}
+	try {
+		const { createNotification } = await import('$lib/utils/notifications');
+		await createNotification({
+			company_id: companyId,
+			type: 'web',
+			direction: 'inbound',
+			source_name: meta?.contactName || 'Internal Alert',
+			source_identifier: 'System',
+			message_preview: message,
+			content: `Internal Notification (No Approval Needed): ${message}`,
+			thread_id: meta?.commId
+		});
+	} catch (e: any) {
+		console.error('[rep-notify] notification create failed:', e?.message || e);
 	}
 	try {
 		const messaging = getFcmMessaging();

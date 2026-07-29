@@ -121,8 +121,26 @@ export async function bookProposedAppointment(opts: {
 	proposal: Proposal;
 	proposalCommId: string;
 }): Promise<{ booked: boolean; calendarEventId: string | null; appointmentId: string; message: string }> {
-	const { companyId, contactId, phone, proposal } = opts;
-	const summary = `Appointment — ${opts.contactName?.trim() || phone}`;
+	let resolvedName = opts.contactName?.trim();
+	if (!resolvedName || resolvedName === phone || /^\+?\d+$/.test(resolvedName)) {
+		try {
+			if (contactId) {
+				const c = await prisma.contact.findUnique({ where: { id: contactId }, select: { name: true } });
+				if (c?.name) resolvedName = c.name;
+			}
+			if (!resolvedName && phone) {
+				const c = await prisma.contact.findFirst({
+					where: { companyId, OR: [{ phone }, { cell: phone }] },
+					select: { name: true }
+				});
+				if (c?.name) resolvedName = c.name;
+			}
+		} catch (e) {}
+	}
+	const displayName = resolvedName || phone;
+	const reason = (proposal as any).reason || (proposal as any).product || 'Sales Opportunity';
+	const summary = `Appointment — ${displayName} (${reason})`;
+
 	// A calendar outage (freeBusy/insert 4xx, disconnected) must NOT block the booking: we still
 	// record the Appointment and confirm to the customer, then reps can sync the calendar manually.
 	let event: { eventId: string } | null = null;
@@ -142,9 +160,6 @@ export async function bookProposedAppointment(opts: {
 			companyId,
 			contactId,
 			calendarEventId: event?.eventId ?? null,
-			// Resolve the naive wall-clock time in the BUSINESS zone, not the server's — otherwise a
-			// Europe-hosted box stores an Ontario 10am appointment as the wrong absolute instant,
-			// which would break reminders and "upcoming appointment" queries.
 			startTime: toUtcInstant(proposal.proposedStartISO),
 			endTime: toUtcInstant(proposal.proposedEndISO),
 			status: 'booked',
@@ -155,7 +170,7 @@ export async function bookProposedAppointment(opts: {
 	try {
 		const c = await prisma.communicationLog.findUnique({
 			where: { id: opts.proposalCommId },
-			select: { metadata: true }
+			select: { metadata: true, communicationThreadId: true }
 		});
 		const md = (c?.metadata as any) || {};
 		await prisma.communicationLog.update({
@@ -173,7 +188,11 @@ export async function bookProposedAppointment(opts: {
 	// Notify reps (lazy import keeps firebase off the request module graph).
 	try {
 		const { notifyRepsOfBooking } = await import('./rep-notify');
-		await notifyRepsOfBooking(companyId, `New appointment: ${opts.contactName || phone} — ${proposal.proposedLabel}`);
+		await notifyRepsOfBooking(companyId, `New appointment: ${displayName} (${reason}) — ${proposal.proposedLabel}`, {
+			contactName: displayName,
+			reason,
+			commId: opts.proposalCommId
+		});
 	} catch (e: any) {
 		console.error('[appointment-flow] rep notify failed:', e?.message || e);
 	}

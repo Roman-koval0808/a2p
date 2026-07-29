@@ -36,6 +36,10 @@ const ANALYSIS_SCHEMA = {
 			type: 'string',
 			enum: ['phone', 'email', 'text', 'none'],
 			description: 'The preferred contact method mentioned by the caller. Defaults to none.'
+		},
+		booking_reason: {
+			type: 'string',
+			description: 'A concise 2-5 word subject or reason for the appointment or service request, e.g. "Test Drive - Honda Civic", "Water Heater Replacement", "Kitchen Faucet Leak Repair", "Billing Inquiry". Return empty string if not applicable.'
 		}
 	},
 	required: [
@@ -50,7 +54,8 @@ const ANALYSIS_SCHEMA = {
 		'estimatedPrice',
 		'datetime',
 		'ai_extracted_email',
-		'requested_contact_method'
+		'requested_contact_method',
+		'booking_reason'
 	]
 };
 
@@ -231,6 +236,7 @@ export async function analyzeCallLog(
 					: null,
 			datetime: result.datetime || null,
 			ai_extracted_email: result.ai_extracted_email || null,
+			booking_reason: result.booking_reason || result.sub_intent || result.intent || null,
 			analysisSucceeded: true
 		};
 	} catch (error) {
@@ -247,6 +253,7 @@ export async function analyzeCallLog(
 			estimatedPrice: null,
 			datetime: null,
 			ai_extracted_email: null,
+			booking_reason: null,
 			analysisSucceeded: false
 		};
 	}

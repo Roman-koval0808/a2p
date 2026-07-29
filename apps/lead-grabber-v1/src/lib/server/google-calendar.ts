@@ -375,7 +375,7 @@ export async function createEvent(
 		const timeZone = opts.timeZone || BUSINESS_TIME_ZONE;
 		const body: any = {
 			summary: opts.summary,
-			description: opts.description || undefined,
+			description: opts.description || `Appointment Subject / Reason: ${opts.summary}\n\nBooked via AI Assistant`,
 			start: { dateTime: opts.startISO, timeZone },
 			end: { dateTime: opts.endISO, timeZone }
 		};

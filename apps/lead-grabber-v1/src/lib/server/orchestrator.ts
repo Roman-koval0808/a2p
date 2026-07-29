@@ -78,7 +78,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 	let pipelineCustomerProfileId: string | undefined = undefined;
 	if (customerPhone) {
-		const profile = await prisma.pipelineCustomerProfile.findFirst({
+		const profile = await prisma.pipelineCustomerProfile?.findFirst({
 			where: { companyId: company.id, phoneNumber: customerPhone }
 		});
 		if (profile) pipelineCustomerProfileId = profile.id;
@@ -507,7 +507,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					summary: 'Booking Confirmation Approval',
 					content: bookingResult.approval.draftContent,
 					metadata: {
-						thread_id: customerPhone,
+						thread_id: commLog.communicationThreadId || commId,
 						// Real CommContainer id (NOT the thread id) so the confirm step can cancel the
 						// hold_expiry timer, and the hold id so it can flip tentative → booked + create
 						// the calendar event. Without these the /communication-log "Confirm" was a no-op.
