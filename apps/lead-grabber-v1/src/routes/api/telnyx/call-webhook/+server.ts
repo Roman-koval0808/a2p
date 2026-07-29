@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { createPublicKey, verify } from 'crypto';
 import { TELNYX_API_KEY, TELNYX_MESSAGING_PROFILE_ID } from '$env/static/private';
+import { env } from '$env/dynamic/private';
 import { PipelineSimulator } from '$lib/server/pipeline-simulator';
 import { addPendingCall } from '$lib/utils/callStore';
 import { prisma } from '$lib/db';
@@ -517,10 +518,64 @@ export const POST: RequestHandler = async ({ request }) => {
 					break;
 				}
 
-				// Bypass IVR logic for outbound calls (e.g. transfer legs to reps). Recording for these
-				// is handled on call.bridged (which WebRTC dialer + transfer legs both fire).
+				// Bypass IVR logic for outbound legs. A WebRTC dialer call bridges BEFORE it is answered,
+				// so record_start on call.bridged fails ("90034 not answered yet") — recording MUST start
+				// here, on call.answered. Gate to WebRTC calls (the SIP connection / X-RTC headers) so we
+				// don't double-record transfer legs (which answer before bridge and record on bridge).
 				if (payload?.direction === 'outbound' || payload?.direction === 'outgoing') {
-					console.log('📞 Outbound leg answered, bypassing IVR logic for control ID:', callControlId);
+					const sipConnId = env.TELNYX_SIP_CONNECTION_ID?.trim();
+					const isWebrtcCall =
+						(!!sipConnId && payload?.connection_id === sipConnId) ||
+						(Array.isArray(payload?.custom_headers) &&
+							payload.custom_headers.some((h: any) =>
+								String(h?.name || '').toUpperCase().startsWith('X-RTC')
+							));
+					if (isWebrtcCall) {
+						console.log('🎙️ WebRTC dialer call answered — starting recording:', callControlId);
+						try {
+							const recRes = await fetch(
+								`https://api.telnyx.com/v2/calls/${callControlId}/actions/record_start`,
+								{
+									method: 'POST',
+									headers: {
+										'Content-Type': 'application/json',
+										Authorization: `Bearer ${TELNYX_API_KEY}`
+									},
+									body: JSON.stringify({ format: 'mp3', channels: 'dual', recording_track: 'both' })
+								}
+							);
+							if (recRes.ok) {
+								console.log('🎙️ record_start accepted on answer:', callControlId);
+							} else {
+								console.error(
+									`❌ record_start REJECTED on answer (${recRes.status}) for ${callControlId}:`,
+									await recRes.text().catch(() => '')
+								);
+							}
+						} catch (err) {
+							console.error('❌ Failed to start recording on answer (network error):', err);
+						}
+						// Register a CallLog so call.recording.saved resolves the company and attaches the
+						// recording + transcript to this call's comm-log (WebRTC calls otherwise get none).
+						try {
+							const existing = await prisma.callLog.findFirst({ where: { callId: callControlId } });
+							if (!existing) {
+								await prisma.callLog.create({
+									data: {
+										callId: callControlId,
+										status: 'initiated',
+										to: (payload?.to as string) || null,
+										from: (payload?.from as string) || null,
+										metadata: { direction: 'outgoing', webrtc_dialer: true }
+									}
+								});
+							}
+						} catch (err) {
+							console.error('❌ Failed to register CallLog for WebRTC dialer call:', err);
+						}
+					} else {
+						console.log('📞 Outbound transfer leg answered, bypassing IVR logic for control ID:', callControlId);
+					}
 					break;
 				}
 
@@ -1065,6 +1120,13 @@ export const POST: RequestHandler = async ({ request }) => {
 			}
 			case 'call.bridged': {
 				console.log('📞 Call bridged:', callControlId);
+				// WebRTC dialer calls bridge before they answer — record_start here always 90034s.
+				// They are recorded on call.answered instead; skip to avoid the noise.
+				const bridgeSipConnId = env.TELNYX_SIP_CONNECTION_ID?.trim();
+				if (bridgeSipConnId && payload?.connection_id === bridgeSipConnId) {
+					console.log('⏭️ Skipping record_start on bridge for WebRTC call (records on answer):', callControlId);
+					break;
+				}
 				try {
 					const recRes = await fetch(
 						`https://api.telnyx.com/v2/calls/${callControlId}/actions/record_start`,
