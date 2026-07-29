@@ -85,6 +85,8 @@ function claimTranscriptionForCall(callControlId: string): boolean {
 		if (first) callsWithTranscriptionStarted.delete(first);
 	}
 	return true;
+}
+
 const webrtcCalls = new Set<string>();
 const callPartyInfo = new Map<string, { to?: string; from?: string }>();
 
