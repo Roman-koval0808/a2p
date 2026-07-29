@@ -73,26 +73,48 @@ export const POST: RequestHandler = async ({ params, request }) => {
 			}
 
 			const contextPayload: any = approval.contextPayload || {};
+			let booking: { status: string; htmlLink?: string | null } = { status: 'not_attempted' };
 			if (contextPayload.proposedDate) {
+				const companyId = approval.container.companyId;
+				const attendee = contextPayload.extractedEmail || null;
+				console.log(
+					`[Approval API] Booking attempt → approval=${id} company=${companyId} date=${contextPayload.proposedDate} attendee=${attendee || 'none'}`
+				);
 				try {
 					const { bookAppointment } = await import('$lib/server/google-calendar');
-					await bookAppointment(
-						approval.container.companyId,
-						contextPayload.proposedDate,
-						{
-							summary: `Appointment: ${contextPayload.product || 'Services'}`,
-							description: 'Booked via AI Assistant',
-							attendeeEmail: contextPayload.extractedEmail || null,
-							phone: approval.container.customerProfile?.phoneNumber || null
-						}
-					);
-					console.log(`[Approval API] Booked appointment in Google Calendar for ${contextPayload.proposedDate}`);
+					const result = await bookAppointment(companyId, contextPayload.proposedDate, {
+						summary: `Appointment: ${contextPayload.product || 'Services'}`,
+						description: 'Booked via AI Assistant',
+						attendeeEmail: attendee,
+						phone: approval.container.customerProfile?.phoneNumber || null
+					});
+					booking = { status: result.status, htmlLink: result.htmlLink };
+					if (result.status === 'booked') {
+						console.log(
+							`[Approval API] ✅ Booked in Google Calendar → approval=${id} date=${contextPayload.proposedDate} link=${result.htmlLink || 'n/a'}`
+						);
+					} else if (result.status === 'busy') {
+						console.warn(
+							`[Approval API] ⚠️ NOT booked — slot already busy → approval=${id} date=${contextPayload.proposedDate}`
+						);
+					} else {
+						// 'failed' — most often no Google Calendar connection for this company, or a
+						// token/scope error (see the preceding [google-calendar] log line for the cause).
+						console.error(
+							`[Approval API] ❌ Booking FAILED (status=failed) → approval=${id} company=${companyId} date=${contextPayload.proposedDate}. Likely no calendar connection or a token/scope error — see [google-calendar] logs above.`
+						);
+					}
 				} catch (e) {
-					console.error(`[Approval API] Failed to book appointment in Google Calendar:`, e);
+					booking = { status: 'error' };
+					console.error(`[Approval API] ❌ Booking threw → approval=${id}:`, e);
 				}
+			} else {
+				console.log(
+					`[Approval API] No booking — approval=${id} draft has no contextPayload.proposedDate (nothing to schedule).`
+				);
 			}
 
-			return json({ success: true, state: 'approved' });
+			return json({ success: true, state: 'approved', booking });
 		} else if (action === 'reject') {
 			await prisma.commApproval.update({
 				where: { id },
