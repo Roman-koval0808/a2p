@@ -19,10 +19,43 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { TELNYX_API_KEY, TELNYX_CONNECTION_ID, TELNYX_PHONE_NUMBER } from '$env/static/private';
+import { PUBLIC_BASE_URL } from '$env/static/public';
 import { env } from '$env/dynamic/private';
 import { requireAuth, unauthorized, specError } from '$lib/api/spec';
 import { getFirstCompanyNumber } from '$lib/company-numbers';
 import { prisma } from '$lib/db';
+
+/**
+ * Ensure the WebRTC credential connection delivers Call Control webhooks to us. Without a
+ * webhook_event_url, a WebRTC dialer call NEVER reaches the backend (confirmed in prod logs: no
+ * call.initiated/answered for those calls), so record_start can't fire and the call goes
+ * unrecorded. Setting it is idempotent; best-effort (logs on failure, never blocks the token).
+ */
+async function ensureConnectionWebhook(connectionId: string): Promise<void> {
+	const url = `${(PUBLIC_BASE_URL || '').replace(/\/$/, '')}/api/telnyx/call-webhook`;
+	if (!url.startsWith('http')) return;
+	try {
+		const res = await fetch(
+			`https://api.telnyx.com/v2/credential_connections/${encodeURIComponent(connectionId)}`,
+			{
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TELNYX_API_KEY}` },
+				body: JSON.stringify({ webhook_event_url: url })
+			}
+		);
+		if (res.ok) {
+			console.log(`[sip/credentials] WebRTC connection ${connectionId} webhook set → ${url}`);
+		} else {
+			console.warn(
+				`[sip/credentials] Could not set webhook on connection ${connectionId}: ${res.status} ${await res
+					.text()
+					.catch(() => '')}. If it is not a credential_connection this endpoint 404s — set the webhook in the Telnyx portal instead.`
+			);
+		}
+	} catch (e) {
+		console.error('[sip/credentials] Failed to set connection webhook:', e);
+	}
+}
 
 /**
  * Ask Telnyx to create a short-lived credential and return its JWT token.
@@ -104,6 +137,8 @@ export const GET: RequestHandler = async ({ locals }) => {
 	// Use TELNYX_SIP_CONNECTION_ID when provided; otherwise fall back (and log the 422 above so the
 	// misconfiguration is visible).
 	const sipConnectionId = env.TELNYX_SIP_CONNECTION_ID?.trim() || TELNYX_CONNECTION_ID;
+	// Make sure this connection posts call.* webhooks to us so record_start can fire on dialer calls.
+	await ensureConnectionWebhook(sipConnectionId);
 	const webrtcToken = await generateWebRtcToken(sipConnectionId);
 
 	return json({
