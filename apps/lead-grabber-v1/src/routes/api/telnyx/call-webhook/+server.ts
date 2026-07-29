@@ -85,6 +85,40 @@ function claimTranscriptionForCall(callControlId: string): boolean {
 		if (first) callsWithTranscriptionStarted.delete(first);
 	}
 	return true;
+const webrtcCalls = new Set<string>();
+const callPartyInfo = new Map<string, { to?: string; from?: string }>();
+
+function checkAndMarkWebrtcCall(callControlId: string, payload: any): boolean {
+	if (!callControlId) return false;
+
+	if (payload?.to || payload?.from) {
+		const existing = callPartyInfo.get(callControlId) || {};
+		callPartyInfo.set(callControlId, {
+			to: (payload?.to as string) || existing.to,
+			from: (payload?.from as string) || existing.from
+		});
+	}
+
+	if (webrtcCalls.has(callControlId)) return true;
+
+	const sipConnId = env.TELNYX_SIP_CONNECTION_ID?.trim();
+	const isWebrtc =
+		(!!sipConnId && payload?.connection_id === sipConnId) ||
+		payload?.calling_party_type === 'sip' ||
+		(Array.isArray(payload?.custom_headers) &&
+			payload.custom_headers.some((h: any) =>
+				String(h?.name || '').toUpperCase().startsWith('X-RTC')
+			));
+
+	if (isWebrtc) {
+		webrtcCalls.add(callControlId);
+		if (webrtcCalls.size > MAX_EVENT_IDS) {
+			const first = webrtcCalls.values().next().value;
+			if (first) webrtcCalls.delete(first);
+		}
+		return true;
+	}
+	return false;
 }
 
 const defaultBeepAudio = `${(PUBLIC_BASE_URL || 'https://a2p.viewroom.ca').replace(/\/$/, '')}/beep.wav`;
@@ -240,6 +274,10 @@ export const POST: RequestHandler = async ({ request }) => {
 		} else {
 			console.log('❓ Unknown webhook format:', body);
 			return json({ success: true }); // Acknowledge unknown format
+		}
+
+		if (callControlId) {
+			checkAndMarkWebrtcCall(callControlId, payload);
 		}
 
 		// For answering machine detection result
@@ -520,16 +558,15 @@ export const POST: RequestHandler = async ({ request }) => {
 
 				// Bypass IVR logic for outbound legs. A WebRTC dialer call bridges BEFORE it is answered,
 				// so record_start on call.bridged fails ("90034 not answered yet") — recording MUST start
-				// here, on call.answered. Gate to WebRTC calls (the SIP connection / X-RTC headers) so we
+				// here, on call.answered. Gate to WebRTC calls (tracked via connection / headers) so we
 				// don't double-record transfer legs (which answer before bridge and record on bridge).
-				if (payload?.direction === 'outbound' || payload?.direction === 'outgoing') {
-					const sipConnId = env.TELNYX_SIP_CONNECTION_ID?.trim();
-					const isWebrtcCall =
-						(!!sipConnId && payload?.connection_id === sipConnId) ||
-						(Array.isArray(payload?.custom_headers) &&
-							payload.custom_headers.some((h: any) =>
-								String(h?.name || '').toUpperCase().startsWith('X-RTC')
-							));
+				const isWebrtcCall = checkAndMarkWebrtcCall(callControlId, payload);
+				const isOutboundOrWebrtc =
+					isWebrtcCall ||
+					payload?.direction === 'outbound' ||
+					payload?.direction === 'outgoing';
+
+				if (isOutboundOrWebrtc) {
 					if (isWebrtcCall) {
 						console.log('🎙️ WebRTC dialer call answered — starting recording:', callControlId);
 						try {
@@ -560,12 +597,13 @@ export const POST: RequestHandler = async ({ request }) => {
 						try {
 							const existing = await prisma.callLog.findFirst({ where: { callId: callControlId } });
 							if (!existing) {
+								const party = callPartyInfo.get(callControlId);
 								await prisma.callLog.create({
 									data: {
 										callId: callControlId,
 										status: 'initiated',
-										to: (payload?.to as string) || null,
-										from: (payload?.from as string) || null,
+										to: (payload?.to as string) || party?.to || null,
+										from: (payload?.from as string) || party?.from || null,
 										metadata: { direction: 'outgoing', webrtc_dialer: true }
 									}
 								});
@@ -1122,8 +1160,7 @@ export const POST: RequestHandler = async ({ request }) => {
 				console.log('📞 Call bridged:', callControlId);
 				// WebRTC dialer calls bridge before they answer — record_start here always 90034s.
 				// They are recorded on call.answered instead; skip to avoid the noise.
-				const bridgeSipConnId = env.TELNYX_SIP_CONNECTION_ID?.trim();
-				if (bridgeSipConnId && payload?.connection_id === bridgeSipConnId) {
+				if (checkAndMarkWebrtcCall(callControlId, payload)) {
 					console.log('⏭️ Skipping record_start on bridge for WebRTC call (records on answer):', callControlId);
 					break;
 				}
