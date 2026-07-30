@@ -4,6 +4,70 @@ import { processInboundEmail, type InboundEmailPayload } from './bridge';
 import { logCommunication } from '$lib/utils/communication-log';
 import { createOrUpdateContact } from '$lib/utils/contacts';
 import { UnifiedPipeline } from '$lib/server/pipeline/unified-pipeline';
+import { enrichProfilePostTranscription } from '$lib/server/identity/identity-service';
+import { join } from 'path';
+import { writeFile, mkdir } from 'fs/promises';
+import { existsSync } from 'fs';
+
+interface AttachmentInfo {
+	filename: string;
+	mimeType: string;
+	attachmentId: string;
+	size?: number;
+}
+
+function extractAttachments(payload: any): AttachmentInfo[] {
+	const results: AttachmentInfo[] = [];
+	function walk(part: any) {
+		if (part.body?.attachmentId && part.filename) {
+			results.push({
+				filename: part.filename,
+				mimeType: part.mimeType || 'application/octet-stream',
+				attachmentId: part.body.attachmentId,
+				size: part.body.size
+			});
+		}
+		if (part.parts) {
+			for (const p of part.parts) walk(p);
+		}
+	}
+	if (payload) walk(payload);
+	return results;
+}
+
+async function fetchAndSaveAttachment(
+	token: string,
+	messageId: string,
+	attachment: AttachmentInfo,
+	commLogId: string
+): Promise<string | null> {
+	try {
+		const res = await fetch(
+			`https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/attachments/${attachment.attachmentId}`,
+			{ headers: { Authorization: `Bearer ${token}` } }
+		);
+		if (!res.ok) {
+			console.warn(`[gmail-sync] Failed to fetch attachment ${attachment.filename}: ${res.status}`);
+			return null;
+		}
+		const data = await res.json();
+		if (!data.data) {
+			console.warn(`[gmail-sync] No data for attachment ${attachment.filename}`);
+			return null;
+		}
+		const decoded = Buffer.from(data.data, 'base64url');
+		const dir = join(process.cwd(), 'static/uploads/email', commLogId);
+		if (!existsSync(dir)) {
+			await mkdir(dir, { recursive: true });
+		}
+		const filePath = join(dir, attachment.filename);
+		await writeFile(filePath, decoded);
+		return `/api/email-attachment/${commLogId}/${encodeURIComponent(attachment.filename)}`;
+	} catch (err) {
+		console.error(`[gmail-sync] Error saving attachment ${attachment.filename}:`, err);
+		return null;
+	}
+}
 
 export async function syncCompanyEmails(companyId: string) {
 	try {
@@ -205,25 +269,88 @@ export async function syncCompanyEmails(companyId: string) {
 				Promise.resolve().then(async () => {
 					try {
 						if (!inboundEmailLog?.id) return;
+
+						// Process attachments (images/files) from the Gmail message
+						const attachments = extractAttachments(msgData.payload);
+						const savedAttachments: { name: string; url: string; mime: string }[] = [];
+						if (attachments.length > 0) {
+							console.log(`[gmail-sync] Processing ${attachments.length} attachment(s) for message ${msgId}`);
+							for (const att of attachments) {
+								const url = await fetchAndSaveAttachment(auth.token, msgId, att, inboundEmailLog.id);
+								if (url) {
+									savedAttachments.push({ name: att.filename, url, mime: att.mimeType });
+								}
+							}
+						}
+
 						const { analyzeCallLog } = await import('$lib/server/openai');
 						const analysis = await analyzeCallLog(textBody);
+
+						const senderEmail = (analysis.ai_extracted_email || customerEmail).toLowerCase();
+						const metadata: Record<string, any> = {
+							thread_id: threadId,
+							email_message_id: msgId,
+							channel: 'email',
+							intent: analysis.intent,
+							sub_intent: analysis.sub_intent,
+							datetime: analysis.datetime,
+							urgency: analysis.urgency,
+							sentiment: analysis.sentiment,
+							requested_contact_method: 'email',
+							ai_extracted_email: analysis.ai_extracted_email || customerEmail
+						};
+						if (savedAttachments.length > 0) {
+							metadata.attachments = savedAttachments;
+						}
+
+						// Profile merge candidate detection + structured_fields persistence
+						try {
+							let profile = await prisma.pipelineCustomerProfile.findFirst({
+								where: { companyId, email: senderEmail }
+							});
+							if (!profile) {
+								profile = await prisma.pipelineCustomerProfile.create({
+									data: {
+										companyId,
+										email: senderEmail,
+										displayName: customerName || senderEmail,
+									}
+								});
+							}
+							const enrichResult = await enrichProfilePostTranscription(null, {
+								companyId,
+								customerProfileId: profile.id,
+								extractedName: analysis.callerName || customerName,
+								extractedEmail: senderEmail
+							});
+							if (enrichResult.mergeCandidate) {
+								metadata.merge_candidate = {
+									profile_id: enrichResult.mergeCandidate.profileId,
+									reason: enrichResult.mergeCandidate.reason
+								};
+							}
+							// Merge structured fields into profile attributes
+							const sf = analysis.structured_fields;
+							if (sf && Object.keys(sf).length > 0) {
+								const existing = await prisma.pipelineCustomerProfile.findUnique({
+									where: { id: profile.id },
+									select: { attributes: true }
+								});
+								const existingAttrs = (existing?.attributes as Record<string, string>) || {};
+								const merged = { ...existingAttrs, ...sf };
+								await prisma.pipelineCustomerProfile.update({
+									where: { id: profile.id },
+									data: { attributes: merged }
+								});
+							}
+						} catch (enrichErr) {
+							console.error('[Gmail Sync] Profile enrichment error:', enrichErr);
+						}
 						await prisma.communicationLog.update({
 							where: { id: inboundEmailLog.id },
 							data: {
 								summary: analysis.summary || subject || undefined,
-								metadata: {
-									thread_id: threadId,
-									email_message_id: msgId,
-									channel: 'email',
-									intent: analysis.intent,
-									sub_intent: analysis.sub_intent,
-									datetime: analysis.datetime,
-									urgency: analysis.urgency,
-									sentiment: analysis.sentiment,
-									// Reply channel is email; force the orchestrator to draft an email (not SMS).
-									requested_contact_method: 'email',
-									ai_extracted_email: analysis.ai_extracted_email || customerEmail
-								}
+								metadata
 							}
 						});
 						const { process_orchestrator } = await import('$lib/server/orchestrator');

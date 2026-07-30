@@ -25,6 +25,7 @@
 		/** When true (pending approval), the draft's subject/body can be edited before sending. */
 		editable?: boolean;
 		onSaveDraft?: (content: string, subject: string) => void | Promise<void>;
+		attachments?: Array<{ name: string; url: string; mime: string }>;
 		/** Tasks belong to the inbound customer message — hide them on outbound replies. */
 		showTasks?: boolean;
 		requestedEmailContact?: boolean;
@@ -51,6 +52,7 @@
 		draftedMessage = null,
 		department = null,
 		ivrPath = null,
+		attachments = [],
 		editable = false,
 		onSaveDraft,
 		showTasks = true,
@@ -196,6 +198,30 @@
 								<audio controls class="h-9 w-full max-w-sm" src={recordingUrl} preload="metadata">
 									Your browser does not support the audio element.
 								</audio>
+							</div>
+						{/if}
+						{#if attachments.length > 0}
+							<div class="flex flex-col gap-1">
+								<span
+									class="flex-shrink-0 whitespace-nowrap font-sans text-[15px] font-normal leading-[141%] text-[rgba(86,86,86,0.78)]"
+								>
+									Attachments:
+								</span>
+								<div class="flex flex-wrap gap-2">
+									{#each attachments as att}
+										<a
+											href={att.url}
+											target="_blank"
+											rel="noopener noreferrer"
+											class="inline-flex items-center gap-1.5 rounded border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+										>
+											{#if att.mime.startsWith('image/')}
+												<img src={att.url} alt={att.name} class="h-8 w-8 rounded object-cover" />
+											{/if}
+											<span class="truncate max-w-[180px]">{att.name}</span>
+										</a>
+									{/each}
+								</div>
 							</div>
 						{/if}
 						<div class="flex items-start gap-4">

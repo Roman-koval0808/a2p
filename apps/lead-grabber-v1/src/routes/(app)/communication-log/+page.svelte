@@ -613,6 +613,7 @@
 		tasks={meta.actionItems ?? meta.tasks ?? []}
 		showTasks={true}
 		{recordingUrl}
+		attachments={Array.isArray(meta.attachments) ? meta.attachments : []}
 		estimatedPrice={meta.estimatedPrice ?? null}
 		draftedMessage={selectedComm.raw?.draftResponse || selectedComm.raw?.payload?.draftResponse || selectedComm.raw?.payload?.draft_reply || null}
 		department={capLabel(meta.ivr_intent, meta.message_category) || null}

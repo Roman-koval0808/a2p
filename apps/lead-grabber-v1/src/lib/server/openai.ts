@@ -40,6 +40,11 @@ const ANALYSIS_SCHEMA = {
 		booking_reason: {
 			type: 'string',
 			description: 'A concise 2-5 word subject or reason for the appointment or service request, e.g. "Test Drive - Honda Civic", "Water Heater Replacement", "Kitchen Faucet Leak Repair", "Billing Inquiry". Return empty string if not applicable.'
+		},
+		structured_fields: {
+			type: 'object',
+			description: 'Any structured data extracted from the message, such as address, vehicle info, appointment date/time, model numbers, part numbers, service details, or other key-value pairs. Return an empty object if nothing structured is found.',
+			additionalProperties: { type: 'string' }
 		}
 	},
 	required: [
@@ -157,6 +162,7 @@ export async function analyzeCallLog(
 	estimatedPrice: number | null;
 	datetime: string | null;
 	ai_extracted_email: string | null;
+	structured_fields: Record<string, string>;
 	analysisSucceeded: boolean;
 }> {
 	try {
@@ -192,6 +198,14 @@ export async function analyzeCallLog(
     - "estimatedPrice": A number representing the estimated dollar value or price for the job if discussed or can be reasonably estimated based on the type of work described (e.g., water heater replacement: 1500, repair burst pipe: 500, simple leak: 200, faucet install: 150, standard inspection: 99). If the caller mentions a specific budget, price, or quote amount, use that value. If no specific service is described to estimate a price, return 0.
     - "datetime": If the caller mentions a specific date or time they want to book an appointment for (e.g. "July 1 at 2pm" or "Saturday at 8am"), resolve it to the exact date using the Reference Calendar and output it in YYYY-MM-DDTHH:mm:ss format (e.g. "2026-06-27T08:00:00"). If no time is specified but a day is, set time to "12:00:00". If no appointment datetime is mentioned, return an empty string.
     - "ai_extracted_email": Extract the caller's email address if they state it (e.g. "my email is john at example dot com" -> "john@example.com"). Return an empty string if no email is mentioned.
+    - "structured_fields": A JSON object containing any structured data mentioned in the message. Examples:
+      - Address: {"address": "123 Main St, Springfield, IL 62701"}
+      - Vehicle info: {"vehicle": "2018 Honda Civic", "vin": "1HGBH41JXMN109186"}
+      - Appointment: {"appointment_date": "2026-08-15", "appointment_time": "14:00"}
+      - Service details: {"service": "water heater replacement", "model": "Rheem XE40"}
+      - Part numbers: {"part_number": "ABC-123-XYZ"}
+      - Insurance: {"provider": "State Farm", "policy": "POL-98765"}
+      Return an empty object {} if no structured data can be extracted.
 
     Transcript:
     "${transcript}"
@@ -236,6 +250,7 @@ export async function analyzeCallLog(
 					: null,
 			datetime: result.datetime || null,
 			ai_extracted_email: result.ai_extracted_email || null,
+			structured_fields: result.structured_fields || {},
 			booking_reason: result.booking_reason || result.sub_intent || result.intent || null,
 			analysisSucceeded: true
 		};
@@ -253,6 +268,7 @@ export async function analyzeCallLog(
 			estimatedPrice: null,
 			datetime: null,
 			ai_extracted_email: null,
+			structured_fields: {},
 			booking_reason: null,
 			analysisSucceeded: false
 		};

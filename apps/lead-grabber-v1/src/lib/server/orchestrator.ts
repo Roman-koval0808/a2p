@@ -1369,6 +1369,48 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		olog(`[Orchestrator] No action taken for intent: ${intent}`);
 	}
 
+	// Command registry: dispatch any instructions from the AI intent
+	try {
+		const { executeInstructions } = await import('./orchestrator/command-registry');
+		const instructions: { command: string; args: Record<string, unknown> }[] = [];
+		if (aiIntent) {
+			if (aiIntent.wants_appointment && metadata.datetime) {
+				instructions.push({
+					command: 'set_appointment',
+					args: { when: metadata.datetime, notes: rawMessage.slice(0, 200) }
+				});
+			}
+			if (aiIntent.wants_callback) {
+				instructions.push({
+					command: 'update_engagement_score',
+					args: { delta: 5 }
+				});
+			}
+			if (aiIntent.action_items?.length) {
+				for (const item of aiIntent.action_items) {
+					instructions.push({
+						command: 'create_task',
+						args: { description: item, category: 'internal_followup' }
+					});
+				}
+			}
+		}
+		if (instructions.length > 0) {
+			olog(`[Orchestrator] Dispatching ${instructions.length} command(s) via registry.`);
+			await executeInstructions({
+				companyId: company.id,
+				customerId: customer?.id,
+				customerPhone: customerPhone || undefined,
+				customerEmail: customer?.email || undefined,
+				customerName: customer?.name || undefined,
+				commLogId: commId,
+				trigger
+			}, instructions);
+		}
+	} catch (cmdErr) {
+		oerr('[Orchestrator] Command dispatch error:', cmdErr);
+	}
+
 	// Always mark as processed
 	try {
 		await prisma.communicationLog.update({
