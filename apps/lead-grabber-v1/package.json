@@ -6,7 +6,7 @@
 		"dev": "vite dev --port 3005 --host 0.0.0.0",
 		"prebuild": "prisma generate && prisma generate --schema=prisma/profiledb.schema.prisma && node -e \"const fs = require('fs'); for (const p of ['./clearsky-db-client/package.json','./profiledb-client/package.json']) { const pkg = JSON.parse(fs.readFileSync(p)); pkg.type = 'commonjs'; fs.writeFileSync(p, JSON.stringify(pkg, null, 2)); }\"",
 		"build": "vite build",
-		"postbuild": "pm2 delete lead-grabber-v1 2>/dev/null || true; pm2 start ecosystem.config.cjs",
+		"postbuild": "pm2 delete ecosystem.config.cjs 2>/dev/null || true; pm2 start ecosystem.config.cjs",
 		"preview": "vite preview --port 3005 --host 0.0.0.0",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
