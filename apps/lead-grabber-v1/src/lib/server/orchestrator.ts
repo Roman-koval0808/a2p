@@ -301,7 +301,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	}
 
 	let draftedResponse = '';
-	let draftChannel: 'sms' | 'email' = 'sms';
+	let draftChannel: 'sms' | 'email' = (metadata.requested_contact_method === 'email' || commLog.type === 'email') ? 'email' : 'sms';
 	let emailSubject = '';
 	let proposedAppointment: any = null;
 	let skipSafetyNet = false;
