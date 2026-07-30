@@ -1401,7 +1401,12 @@ export const POST: RequestHandler = async ({ request }) => {
 								meta?.call_control_id === callControlId ||
 								meta?.call_leg_id === callControlId ||
 								meta?.call_session_id === (payload?.call_session_id as string);
+							// Phone match is a fallback for an un-keyed duplicate of THIS call only. It must NOT
+							// hijack a log already tied to a DIFFERENT call (which always has a call_control_id) —
+							// otherwise a new call to a number recently called overwrites the older call's log
+							// (and its recording). So require the candidate to have no call_control_id yet.
 							const isMatchPhone =
+								!meta?.call_control_id &&
 								l.direction === 'outbound' &&
 								!!last10Contact &&
 								((l.destination || '').replace(/\D/g, '').slice(-10) === last10Contact ||
@@ -1847,7 +1852,10 @@ export const POST: RequestHandler = async ({ request }) => {
 										meta?.call_control_id === callControlId ||
 										meta?.call_leg_id === callControlId ||
 										meta?.call_session_id === (payload?.call_session_id as string);
+									// Never attach this recording to a log already tied to a DIFFERENT call (it has a
+									// call_control_id). Phone-only fallback is for an un-keyed duplicate of THIS call.
 									const isMatchPhone =
+										!meta?.call_control_id &&
 										l.direction === 'outbound' &&
 										(l.destination === contactNumber ||
 											(contactNumber && l.destination?.includes(contactNumber)));
