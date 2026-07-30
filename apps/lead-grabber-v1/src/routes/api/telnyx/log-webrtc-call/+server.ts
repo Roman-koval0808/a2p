@@ -93,6 +93,54 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			return json({ success: true, logId: existingLog.id });
 		}
 
+		// Race guard: the webhook's call.hangup log (the one that receives the recording) may not be
+		// committed yet — both fire on hangup. Wait briefly and re-check so we ENRICH that log instead
+		// of creating a second, recording-less duplicate. This endpoint is fire-and-forget, so the
+		// short delay doesn't affect the UI.
+		await new Promise((r) => setTimeout(r, 1500));
+		const retryLogs = await prisma.communicationLog.findMany({
+			where: { companyId, type: 'voice', created: { gte: new Date(Date.now() - 3 * 60 * 1000) } },
+			orderBy: { created: 'desc' },
+			take: 20
+		});
+		const retryMatch = retryLogs.find((l) => {
+			const meta = l.metadata as Record<string, unknown>;
+			const byId =
+				(telnyxSessionId &&
+					(meta?.call_session_id === telnyxSessionId || meta?.call_control_id === telnyxSessionId)) ||
+				(telnyxLegId && (meta?.call_leg_id === telnyxLegId || meta?.call_control_id === telnyxLegId));
+			const byPhone =
+				l.direction === 'outbound' &&
+				(last10(l.destination || '') === target || last10(l.source || '') === target);
+			return byId || byPhone;
+		});
+		if (retryMatch) {
+			// Enrich only (duration/status/dialer metadata) — do NOT touch content/summary so the
+			// webhook's recording + transcript stay intact.
+			await prisma.communicationLog.update({
+				where: { id: retryMatch.id },
+				data: {
+					duration: callDuration ?? retryMatch.duration,
+					status: callStatus,
+					metadata: {
+						...((retryMatch.metadata as Record<string, unknown>) || {}),
+						dialer_outbound: true,
+						webrtc_call: true,
+						placed_by: locals.user?.id || null,
+						placed_at: new Date().toISOString(),
+						answered: wasAnswered !== false,
+						no_answer: wasAnswered === false
+					} as any
+				}
+			});
+			console.log(`[Dialer WebRTC] Enriched webhook CommunicationLog ${retryMatch.id} (after retry)`);
+			return json({ success: true, logId: retryMatch.id });
+		}
+
+		// Still nothing after the retry — the webhook likely didn't log this call. Create a fallback
+		// so it isn't lost entirely.
+		console.log('[Dialer WebRTC] No webhook log found after retry — creating fallback log');
+
 		// Find existing thread for this contact
 		const recentThreaded = await prisma.communicationLog.findMany({
 			where: {
