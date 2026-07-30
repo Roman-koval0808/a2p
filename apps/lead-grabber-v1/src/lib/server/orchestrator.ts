@@ -473,10 +473,29 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			// conversation shares one comm id in the UI (metadata.commId drives the displayed ref).
 			try {
 				metadata.commId = container.id;
+
+				await prisma.communicationThread.upsert({
+					where: { id: container.id },
+					create: {
+						id: container.id,
+						companyId: company.id,
+						contactId: customer.id,
+						status: 'open',
+						summary: metadata.summary || 'Linked via container'
+					},
+					update: {}
+				});
+
 				await prisma.communicationLog.update({
 					where: { id: commLog.id },
-					data: { metadata: { ...metadata } }
+					data: { 
+						metadata: { ...metadata },
+						communicationThreadId: container.id
+					}
 				});
+				
+				// Update our local reference so any fall-through logic uses the right ID
+				commLog.communicationThreadId = container.id;
 			} catch (e) {
 				oerr('[Orchestrator] Failed to link inbound log to container:', e);
 			}
