@@ -137,57 +137,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			return json({ success: true, logId: retryMatch.id });
 		}
 
-		// Still nothing after the retry — the webhook likely didn't log this call. Create a fallback
-		// so it isn't lost entirely.
-		console.log('[Dialer WebRTC] No webhook log found after retry — creating fallback log');
-
-		// Find existing thread for this contact
-		const recentThreaded = await prisma.communicationLog.findMany({
-			where: {
-				companyId,
-				communicationThreadId: { not: null },
-				created: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
-			},
-			orderBy: { created: 'desc' },
-			select: { source: true, destination: true, communicationThreadId: true },
-			take: 100
-		});
-		const threadRow = recentThreaded.find(
-			(r) => last10(r.source || '') === target || last10(r.destination || '') === target
-		);
-
-		const record = await logCommunication({
-			type: 'voice',
-			direction: 'outbound',
-			status: callStatus,
-			source: from || undefined,
-			destination: to,
-			company_id: companyId,
-			customer_id: callee?.id,
-			summary: `Outbound call to ${callee?.name || to}`,
-			content: callLabel,
-			duration: callDuration ?? undefined,
-			metadata: {
-				dialer_outbound: true,
-				webrtc_call: true,
-				// Keys the call.recording.saved handler matches on, so the recording (once connection
-				// recording is enabled) attaches to THIS log + gets transcribed, instead of duplicating.
-				call_session_id: telnyxSessionId || undefined,
-				call_leg_id: telnyxLegId || undefined,
-				placed_by: locals.user?.id || null,
-				placed_at: new Date().toISOString(),
-				answered: wasAnswered !== false,
-				no_answer: wasAnswered === false,
-				thread_id: to,
-				commId: threadRow?.communicationThreadId || undefined
-			}
-		});
-
-		console.log(
-			`[Dialer WebRTC] Logged outbound call to ${callee?.name || to} (${callVerb}, ${callDuration ?? '?'}s)`
-		);
-
-		return json({ success: true, logId: record?.id || null });
+		// Do NOT create a log here. The Telnyx call.hangup + call.recording.saved webhooks are now the
+		// single source of truth for dialer calls — they create ONE log per call (keyed by
+		// call_control_id) and attach the recording + transcript. A client-side fallback here only
+		// re-introduced un-keyed duplicates that later calls phone-matched and overwrote. If we didn't
+		// find the webhook's log to enrich, just no-op — the webhook still logs the call.
+		console.log('[Dialer WebRTC] No webhook log matched yet — leaving it to the webhook (no fallback log).');
+		return json({ success: true, logId: null, note: 'handled by webhook' });
 	} catch (error: any) {
 		console.error('[Dialer WebRTC] Failed to log call:', error);
 		return json(

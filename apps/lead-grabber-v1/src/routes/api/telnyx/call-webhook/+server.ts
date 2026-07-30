@@ -1407,6 +1407,7 @@ export const POST: RequestHandler = async ({ request }) => {
 							// (and its recording). So require the candidate to have no call_control_id yet.
 							const isMatchPhone =
 								!meta?.call_control_id &&
+								!(env.TELNYX_SIP_CONNECTION_ID?.trim() && payload?.connection_id === env.TELNYX_SIP_CONNECTION_ID?.trim()) &&
 								l.direction === 'outbound' &&
 								!!last10Contact &&
 								((l.destination || '').replace(/\D/g, '').slice(-10) === last10Contact ||
@@ -1856,6 +1857,7 @@ export const POST: RequestHandler = async ({ request }) => {
 									// call_control_id). Phone-only fallback is for an un-keyed duplicate of THIS call.
 									const isMatchPhone =
 										!meta?.call_control_id &&
+										!(env.TELNYX_SIP_CONNECTION_ID?.trim() && payload?.connection_id === env.TELNYX_SIP_CONNECTION_ID?.trim()) &&
 										l.direction === 'outbound' &&
 										(l.destination === contactNumber ||
 											(contactNumber && l.destination?.includes(contactNumber)));
