@@ -179,6 +179,7 @@ model GoogleCalendarConnection {
   expiresAt    DateTime?
   calendarId   String    @default("primary")
   representativeId String? // T5.2: per-rep calendar (additive; full per-rep needs the companyId unique relaxed)
+  lastEmailHistoryId String? // Stores the historyId of the last Gmail sync
   created      DateTime  @default(now())
   updated      DateTime  @updatedAt
 

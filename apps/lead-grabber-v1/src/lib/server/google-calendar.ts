@@ -32,7 +32,9 @@ const SCOPES = [
 	// Lets us send the customer's confirmation email FROM the same connected Google account,
 	// so no separate mail provider is needed. Requires a RE-CONSENT: connections created before
 	// this scope was added won't have it until the owner reconnects Google Calendar.
-	'https://www.googleapis.com/auth/gmail.send'
+	'https://www.googleapis.com/auth/gmail.send',
+	// Lets us read incoming and outgoing emails to sync them into the communication threads.
+	'https://www.googleapis.com/auth/gmail.readonly'
 ].join(' ');
 
 export function isGoogleConfigured(): boolean {

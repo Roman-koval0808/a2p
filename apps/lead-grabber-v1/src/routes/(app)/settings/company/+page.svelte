@@ -80,14 +80,14 @@
 	// Toast the result of the Google Calendar OAuth round-trip (?calendar=connected|error|disconnected).
 	onMount(() => {
 		const status = new URLSearchParams(window.location.search).get('calendar');
-		if (status === 'connected') toast.success('Google Calendar connected!');
-		else if (status === 'disconnected') toast.success('Google Calendar disconnected.');
+		if (status === 'connected') toast.success('Google Account connected!');
+		else if (status === 'disconnected') toast.success('Google Account disconnected.');
 		else if (status === 'missing_scope')
 			toast.error(
-				'Calendar permission was not granted. Please click Connect again and allow access to your calendar (leave all the permission boxes checked).',
+				'Required permissions were not granted. Please click Connect again and allow access to your calendar and email (leave all the permission boxes checked).',
 				{ duration: 10000 }
 			);
-		else if (status === 'error') toast.error('Could not connect Google Calendar. Please try again.');
+		else if (status === 'error') toast.error('Could not connect Google Account. Please try again.');
 		if (status) {
 			const u = new URL(window.location.href);
 			u.searchParams.delete('calendar');
@@ -209,7 +209,7 @@
 								</div>
 
 								<div class="space-y-2">
-									<Label>Booking Calendar</Label>
+									<Label>Google Account (Calendar & Email)</Label>
 									{#if data.googleCalendar?.connected}
 										<div
 											class="flex items-start justify-between gap-3 rounded-lg border border-green-200 bg-green-50 px-3 py-3"
@@ -217,13 +217,12 @@
 											<div class="flex items-start gap-2 text-sm">
 												<Calendar class="mt-0.5 h-4 w-4 shrink-0 text-green-600" />
 												<div>
-													<span class="font-medium text-green-800">Google Calendar connected</span>
+													<span class="font-medium text-green-800">Google Account connected</span>
 													{#if data.googleCalendar.email}
 														<span class="text-green-700"> · {data.googleCalendar.email}</span>
 													{/if}
 													<p class="mt-0.5 text-green-700">
-														When the AI agrees an appointment time, it checks your availability and books
-														it on your calendar (with a Google Meet link) automatically.
+														The AI will automatically check availability and book appointments on your calendar, and your incoming/outgoing emails will be synced into communication threads.
 													</p>
 												</div>
 											</div>
@@ -240,15 +239,14 @@
 											href="/api/google/calendar/connect"
 											class="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
 										>
-											<Calendar class="h-4 w-4 text-blue-600" /> Connect Google Calendar
+											<Calendar class="h-4 w-4 text-blue-600" /> Connect Google Account
 										</a>
 										<p class="text-sm text-muted-foreground">
-											Connect once — when the AI agrees an appointment time over text, it books it on
-											your calendar automatically (with a Meet link). No booking page to manage.
+											Connect once — the AI will sync emails into communication threads and automatically book agreed appointment times on your calendar (with a Meet link).
 										</p>
 									{:else}
 										<p class="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700">
-											Google Calendar isn't configured on the server yet. You can still use a booking
+											Google OAuth isn't configured on the server yet. You can still use a booking
 											link below.
 										</p>
 									{/if}
