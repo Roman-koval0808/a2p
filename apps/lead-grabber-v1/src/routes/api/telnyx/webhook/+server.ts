@@ -110,7 +110,17 @@ export const POST: RequestHandler = async ({ request }) => {
 			return json({ success: true, message: 'Ignored non-inbound-SMS event' });
 		}
 
-		const smsText = messagePayload.text || '';
+		let smsText = messagePayload.text || '';
+		// Safely decode SMS text where carriers might incorrectly URL-encode special characters (like %40 for @)
+		if (smsText.includes('%')) {
+			smsText = smsText.replace(/%([0-9A-Fa-f]{2})/g, (match) => {
+				try {
+					return decodeURIComponent(match);
+				} catch {
+					return match;
+				}
+			});
+		}
 		const phoneNumber = messagePayload.from?.phone_number || messagePayload.from || '';
 		const smsSender = phoneNumber || 'Anonymous';
 		const smsId = messagePayload.id || `sms_${Date.now()}`;
