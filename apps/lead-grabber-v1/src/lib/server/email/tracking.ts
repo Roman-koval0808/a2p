@@ -12,6 +12,7 @@ export async function mintCsToken(contactId: string, companyId: string): Promise
 	return await new jose.SignJWT({ contactId, companyId, purpose: 'email_tracking' })
 		.setProtectedHeader({ alg: 'HS256' })
 		.setExpirationTime('30d')
+		.setJti(crypto.randomUUID())
 		.sign(secret);
 }
 

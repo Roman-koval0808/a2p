@@ -202,7 +202,7 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 			const subject = subjMatch
 				? subjMatch[1].trim()
 				: m.subject || log.summary || `Appointment Confirmation — ${m.product || m.purpose || 'Sales Opportunity'}`;
-			const htmlBody = (log.content || '').replace(/^\s*Subject:\s*.+(\r?\n)+/i, '').trim();
+			let htmlBody = (log.content || '').replace(/^\s*Subject:\s*.+(\r?\n)+/i, '').trim();
 			const to = log.destination || '';
 			// Guard: a half-transcribed address ("romankovalenko", no domain) makes Gmail 400. Don't
 			// attempt to send to a non-address — the booking below still proceeds.
@@ -211,6 +211,11 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 					`[Confirm Outbound Email] Recipient "${to}" is not a valid email — skipping send. Fix the address before confirming to email the customer.`
 				);
 			} else {
+				if (log.customerId) {
+					const { injectEmailTracking } = await import('$lib/server/email/tracking-inject');
+					const result = await injectEmailTracking(htmlBody, log.customerId, log.companyId);
+					htmlBody = result.htmlContent;
+				}
 				let sentMessageId: string | undefined = undefined;
 				try {
 					const { sendEmailViaConnectedGmail } = await import('$lib/server/gmail-send');

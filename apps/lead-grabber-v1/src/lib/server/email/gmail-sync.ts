@@ -16,7 +16,7 @@ interface AttachmentInfo {
 	size?: number;
 }
 
-function extractAttachments(payload: any): AttachmentInfo[] {
+export function extractAttachments(payload: any): AttachmentInfo[] {
 	const results: AttachmentInfo[] = [];
 	function walk(part: any) {
 		if (part.body?.attachmentId && part.filename) {
@@ -35,7 +35,7 @@ function extractAttachments(payload: any): AttachmentInfo[] {
 	return results;
 }
 
-async function fetchAndSaveAttachment(
+export async function fetchAndSaveAttachment(
 	token: string,
 	messageId: string,
 	attachment: AttachmentInfo,
