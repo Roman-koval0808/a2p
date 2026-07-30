@@ -1,8 +1,9 @@
 import { prisma } from '$lib/db';
 import { getConnectionAccessToken } from '../google-calendar';
 import { processInboundEmail, type InboundEmailPayload } from './bridge';
-import { logCommunication } from '$lib/utils/communication-log';
-import { createOrUpdateContact } from '$lib/utils/contacts';
+import { logCommunication } from './bridge';
+import { extractContactDetails, createOrUpdateContact } from '$lib/server/contact-service';
+import { UnifiedPipeline } from '$lib/server/pipeline/unified-pipeline';
 
 export async function syncCompanyEmails(companyId: string) {
 	try {
@@ -178,6 +179,25 @@ export async function syncCompanyEmails(companyId: string) {
 					summary: subject,
 					content: textBody,
 					metadata: { thread_id: threadId, email_message_id: msgId }
+				});
+
+				// Trigger the AI unified pipeline
+				Promise.resolve().then(async () => {
+					try {
+						await UnifiedPipeline.process({
+							provider: 'email_inbound',
+							eventType: 'email.received',
+							externalId: msgId,
+							companyId: companyId,
+							customerEmail: customerEmail,
+							customerName: customerName,
+							sessionId: threadId,
+							textContent: textBody,
+							metadata: { subject }
+						});
+					} catch (pipeErr) {
+						console.error('[Gmail Sync] Pipeline Error:', pipeErr);
+					}
 				});
 			}
 			processed++;
