@@ -1,8 +1,8 @@
 import { prisma } from '$lib/db';
 import { getConnectionAccessToken } from '../google-calendar';
 import { processInboundEmail, type InboundEmailPayload } from './bridge';
-import { logCommunication } from './bridge';
-import { extractContactDetails, createOrUpdateContact } from '$lib/server/contact-service';
+import { logCommunication } from '$lib/utils/communication-log';
+import { createOrUpdateContact } from '$lib/utils/contacts';
 import { UnifiedPipeline } from '$lib/server/pipeline/unified-pipeline';
 
 export async function syncCompanyEmails(companyId: string) {
