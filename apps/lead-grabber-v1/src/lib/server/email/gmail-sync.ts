@@ -168,7 +168,7 @@ export async function syncCompanyEmails(companyId: string) {
 					});
 				}
 
-				await logCommunication({
+				const inboundEmailLog = await logCommunication({
 					type: 'email',
 					direction: 'inbound',
 					status: 'success',
@@ -181,7 +181,7 @@ export async function syncCompanyEmails(companyId: string) {
 					metadata: { thread_id: threadId, email_message_id: msgId }
 				});
 
-				// Trigger the AI unified pipeline
+				// Trigger the AI unified pipeline (ProfileDB signals) — same as SMS.
 				Promise.resolve().then(async () => {
 					try {
 						await UnifiedPipeline.process({
@@ -197,6 +197,39 @@ export async function syncCompanyEmails(companyId: string) {
 						});
 					} catch (pipeErr) {
 						console.error('[Gmail Sync] Pipeline Error:', pipeErr);
+					}
+				});
+
+				// Run the SAME orchestrator the inbound SMS/voice path uses, so an inbound email gets AI
+				// analysis, a drafted EMAIL reply, and tasks on its comm-log — not just a ProfileDB event.
+				Promise.resolve().then(async () => {
+					try {
+						if (!inboundEmailLog?.id) return;
+						const { analyzeCallLog } = await import('$lib/server/openai');
+						const analysis = await analyzeCallLog(textBody);
+						await prisma.communicationLog.update({
+							where: { id: inboundEmailLog.id },
+							data: {
+								summary: analysis.summary || subject || undefined,
+								metadata: {
+									thread_id: threadId,
+									email_message_id: msgId,
+									channel: 'email',
+									intent: analysis.intent,
+									sub_intent: analysis.sub_intent,
+									datetime: analysis.datetime,
+									urgency: analysis.urgency,
+									sentiment: analysis.sentiment,
+									// Reply channel is email; force the orchestrator to draft an email (not SMS).
+									requested_contact_method: 'email',
+									ai_extracted_email: analysis.ai_extracted_email || customerEmail
+								}
+							}
+						});
+						const { process_orchestrator } = await import('$lib/server/orchestrator');
+						await process_orchestrator(inboundEmailLog.id, 'email_ai_ready');
+					} catch (orchErr) {
+						console.error('[Gmail Sync] Orchestrator error:', orchErr);
 					}
 				});
 			}
