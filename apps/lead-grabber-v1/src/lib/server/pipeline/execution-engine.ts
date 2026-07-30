@@ -750,7 +750,7 @@ async function prepareApprovalRequiredOutputs(
 					generated_output: generatedOutput,
 					approval_package_id: approvalPkgId
 				});
-			} else if (event?.provider === 'google_workspace_email') {
+			} else if (event?.provider === 'google_workspace_email' || event?.provider === 'email_inbound') {
 				// Email Reply Draft
 				const customerName = params.customer_name || event?.authorName || 'Valued Customer';
 				const enrichment = event?.enrichments?.[0] || {};
