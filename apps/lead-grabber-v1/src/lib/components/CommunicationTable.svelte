@@ -10,7 +10,9 @@
 		Bot,
 		FileText,
 		MessageCircle,
-		Reply
+		Reply,
+		ChevronUp,
+		ChevronDown
 	} from 'lucide-svelte';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
 
@@ -78,6 +80,18 @@
 	let activeFilter = $state('All');
 	let openOptionsMenu = $state<string | null>(null);
 	let openDropdownId = $state<string | null>(null);
+
+	let sortColumn = $state<string | null>('date');
+	let sortDirection = $state<'asc' | 'desc'>('desc');
+
+	function handleSort(column: string) {
+		if (sortColumn === column) {
+			sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+		} else {
+			sortColumn = column;
+			sortDirection = 'asc';
+		}
+	}
 
 	// Live clock so the emergency SLA countdown ticks without a page reload.
 	let nowMs = $state(Date.now());
@@ -152,6 +166,38 @@
 				(comm) => comm.assignedMemberNames?.includes(selectedAgentName) ?? false
 			);
 		}
+
+		if (sortColumn) {
+			filtered = [...filtered].sort((a, b) => {
+				let aVal: any = a[sortColumn as keyof typeof a];
+				let bVal: any = b[sortColumn as keyof typeof b];
+
+				if (sortColumn === 'date') {
+					const aTime = new Date(`${a.date} ${a.time || ''}`).getTime();
+					const bTime = new Date(`${b.date} ${b.time || ''}`).getTime();
+					if (!isNaN(aTime) && !isNaN(bTime)) {
+						aVal = aTime;
+						bVal = bTime;
+					}
+				} else if (sortColumn === 'type') {
+					aVal = getTypeDisplay(a).toLowerCase();
+					bVal = getTypeDisplay(b).toLowerCase();
+				}
+
+				if (aVal === null || aVal === undefined) aVal = '';
+				if (bVal === null || bVal === undefined) bVal = '';
+
+				if (typeof aVal === 'string' && typeof bVal === 'string') {
+					const cmp = aVal.localeCompare(bVal);
+					return sortDirection === 'asc' ? cmp : -cmp;
+				}
+
+				if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
+				if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
+				return 0;
+			});
+		}
+
 		return filtered;
 	});
 
@@ -254,29 +300,59 @@
 						<div class="flex h-5 w-5 items-center justify-center rounded-full bg-gray-500 text-white font-serif text-[10px] font-bold">i</div>
 					</th>
 					<th
-						class="w-24 whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600"
+						class="w-24 cursor-pointer whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 hover:bg-gray-200 transition-colors select-none"
+						onclick={() => handleSort('date')}
 					>
-						Date
+						<div class="flex items-center gap-1">
+							Date
+							{#if sortColumn === 'date'}
+								{#if sortDirection === 'asc'}<ChevronUp class="h-3 w-3 text-gray-400" />{:else}<ChevronDown class="h-3 w-3 text-gray-400" />{/if}
+							{/if}
+						</div>
 					</th>
 					<th
-						class="w-20 whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600"
+						class="w-20 cursor-pointer whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 hover:bg-gray-200 transition-colors select-none"
+						onclick={() => handleSort('type')}
 					>
-						Type
+						<div class="flex items-center gap-1">
+							Type
+							{#if sortColumn === 'type'}
+								{#if sortDirection === 'asc'}<ChevronUp class="h-3 w-3 text-gray-400" />{:else}<ChevronDown class="h-3 w-3 text-gray-400" />{/if}
+							{/if}
+						</div>
 					</th>
 					<th
-						class="min-w-[120px] max-w-[160px] whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600"
+						class="min-w-[120px] max-w-[160px] cursor-pointer whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 hover:bg-gray-200 transition-colors select-none"
+						onclick={() => handleSort('source')}
 					>
-						Source
+						<div class="flex items-center gap-1">
+							Source
+							{#if sortColumn === 'source'}
+								{#if sortDirection === 'asc'}<ChevronUp class="h-3 w-3 text-gray-400" />{:else}<ChevronDown class="h-3 w-3 text-gray-400" />{/if}
+							{/if}
+						</div>
 					</th>
 					<th
-						class="min-w-[120px] max-w-[180px] whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600"
+						class="min-w-[120px] max-w-[180px] cursor-pointer whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 hover:bg-gray-200 transition-colors select-none"
+						onclick={() => handleSort('endpoint')}
 					>
-						Endpoint
+						<div class="flex items-center gap-1">
+							Endpoint
+							{#if sortColumn === 'endpoint'}
+								{#if sortDirection === 'asc'}<ChevronUp class="h-3 w-3 text-gray-400" />{:else}<ChevronDown class="h-3 w-3 text-gray-400" />{/if}
+							{/if}
+						</div>
 					</th>
 					<th
-						class="min-w-[100px] max-w-[140px] whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600"
+						class="min-w-[100px] max-w-[140px] cursor-pointer whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 hover:bg-gray-200 transition-colors select-none"
+						onclick={() => handleSort('purpose')}
 					>
-						Purpose
+						<div class="flex items-center gap-1">
+							Purpose
+							{#if sortColumn === 'purpose'}
+								{#if sortDirection === 'asc'}<ChevronUp class="h-3 w-3 text-gray-400" />{:else}<ChevronDown class="h-3 w-3 text-gray-400" />{/if}
+							{/if}
+						</div>
 					</th>
 					<!-- Score column hidden to match mockup -->
 					<!--
@@ -287,14 +363,26 @@
 					</th>
 					-->
 					<th
-						class="min-w-[180px] whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600"
+						class="min-w-[180px] cursor-pointer whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 hover:bg-gray-200 transition-colors select-none"
+						onclick={() => handleSort('summary')}
 					>
-						Summary
+						<div class="flex items-center gap-1">
+							Summary
+							{#if sortColumn === 'summary'}
+								{#if sortDirection === 'asc'}<ChevronUp class="h-3 w-3 text-gray-400" />{:else}<ChevronDown class="h-3 w-3 text-gray-400" />{/if}
+							{/if}
+						</div>
 					</th>
 					<th
-						class="w-28 whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600"
+						class="w-28 cursor-pointer whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 hover:bg-gray-200 transition-colors select-none"
+						onclick={() => handleSort('commId')}
 					>
-						Comm ID
+						<div class="flex items-center gap-1">
+							Comm ID
+							{#if sortColumn === 'commId'}
+								{#if sortDirection === 'asc'}<ChevronUp class="h-3 w-3 text-gray-400" />{:else}<ChevronDown class="h-3 w-3 text-gray-400" />{/if}
+							{/if}
+						</div>
 					</th>
 					<!-- Pipeline column hidden to match mockup -->
 					<!--
