@@ -211,18 +211,33 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 					`[Confirm Outbound Email] Recipient "${to}" is not a valid email — skipping send. Fix the address before confirming to email the customer.`
 				);
 			} else {
+				let sentMessageId: string | undefined = undefined;
 				try {
 					const { sendEmailViaConnectedGmail } = await import('$lib/server/gmail-send');
-					await sendEmailViaConnectedGmail(log.companyId, { to, subject, htmlContent: htmlBody });
+					const res = await sendEmailViaConnectedGmail(log.companyId, { to, subject, htmlContent: htmlBody });
+					sentMessageId = res.messageId;
 					console.log(`[Confirm Outbound Email] ✅ Sent via connected Google account to ${to}`);
 				} catch (connErr: any) {
 					console.warn('[Confirm Outbound Email] Connected Gmail unavailable:', connErr?.message || connErr);
 					try {
 						const { sendEmailViaGmail } = await import('$lib/server/gmail-send');
-						await sendEmailViaGmail({ to, subject, htmlContent: htmlBody });
+						const res = await sendEmailViaGmail({ to, subject, htmlContent: htmlBody });
+						sentMessageId = res.messageId;
 						console.log(`[Confirm Outbound Email] ✅ Sent via fallback Gmail to ${to}`);
 					} catch (e: any) {
 						console.warn('[Confirm Outbound Email] Email dispatch deferred (no sender available):', e?.message || e);
+					}
+				}
+
+				if (sentMessageId) {
+					try {
+						const updatedMeta = { ...(log.metadata as object), email_message_id: sentMessageId };
+						await prisma.communicationLog.update({
+							where: { id: log.id },
+							data: { metadata: updatedMeta }
+						});
+					} catch (dbErr) {
+						console.error('[Confirm Outbound Email] Failed to save email_message_id:', dbErr);
 					}
 				}
 			}
