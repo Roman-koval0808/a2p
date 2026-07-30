@@ -76,6 +76,7 @@
 	let form: any;
 	let loading = $state(false);
 	let previewUrl: string | null = $state(null);
+	let showGoogleDialog = $state(false);
 
 	// Toast the result of the Google Calendar OAuth round-trip (?calendar=connected|error|disconnected).
 	onMount(() => {
@@ -235,12 +236,13 @@
 											</button>
 										</div>
 									{:else if data.googleConfigured}
-										<a
-											href="/api/google/calendar/connect"
+										<button
+											type="button"
+											onclick={() => showGoogleDialog = true}
 											class="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
 										>
 											<Calendar class="h-4 w-4 text-blue-600" /> Connect Google Account
-										</a>
+										</button>
 										<p class="text-sm text-muted-foreground">
 											Connect once — the AI will sync emails into communication threads and automatically book agreed appointment times on your calendar (with a Meet link).
 										</p>
@@ -460,3 +462,24 @@
 		</div>
 	</div>
 {/if}
+
+<Dialog.Root bind:open={showGoogleDialog}>
+	<Dialog.Content class="sm:max-w-[500px]">
+		<Dialog.Header>
+			<Dialog.Title>Connect Google Account</Dialog.Title>
+			<Dialog.Description>
+				To ensure the AI can sync emails and book appointments, you <strong>must select all permissions</strong> when prompted by Google.
+			</Dialog.Description>
+		</Dialog.Header>
+		<div class="py-4 text-center">
+			<img src="/img/helpers/google-connect-helper.png" alt="Select all permissions" class="mx-auto rounded border shadow-sm max-w-full h-auto" />
+			<p class="mt-4 text-sm text-muted-foreground">
+				If you don't check the boxes for Calendar and Gmail, the connection will fail.
+			</p>
+		</div>
+		<Dialog.Footer>
+			<Button variant="outline" onclick={() => showGoogleDialog = false}>Cancel</Button>
+			<Button href="/api/google/calendar/connect">Proceed</Button>
+		</Dialog.Footer>
+	</Dialog.Content>
+</Dialog.Root>
