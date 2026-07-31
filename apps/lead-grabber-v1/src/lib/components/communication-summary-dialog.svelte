@@ -61,7 +61,9 @@
 		requestedEmailContact = false,
 		targetEmail = '',
 		emailConfirmed = false,
-		onConfirmEmail
+		onConfirmEmail,
+		emailOpenedAt = null,
+		emailClickedAt = null
 	}: Props = $props();
 
 	let confirmingEmail = $state(false);
@@ -150,16 +152,16 @@
 					{/if}
 					{#if emailOpenedAt}
 						<span
-							class="text-right font-sans text-xs leading-tight text-green-700"
+							class="text-right font-sans text-xs font-medium leading-tight text-green-700"
 						>
-							👁 Opened: {new Date(emailOpenedAt).toLocaleString()}
+							Opened: {new Date(emailOpenedAt).toLocaleString()}
 						</span>
 					{/if}
 					{#if emailClickedAt}
 						<span
-							class="text-right font-sans text-xs leading-tight text-blue-700"
+							class="text-right font-sans text-xs font-medium leading-tight text-blue-700"
 						>
-							🔗 Clicked: {new Date(emailClickedAt).toLocaleString()}
+							Clicked: {new Date(emailClickedAt).toLocaleString()}
 						</span>
 					{/if}
 				</div>

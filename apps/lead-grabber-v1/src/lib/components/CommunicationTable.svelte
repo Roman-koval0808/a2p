@@ -324,12 +324,6 @@
 						</div>
 					</th>
 					<th
-						class="w-10 whitespace-nowrap px-1 py-3 text-center text-xs font-semibold uppercase tracking-wide text-gray-600"
-						title="Email opened / link clicked"
-					>
-						👁
-					</th>
-					<th
 						class="min-w-[120px] max-w-[160px] cursor-pointer whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 hover:bg-gray-200 transition-colors select-none"
 						onclick={() => handleSort('source')}
 					>
@@ -410,7 +404,7 @@
 			<tbody>
 				{#if filteredCommunications.length === 0}
 					<tr>
-						<td colspan="10" class="px-3 py-8 text-center text-sm text-gray-500">
+						<td colspan="9" class="px-3 py-8 text-center text-sm text-gray-500">
 							No communications found
 						</td>
 					</tr>
@@ -435,14 +429,24 @@
 							<td class="whitespace-nowrap px-3 py-2.5">
 								<div class="flex items-center gap-1.5 text-sm text-gray-700">
 									<IconComponent class="h-4 w-4 shrink-0 text-gray-500" />
-									<span class="font-medium">{comm.direction === 'Out' ? 'out' : 'In'}</span>
+									<span class="font-medium">{comm.direction === 'Out' ? 'Out' : 'In'}</span>
 								</div>
-							</td>
-							<td class="w-10 px-1 py-2.5 text-center align-top text-sm">
 								{#if comm.type === 'email' && comm.emailOpenedAt}
-									<span class="text-xs text-gray-900" title="Opened: {new Date(comm.emailOpenedAt).toLocaleString()}">👁</span>
-								{:else if comm.type === 'email' && !comm.emailOpenedAt}
-									<span class="text-xs text-gray-400" title="Not opened yet">📬</span>
+									<div class="mt-0.5">
+										<span
+											class="inline-flex items-center rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-green-700"
+											title="Opened: {new Date(comm.emailOpenedAt).toLocaleString()}"
+										>
+											Opened
+										</span>
+										{#if comm.emailClickedAt}
+											<span
+												class="ml-1 inline-flex items-center rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-blue-700"
+											>
+												Clicked
+											</span>
+										{/if}
+									</div>
 								{/if}
 							</td>
 							<td
