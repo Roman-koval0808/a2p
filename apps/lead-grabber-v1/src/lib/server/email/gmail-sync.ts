@@ -186,7 +186,31 @@ export async function syncCompanyEmails(companyId: string) {
 			});
 
 			if (isOutgoing) {
-				// Record as outbound communication
+				// Don't duplicate: link this Gmail message to an existing draft/log on the
+				// same thread, so the UI shows tracking status on the correct row.
+				const existingOutbound = await prisma.communicationLog.findFirst({
+					where: {
+						companyId,
+						direction: 'outbound',
+						type: 'email',
+						OR: [
+							{ metadata: { path: ['email_message_id'], equals: msgId } },
+							{ metadata: { path: ['thread_id'], equals: threadId } }
+						]
+					}
+				});
+				if (existingOutbound) {
+					// Update the existing log with the Gmail message ID if missing
+					const meta = (existingOutbound.metadata as Record<string, any>) || {};
+					if (!meta.email_message_id) {
+						await prisma.communicationLog.update({
+							where: { id: existingOutbound.id },
+							data: { metadata: { ...meta, email_message_id: msgId } }
+						});
+					}
+					processed++;
+					continue;
+				}
 				await logCommunication({
 					type: 'email',
 					direction: 'outbound',

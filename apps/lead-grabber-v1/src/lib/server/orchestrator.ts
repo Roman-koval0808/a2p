@@ -527,6 +527,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					type: (bookingResult.approval.draftType || 'sms') as any,
 					direction: 'outbound',
 					status: 'pending_approval',
+					thread_id: commLog.communicationThreadId || commId,
 					// Show the customer's actual email as the source in comm logs (the real party this
 					// thread is with) — not the internal sending account.
 					source: isEmailDraft
@@ -538,7 +539,6 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					summary: 'Booking Confirmation Approval',
 					content: bookingResult.approval.draftContent,
 					metadata: {
-						thread_id: commLog.communicationThreadId || commId,
 						// Real CommContainer id (NOT the thread id) so the confirm step can cancel the
 						// hold_expiry timer, and the hold id so it can flip tentative → booked + create
 						// the calendar event. Without these the /communication-log "Confirm" was a no-op.
@@ -998,28 +998,28 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	if (draftChannel === 'email' && (targetEmail || customer.email) && draftedResponse) {
 		const destinationEmail = targetEmail || customer.email!;
 		try {
-			await logCommunication({
-				type: 'email',
-				direction: 'outbound',
-				status: 'pending_approval',
-				destination: destinationEmail,
-				// Show the customer's actual email as the source in comm logs, not the sending account.
-				source: destinationEmail,
-				company_id: company.id,
-				customer_id: customer.id,
-				summary: emailSubject || 'Email Follow-up',
-				content: draftedResponse,
-				metadata: {
-					subject: emailSubject,
-					is_draft: true,
-					orchestrator_draft: true,
-					confirm_email: true,
-					target_email: destinationEmail,
-					trigger_comm_id: commId,
-					commId: commLog.communicationThreadId || commId,
-					message_category: messageCategory || null
-				}
-			});
+		await logCommunication({
+						type: 'email',
+						direction: 'outbound',
+						status: 'pending_approval',
+						thread_id: commLog.communicationThreadId || commId,
+						destination: destinationEmail,
+						// Show the customer's actual email as the source in comm logs, not the sending account.
+						source: destinationEmail,
+						company_id: company.id,
+						customer_id: customer.id,
+						summary: emailSubject || 'Email Follow-up',
+						content: draftedResponse,
+						metadata: {
+							subject: emailSubject,
+							is_draft: true,
+							orchestrator_draft: true,
+							confirm_email: true,
+							target_email: destinationEmail,
+							trigger_comm_id: commId,
+							message_category: messageCategory || null
+						}
+					});
 			// Annotate the triggering call row so UI highlights requested email contact
 			await prisma.communicationLog.update({
 				where: { id: commId },
@@ -1095,6 +1095,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						type: 'sms',
 						direction: 'outbound',
 						status: 'pending_approval',
+						thread_id: commLog.communicationThreadId || commId,
 						source: companyNumber,
 						destination: customerPhone,
 						company_id: company.id,
@@ -1102,8 +1103,6 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						summary: (shouldDefer ? '[DEFERRED] ' : '') + draftedResponse.substring(0, 40) + '...',
 						content: draftedResponse,
 						metadata: {
-							thread_id: customerPhone,
-							commId: commLog.communicationThreadId || commId,
 							is_draft: true,
 							orchestrator_draft: true,
 							trigger_comm_id: commId,
@@ -1252,6 +1251,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 								type: 'voice',
 								direction: 'outbound',
 								status: 'completed',
+								thread_id: commLog.communicationThreadId || commId,
 								source: dispatchFrom || companyNumber,
 								destination: rota.map((r) => r.phone).join(', '),
 								company_id: company.id,
@@ -1263,8 +1263,6 @@ export async function process_orchestrator(commId: string, trigger: string) {
 									recipients: rota,
 									callback_number: callbackNumber,
 									trigger_comm_id: commId,
-									commId: commLog.communicationThreadId || commId,
-									thread_id: callbackNumber,
 									message_category: 'emergency',
 									sla_due_at: slaDueAt.toISOString()
 								}
@@ -1277,6 +1275,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 								type: 'voice',
 								direction: 'outbound',
 								status: 'completed',
+								thread_id: commLog.communicationThreadId || commId,
 								source: dispatchFrom || companyNumber,
 								destination: rota.map((r) => r.phone).join(', '),
 								company_id: company.id,
@@ -1292,8 +1291,6 @@ export async function process_orchestrator(commId: string, trigger: string) {
 									trigger_comm_id: commId,
 									// Thread this dispatch into the customer's conversation (the inbound emergency
 									// call's thread) so the inbound call, this alert, and the callback all connect.
-									commId: commLog.communicationThreadId || commId,
-									thread_id: callbackNumber,
 									message_category: 'emergency',
 									sla_minutes: 10,
 									sla_due_at: slaDueAt.toISOString(),
