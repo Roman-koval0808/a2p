@@ -454,8 +454,8 @@
 							<td
 								class="max-w-[160px] truncate px-3 py-2.5 text-sm text-gray-700"
 							>
-								{@const profileId = comm.raw?.raw?.customer?.id}
-								{#if onProfileClick && profileId}
+								{#if onProfileClick && comm.raw?.raw?.customer?.id}
+									{@const profileId = comm.raw?.raw?.customer?.id}
 									<button
 										type="button"
 										class="block max-w-full cursor-pointer truncate text-left font-semibold text-gray-900 hover:text-blue-600 hover:underline"
