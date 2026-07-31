@@ -248,10 +248,15 @@ export const POST: RequestHandler = async ({ request }) => {
 							where: { companyId: cid, phone: normalizedPhoneNumber }
 						});
 						if (contact) {
+							// The relation on CommHold is `container`, and it points at a CommContainer whose
+							// `contactId` is this Contact — `customerProfileId` is a PipelineCustomerProfile,
+							// a different table. Both mistakes were in one query, so it threw
+							// PrismaClientValidationError on every inbound SMS and the confirmation loop
+							// never ran: replies to a booking offer were silently dropped.
 							const pendingHolds = await prisma.commHold.findMany({
-								where: { 
-									status: 'tentative', 
-									commContainer: { customerProfileId: contact.id } 
+								where: {
+									status: 'tentative',
+									container: { contactId: contact.id }
 								}
 							});
 

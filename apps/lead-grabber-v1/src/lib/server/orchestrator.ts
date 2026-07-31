@@ -191,24 +191,50 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		messageCategory = 'emergency';
 	}
 
-	// Repeat Escalation backstop (Scenario 3): if this customer already has an OPEN emergency
-	// container, then this new message is a frantic callback (e.g. "it's getting worse!"). 
-	// We MUST force this into the emergency flow even if the AI didn't explicitly flag the words.
+	// Repeat Escalation backstop (Scenario 3): a frantic callback during an open emergency
+	// ("it's getting worse!") must re-enter the emergency flow even if the AI didn't flag the
+	// words.
+	//
+	// It is NOT enough that an open emergency container exists. This used to force EVERY later
+	// message from that customer to emergency, so "schedule an appointment to check the new car"
+	// dispatched a technician and whispered the previous call's roof-leak text at them. Two
+	// conditions now have to hold:
+	//   1. the new message itself carries an urgency signal — a calm booking request is not a
+	//      frantic callback, whatever happened earlier; and
+	//   2. the emergency is still recent. Containers are not auto-closed, so a breached one from
+	//      this morning would otherwise poison every message for the rest of time.
 	if (messageCategory !== 'emergency') {
-		const hasOpenEmergency = await prisma.commContainer.findFirst({
-			where: {
-				companyId: company.id,
-				OR: [
-					...(pipelineCustomerProfileId ? [{ customerProfileId: pipelineCustomerProfileId }] : []),
-					{ contactId: customer.id }
-				],
-				state: 'open',
-				threadType: 'emergency'
+		const complaints = Array.isArray(aiIntent?.complaints) ? aiIntent.complaints : [];
+		const urgencySignal =
+			aiIntent?.urgency === 'high' ||
+			aiIntent?.urgency === 'critical' ||
+			aiIntent?.intent_bucket === 'emergency' ||
+			aiIntent?.sentiment === 'negative' ||
+			complaints.length > 0 ||
+			looksLikeActiveEmergency(rawMessage);
+
+		if (!urgencySignal) {
+			olog(
+				`[Orchestrator] Scenario 3 backstop skipped: "${messageCategory}" message carries no urgency signal (urgency=${aiIntent?.urgency ?? 'n/a'}, sentiment=${aiIntent?.sentiment ?? 'n/a'}, complaints=${complaints.length}) — not treating it as an emergency callback.`
+			);
+		} else {
+			const REPEAT_WINDOW_MS = 6 * 60 * 60 * 1000;
+			const hasOpenEmergency = await prisma.commContainer.findFirst({
+				where: {
+					companyId: company.id,
+					OR: [
+						...(pipelineCustomerProfileId ? [{ customerProfileId: pipelineCustomerProfileId }] : []),
+						{ contactId: customer.id }
+					],
+					state: 'open',
+					threadType: 'emergency',
+					openedAt: { gte: new Date(Date.now() - REPEAT_WINDOW_MS) }
+				}
+			});
+			if (hasOpenEmergency) {
+				olog(`[Orchestrator] Scenario 3 backstop: urgent message during an open emergency. Forcing "${messageCategory}" to emergency.`);
+				messageCategory = 'emergency';
 			}
-		});
-		if (hasOpenEmergency) {
-			olog(`[Orchestrator] Scenario 3 backstop: customer has an OPEN emergency container. Forcing "${messageCategory}" to emergency.`);
-			messageCategory = 'emergency';
 		}
 	}
 
