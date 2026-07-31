@@ -7,7 +7,7 @@ import { logCommunication } from '$lib/utils/communication-log';
 // FULL MOCK SETUP — every module the orchestrator touches
 // ============================================================
 
-const mockPrisma = {
+const mockPrisma = vi.hoisted(() => ({
 	communicationLog: {
 		findUnique: vi.fn(),
 		findFirst: vi.fn().mockResolvedValue(null),
@@ -58,7 +58,7 @@ const mockPrisma = {
 	notification: { create: vi.fn() },
 	company: { findUnique: vi.fn().mockResolvedValue({ id: 'company_id', settings: {} }) },
 	scheduleEvent: { findMany: vi.fn().mockResolvedValue([]) }
-};
+}));
 
 vi.mock('$lib/db', () => ({ prisma: mockPrisma }));
 vi.mock('$lib/utils/communication-log', () => ({ logCommunication: vi.fn().mockResolvedValue({ id: 'log_out_1' }) }));
@@ -258,10 +258,60 @@ describe('process_orchestrator', () => {
 			expect(logCommunication).not.toHaveBeenCalled();
 		});
 
-		it('skips outbound communications', async () => {
+		it('skips non-dialer outbound communications (emergency legs, transfers, server dials)', async () => {
 			(prisma.communicationLog.findUnique as any).mockResolvedValue(makeComm({ direction: 'outbound' }));
 			await process_orchestrator('comm_1', 'ai_ready');
 			expect(logCommunication).not.toHaveBeenCalled();
+		});
+
+		it('processes dialer outbound calls (orchestrator may act on their transcript)', async () => {
+			(prisma.communicationLog.findUnique as any).mockResolvedValue(
+				makeComm({
+					direction: 'outbound',
+					// Dialer logs are source=company / destination=customer — the orchestrator must
+					// flip orientation so the draft goes TO the customer, FROM the company number.
+					source: '+18005550000',
+					destination: '+15551234567',
+					metadata: { dialer_outbound: true }
+				})
+			);
+			await process_orchestrator('comm_1', 'ai_ready');
+			const draftCall = (logCommunication as any).mock.calls.find(
+				(c: any[]) => c[0]?.status === 'pending_approval' && c[0]?.type === 'sms'
+			);
+			expect(draftCall).toBeTruthy();
+			expect(draftCall[0].source).toBe('+18005550000');
+			expect(draftCall[0].destination).toBe('+15551234567');
+		});
+
+		it('answers account balance questions on dialer outbound calls', async () => {
+			(classifyMessageIntent as any).mockResolvedValue(
+				intent({ intent_bucket: 'billing', wants_balance: true })
+			);
+			(prisma.communicationLog.findUnique as any).mockResolvedValue(
+				makeComm({
+					direction: 'outbound',
+					source: '+18005550000',
+					destination: '+15551234567',
+					content: "What's my balance?",
+					metadata: { dialer_outbound: true },
+					customer: {
+						id: 'customer_id',
+						name: 'John',
+						phone: '+15551234567',
+						email: 'john@example.com',
+						accountBalance: 1130.0
+					}
+				})
+			);
+			await process_orchestrator('comm_dialer_bill', 'ai_ready');
+			const smsCall = (logCommunication as any).mock.calls.find(
+				(c: any[]) => c[0]?.type === 'sms' && c[0]?.status === 'pending_approval'
+			);
+			expect(smsCall).toBeTruthy();
+			expect(smsCall[0].content).toContain('1130.00');
+			expect(smsCall[0].source).toBe('+18005550000');
+			expect(smsCall[0].destination).toBe('+15551234567');
 		});
 
 		it('aborts if orchestrator_processed is already set (idempotent)', async () => {

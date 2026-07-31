@@ -63,6 +63,13 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	}
 
 	const metadata = (commLog.metadata as Record<string, any>) || {};
+	// Dialer (WebRTC softphone) OUTBOUND calls are the only outbound communications the
+	// orchestrator acts on: their transcript is processed exactly like an inbound message
+	// (booking draft + tasks + reply). All other outbound rows (emergency dial-ladder legs,
+	// transfers, server dials) are operational — always skipped.
+	const isDialerOutbound =
+		commLog.direction === 'outbound' &&
+		(metadata.dialer_outbound === true || metadata.webrtc_call === true);
 	const intent = metadata.intent || metadata.ivr_intent;
 	const sub_intent = metadata.sub_intent;
 	const datetime = metadata.datetime;
@@ -73,8 +80,11 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// destination may be annotated as "+1705… (Ext 1 - Billing)" — strip that before E.164,
 	// otherwise the drafted SMS gets an invalid `from` and Telnyx rejects it ("Invalid source number").
 	const cleanDestination = (commLog.destination || '').replace(/\s*\([^)]*\)\s*$/, '').trim();
-	const companyNumber = toE164(cleanDestination);
-	const customerPhone = toE164(commLog.source || '');
+	// Inbound logs are source=customer / destination=company; dialer outbound logs are the
+	// reverse (source=company / destination=customer). Flip so the whole flow below — profile
+	// lookup, SMS from/to, booking link, callback number — always sees the customer's number.
+	const companyNumber = toE164(isDialerOutbound ? (commLog.source || '') : cleanDestination);
+	const customerPhone = toE164(isDialerOutbound ? (commLog.destination || '') : (commLog.source || ''));
 
 	// Company Gmail address (the account any email draft is sent FROM). Best-effort: if the
 	// company hasn't connected Gmail, we fall back to the customer email so the UI still shows
@@ -101,14 +111,20 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		return;
 	}
 
-	// Wait, is it inbound?
-	if (commLog.direction !== 'inbound') {
+	// Wait, is it inbound (or a dialer outbound call the orchestrator may act on)?
+	if (commLog.direction !== 'inbound' && !isDialerOutbound) {
 		return;
 	}
 
-	// T4.4: skip operational/internal calls (e.g. the owner leaving himself a voicemail on
-	// a company line) — classifying them as customer contacts would score a false emergency.
-	if (commLog.companyId && commLog.source && (await isInternalCaller(commLog.companyId, commLog.source))) {
+	// Inbound: skip inbound + dialer-outbound rows where the CUSTOMER side is one of the
+	// company's own numbers. The customer side is source for inbound, destination for dialer
+	// outbound (source is the company's own number there). T4.4: skip operational/internal
+	// calls (e.g. the owner leaving himself a voicemail on a company line) — classifying them
+	// as customer contacts would score a false emergency.
+	if (
+		commLog.companyId &&
+		(await isInternalCaller(commLog.companyId, isDialerOutbound ? (commLog.destination || '') : (commLog.source || '')))
+	) {
 		olog('[Orchestrator] Internal/operational caller — skipping customer classification.');
 		return;
 	}
@@ -814,7 +830,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		olog('[Orchestrator] Generating a conversational reply (no locked scenario draft).');
 		try {
 			const last10 = (p: string | null | undefined) => (p || '').replace(/\D/g, '').slice(-10);
-			const callerDigits = last10(commLog.source);
+			// The caller's own number: source for inbound, destination for dialer outbound
+			// (source is the company's number there).
+			const callerDigits = last10(isDialerOutbound ? commLog.destination : commLog.source);
 			if (callerDigits) {
 				const recent = await prisma.communicationLog.findMany({
 					where: {

@@ -90,6 +90,13 @@ function claimTranscriptionForCall(callControlId: string): boolean {
 const webrtcCalls = new Set<string>();
 const callPartyInfo = new Map<string, { to?: string; from?: string }>();
 
+// Dialer (WebRTC softphone) OUTBOUND legs, tracked from call.answered. These are the only
+// outbound calls the orchestrator may act on (transcript → booking draft + tasks + reply);
+// other outbound legs (emergency dial ladder, transfers, server dials) stay orchestrator-skipped.
+// In-process like webrtcCalls; log-webrtc-call stamps metadata.dialer_outbound as a fallback
+// when the server restarts between answer and hangup.
+const dialerWebrtcCalls = new Set<string>();
+
 function checkAndMarkWebrtcCall(callControlId: string, payload: any): boolean {
 	if (!callControlId) return false;
 
@@ -610,6 +617,9 @@ export const POST: RequestHandler = async ({ request }) => {
 									}
 								});
 							}
+							// Mark this leg as a dialer OUTBOUND call so the hangup + recording.saved
+							// handlers stamp the comm log and the orchestrator may process its transcript.
+							dialerWebrtcCalls.add(callControlId);
 						} catch (err) {
 							console.error('❌ Failed to register CallLog for WebRTC dialer call:', err);
 						}
@@ -1437,6 +1447,7 @@ export const POST: RequestHandler = async ({ request }) => {
 											call_control_id: callControlId,
 											answered: wasAnswered,
 											no_answer: outboundNoAnswer,
+											dialer_outbound: dialerWebrtcCalls.has(callControlId) || undefined,
 											hangup_at: new Date().toISOString()
 										} as any
 									}
@@ -1533,6 +1544,7 @@ export const POST: RequestHandler = async ({ request }) => {
 									origin: directionFromMeta,
 									answered: wasAnswered,
 									no_answer: outboundNoAnswer,
+									dialer_outbound: dialerWebrtcCalls.has(callControlId) || undefined,
 									ivr_intent: intentInfo?.intentName,
 									ivr_digit: intentInfo?.digit,
 									ivr_confidence: intentInfo?.confidence
@@ -1932,11 +1944,21 @@ export const POST: RequestHandler = async ({ request }) => {
 							// intent), overwrote the log's content with the greeting, and fired the whole
 							// downstream twice. `channels` is the reliable discriminator: unlike the call-state
 							// flags it survives the deleteState() that call.hangup performs before we get here.
+							const existingLogMeta = (existingLog?.metadata as Record<string, unknown>) || {};
 							const isOutboundCall =
 								direction === 'outbound' ||
 								direction === 'outgoing' ||
 								existingLog?.direction === 'outbound' ||
-								!!existingLog?.metadata?.dialer_outbound;
+								existingLogMeta.dialer_outbound === true;
+							// Dialer (WebRTC softphone) outbound calls: the ONLY outbound legs the
+							// orchestrator acts on. (Emergency ladder legs and transfer legs stay
+							// skipped.) `existingLog` may lag the hangup stamp by a second — the
+							// in-process set covers the gap, metadata.dialer_outbound is the durable
+							// record once log-webrtc-call enriches.
+							const dialerOutboundCall =
+								isOutboundCall &&
+								(existingLogMeta.dialer_outbound === true ||
+									dialerWebrtcCalls.has(callControlId));
 
 							const recordingChannels =
 								typeof payload?.channels === 'string' ? (payload.channels as string) : null;
@@ -2369,14 +2391,17 @@ export const POST: RequestHandler = async ({ request }) => {
 							}
 
 							// Only the recording that actually produced the transcript may drive the reply.
-							// Outbound dialer calls skip draft reply generation.
-							const shouldTriggerOrchestrator = finalLogId && !isOutboundCall && (hasVoicemail ? !isFullCallRecording : true) && transcriptionClaimed;
+							// Outbound calls only trigger the orchestrator when they're DIALER calls
+							// (booking draft + tasks + confirmation reply); other outbound legs skip.
+							const shouldTriggerOrchestrator = finalLogId && (!isOutboundCall || dialerOutboundCall) && (hasVoicemail ? !isFullCallRecording : true) && transcriptionClaimed;
 							if (shouldTriggerOrchestrator) {
 								import('$lib/server/orchestrator').then(({ process_orchestrator }) => {
 									process_orchestrator(finalLogId as string, 'ai_ready').catch(e => console.error('[Orchestrator] Error:', e));
 								});
+							} else if (isOutboundCall && !dialerOutboundCall) {
+								console.log('🎥 Outbound non-dialer call logged and transcribed — skipping draft reply generation');
 							} else if (isOutboundCall) {
-								console.log('🎥 Outbound dialer call logged and transcribed — skipping draft reply generation');
+								console.log('🎥 Outbound dialer call logged and transcribed — sending to orchestrator');
 							} else if (isFullCallRecording && hasVoicemail) {
 								console.log('🎥 Not triggering the orchestrator from the whole-call recording — the voicemail leg owns the reply');
 							} else if (finalLogId && !transcriptionClaimed) {
@@ -2437,7 +2462,45 @@ export const POST: RequestHandler = async ({ request }) => {
 							}
 						}
 					} else {
-						console.log('⚠️ No initiated call log found for', callControlId);
+						// Emergency dial-ladder legs (tech + customer bridge) never register a
+						// CallLog, so the normal attach path can't resolve them. Their client_state
+						// carries the emergency comm log's id (workOrder.commId) — attach the
+						// recording straight to that log instead of dropping it.
+						let decodedEmergency: any = null;
+						if (payload?.client_state) {
+							try {
+								decodedEmergency = safeDecodeClientState(payload.client_state);
+							} catch (e) {}
+						}
+						if (
+							decodedEmergency &&
+							(decodedEmergency.isDialLadderTechLeg || decodedEmergency.isDialLadderCustomerLeg) &&
+							typeof decodedEmergency.commId === 'string'
+						) {
+							const emergencyLog = await prisma.communicationLog.findUnique({
+								where: { id: decodedEmergency.commId },
+								select: { id: true, metadata: true }
+							});
+							if (emergencyLog) {
+								await prisma.communicationLog.update({
+									where: { id: emergencyLog.id },
+									data: {
+										duration: recDurationSeconds > 0 ? recDurationSeconds : undefined,
+										metadata: {
+											...((emergencyLog.metadata as Record<string, unknown>) || {}),
+											recording_urls: recUrls as Record<string, unknown>,
+											recording_id: recId,
+											call_control_id: callControlId
+										} as any
+									}
+								});
+								console.log('📝 Attached emergency bridge recording to log', emergencyLog.id);
+							} else {
+								console.log('⚠️ No initiated call log found for', callControlId);
+							}
+						} else {
+							console.log('⚠️ No initiated call log found for', callControlId);
+						}
 					}
 				}
 				break;
