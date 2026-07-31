@@ -4,6 +4,7 @@ import { processInboundEmail, type InboundEmailPayload } from './bridge';
 import { logCommunication } from '$lib/utils/communication-log';
 import { createOrUpdateContact } from '$lib/utils/contacts';
 import { extractCallbackNumber, normalizePhoneNumber } from '$lib/utils/phone';
+import { sanitizeEmailBody, isMarketingBlast } from './sanitize';
 import { UnifiedPipeline } from '$lib/server/pipeline/unified-pipeline';
 import { enrichProfilePostTranscription } from '$lib/server/identity/identity-service';
 import { join } from 'path';
@@ -231,11 +232,17 @@ async function syncCompanyEmailsInner(companyId: string) {
 			if (msgData.payload) extractBody(msgData.payload);
 			if (!textBody && msgData.snippet) textBody = msgData.snippet;
 
+			// Sanitize the body before it hits the comm log, identity matching,
+			// and the AI: strip tracking/marketing boilerplate and quoted history.
+			// The customer's real email address is always kept.
+			const isMarketing = isMarketingBlast(textBody);
+			const cleanBody = sanitizeEmailBody(textBody);
+
 			// A phone number the customer wrote in the body ("you can remember me as +17864906293")
 			// is a stronger identity key than the email address alone. Grab it BEFORE contact/profile
 			// resolution so the message lands on the existing customer instead of minting a new one.
 			// Outgoing sends skip this: our own signature numbers must never match a customer.
-			const callbackPhone = isOutgoing ? null : extractCallbackNumber(textBody);
+			const callbackPhone = isOutgoing ? null : extractCallbackNumber(cleanBody);
 			const normalizedCallbackPhone = callbackPhone ? normalizePhoneNumber(callbackPhone) : null;
 
 			// Identify thread id
@@ -327,14 +334,14 @@ async function syncCompanyEmailsInner(companyId: string) {
 					company_id: companyId,
 					customer_id: contact?.id ?? undefined,
 					summary: subject,
-					content: textBody,
+					content: cleanBody,
 					thread_id: linkThreadId || undefined,
 					metadata: { thread_id: threadId, email_message_id: msgId }
 				});
 			} else {
 				// Store as inbound
 				const newItem = {
-					content: textBody || '(No content)',
+					content: cleanBody || '(No content)',
 					timestamp: date || new Date().toISOString(),
 					is_agent_reply: false,
 					subject: subject,
@@ -374,8 +381,13 @@ async function syncCompanyEmailsInner(companyId: string) {
 					company_id: companyId,
 					customer_id: contact?.id ?? undefined,
 					summary: subject,
-					content: textBody,
-					metadata: { thread_id: threadId, email_message_id: msgId }
+					content: cleanBody,
+					metadata: {
+						thread_id: threadId,
+						email_message_id: msgId,
+						email_sanitized: true,
+						...(isMarketing ? { marketing_email: true } : {})
+					}
 				});
 
 				// Trigger the AI unified pipeline (ProfileDB signals) — same as SMS.
@@ -390,7 +402,7 @@ async function syncCompanyEmailsInner(companyId: string) {
 							customerEmail: customerEmail,
 							customerName: customerName,
 							sessionId: threadId,
-							textContent: textBody,
+							textContent: cleanBody,
 							metadata: { subject }
 						});
 					} catch (pipeErr) {
@@ -418,7 +430,7 @@ async function syncCompanyEmailsInner(companyId: string) {
 						}
 
 						const { analyzeCallLog } = await import('$lib/server/openai');
-						const analysis = await analyzeCallLog(textBody);
+						const analysis = await analyzeCallLog(cleanBody);
 
 						// The AI often extracts the customer's real name ("Sam") from the message
 						// body, which beats the From-header display name ("Studio Blopp"). Persist
