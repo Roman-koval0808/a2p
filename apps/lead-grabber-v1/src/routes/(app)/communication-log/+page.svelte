@@ -520,6 +520,10 @@
 			onReplyClick={handleReplyClick}
 			onConfirmClick={handleConfirmClick}
 			onViewLogClick={handleViewLogClick}
+			onProfileClick={(comm) => {
+				const customerId = comm.raw?.raw?.customer?.id;
+				if (customerId) goto(`/profiles/${customerId}`);
+			}}
 			showAssignButton={true}
 			showSearch={false}
 		/>

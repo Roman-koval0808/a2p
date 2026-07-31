@@ -75,6 +75,7 @@
 		onViewLogClick,
 		onReplyClick,
 		onConfirmClick,
+		onProfileClick,
 		showFilters = true,
 		showSearch = true,
 		showAssignButton = false
@@ -453,7 +454,19 @@
 							<td
 								class="max-w-[160px] truncate px-3 py-2.5 text-sm text-gray-700"
 							>
-								<div class="font-semibold text-gray-900" title={comm.source}>{comm.source || '—'}</div>
+								{@const profileId = comm.raw?.raw?.customer?.id}
+								{#if onProfileClick && profileId}
+									<button
+										type="button"
+										class="block max-w-full cursor-pointer truncate text-left font-semibold text-gray-900 hover:text-blue-600 hover:underline"
+										title={comm.source}
+										onclick={() => onProfileClick(comm)}
+									>
+										{comm.source || '—'}
+									</button>
+								{:else}
+									<div class="font-semibold text-gray-900" title={comm.source}>{comm.source || '—'}</div>
+								{/if}
 								{#if contactDetail && contactDetail !== comm.source}
 									<div class="text-xs text-gray-500 mt-0.5 truncate" title={contactDetail}>{contactDetail}</div>
 								{/if}
