@@ -19,6 +19,8 @@ export interface CommandContext {
 	 * every call-control command — without it they no-op rather than guess at a leg.
 	 */
 	callControlId?: string;
+	/** CommContainer id (the conversation), distinct from commLogId (a single message). */
+	commContainerId?: string;
 }
 
 export type CommandHandler = (ctx: CommandContext, args: Record<string, unknown>) => Promise<void>;
@@ -106,15 +108,54 @@ registerCommand('send_email', async (ctx, args) => {
 	});
 });
 
+/**
+ * CommTask.commId is a foreign key to CommContainer — NOT to CommunicationLog. Passing a comm log
+ * id here silently violated the FK on every task the AI extracted, so the id has to be resolved to
+ * a real container: an explicit one, else this customer's open conversation, else a new one.
+ */
+async function resolveContainerId(ctx: CommandContext): Promise<string | null> {
+	if (ctx.commContainerId) return ctx.commContainerId;
+
+	const existing = await prisma.commContainer.findFirst({
+		where: {
+			companyId: ctx.companyId,
+			state: { not: 'closed' },
+			...(ctx.customerId ? { contactId: ctx.customerId } : {})
+		},
+		orderBy: { lastActivityAt: 'desc' },
+		select: { id: true }
+	});
+	if (existing) return existing.id;
+
+	// Nothing open to attach to. A task with nowhere to live is a task nobody sees, so open a
+	// container for it rather than dropping the commitment.
+	if (!ctx.customerId) {
+		console.warn('[CommandRegistry] No container and no customer to open one for');
+		return null;
+	}
+	const { createContainerAtIntake } = await import('$lib/server/container/container-service');
+	const { container } = await createContainerAtIntake(prisma, {
+		companyId: ctx.companyId,
+		contactId: ctx.customerId,
+		threadType: 'general'
+	});
+	return container?.id ?? null;
+}
+
 registerCommand('create_task', async (ctx, args) => {
 	const description = args.description as string;
 	if (!description) {
 		console.warn('[CommandRegistry] create_task: missing description');
 		return;
 	}
+	const commId = (args.comm_id as string) || (await resolveContainerId(ctx));
+	if (!commId) {
+		console.warn(`[CommandRegistry] create_task: no container for "${description}" — skipped`);
+		return;
+	}
 	await prisma.commTask.create({
 		data: {
-			commId: ctx.commLogId || '',
+			commId,
 			description,
 			ownerUserId: args.owner_user_id as string || 'system',
 			due: args.due ? new Date(args.due as string) : new Date(Date.now() + 86400000),

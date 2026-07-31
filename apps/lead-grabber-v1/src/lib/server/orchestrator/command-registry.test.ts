@@ -3,6 +3,7 @@ import { registerCommand, getCommand, hasCommand, listCommands, executeInstructi
 import { prisma } from '$lib/db';
 import { logCommunication } from '$lib/utils/communication-log';
 import { callControl } from '$lib/server/telnyx-bridge';
+import { createContainerAtIntake } from '$lib/server/container/container-service';
 
 vi.mock('$lib/db', () => ({
 	prisma: {
@@ -13,6 +14,7 @@ vi.mock('$lib/db', () => ({
 			update: vi.fn().mockResolvedValue({})
 		},
 		contact: { update: vi.fn().mockResolvedValue({}) },
+		commContainer: { findFirst: vi.fn().mockResolvedValue({ id: 'container_1' }) },
 		communicationLog: {
 			findUnique: vi.fn().mockResolvedValue({ metadata: {} }),
 			update: vi.fn().mockResolvedValue({})
@@ -22,6 +24,12 @@ vi.mock('$lib/db', () => ({
 
 vi.mock('$lib/server/telnyx-bridge', () => ({
 	callControl: vi.fn().mockResolvedValue(undefined)
+}));
+
+vi.mock('$lib/server/container/container-service', () => ({
+	createContainerAtIntake: vi
+		.fn()
+		.mockResolvedValue({ container: { id: 'container_new' }, actionsSuppressed: false })
 }));
 
 vi.mock('$lib/utils/communication-log', () => ({
@@ -133,14 +141,47 @@ describe('command-registry', () => {
 	});
 
 	describe('create_task', () => {
-		it('creates a commTask', async () => {
+		it('creates a commTask against the customer\'s open container', async () => {
 			await executeInstructions(ctx, [{
 				command: 'create_task',
 				args: { description: 'Follow up on quote', category: 'internal_followup' }
 			}]);
+			// commId is a FK to CommContainer, never the CommunicationLog id.
 			expect(prisma.commTask.create).toHaveBeenCalledWith(expect.objectContaining({
-				data: expect.objectContaining({ description: 'Follow up on quote' })
+				data: expect.objectContaining({
+					description: 'Follow up on quote',
+					commId: 'container_1'
+				})
 			}));
+		});
+
+		it('opens a container when the customer has none open', async () => {
+			vi.mocked(prisma.commContainer.findFirst).mockResolvedValueOnce(null as any);
+			await executeInstructions(ctx, [{
+				command: 'create_task', args: { description: 'Order the part' }
+			}]);
+			expect(createContainerAtIntake).toHaveBeenCalled();
+			expect(prisma.commTask.create).toHaveBeenCalledWith(expect.objectContaining({
+				data: expect.objectContaining({ commId: 'container_new' })
+			}));
+		});
+
+		it('prefers an explicit container id', async () => {
+			await executeInstructions(ctx, [{
+				command: 'create_task', args: { description: 'Explicit', comm_id: 'container_xyz' }
+			}]);
+			expect(prisma.commContainer.findFirst).not.toHaveBeenCalled();
+			expect(prisma.commTask.create).toHaveBeenCalledWith(expect.objectContaining({
+				data: expect.objectContaining({ commId: 'container_xyz' })
+			}));
+		});
+
+		it('skips rather than writing an orphan when there is no customer or container', async () => {
+			vi.mocked(prisma.commContainer.findFirst).mockResolvedValueOnce(null as any);
+			await executeInstructions({ companyId: 'comp_1' }, [{
+				command: 'create_task', args: { description: 'Nowhere to put this' }
+			}]);
+			expect(prisma.commTask.create).not.toHaveBeenCalled();
 		});
 
 		it('skips when description is missing', async () => {
