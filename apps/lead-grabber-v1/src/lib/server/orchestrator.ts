@@ -1413,7 +1413,10 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				customerEmail: customer?.email || undefined,
 				customerName: customer?.name || undefined,
 				commLogId: commId,
-				trigger
+				trigger,
+				// Only meaningful while the call is still up (mid-call triggers). Post-hangup the leg
+				// is dead and any call-control command fails harmlessly inside executeInstructions.
+				callControlId: (metadata.call_control_id as string) || undefined
 			}, instructions);
 		}
 	} catch (cmdErr) {

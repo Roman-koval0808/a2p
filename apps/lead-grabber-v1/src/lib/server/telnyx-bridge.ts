@@ -13,7 +13,11 @@ import { request as httpsRequest } from 'https';
 export const MERGE_DISCLOSURE =
 	'I am connecting you with a representative for quality assurance. This call is recorded.';
 
-async function callControl(callControlId: string, action: string, body: Record<string, unknown>) {
+export async function callControl(
+	callControlId: string,
+	action: string,
+	body: Record<string, unknown>
+) {
 	const apiKey = process.env.TELNYX_API_KEY?.trim();
 	if (!apiKey) throw new Error('TELNYX_API_KEY not configured');
 	const payload = JSON.stringify(body);

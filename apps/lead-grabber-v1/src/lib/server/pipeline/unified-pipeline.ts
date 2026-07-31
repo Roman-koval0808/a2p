@@ -81,6 +81,20 @@ export class UnifiedPipeline {
 				});
 				customerProfile = identityRes.customerProfile;
 				log(`[Step 3] Identity Resolution Complete: profile ID ${customerProfile.id} (method: ${identityRes.method})`);
+
+				// Two profiles answered to the same ANI. Never merged here — queued for a human.
+				if (identityRes.isMergeCandidate && identityRes.mergeCandidateProfileId) {
+					const { recordMergeCandidate } = await import('$lib/server/identity/merge-service');
+					await recordMergeCandidate({
+						companyId: company.id,
+						primaryProfileId: customerProfile.id,
+						duplicateProfileId: identityRes.mergeCandidateProfileId,
+						reason: identityRes.mergeCandidateReason || 'identity_conflict'
+					});
+					log(
+						`[Step 3] Merge candidate raised: ${customerProfile.id} ↔ ${identityRes.mergeCandidateProfileId} (${identityRes.mergeCandidateReason})`
+					);
+				}
 			}
 
 			// Stage 1 Container creation at intake, always, before transcription (§1.1.2)

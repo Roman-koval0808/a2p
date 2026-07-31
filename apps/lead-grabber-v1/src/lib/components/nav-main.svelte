@@ -47,7 +47,16 @@
 		},
 		{ title: 'Important Notifications', url: '/notifications', icon: Bell, href: '/notifications' },
 		{ title: 'Inbox', url: '/inbox', icon: Home, href: '/inbox' },
-		{ title: 'Profiles', url: '/profiles', icon: UserCircle, href: '/profiles' },
+		{
+			title: 'Profiles',
+			url: '/profiles',
+			icon: UserCircle,
+			href: '/profiles',
+			subItems: [
+				{ title: 'All Profiles', url: '/profiles', icon: UserCircle, href: '/profiles' },
+				{ title: 'Duplicates', url: '/profiles/merge', icon: UserCircle, href: '/profiles/merge' }
+			]
+		},
 		{ title: 'Dialer', url: '/dialer', icon: Phone, href: '/dialer' },
 		{ title: 'Orchestrator', url: '/orchestrator', icon: Activity, href: '/orchestrator' },
 		{
@@ -95,7 +104,16 @@
 		},
 		{ title: 'Important Notifications', url: '/notifications', icon: Bell, href: '/notifications' },
 		{ title: 'Inbox', url: '/inbox', icon: Home, href: '/inbox' },
-		{ title: 'Profiles', url: '/profiles', icon: UserCircle, href: '/profiles' },
+		{
+			title: 'Profiles',
+			url: '/profiles',
+			icon: UserCircle,
+			href: '/profiles',
+			subItems: [
+				{ title: 'All Profiles', url: '/profiles', icon: UserCircle, href: '/profiles' },
+				{ title: 'Duplicates', url: '/profiles/merge', icon: UserCircle, href: '/profiles/merge' }
+			]
+		},
 		{ title: 'Dialer', url: '/dialer', icon: Phone, href: '/dialer' },
 		{ title: 'Orchestrator', url: '/orchestrator', icon: Activity, href: '/orchestrator' },
 		{

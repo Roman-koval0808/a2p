@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { registerCommand, getCommand, hasCommand, listCommands, executeInstructions } from './command-registry';
 import { prisma } from '$lib/db';
 import { logCommunication } from '$lib/utils/communication-log';
+import { callControl } from '$lib/server/telnyx-bridge';
 
 vi.mock('$lib/db', () => ({
 	prisma: {
@@ -11,8 +12,16 @@ vi.mock('$lib/db', () => ({
 			findFirst: vi.fn().mockResolvedValue({ id: 'prof_1', attributes: {} }),
 			update: vi.fn().mockResolvedValue({})
 		},
-		contact: { update: vi.fn().mockResolvedValue({}) }
+		contact: { update: vi.fn().mockResolvedValue({}) },
+		communicationLog: {
+			findUnique: vi.fn().mockResolvedValue({ metadata: {} }),
+			update: vi.fn().mockResolvedValue({})
+		}
 	}
+}));
+
+vi.mock('$lib/server/telnyx-bridge', () => ({
+	callControl: vi.fn().mockResolvedValue(undefined)
 }));
 
 vi.mock('$lib/utils/communication-log', () => ({
@@ -260,6 +269,93 @@ describe('command-registry', () => {
 				[{ command: 'update_engagement_score', args: { delta: 5 } }]
 			);
 			expect(prisma.contact.update).not.toHaveBeenCalled();
+		});
+	});
+	describe('call control commands', () => {
+		const liveCtx = { ...ctx, callControlId: 'leg_abc' };
+
+		it('forward_call transfers the live leg', async () => {
+			await executeInstructions(liveCtx, [
+				{ command: 'forward_call', args: { to: '+15559998888' } }
+			]);
+			expect(callControl).toHaveBeenCalledWith('leg_abc', 'transfer', { to: '+15559998888' });
+		});
+
+		it('prefers an explicit call_control_id over the context leg', async () => {
+			await executeInstructions(liveCtx, [
+				{ command: 'hangup_call', args: { call_control_id: 'leg_other' } }
+			]);
+			expect(callControl).toHaveBeenCalledWith('leg_other', 'hangup', {});
+		});
+
+		it('no-ops when there is no live call rather than guessing a leg', async () => {
+			await executeInstructions(ctx, [{ command: 'forward_call', args: { to: '+15559998888' } }]);
+			expect(callControl).not.toHaveBeenCalled();
+		});
+
+		it('forward_call without a destination does nothing', async () => {
+			await executeInstructions(liveCtx, [{ command: 'forward_call', args: {} }]);
+			expect(callControl).not.toHaveBeenCalled();
+		});
+
+		it('bridge_call joins two existing legs', async () => {
+			await executeInstructions(liveCtx, [
+				{ command: 'bridge_call', args: { to_call_control_id: 'leg_tech' } }
+			]);
+			expect(callControl).toHaveBeenCalledWith('leg_abc', 'bridge', { call_control_id: 'leg_tech' });
+		});
+
+		it('whisper speaks on the addressed leg only', async () => {
+			await executeInstructions(liveCtx, [
+				{ command: 'whisper', args: { message: 'Customer is a VIP' } }
+			]);
+			expect(callControl).toHaveBeenCalledWith(
+				'leg_abc',
+				'speak',
+				expect.objectContaining({ payload: 'Customer is a VIP' })
+			);
+		});
+
+		it('play_message prefers an audio url when given one', async () => {
+			await executeInstructions(liveCtx, [
+				{ command: 'play_message', args: { audio_url: 'https://cdn/x.mp3', message: 'ignored' } }
+			]);
+			expect(callControl).toHaveBeenCalledWith('leg_abc', 'playback_start', {
+				audio_url: 'https://cdn/x.mp3'
+			});
+		});
+
+		it('start_recording records dual channel by default', async () => {
+			await executeInstructions(liveCtx, [{ command: 'start_recording', args: {} }]);
+			expect(callControl).toHaveBeenCalledWith('leg_abc', 'record_start', {
+				format: 'mp3',
+				channels: 'dual'
+			});
+		});
+
+		it('records the action on the originating comm log', async () => {
+			await executeInstructions(liveCtx, [
+				{ command: 'forward_call', args: { to: '+15559998888' } }
+			]);
+			expect(prisma.communicationLog.update).toHaveBeenCalledWith(
+				expect.objectContaining({
+					where: { id: 'comm_1' },
+					data: expect.objectContaining({
+						metadata: expect.objectContaining({
+							call_actions: [expect.objectContaining({ action: 'forward_call' })]
+						})
+					})
+				})
+			);
+		});
+
+		it('a failing telnyx command does not stop the rest of the batch', async () => {
+			vi.mocked(callControl).mockRejectedValueOnce(new Error('call already ended'));
+			await executeInstructions(liveCtx, [
+				{ command: 'hangup_call', args: {} },
+				{ command: 'update_engagement_score', args: { delta: 3 } }
+			]);
+			expect(prisma.contact.update).toHaveBeenCalled();
 		});
 	});
 });

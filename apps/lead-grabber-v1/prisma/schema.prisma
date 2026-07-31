@@ -163,6 +163,7 @@ model Company {
   dropCalls                   DropCall[]
   googleCalendar              GoogleCalendarConnection?
   commContainers              CommContainer[]
+  profileMergeCandidates      ProfileMergeCandidate[]
 
   @@map("companies")
 }
@@ -1352,6 +1353,30 @@ enum CommTaskStatus {
   done
   escalated
   cancelled
+}
+
+/// A suspected duplicate pair raised by identity resolution (same ANI on two profiles, an
+/// extracted email that already belongs to someone else, etc). Never auto-merged — a human
+/// resolves each one, and the merge is recorded here with a snapshot so it can be undone.
+model ProfileMergeCandidate {
+  id                String    @id @default(cuid())
+  companyId         String
+  company           Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  primaryProfileId  String // the survivor if merged
+  duplicateProfileId String // folded into the primary
+  reason            String // ani_exact | email_match (x@y.com) | name_match (Sam)
+  status            String    @default("pending") // pending | merged | dismissed
+  detectedFromCommId String? // comm log that surfaced it
+  resolvedByUserId  String?
+  resolvedAt        DateTime?
+  /// What the duplicate looked like before the merge + which rows moved, for reversal.
+  mergeSnapshot     Json?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([companyId, primaryProfileId, duplicateProfileId])
+  @@index([companyId, status])
+  @@map("profile_merge_candidates")
 }
 
 model CommIdentifier {

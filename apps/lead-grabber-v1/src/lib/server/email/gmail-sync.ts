@@ -471,6 +471,17 @@ async function syncCompanyEmailsInner(companyId: string) {
 									profile_id: enrichResult.mergeCandidate.profileId,
 									reason: enrichResult.mergeCandidate.reason
 								};
+								// Persist it too — metadata on one log is invisible to the review screen.
+								const { recordMergeCandidate } = await import(
+									'$lib/server/identity/merge-service'
+								);
+								await recordMergeCandidate({
+									companyId,
+									primaryProfileId: enrichResult.mergeCandidate.profileId,
+									duplicateProfileId: profile.id,
+									reason: enrichResult.mergeCandidate.reason,
+									detectedFromCommId: inboundEmailLog.id
+								});
 							}
 							// Merge structured fields into profile attributes
 							const sf = analysis.structured_fields;
