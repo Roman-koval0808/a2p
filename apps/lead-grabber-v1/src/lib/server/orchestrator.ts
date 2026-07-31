@@ -478,7 +478,12 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	else if (messageCategory === 'sales' || String(metadata.ai_intent).toLowerCase() === 'sales') {
 		olog('[Orchestrator] Detected Scenario 2: Sales / Booking Request, initiating Confirmation Loop...');
 		scenarioLocked = true;
-		if (datetime) {
+		// A booking draft may only be created from an EXPLICIT, parseable date the customer
+		// named. Vague mentions ("sometime next week") or garbage strings fall through to the
+		// "what day and time works best" reply below — never draft an appointment from a guess.
+		const bookingDatetime = datetime ? new Date(datetime) : null;
+		const hasExplicitDatetime = !!bookingDatetime && !isNaN(bookingDatetime.getTime());
+		if (hasExplicitDatetime) {
 			const { processSalesVoicemailBooking } = await import('./scenarios/s4-sms-booking');
 			
 			// Stubbed resources since this is a platform-agnostic setup
@@ -674,6 +679,15 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		// Scenario 1: Support Call Calendar Verification
 		if (aiIntent?.wants_appointment) {
 			olog('[Orchestrator] Support call requested a meeting. Triggering Scenario 1 Verification...');
+			// Calendar verification needs an EXPLICIT datetime the customer named. Without one
+			// (e.g. "I'd like to come in sometime") the hardcoded Wednesday/10:00 defaults would
+			// check a made-up slot — fall through and ask for a day/time instead.
+			const meetingDatetime = datetime ? new Date(datetime) : null;
+			const hasExplicitMeetingDatetime = !!meetingDatetime && !isNaN(meetingDatetime.getTime());
+			if (!hasExplicitMeetingDatetime) {
+				olog('[Orchestrator] Support meeting requested without an explicit datetime — asking for day/time.');
+				draftedResponse = `Hi ${customer.name || 'there'}, happy to set that up! What day and time works best for you?`;
+			} else {
 			try {
 				const { processSupportCallMeetingConfirmation } = await import('./scenarios/s1-meeting-confirm');
 				
@@ -787,6 +801,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				}
 			} catch (e) {
 				oerr('[Orchestrator] Scenario 1 execution failed:', e);
+			}
 			}
 		}
 	}
