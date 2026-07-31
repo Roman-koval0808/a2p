@@ -46,6 +46,16 @@ export function extractAttachments(payload: any): AttachmentInfo[] {
 	return results;
 }
 
+/**
+ * Bunny object keys are path segments in a URL — a filename carrying "/" or ".." would escape the
+ * per-log folder, and spaces/quotes break the CDN link. Keep the basename, flatten everything else.
+ */
+export function sanitizeAttachmentName(filename: string): string {
+	const base = filename.split(/[\\/]/).pop() || 'file';
+	const cleaned = base.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^\.+/, '');
+	return cleaned.slice(0, 120) || 'file';
+}
+
 export async function fetchAndSaveAttachment(
 	token: string,
 	messageId: string,
@@ -67,13 +77,31 @@ export async function fetchAndSaveAttachment(
 			return null;
 		}
 		const decoded = Buffer.from(data.data, 'base64url');
+		const safeName = sanitizeAttachmentName(attachment.filename);
+
+		// Primary store: Bunny CDN. The app runs on ephemeral containers, so anything written to
+		// local disk is lost on the next deploy — attachments have to live off-box.
+		try {
+			const { uploadToBunny } = await import('$lib/server/bunny');
+			const cdnUrl = await uploadToBunny(decoded, safeName, `email/${commLogId}`);
+			console.log(`[gmail-sync] Attachment ${safeName} → ${cdnUrl}`);
+			return cdnUrl;
+		} catch (bunnyErr) {
+			console.error(
+				`[gmail-sync] Bunny upload failed for ${safeName}, falling back to local disk:`,
+				bunnyErr
+			);
+		}
+
+		// Fallback only (dev without Bunny creds, or a Bunny outage). Served by
+		// /api/email-attachment/[commId]/[filename], which also still serves pre-Bunny attachments.
 		const dir = join(process.cwd(), 'static/uploads/email', commLogId);
 		if (!existsSync(dir)) {
 			await mkdir(dir, { recursive: true });
 		}
-		const filePath = join(dir, attachment.filename);
+		const filePath = join(dir, safeName);
 		await writeFile(filePath, decoded);
-		return `/api/email-attachment/${commLogId}/${encodeURIComponent(attachment.filename)}`;
+		return `/api/email-attachment/${commLogId}/${encodeURIComponent(safeName)}`;
 	} catch (err) {
 		console.error(`[gmail-sync] Error saving attachment ${attachment.filename}:`, err);
 		return null;

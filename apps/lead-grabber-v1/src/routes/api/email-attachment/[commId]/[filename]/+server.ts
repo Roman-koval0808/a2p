@@ -35,6 +35,11 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 		return json({ error: 'Missing parameters' }, { status: 400 });
 	}
 
+	// The filename lands in a path join below — a decoded "../" would read outside the upload dir.
+	if (filename.includes('/') || filename.includes('\\') || filename.includes('..')) {
+		return json({ error: 'Invalid filename' }, { status: 400 });
+	}
+
 	const log = await prisma.communicationLog.findFirst({
 		where: { id: commId, companyId: locals.user.company.id },
 		select: { id: true }

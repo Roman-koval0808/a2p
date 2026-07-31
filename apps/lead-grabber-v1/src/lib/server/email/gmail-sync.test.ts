@@ -58,11 +58,22 @@ vi.mock('$lib/server/identity/identity-service', () => ({
 
 vi.mock('$env/static/private', () => ({
 	OPEN_AI_KEY: 'test-key',
-	ANTHROPIC_AI_KEY: 'test-key'
+	ANTHROPIC_AI_KEY: 'test-key',
+	BUNNY_ACCESS_KEY: 'test-bunny-key',
+	BUNNY_STORAGE_ZONE_NAME: 'test-zone',
+	BUNNY_REGION: 'storage.bunnycdn.com'
 }));
 
-import { extractAttachments, fetchAndSaveAttachment } from './gmail-sync';
+vi.mock('$lib/server/bunny', () => ({
+	uploadToBunny: vi.fn(
+		async (_buffer: Buffer, filename: string, folder: string) =>
+			`https://test-zone.b-cdn.net/${folder}/${filename}`
+	)
+}));
+
+import { extractAttachments, fetchAndSaveAttachment, sanitizeAttachmentName } from './gmail-sync';
 import { writeFile, mkdir } from 'fs/promises';
+import { uploadToBunny } from '$lib/server/bunny';
 
 describe('extractAttachments', () => {
 	it('returns empty array for payload with no attachments', () => {
@@ -169,7 +180,7 @@ describe('fetchAndSaveAttachment', () => {
 		vi.clearAllMocks();
 	});
 
-	it('fetches attachment data and writes to disk', async () => {
+	it('fetches attachment data and uploads it to Bunny', async () => {
 		const mockData = Buffer.from('fake-image-data').toString('base64url');
 		globalThis.fetch = vi.fn().mockResolvedValue({
 			ok: true,
@@ -182,12 +193,10 @@ describe('fetchAndSaveAttachment', () => {
 			'comm_log_1'
 		);
 
-		expect(result).toBe('/api/email-attachment/comm_log_1/test.jpg');
-		expect(mkdir).toHaveBeenCalledWith(expect.stringContaining('static/uploads/email/comm_log_1'), { recursive: true });
-		expect(writeFile).toHaveBeenCalledWith(
-			expect.stringContaining('static/uploads/email/comm_log_1/test.jpg'),
-			expect.any(Buffer)
-		);
+		expect(result).toBe('https://test-zone.b-cdn.net/email/comm_log_1/test.jpg');
+		expect(uploadToBunny).toHaveBeenCalledWith(expect.any(Buffer), 'test.jpg', 'email/comm_log_1');
+		// Bunny is the store of record — nothing should hit the ephemeral local disk.
+		expect(writeFile).not.toHaveBeenCalled();
 		expect(globalThis.fetch).toHaveBeenCalledWith(
 			'https://gmail.googleapis.com/gmail/v1/users/me/messages/msg_1/attachments/att_1',
 			expect.objectContaining({ headers: { Authorization: 'Bearer test-token' } })
@@ -219,7 +228,7 @@ describe('fetchAndSaveAttachment', () => {
 		expect(writeFile).not.toHaveBeenCalled();
 	});
 
-	it('encodes special characters in filename', async () => {
+	it('flattens unsafe characters in the filename before storing', async () => {
 		const mockData = Buffer.from('data').toString('base64url');
 		globalThis.fetch = vi.fn().mockResolvedValue({
 			ok: true,
@@ -231,7 +240,32 @@ describe('fetchAndSaveAttachment', () => {
 			{ filename: 'my file (2).jpg', mimeType: 'image/jpeg', attachmentId: 'att_spaces' },
 			'log_1'
 		);
-		expect(result).toContain(encodeURIComponent('my file (2).jpg'));
+		expect(result).toBe('https://test-zone.b-cdn.net/email/log_1/my_file_2_.jpg');
+	});
+
+	it('falls back to local disk when Bunny is unavailable', async () => {
+		const mockData = Buffer.from('data').toString('base64url');
+		globalThis.fetch = vi.fn().mockResolvedValue({
+			ok: true,
+			json: () => Promise.resolve({ data: mockData })
+		});
+		vi.mocked(uploadToBunny).mockRejectedValueOnce(new Error('bunny down'));
+
+		const result = await fetchAndSaveAttachment(
+			'token', 'msg_1',
+			{ filename: 'test.jpg', mimeType: 'image/jpeg', attachmentId: 'att_1' },
+			'log_1'
+		);
+
+		expect(result).toBe('/api/email-attachment/log_1/test.jpg');
+		expect(mkdir).toHaveBeenCalledWith(
+			expect.stringContaining('static/uploads/email/log_1'),
+			{ recursive: true }
+		);
+		expect(writeFile).toHaveBeenCalledWith(
+			expect.stringContaining('static/uploads/email/log_1/test.jpg'),
+			expect.any(Buffer)
+		);
 	});
 
 	afterEach(() => {
