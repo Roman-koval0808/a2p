@@ -2482,19 +2482,33 @@ export const POST: RequestHandler = async ({ request }) => {
 								select: { id: true, metadata: true }
 							});
 							if (emergencyLog) {
-								await prisma.communicationLog.update({
-									where: { id: emergencyLog.id },
-									data: {
-										duration: recDurationSeconds > 0 ? recDurationSeconds : undefined,
-										metadata: {
-											...((emergencyLog.metadata as Record<string, unknown>) || {}),
-											recording_urls: recUrls as Record<string, unknown>,
-											recording_id: recId,
-											call_control_id: callControlId
-										} as any
-									}
-								});
-								console.log('📝 Attached emergency bridge recording to log', emergencyLog.id);
+								const emergencyMeta = (emergencyLog.metadata as Record<string, unknown>) || {};
+								// Both bridge legs (tech + customer) record the SAME conversation, so
+								// two recording.saved events arrive for one emergency. Keep the FIRST
+								// recording that lands and skip the second leg — otherwise the comm
+								// would show the call twice (or flip between two identical files).
+								if (!emergencyMeta.recording_id && recUrls) {
+									await prisma.communicationLog.update({
+										where: { id: emergencyLog.id },
+										data: {
+											duration: recDurationSeconds > 0 ? recDurationSeconds : undefined,
+											metadata: {
+												...emergencyMeta,
+												recording_urls: recUrls as Record<string, unknown>,
+												recording_id: recId,
+												call_control_id: callControlId
+											} as any
+										}
+									});
+									console.log('📝 Attached emergency bridge recording to log', emergencyLog.id);
+								} else {
+									console.log(
+										'📝 Emergency bridge recording already attached to log',
+										emergencyLog.id,
+										'— skipping duplicate leg',
+										callControlId
+									);
+								}
 							} else {
 								console.log('⚠️ No initiated call log found for', callControlId);
 							}
