@@ -382,6 +382,25 @@ async function syncCompanyEmailsInner(companyId: string) {
 						const { analyzeCallLog } = await import('$lib/server/openai');
 						const analysis = await analyzeCallLog(textBody);
 
+						// The AI often extracts the customer's real name ("Sam") from the message
+						// body, which beats the From-header display name ("Studio Blopp"). Persist
+						// it onto the Contact so the comm log / profiles show the real person.
+						if (analysis.callerName && analysis.callerName.trim() && analysis.callerName !== contact?.name) {
+							try {
+								const updated = await createOrUpdateContact({
+									company_id: companyId,
+									name: analysis.callerName.trim(),
+									email: customerEmail,
+									phone: contact?.phone || undefined
+								});
+								if (updated) {
+									console.log(`[gmail-sync] Updated contact name to "${analysis.callerName.trim()}" for ${customerEmail}`);
+								}
+							} catch (nameErr) {
+								console.error('[gmail-sync] Failed to persist AI-extracted name:', nameErr);
+							}
+						}
+
 						const senderEmail = (analysis.ai_extracted_email || customerEmail).toLowerCase();
 						const metadata: Record<string, any> = {
 							thread_id: threadId,
