@@ -31,7 +31,18 @@
 			// not every loader in the app as invalidateAll() would.
 			invalidate('app:communication-log');
 		}, 4000);
-		return () => clearInterval(interval);
+
+		// Refresh immediately when the backend pushes an event (new inbound email/SMS
+		// or a freshly drafted outbound message) instead of waiting for the next poll.
+		const handleRealtimeUpdate = () => invalidate('app:communication-log');
+		window.addEventListener('sse-new-sms', handleRealtimeUpdate);
+		window.addEventListener('sse-new-notification', handleRealtimeUpdate);
+
+		return () => {
+			clearInterval(interval);
+			window.removeEventListener('sse-new-sms', handleRealtimeUpdate);
+			window.removeEventListener('sse-new-notification', handleRealtimeUpdate);
+		};
 	});
 
 	const PAGE_SIZES = [10, 20, 50, 100] as const;

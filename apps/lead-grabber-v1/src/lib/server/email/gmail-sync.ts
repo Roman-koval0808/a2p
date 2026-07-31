@@ -10,7 +10,15 @@ import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 
 /** Per-company mutex so concurrent sweep calls don't create duplicate logs for the same message. */
-const syncLocks = new Map<string, Promise<void>>();
+const syncLocks = new Map<string, Promise<SyncResult>>();
+
+interface SyncResult {
+	success: boolean;
+	reason?: string;
+	count?: number;
+	processed?: number;
+	error?: unknown;
+}
 
 interface AttachmentInfo {
 	filename: string;
@@ -230,6 +238,49 @@ async function syncCompanyEmailsInner(companyId: string) {
 					processed++;
 					continue;
 				}
+
+				// No exact Gmail match. Reuse the existing conversation instead of creating a
+				// new thread, so a sent reply shows up as "Out" in the same comm id as the
+				// original inbound email (not as a brand-new conversation).
+				let linkThreadId: string | null = null;
+
+				// 1) Same Gmail thread as an already-synced message (real Gmail replies land
+				//    in the same thread as the inbound email we logged).
+				const sameThreadLog = await prisma.communicationLog.findFirst({
+					where: {
+						companyId,
+						metadata: { path: ['thread_id'], equals: threadId },
+						communicationThreadId: { not: null }
+					},
+					select: { communicationThreadId: true },
+					orderBy: { created: 'desc' }
+				});
+				if (sameThreadLog?.communicationThreadId) {
+					linkThreadId = sameThreadLog.communicationThreadId;
+				} else {
+					// 2) Same customer emailed recently (e.g. confirmation sent via Brevo with
+					//    a fresh Gmail thread) — join the most recent inbound thread instead.
+					const recentInbound = await prisma.communicationLog.findFirst({
+						where: {
+							companyId,
+							direction: 'inbound',
+							type: 'email',
+							source: customerEmail,
+							communicationThreadId: { not: null },
+							created: { gte: new Date(Date.now() - 48 * 3600 * 1000) }
+						},
+						select: { communicationThreadId: true },
+						orderBy: { created: 'desc' }
+					});
+					if (recentInbound?.communicationThreadId) {
+						linkThreadId = recentInbound.communicationThreadId;
+					}
+				}
+				if (linkThreadId) {
+					console.log(
+						`[gmail-sync] Linking outgoing message ${msgId} to existing thread ${linkThreadId}`
+					);
+				}
 				await logCommunication({
 					type: 'email',
 					direction: 'outbound',
@@ -240,6 +291,7 @@ async function syncCompanyEmailsInner(companyId: string) {
 					customer_id: contact?.id ?? undefined,
 					summary: subject,
 					content: textBody,
+					thread_id: linkThreadId || undefined,
 					metadata: { thread_id: threadId, email_message_id: msgId }
 				});
 			} else {
