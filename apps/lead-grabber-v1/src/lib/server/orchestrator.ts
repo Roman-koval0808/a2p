@@ -76,6 +76,17 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	const companyNumber = toE164(cleanDestination);
 	const customerPhone = toE164(commLog.source || '');
 
+	// Company Gmail address (the account any email draft is sent FROM). Best-effort: if the
+	// company hasn't connected Gmail, we fall back to the customer email so the UI still shows
+	// something meaningful in the source column.
+	let companyEmail: string | null = null;
+	try {
+		const connInfo = await getConnectionInfo(company.id);
+		companyEmail = connInfo.email || null;
+	} catch {
+		/* best-effort */
+	}
+
 	let pipelineCustomerProfileId: string | undefined = undefined;
 	if (customerPhone) {
 		const profile = await prisma.pipelineCustomerProfile?.findFirst({
@@ -528,12 +539,12 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					direction: 'outbound',
 					status: 'pending_approval',
 					thread_id: commLog.communicationThreadId || commId,
-					// Show the customer's actual email as the source in comm logs (the real party this
-					// thread is with) — not the internal sending account.
+					// Source is the company's own Gmail address (who the email is FROM); the
+					// destination is the customer's email (who it goes TO).
 					source: isEmailDraft
-						? metadata.ai_extracted_email || customer.email || customerPhone
+						? companyEmail || metadata.ai_extracted_email || customer.email || customerPhone
 						: companyNumber,
-					destination: isEmailDraft ? (metadata.ai_extracted_email || customerPhone) : customerPhone,
+					destination: isEmailDraft ? (metadata.ai_extracted_email || customer.email || customerPhone) : customerPhone,
 					company_id: company.id,
 					customer_id: customer.id,
 					summary: 'Booking Confirmation Approval',
@@ -1004,8 +1015,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						status: 'pending_approval',
 						thread_id: commLog.communicationThreadId || commId,
 						destination: destinationEmail,
-						// Show the customer's actual email as the source in comm logs, not the sending account.
-						source: destinationEmail,
+						// Source is the company's own Gmail address (who the email is FROM),
+						// not the customer's address.
+						source: companyEmail || destinationEmail,
 						company_id: company.id,
 						customer_id: customer.id,
 						summary: emailSubject || 'Email Follow-up',
