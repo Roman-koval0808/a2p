@@ -9,6 +9,9 @@ import { join } from 'path';
 import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 
+/** Per-company mutex so concurrent sweep calls don't create duplicate logs for the same message. */
+const syncLocks = new Map<string, Promise<void>>();
+
 interface AttachmentInfo {
 	filename: string;
 	mimeType: string;
@@ -70,6 +73,22 @@ export async function fetchAndSaveAttachment(
 }
 
 export async function syncCompanyEmails(companyId: string) {
+	const existing = syncLocks.get(companyId);
+	if (existing) {
+		try { return await existing; } catch { /* fall through to rerun */ }
+	}
+	const promise = (async () => {
+		try { return await syncCompanyEmailsInner(companyId); }
+		finally { syncLocks.delete(companyId); }
+	})().catch((e) => {
+		syncLocks.delete(companyId);
+		throw e;
+	});
+	syncLocks.set(companyId, promise);
+	return promise;
+}
+
+async function syncCompanyEmailsInner(companyId: string) {
 	try {
 		const auth = await getConnectionAccessToken(companyId);
 		if (!auth || !auth.email) {
