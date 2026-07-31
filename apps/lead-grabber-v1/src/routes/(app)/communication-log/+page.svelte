@@ -79,11 +79,11 @@
 	// keeps updating (e.g. "Analyzing…" → resolved tasks) without effectfully writing state
 	// — writing $state inside an $effect would re-trigger it (state is deep-proxied, so a
 	// raw data object never `===` its own proxy, and the guard can never stabilize).
-	let selectedCommId = $state<string | null>(null);
+	let summaryCommId = $state<string | null>(null);
 	let lastSelectedComm = $state<any>(null);
 	let selectedComm = $derived.by(() => {
-		if (!selectedCommId) return null;
-		const log = (data.logs ?? []).find((l: any) => l.id === selectedCommId);
+		if (!summaryCommId) return null;
+		const log = (data.logs ?? []).find((l: any) => l.id === summaryCommId);
 		if (log) return mapLog(log);
 		// The row can briefly drop out of the current page slice during a refresh —
 		// keep showing the last known version instead of closing the dialog.
@@ -318,7 +318,7 @@
 	function handleSummaryClick(comm: any) {
 		// Use the transformed comm object, not raw, so we have all the formatted fields
 		lastSelectedComm = comm;
-		selectedCommId = comm.id || comm.raw?.id || null;
+		summaryCommId = comm.id || comm.raw?.id || null;
 		summaryDialogOpen = true;
 	}
 
