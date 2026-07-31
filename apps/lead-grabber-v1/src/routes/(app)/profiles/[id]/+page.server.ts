@@ -209,6 +209,24 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			orderBy: { created: 'desc' }
 		});
 
+		// File manager: every attachment stored on the contact's email logs (Bunny CDN URLs
+		// from gmail-sync / bridge) collected into one list for the Files dialog.
+		const files = dbLogs
+			.flatMap((log) => {
+				const md = (log.metadata as Record<string, any>) || {};
+				const atts = Array.isArray(md.attachments) ? md.attachments : [];
+				return atts.map((a: any) => ({
+					name: a.name ?? 'file',
+					url: a.url ?? '',
+					mime: a.mime ?? '',
+					direction: log.direction,
+					created: log.created.toISOString(),
+					commId: commCode(log.communicationThreadId, log.id),
+					summary: log.summary || ''
+				}));
+			})
+			.sort((a, b) => b.created.localeCompare(a.created));
+
 		const comms = dbLogs.map(log => {
 			const dateObj = new Date(log.created);
 			const date = dateObj.toLocaleDateString('en-US', {
@@ -293,6 +311,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			accountBalance: dbContact?.accountBalance ?? null,
 			engagementScore: dbContact.engagementScore ?? 0,
 			communications: comms,
+			files,
 			historyEvents,
 			identityHistory,
 			behavioralFacts: {

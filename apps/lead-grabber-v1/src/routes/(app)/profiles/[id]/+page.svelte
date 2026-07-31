@@ -30,6 +30,7 @@
 	import PipelineModal from '$lib/components/PipelineModal.svelte';
 	import OrchestratorLogModal from '$lib/components/orchestrator-log-modal.svelte';
 	import CommReplyPanel from '$lib/components/CommReplyPanel.svelte';
+	import ProfileFilesDialog from '$lib/components/profile-files-dialog.svelte';
 	import { toast } from 'svelte-sonner';
 
 	interface Connection {
@@ -144,6 +145,7 @@
 	let selectedSummary = $state<Communication | null>(null);
 	let summaryDialogOpen = $state(false);
 	let showEditDialog = $state(false);
+	let filesDialogOpen = $state(false);
 	let editForm = $state({ name: '', email: '', phone: '' });
 	let pipelineDialogOpen = $state(false);
 	let selectedPipelineEvent = $state<any>(null);
@@ -784,6 +786,13 @@
 							<SquarePen class="h-5 w-5 text-[#577AB7]" />
 							<span class="font-sans text-xs font-semibold leading-[16px] text-[#577AB7]">Add Task</span>
 						</button>
+						<button
+							onclick={() => (filesDialogOpen = true)}
+							class="col-span-2 flex h-[63px] items-center justify-center gap-2 rounded-sm border border-[#B5C2DA] bg-white transition-colors hover:bg-[#f0f4fb]"
+						>
+							<FileText class="h-5 w-5 text-[#577AB7]" />
+							<span class="font-sans text-xs font-semibold leading-[16px] text-[#577AB7]">Files</span>
+						</button>
 					</div>
 				</div>
 			</div>
@@ -921,6 +930,9 @@
 			replyComm = null;
 		}}
 	/>
+
+	<!-- Files dialog -->
+	<ProfileFilesDialog bind:open={filesDialogOpen} files={data.files || []} />
 {:else}
 	<EmptyState
 		title="Profile not found"

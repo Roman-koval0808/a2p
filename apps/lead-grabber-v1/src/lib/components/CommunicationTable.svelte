@@ -47,6 +47,7 @@
 		onViewLogClick?: (comm: Communication) => void;
 		onReplyClick?: (comm: Communication) => void;
 		onConfirmClick?: (comm: Communication) => void;
+		onProfileClick?: (comm: Communication) => void;
 		showFilters?: boolean;
 		showSearch?: boolean;
 		showAssignButton?: boolean;
