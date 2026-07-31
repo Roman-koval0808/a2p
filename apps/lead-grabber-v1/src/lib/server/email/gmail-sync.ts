@@ -3,6 +3,7 @@ import { getConnectionAccessToken } from '../google-calendar';
 import { processInboundEmail, type InboundEmailPayload } from './bridge';
 import { logCommunication } from '$lib/utils/communication-log';
 import { createOrUpdateContact } from '$lib/utils/contacts';
+import { extractCallbackNumber, normalizePhoneNumber } from '$lib/utils/phone';
 import { UnifiedPipeline } from '$lib/server/pipeline/unified-pipeline';
 import { enrichProfilePostTranscription } from '$lib/server/identity/identity-service';
 import { join } from 'path';
@@ -230,6 +231,13 @@ async function syncCompanyEmailsInner(companyId: string) {
 			if (msgData.payload) extractBody(msgData.payload);
 			if (!textBody && msgData.snippet) textBody = msgData.snippet;
 
+			// A phone number the customer wrote in the body ("you can remember me as +17864906293")
+			// is a stronger identity key than the email address alone. Grab it BEFORE contact/profile
+			// resolution so the message lands on the existing customer instead of minting a new one.
+			// Outgoing sends skip this: our own signature numbers must never match a customer.
+			const callbackPhone = isOutgoing ? null : extractCallbackNumber(textBody);
+			const normalizedCallbackPhone = callbackPhone ? normalizePhoneNumber(callbackPhone) : null;
+
 			// Identify thread id
 			const threadId = msgData.threadId || `email-${msgId}`;
 
@@ -237,7 +245,8 @@ async function syncCompanyEmailsInner(companyId: string) {
 			const contact = await createOrUpdateContact({
 				company_id: companyId,
 				name: customerName,
-				email: customerEmail
+				email: customerEmail,
+				phone: normalizedCallbackPhone ?? undefined
 			});
 
 			if (isOutgoing) {
@@ -377,6 +386,7 @@ async function syncCompanyEmailsInner(companyId: string) {
 							eventType: 'email.received',
 							externalId: msgId,
 							companyId: companyId,
+							customerPhone: normalizedCallbackPhone ?? undefined,
 							customerEmail: customerEmail,
 							customerName: customerName,
 							sessionId: threadId,
@@ -430,6 +440,10 @@ async function syncCompanyEmailsInner(companyId: string) {
 						}
 
 						const senderEmail = (analysis.ai_extracted_email || customerEmail).toLowerCase();
+						const extractedPhone = (analysis.ai_extracted_phone || callbackPhone || '').trim();
+						const normalizedExtractedPhone = extractedPhone
+							? normalizePhoneNumber(extractedPhone)
+							: null;
 						const metadata: Record<string, any> = {
 							thread_id: threadId,
 							email_message_id: msgId,
@@ -440,7 +454,8 @@ async function syncCompanyEmailsInner(companyId: string) {
 							urgency: analysis.urgency,
 							sentiment: analysis.sentiment,
 							requested_contact_method: 'email',
-							ai_extracted_email: analysis.ai_extracted_email || customerEmail
+							ai_extracted_email: analysis.ai_extracted_email || customerEmail,
+							ai_extracted_phone: extractedPhone || undefined
 						};
 						if (savedAttachments.length > 0) {
 							metadata.attachments = savedAttachments;
@@ -448,9 +463,39 @@ async function syncCompanyEmailsInner(companyId: string) {
 
 						// Profile merge candidate detection + structured_fields persistence
 						try {
-							let profile = await prisma.pipelineCustomerProfile.findFirst({
-								where: { companyId, email: senderEmail }
-							});
+							// Resolve by PHONE first when the customer stated one: a phone match (from a
+							// prior call/SMS) is the strongest signal they're an existing customer. Email
+							// is only a fallback key — otherwise "you can remember me as +1786..." mints
+							// a brand-new Roman instead of attaching to the one that already exists.
+							let profile: any = null;
+							if (normalizedExtractedPhone) {
+								const phoneCandidates = await prisma.pipelineCustomerProfile.findMany({
+									where: {
+										companyId,
+										OR: [
+											{ phoneNumber: { not: null } },
+											{ identifiers: { some: { kind: 'phone' } } }
+										]
+									},
+									select: { id: true, phoneNumber: true, identifiers: true }
+								});
+								profile =
+									phoneCandidates.find(
+										(p: any) =>
+											(p.phoneNumber &&
+												normalizePhoneNumber(p.phoneNumber) === normalizedExtractedPhone) ||
+											p.identifiers.some(
+												(i: any) =>
+													i.kind === 'phone' &&
+													normalizePhoneNumber(i.value) === normalizedExtractedPhone
+											)
+									) ?? null;
+							}
+							if (!profile) {
+								profile = await prisma.pipelineCustomerProfile.findFirst({
+									where: { companyId, email: senderEmail }
+								});
+							}
 							if (!profile) {
 								profile = await prisma.pipelineCustomerProfile.create({
 									data: {
@@ -459,6 +504,35 @@ async function syncCompanyEmailsInner(companyId: string) {
 										displayName: customerName || senderEmail,
 									}
 								});
+							}
+							if (normalizedExtractedPhone) {
+								// Link the phone to the profile it resolved to so future calls, SMS, or
+								// emails carrying this number land on the SAME customer.
+								await prisma.commIdentifier
+									.upsert({
+										where: {
+											customerProfileId_kind_value: {
+												customerProfileId: profile.id,
+												kind: 'phone',
+												value: normalizedExtractedPhone
+											}
+										},
+										create: {
+											customerProfileId: profile.id,
+											kind: 'phone',
+											value: normalizedExtractedPhone
+										},
+										update: {}
+									})
+									.catch(() => {});
+								if (!profile.phoneNumber) {
+									await prisma.pipelineCustomerProfile
+										.update({
+											where: { id: profile.id },
+											data: { phoneNumber: normalizedExtractedPhone }
+										})
+										.catch(() => {});
+								}
 							}
 							const enrichResult = await enrichProfilePostTranscription(null, {
 								companyId,
