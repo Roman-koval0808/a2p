@@ -505,6 +505,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				});
 				container = createResult.container;
 			}
+			// A container was either found or just created — the sales flow cannot proceed without
+			// one (createContainerAtIntake always succeeds with a contact on file).
+			container = container!;
 
 			// Group the inbound message under the SAME container ref as the drafts, so the whole
 			// conversation shares one comm id in the UI (metadata.commId drives the displayed ref).
@@ -593,6 +596,54 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					}
 				});
 			}
+
+			// Finalize the rep-facing side of the booking before exiting: the bottom-of-function
+			// action items + create_task dispatch + metadata write would otherwise be skipped by
+			// the early return, leaving the inbound message with no tasks and no orchestrator logs.
+			const bookingTasks: string[] = Array.isArray(aiIntent?.action_items)
+				? [...aiIntent.action_items]
+				: [];
+			if (bookingResult.explicitDateText) {
+				bookingTasks.push(`Approve the ${bookingResult.explicitDateText} appointment`);
+			}
+			if (!bookingTasks.length) {
+				bookingTasks.push(`Review and follow up with ${customer.name || 'the customer'}`);
+			}
+			metadata.actionItems = Array.from(new Set(bookingTasks));
+
+			try {
+				const { createTask } = await import('$lib/server/container/container-service');
+				for (const item of metadata.actionItems) {
+					await createTask(prisma, {
+						commId: container.id,
+						description: item,
+						ownerUserId: 'u_sales_owner',
+						due: new Date(Date.now() + 24 * 3600 * 1000),
+						category: 'internal_followup'
+					});
+				}
+				olog(
+					`[Orchestrator] Created ${metadata.actionItems.length} booking task(s) on container ${container.id}.`
+				);
+			} catch (taskErr) {
+				oerr('[Orchestrator] Failed to create booking tasks:', taskErr);
+			}
+
+			try {
+				await prisma.communicationLog.update({
+					where: { id: commId },
+					data: {
+						metadata: {
+							...metadata,
+							orchestrator_logs: orchestratorLogs,
+							orchestrator_processed: true
+						}
+					}
+				});
+			} catch (err) {
+				oerr('[Orchestrator] Failed to mark booking message as processed:', err);
+			}
+
 			return; // Exit early because the draft was logged
 		} else {
 			draftedResponse = `Hi! Thanks for contacting ${company.name || 'us'}. We received your booking request. What day and time works best for you?`;
