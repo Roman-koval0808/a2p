@@ -263,6 +263,8 @@
 				id: log.id,
 				status,
 				assignedMemberNames,
+				emailOpenedAt: log.emailOpenedAt ?? null,
+				emailClickedAt: log.emailClickedAt ?? null,
 				raw: log
 			};
 		}) || []
@@ -284,6 +286,8 @@
 			commId: c.commId,
 			status: c.status as any,
 			assignedMemberNames: c.assignedMemberNames,
+			emailOpenedAt: c.emailOpenedAt,
+			emailClickedAt: c.emailClickedAt,
 			raw: c.raw
 		}))
 	);
