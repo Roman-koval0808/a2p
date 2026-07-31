@@ -28,6 +28,8 @@
 		attachments?: Array<{ name: string; url: string; mime: string }>;
 		/** Tasks belong to the inbound customer message — hide them on outbound replies. */
 		showTasks?: boolean;
+		/** The inbound message's AI resolution (tasks/action items) hasn't landed yet. */
+		loading?: boolean;
 		requestedEmailContact?: boolean;
 		targetEmail?: string;
 		emailConfirmed?: boolean;
@@ -58,6 +60,7 @@
 		editable = false,
 		onSaveDraft,
 		showTasks = true,
+		loading = false,
 		requestedEmailContact = false,
 		targetEmail = '',
 		emailConfirmed = false,
@@ -300,7 +303,19 @@
 					<div class="my-1 h-px w-full bg-[#979797]"></div>
 
 					<!-- Tasks to Complete — only for the inbound customer message, and only real tasks -->
-					{#if showTasks && tasks && tasks.length}
+					{#if showTasks && loading}
+						<div class="flex flex-col gap-2">
+							<span class="font-sans text-[15px] font-semibold leading-[141%] text-[#797979]">
+								Tasks to complete
+							</span>
+							<div class="flex items-center gap-2 font-sans text-xs leading-[141%] text-[#7B7B7B]">
+								<span
+									class="inline-block h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-[#B5C2DA] border-t-[#577AB7]"
+								></span>
+								Analyzing message…
+							</div>
+						</div>
+					{:else if showTasks && tasks && tasks.length}
 						<div class="flex flex-col gap-2">
 							<span class="font-sans text-[15px] font-semibold leading-[141%] text-[#797979]">
 								Tasks to complete

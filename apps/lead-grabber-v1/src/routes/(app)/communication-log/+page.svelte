@@ -17,8 +17,10 @@
 		const interval = setInterval(() => {
 			// Pause the background refresh while the user is interacting with a dialog
 			// or panel (e.g. typing a reply) so we don't disrupt input or clobber state.
+			// The summary dialog is intentionally NOT paused: an inbound message's AI
+			// resolution (tasks/action items) lands after the message itself, and the
+			// open dialog must keep refreshing to flip from "Analyzing…" to resolved.
 			if (
-				summaryDialogOpen ||
 				replyPanelOpen ||
 				assignDialogOpen ||
 				pipelineDialogOpen ||
@@ -160,9 +162,8 @@
 	}
 
 	// Transform API data to UI format
-	let communications = $derived(
-		data.logs?.map((log: any) => {
-			const dateObj = new Date(log.created);
+	function mapLog(log: any) {
+		const dateObj = new Date(log.created);
 			const date = dateObj.toLocaleDateString('en-US', {
 				month: 'short',
 				day: '2-digit',
@@ -250,25 +251,36 @@
 				purpose = log.summary ? urgentPrefix + 'See Summary' : urgentPrefix + 'General';
 			}
 
-			return {
-				date,
-				time,
-				type: log.direction === 'inbound' ? 'In' : 'Out',
-				typeIcon: log.type,
-				source: log.source,
-				endpoint: log.destination,
-				purpose,
-				summary: log.summary || log.content || 'No content',
-				commId: log.commId,
-				id: log.id,
-				status,
-				assignedMemberNames,
-				emailOpenedAt: log.emailOpenedAt ?? null,
-				emailClickedAt: log.emailClickedAt ?? null,
-				raw: log
-			};
-		}) || []
-	);
+		// "Processing" = the inbound message arrived but the AI hasn't finished resolving it
+		// yet (no orchestrator completion marker, no action items). Only for fresh messages —
+		// old pre-orchestrator records never get the flag and must not spin forever.
+		const processing =
+			log.direction === 'inbound' &&
+			!meta.orchestrator_processed &&
+			!meta.actionItems &&
+			Date.now() - new Date(log.created).getTime() < 15 * 60 * 1000;
+
+		return {
+			date,
+			time,
+			type: log.direction === 'inbound' ? 'In' : 'Out',
+			typeIcon: log.type,
+			source: log.source,
+			endpoint: log.destination,
+			purpose,
+			summary: log.summary || log.content || 'No content',
+			commId: log.commId,
+			id: log.id,
+			status,
+			assignedMemberNames,
+			emailOpenedAt: log.emailOpenedAt ?? null,
+			emailClickedAt: log.emailClickedAt ?? null,
+			processing,
+			raw: log
+		};
+	}
+
+	let communications = $derived((data.logs ?? []).map(mapLog));
 
 	// Transform to CommunicationTable format
 	let tableCommunications = $derived(
@@ -422,6 +434,16 @@
 		logModalComm = comm;
 		logModalOpen = true;
 	}
+
+	// Keep the open summary dialog live: re-seed selectedComm from the freshest data for
+	// that id whenever the page reloads (poll/SSE), so "Analyzing…" flips to resolved tasks.
+	$effect(() => {
+		if (!selectedComm) return;
+		const fresh = (data.logs ?? []).find(
+			(l: any) => l.id === (selectedComm.raw?.id ?? selectedComm.id)
+		);
+		if (fresh && fresh !== selectedComm.raw) selectedComm = mapLog(fresh);
+	});
 </script>
 
 <div class="flex w-full min-w-0 flex-col">
@@ -630,6 +652,7 @@
 		body={selectedComm.raw?.content || selectedComm.summary || ''}
 		summary={selectedComm.summary}
 		tasks={meta.actionItems ?? meta.tasks ?? []}
+		loading={selectedComm.processing}
 		showTasks={true}
 		{recordingUrl}
 		attachments={Array.isArray(meta.attachments) ? meta.attachments : []}
