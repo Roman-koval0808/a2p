@@ -75,7 +75,20 @@
 	let selectedAgentName = $state<string | null>(null);
 
 	let summaryDialogOpen = $state(false);
-	let selectedComm = $state<(typeof communications)[0] | null>(null);
+	// The selected comm is derived from its id + the freshest page data, so an open dialog
+	// keeps updating (e.g. "Analyzing…" → resolved tasks) without effectfully writing state
+	// — writing $state inside an $effect would re-trigger it (state is deep-proxied, so a
+	// raw data object never `===` its own proxy, and the guard can never stabilize).
+	let selectedCommId = $state<string | null>(null);
+	let lastSelectedComm = $state<any>(null);
+	let selectedComm = $derived.by(() => {
+		if (!selectedCommId) return null;
+		const log = (data.logs ?? []).find((l: any) => l.id === selectedCommId);
+		if (log) return mapLog(log);
+		// The row can briefly drop out of the current page slice during a refresh —
+		// keep showing the last known version instead of closing the dialog.
+		return lastSelectedComm;
+	});
 	let notificationsDialogOpen = $state(false);
 		let pipelineDialogOpen = $state(false);
 	let selectedPipelineEvent = $state<any>(null);
@@ -148,11 +161,9 @@
 			const json = await res.json();
 			if (json.success) {
 				toast.success('Email draft confirmed! (Email sending queued for later)');
-				if (selectedComm.raw) {
-					selectedComm.raw.status = 'completed';
-					if (!selectedComm.raw.metadata) selectedComm.raw.metadata = {};
-					selectedComm.raw.metadata.email_confirmed = true;
-				}
+				// selectedComm is now derived from page data, so reflect the server truth by
+				// refetching instead of mutating a (now untracked) raw object in place.
+				invalidate('app:communication-log');
 			} else {
 				toast.error(json.error || 'Failed to confirm email');
 			}
@@ -306,7 +317,8 @@
 
 	function handleSummaryClick(comm: any) {
 		// Use the transformed comm object, not raw, so we have all the formatted fields
-		selectedComm = comm;
+		lastSelectedComm = comm;
+		selectedCommId = comm.id || comm.raw?.id || null;
 		summaryDialogOpen = true;
 	}
 
@@ -434,16 +446,6 @@
 		logModalComm = comm;
 		logModalOpen = true;
 	}
-
-	// Keep the open summary dialog live: re-seed selectedComm from the freshest data for
-	// that id whenever the page reloads (poll/SSE), so "Analyzing…" flips to resolved tasks.
-	$effect(() => {
-		if (!selectedComm) return;
-		const fresh = (data.logs ?? []).find(
-			(l: any) => l.id === (selectedComm.raw?.id ?? selectedComm.id)
-		);
-		if (fresh && fresh !== selectedComm.raw) selectedComm = mapLog(fresh);
-	});
 </script>
 
 <div class="flex w-full min-w-0 flex-col">
