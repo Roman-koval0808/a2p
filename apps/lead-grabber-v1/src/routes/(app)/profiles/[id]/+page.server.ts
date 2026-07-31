@@ -277,6 +277,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				summary: summary,
 				commId: convoCode,
 				status,
+				emailOpenedAt: log.emailOpenedAt?.toISOString() ?? null,
+				emailClickedAt: log.emailClickedAt?.toISOString() ?? null,
 				raw: log
 			};
 		});

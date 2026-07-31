@@ -379,6 +379,8 @@ model CommunicationLog {
   content                String?
   duration               Float?
   metadata               Json?
+  emailOpenedAt          DateTime?                    @map("email_opened_at")
+  emailClickedAt         DateTime?                    @map("email_clicked_at")
   communicationThreadId  String?
   communicationThread    CommunicationThread?             @relation(fields: [communicationThreadId], references: [id], onDelete: SetNull)
   created                DateTime                         @default(now())

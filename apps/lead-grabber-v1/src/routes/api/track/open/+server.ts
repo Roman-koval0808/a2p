@@ -24,6 +24,16 @@ export const GET = async ({ url }) => {
 		} catch (err) {
 			console.error('[track/open] Failed to update engagement:', err);
 		}
+		if (payload.commLogId) {
+			try {
+				await prisma.communicationLog.update({
+					where: { id: payload.commLogId },
+					data: { emailOpenedAt: new Date() }
+				});
+			} catch (err) {
+				console.error('[track/open] Failed to update comm log:', err);
+			}
+		}
 	}
 
 	return new Response(PIXEL, {

@@ -213,7 +213,7 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 			} else {
 				if (log.customerId) {
 					const { injectEmailTracking } = await import('$lib/server/email/tracking-inject');
-					const result = await injectEmailTracking(htmlBody, log.customerId, log.companyId);
+					const result = await injectEmailTracking(htmlBody, log.customerId, log.companyId, undefined, log.id);
 					htmlBody = result.htmlContent;
 				}
 				let sentMessageId: string | undefined = undefined;

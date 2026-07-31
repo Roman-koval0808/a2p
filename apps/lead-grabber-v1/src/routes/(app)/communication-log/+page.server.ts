@@ -142,6 +142,8 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 				type: log.type,
 				direction: log.direction,
 				status,
+				emailOpenedAt: log.emailOpenedAt?.toISOString() ?? null,
+				emailClickedAt: log.emailClickedAt?.toISOString() ?? null,
 				source: displaySource,
 				destination: displayDestination,
 				summary: log.summary || log.content || '',

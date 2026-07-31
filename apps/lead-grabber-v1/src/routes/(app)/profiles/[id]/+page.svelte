@@ -892,6 +892,8 @@
 						.find((s) => s && !['<unknown>', 'unknown', 'n/a', 'none'].includes(s.toLowerCase())) || ''
 				) || null}
 				{ivrPath}
+				emailOpenedAt={selectedSummary.emailOpenedAt ?? null}
+				emailClickedAt={selectedSummary.emailClickedAt ?? null}
 			/>
 		{/if}
 

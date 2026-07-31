@@ -627,6 +627,8 @@
 		targetEmail={meta.target_email || ''}
 		emailConfirmed={Boolean(meta.email_confirmed)}
 		onConfirmEmail={handleConfirmEmail}
+		emailOpenedAt={selectedComm.emailOpenedAt ?? null}
+		emailClickedAt={selectedComm.emailClickedAt ?? null}
 	/>
 {/if}
 

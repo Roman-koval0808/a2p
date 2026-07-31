@@ -6,10 +6,11 @@ const secret = new TextEncoder().encode(JWT_SECRET);
 export interface CsTokenPayload {
 	contactId: string;
 	companyId: string;
+	commLogId?: string;
 }
 
-export async function mintCsToken(contactId: string, companyId: string): Promise<string> {
-	return await new jose.SignJWT({ contactId, companyId, purpose: 'email_tracking' })
+export async function mintCsToken(contactId: string, companyId: string, commLogId?: string): Promise<string> {
+	return await new jose.SignJWT({ contactId, companyId, commLogId, purpose: 'email_tracking' })
 		.setProtectedHeader({ alg: 'HS256' })
 		.setExpirationTime('30d')
 		.setJti(crypto.randomUUID())
@@ -22,7 +23,8 @@ export async function verifyCsToken(token: string): Promise<CsTokenPayload | nul
 		if ((payload as any).purpose !== 'email_tracking') return null;
 		return {
 			contactId: (payload as any).contactId as string,
-			companyId: (payload as any).companyId as string
+			companyId: (payload as any).companyId as string,
+			commLogId: (payload as any).commLogId as string | undefined
 		};
 	} catch {
 		return null;

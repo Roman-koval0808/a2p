@@ -10,9 +10,10 @@ export async function injectEmailTracking(
 	htmlContent: string,
 	contactId: string,
 	companyId: string,
-	baseUrl?: string
+	baseUrl?: string,
+	commLogId?: string
 ): Promise<TrackingInjectionResult> {
-	const csToken = await mintCsToken(contactId, companyId);
+	const csToken = await mintCsToken(contactId, companyId, commLogId);
 	const origin = baseUrl || PUBLIC_BASE_URL;
 
 	const trackingPixel = `<img src="${origin}/api/track/open?t=${csToken}" width="1" height="1" style="display:none" />`;

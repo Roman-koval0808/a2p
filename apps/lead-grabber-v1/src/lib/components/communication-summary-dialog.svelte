@@ -32,6 +32,8 @@
 		targetEmail?: string;
 		emailConfirmed?: boolean;
 		onConfirmEmail?: () => void | Promise<void>;
+		emailOpenedAt?: string | null;
+		emailClickedAt?: string | null;
 	}
 
 	let {
@@ -144,6 +146,20 @@
 							class="text-right font-sans text-base font-medium leading-[1.29] text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded mt-1"
 						>
 							Department: {department}
+						</span>
+					{/if}
+					{#if emailOpenedAt}
+						<span
+							class="text-right font-sans text-xs leading-tight text-green-700"
+						>
+							👁 Opened: {new Date(emailOpenedAt).toLocaleString()}
+						</span>
+					{/if}
+					{#if emailClickedAt}
+						<span
+							class="text-right font-sans text-xs leading-tight text-blue-700"
+						>
+							🔗 Clicked: {new Date(emailClickedAt).toLocaleString()}
 						</span>
 					{/if}
 				</div>

@@ -86,6 +86,7 @@ export async function syncCompanyEmails(companyId: string) {
 		let newHistoryId = lastHistoryId;
 
 		// 1. Fetch History or Recent Messages
+		const connCreated = conn.created;
 		if (lastHistoryId) {
 			// Fetch history
 			const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/history?startHistoryId=${lastHistoryId}`, {
@@ -109,11 +110,11 @@ export async function syncCompanyEmails(companyId: string) {
 				// History ID might be expired (404), fallback to fetching recent
 				const errText = await res.text();
 				console.warn(`[gmail-sync] History sync failed for ${companyId}, falling back to recent messages. Error: ${errText}`);
-				await fetchRecentMessages(auth.token, messagesToFetch);
+				await fetchRecentMessages(auth.token, messagesToFetch, connCreated);
 			}
 		} else {
-			// Initial sync: fetch recent messages
-			await fetchRecentMessages(auth.token, messagesToFetch);
+			// Initial sync: fetch only messages since the connection was created
+			await fetchRecentMessages(auth.token, messagesToFetch, connCreated);
 		}
 
 		if (messagesToFetch.size === 0) {
@@ -388,8 +389,16 @@ export async function syncCompanyEmails(companyId: string) {
 	}
 }
 
-async function fetchRecentMessages(token: string, set: Set<string>) {
-	const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=20&q=-in:chats`, {
+function formatGmailDate(d: Date): string {
+	const y = d.getFullYear();
+	const m = String(d.getMonth() + 1).padStart(2, '0');
+	const day = String(d.getDate()).padStart(2, '0');
+	return `${y}/${m}/${day}`;
+}
+
+async function fetchRecentMessages(token: string, set: Set<string>, since: Date) {
+	const sinceStr = formatGmailDate(since);
+	const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=20&q=-in:chats+after:${sinceStr}`, {
 		headers: { Authorization: `Bearer ${token}` }
 	});
 	if (res.ok) {

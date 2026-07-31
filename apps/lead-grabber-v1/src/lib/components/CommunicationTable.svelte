@@ -31,6 +31,8 @@
 		status: 'red' | 'green' | 'blue' | 'in' | 'out';
 		assignedMemberNames?: string[];
 		raw?: any;
+		emailOpenedAt?: string | null;
+		emailClickedAt?: string | null;
 	}
 
 	interface Props {
@@ -322,6 +324,12 @@
 						</div>
 					</th>
 					<th
+						class="w-10 whitespace-nowrap px-1 py-3 text-center text-xs font-semibold uppercase tracking-wide text-gray-600"
+						title="Email opened / link clicked"
+					>
+						👁
+					</th>
+					<th
 						class="min-w-[120px] max-w-[160px] cursor-pointer whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 hover:bg-gray-200 transition-colors select-none"
 						onclick={() => handleSort('source')}
 					>
@@ -402,7 +410,7 @@
 			<tbody>
 				{#if filteredCommunications.length === 0}
 					<tr>
-						<td colspan="9" class="px-3 py-8 text-center text-sm text-gray-500">
+						<td colspan="10" class="px-3 py-8 text-center text-sm text-gray-500">
 							No communications found
 						</td>
 					</tr>
@@ -429,6 +437,13 @@
 									<IconComponent class="h-4 w-4 shrink-0 text-gray-500" />
 									<span class="font-medium">{comm.direction === 'Out' ? 'out' : 'In'}</span>
 								</div>
+							</td>
+							<td class="w-10 px-1 py-2.5 text-center align-top text-sm">
+								{#if comm.type === 'email' && comm.emailOpenedAt}
+									<span class="text-xs text-gray-900" title="Opened: {new Date(comm.emailOpenedAt).toLocaleString()}">👁</span>
+								{:else if comm.type === 'email' && !comm.emailOpenedAt}
+									<span class="text-xs text-gray-400" title="Not opened yet">📬</span>
+								{/if}
 							</td>
 							<td
 								class="max-w-[160px] truncate px-3 py-2.5 text-sm text-gray-700"
