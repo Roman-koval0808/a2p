@@ -30,6 +30,10 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 		}
 
 		const meta = (log.metadata as any) || {};
+		// Metadata written mid-flight (e.g. the Gmail message id of the sent email). `meta` is a
+		// snapshot taken here, and the final update below spreads it — so anything written straight
+		// to the DB in between would be clobbered. Collect it here and merge it into that update.
+		const metaAdditions: Record<string, any> = {};
 
 		// The customer asked to be CALLED, not texted — place a call instead of sending the draft.
 		// Dial the number they left in their message (meta.callback_number), else their own line.
@@ -236,6 +240,7 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 
 				if (sentMessageId) {
 					try {
+						metaAdditions.email_message_id = sentMessageId;
 						const updatedMeta = { ...(log.metadata as object), email_message_id: sentMessageId };
 						await prisma.communicationLog.update({
 							where: { id: log.id },
@@ -344,6 +349,7 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 				status: 'completed',
 				metadata: {
 					...meta,
+					...metaAdditions,
 					is_draft: false,
 					email_confirmed: true,
 					email_confirmed_at: new Date().toISOString()
