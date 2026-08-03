@@ -263,6 +263,14 @@
 							<div
 								class="flex items-center border-l-[3px] {m.direction === 'inbound' ? 'border-l-teal-500' : 'border-l-indigo-500'} bg-[#FAFAFA] py-2.5 pl-4 pr-3 rounded-r-md transition-all hover:bg-[#F3F4F6] group cursor-pointer"
 								onclick={() => handleMessageClick(m)}
+								onkeydown={(e) => {
+									if (e.key === 'Enter' || e.key === ' ') {
+										e.preventDefault();
+										handleMessageClick(m);
+									}
+								}}
+								role="button"
+								tabindex="0"
 							>
 								<!-- Contact (Name/Number & Direction) -->
 								<div class="w-[180px] font-sans text-sm leading-[1.29] tracking-normal text-gray-700 truncate pr-2">
