@@ -12,11 +12,16 @@ describe('commCode', () => {
 		expect(commCode('other_thread', '#5284', secondsAgo(900), NOW)).toBe(code);
 	});
 
-	it('is pending while a fresh row has no container ref yet', () => {
-		// The pipeline stamps a communicationThreadId within seconds of arrival — long before
-		// threading resolves — so a code derived from it would change moments later.
-		expect(commCode('thread_abc', null, secondsAgo(5), NOW)).toBe('');
-		expect(isCommCodePending('thread_abc', null, secondsAgo(5), NOW)).toBe(true);
+	it('uses threadId within resolution window when no commRef', () => {
+		// Within the window, if threadId exists, show a code (not Pending) — the threadId is
+		// already assigned, so the code is stable enough to display.
+		expect(commCode('thread_abc', null, secondsAgo(5), NOW)).not.toBe('');
+		expect(isCommCodePending('thread_abc', null, secondsAgo(5), NOW)).toBe(false);
+	});
+
+	it('is pending within window when nothing at all exists', () => {
+		expect(commCode(null, null, secondsAgo(5), NOW)).toBe('');
+		expect(isCommCodePending(null, null, secondsAgo(5), NOW)).toBe(true);
 	});
 
 	it('falls back to the thread grouping once the resolution window has passed', () => {
@@ -30,9 +35,17 @@ describe('commCode', () => {
 		expect(commCode('thread_abc', null)).not.toBe('');
 	});
 
-	it('is pending when there is nothing to anchor on', () => {
-		expect(commCode(null, null, secondsAgo(5), NOW)).toBe('');
-		expect(commCode(null, null, secondsAgo(9999), NOW)).toBe('');
+	it('falls back to logId when no threadId or commRef (past window)', () => {
+		// A row with no threadId AND no commRef should use logId to generate a code
+		// instead of staying "Pending" forever.
+		const old = secondsAgo(9999);
+		expect(commCode(null, null, old, NOW, 'some_log_id')).not.toBe('');
+		expect(isCommCodePending(null, null, old, NOW, 'some_log_id')).toBe(false);
+	});
+
+	it('is still pending when absolutely nothing exists past window', () => {
+		// No threadId, no commRef, no logId — truly nothing.
+		expect(commCode(null, null, secondsAgo(9999), NOW, null)).toBe('');
 	});
 
 	it('is deterministic and 5 chars', () => {

@@ -235,7 +235,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 					mime: a.mime ?? '',
 					direction: log.direction,
 					created: log.created.toISOString(),
-					commId: commCode(log.communicationThreadId, md.commRef, log.created),
+					commId: commCode(log.communicationThreadId, md.commRef, log.created, Date.now(), log.id),
 					summary: log.summary || ''
 				}));
 			})
@@ -291,7 +291,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			// Random-looking per-THREAD COM ID (hash of the thread id, anchored on the message's own
 			// id when unlinked) — related messages share it, a different context gets a new one.
 			// Rows linked to a CommContainer display the container's commRef (cross-channel).
-			const convoCode = commCode(log.communicationThreadId, meta.commRef, log.created);
+			const convoCode = commCode(log.communicationThreadId, meta.commRef, log.created, Date.now(), log.id);
 
 			let endpoint = log.destination || locals.user.company.id;
 			if (

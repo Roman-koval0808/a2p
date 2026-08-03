@@ -37,28 +37,36 @@ export const COMM_RESOLUTION_WINDOW_MS = 5 * 60 * 1000;
  * threading has resolved, and every channel of the same conversation shares it. `threadId` is the
  * legacy per-thread grouping key (communicationThreadId).
  *
- * Returns '' — rendered as "Pending" — while a freshly-logged message has no container ref yet.
- * The pipeline stamps a communicationThreadId within seconds of arrival, long before threading
- * actually resolves, so showing a code derived from it means displaying an id that silently
- * CHANGES once the conversation is linked. That churn is the whole problem, so during the
- * resolution window we show nothing rather than something that won't hold.
+ * Returns '' — rendered as "Pending" — only while a freshly-logged message (within the resolution
+ * window) has no container ref yet AND no threadId fallback.
+ *
+ * Past the resolution window, if neither commRef nor threadId exists, we fall back to the log's
+ * own `id` so rows never stay "Pending" forever.
  */
 export function commCode(
 	threadId: string | null | undefined,
 	containerRef?: string | null,
 	createdAt?: Date | string | null,
-	now: number = Date.now()
+	now: number = Date.now(),
+	logId?: string | null
 ): string {
 	const ref = (containerRef || '').trim();
 	if (ref) return hash(ref);
 
+	const key = (threadId || '').trim();
+
 	if (createdAt) {
 		const t = createdAt instanceof Date ? createdAt.getTime() : new Date(createdAt).getTime();
-		if (!isNaN(t) && now - t < COMM_RESOLUTION_WINDOW_MS) return '';
+		if (!isNaN(t) && now - t < COMM_RESOLUTION_WINDOW_MS) {
+			// Still within the resolution window — only show Pending if there's nothing at all
+			return key ? hash(key) : '';
+		}
 	}
 
-	const key = (threadId || '').trim();
-	return key ? hash(key) : '';
+	// Past resolution window: threadId → hash of it; else fall back to logId → hash of it
+	if (key) return hash(key);
+	const fallback = (logId || '').trim();
+	return fallback ? hash(fallback) : '';
 }
 
 /** True while a message is still resolving — render "Pending" instead of a code. */
@@ -66,7 +74,8 @@ export function isCommCodePending(
 	threadId: string | null | undefined,
 	containerRef?: string | null,
 	createdAt?: Date | string | null,
-	now: number = Date.now()
+	now: number = Date.now(),
+	logId?: string | null
 ): boolean {
-	return !commCode(threadId, containerRef, createdAt, now);
+	return !commCode(threadId, containerRef, createdAt, now, logId);
 }
