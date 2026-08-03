@@ -179,7 +179,7 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 			// from the same customer — is a different thread and gets a different code. Unlinked
 			// (brand-new) messages anchor on their own id. Rows linked to a CommContainer display
 			// the container's commRef as the shared code (cross-channel threading).
-			const convoCode = commCode(log.communicationThreadId, log.id, meta.commRef);
+			const convoCode = commCode(log.communicationThreadId, meta.commRef);
 
 			return {
 				id: log.id,

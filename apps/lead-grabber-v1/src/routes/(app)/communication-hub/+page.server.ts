@@ -93,7 +93,7 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 				disposition,
 				// Fields used by the AI Summary popup. Rows linked to a CommContainer display the
 				// container's commRef as the shared code (cross-channel threading).
-				commId: commCode(log.communicationThreadId, log.id, meta.commRef),
+				commId: commCode(log.communicationThreadId, meta.commRef),
 				category:
 					cap(meta.message_category) || cap(meta.category_gpt) || cap(meta.intent) || 'General',
 				subCategory: cap(meta.subcat_gpt) || cap(meta.sub_intent) || 'General',

@@ -22,19 +22,30 @@ function hash(key: string): string {
 }
 
 /**
- * COM code for a thread. `threadId` is the conversation's grouping key (communicationThreadId);
- * `fallbackId` is the message's own id, used as the thread anchor when it isn't linked to
- * anything yet (a brand-new conversation).
+ * COM code for a thread. `threadId` is the conversation's grouping key (communicationThreadId).
  *
  * When a log is linked to a CommContainer (cross-channel threading), pass its `containerRef`
  * (e.g. "#1234") — it wins over everything so every channel of the same conversation shares the
  * container's COM code.
+ *
+ * Returns '' ("pending") when the message has NEITHER anchor. Such a row is still in flight: the
+ * threading resolvers run asynchronously after the log is written, so anchoring on the message's
+ * own id would mint a code that silently CHANGES a few seconds later once the conversation
+ * resolves. Callers render the empty string as "Pending" rather than showing a code that won't
+ * hold. A row that has a threadId is already grouped and keeps its stable code.
  */
 export function commCode(
 	threadId: string | null | undefined,
-	fallbackId?: string | null,
 	containerRef?: string | null
 ): string {
-	const key = (containerRef || threadId || fallbackId || '').trim();
+	const key = (containerRef || threadId || '').trim();
 	return key ? hash(key) : '';
+}
+
+/** True while a message has no conversation anchor yet — render "Pending" instead of a code. */
+export function isCommCodePending(
+	threadId: string | null | undefined,
+	containerRef?: string | null
+): boolean {
+	return !commCode(threadId, containerRef);
 }

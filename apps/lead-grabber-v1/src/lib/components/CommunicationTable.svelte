@@ -584,7 +584,15 @@
 										{comm.commId.startsWith('DROP-') ? comm.commId : 'COM-' + comm.commId.slice(-5).toUpperCase()}
 									</button>
 								{:else}
-									<span class="text-gray-400 italic">Processing...</span>
+									<!-- No conversation anchor yet: threading resolves asynchronously, so showing a
+									     code here would mint one that changes moments later. -->
+									<span
+										class="inline-flex items-center gap-1.5 text-gray-400 italic"
+										title="Waiting for this message to be linked to a conversation"
+									>
+										<span class="h-1.5 w-1.5 animate-pulse rounded-full bg-gray-400"></span>
+										Pending
+									</span>
 								{/if}
 							</td>
 							<!-- Pipeline hidden -->
