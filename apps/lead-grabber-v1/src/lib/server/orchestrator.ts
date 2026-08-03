@@ -691,29 +691,33 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			container = container!;
 
 			// Group the inbound message under the SAME container ref as the drafts, so the whole
-			// conversation shares one comm id in the UI (metadata.commId drives the displayed ref).
+			// conversation shares one comm id in the UI. Go through the shared linker rather than
+			// writing the fields here: commCode() keys off metadata.commRef FIRST and only falls
+			// back to the thread id, so a row linked without a commRef hashes the container's cuid
+			// while the email leg hashes the commRef string — same container, two different COM ids.
+			// This branch returns early below, so it must do its own linking.
 			try {
 				metadata.commId = container.id;
+				metadata.commContainerId = container.id;
+				metadata.commRef = container.commRef;
 
-				await prisma.communicationThread.upsert({
-					where: { id: container.id },
-					create: {
-						id: container.id,
-						companyId: company.id,
-						contactId: customer.id,
-						status: 'open',
-						summary: metadata.summary || 'Linked via container'
-					},
-					update: {}
-				});
+				const { linkCommunicationLogToContainer } = await import('./container/thread-resolver');
+				await linkCommunicationLogToContainer(
+					commLog.id,
+					{ id: container.id, commRef: container.commRef },
+					'booking_container_link',
+					{ companyId: company.id, contactId: customer.id }
+				);
 
-				await prisma.communicationLog.update({
-					where: { id: commLog.id },
-					data: {
-						metadata: { ...metadata },
-						communicationThreadId: container.id
-					}
-				});
+				// Mirror the linker's audit trail in memory: the booking branch persists
+				// `{ ...metadata }` further down, which would otherwise clobber it.
+				metadata.thread_merge = {
+					previousThreadId: commLog.communicationThreadId || null,
+					mergedInto: container.id,
+					mergedIntoRef: container.commRef,
+					reason: 'booking_container_link',
+					mergedAt: new Date().toISOString()
+				};
 
 				// Update our local reference so any fall-through logic uses the right ID
 				commLog.communicationThreadId = container.id;
