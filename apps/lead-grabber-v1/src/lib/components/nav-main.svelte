@@ -58,6 +58,7 @@
 			]
 		},
 		{ title: 'Dialer', url: '/dialer', icon: Phone, href: '/dialer' },
+		{ title: 'SMS Drafter', url: '/sms', icon: MessageCircle, href: '/sms' },
 		{ title: 'Orchestrator', url: '/orchestrator', icon: Activity, href: '/orchestrator' },
 		{
 			title: 'Buy Number',
@@ -115,6 +116,7 @@
 			]
 		},
 		{ title: 'Dialer', url: '/dialer', icon: Phone, href: '/dialer' },
+		{ title: 'SMS Drafter', url: '/sms', icon: MessageCircle, href: '/sms' },
 		{ title: 'Orchestrator', url: '/orchestrator', icon: Activity, href: '/orchestrator' },
 		{
 			title: 'Buy Number',
