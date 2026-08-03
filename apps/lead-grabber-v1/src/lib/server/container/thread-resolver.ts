@@ -463,3 +463,100 @@ export async function linkCommunicationLogToContainer(
 		}
 	});
 }
+
+/**
+ * Universal "every message goes through it" entry point for every low-level handler that wrote a
+ * CommunicationLog but does NOT run the orchestrator (legacy SMS endpoint, notification replies,
+ * ad-hoc Brevo email sends, dial records). It loads the log, runs the same context checker used
+ * by the orchestrator (identity candidates first, company-wide recent-open fallback, both
+ * directions, every channel), and when a continuation is found it appends the entry to the
+ * container, re-links the log to the container, and stamps the shared COM id (+ thread_merge
+ * metadata) so voice/SMS/email rows for the same conversation show ONE comm id. Best effort:
+ * never throws, and a no-match leaves the message on its own thread.
+ */
+export async function resolveAndLinkContext(
+	logId: string,
+	opts?: {
+		ai?: (user: string, system: string) => Promise<any | null>;
+		excludeCommIds?: string[];
+		windowDays?: number;
+	}
+): Promise<{ resolved: boolean; containerId?: string; commRef?: string; reason?: string }> {
+	try {
+		const log = await prisma.communicationLog.findUnique({ where: { id: logId } });
+		if (!log) return { resolved: false, reason: 'log_not_found' };
+
+		const meta = (log.metadata as Record<string, any>) || {};
+		// Already anchored to a container (booking/support flows create one during the run) — nothing
+		// to merge here. A legacy hashed thread id is NOT a container, so we still try to match it.
+		if (meta.commContainerId === log.communicationThreadId && log.communicationThreadId) {
+			return { resolved: false, reason: 'already_linked' };
+		}
+
+		const outbound = log.direction === 'outbound';
+		const party = (outbound ? log.destination : log.source) || ''; // the customer side
+		const isEmail = /@/.test(party);
+		const channel: EntryChannel =
+			log.type === 'sms'
+				? 'sms'
+				: log.type === 'email'
+					? 'email'
+					: log.type === 'leadform' || log.type === 'leadbox'
+						? 'form'
+						: 'voice';
+
+		const resolution = await resolveContextContainer(
+			{
+				companyId: log.companyId,
+				contactId: log.customerId || null,
+				customerProfileId: null,
+				phone: isEmail ? null : party || null,
+				email: isEmail ? party || null : null,
+				channel,
+				direction: log.direction,
+				subject: meta.subject || log.summary || null,
+				content: (log.content || log.summary || '').slice(0, 4000),
+				excludeCommIds: [
+					...(opts?.excludeCommIds || []),
+					...(log.communicationThreadId ? [log.communicationThreadId] : []),
+					...(meta.commId ? [meta.commId] : []),
+					...(meta.commContainerId ? [meta.commContainerId] : [])
+				],
+				windowDays: opts?.windowDays
+			},
+			opts?.ai ? { ai: opts.ai } : {}
+		);
+
+		if (!resolution.matched || !resolution.commId || !resolution.candidate) {
+			return { resolved: false, reason: resolution.reason || 'no_match' };
+		}
+
+		await appendEntryToContainer(prisma, {
+			commId: resolution.commId,
+			direction: log.direction,
+			channel,
+			fromParty: outbound ? log.source || 'unknown' : party || 'unknown',
+			toParty: outbound ? party || 'unknown' : log.destination || 'unknown',
+			fromPartyType: outbound ? 'rep' : 'customer',
+			toPartyType: outbound ? 'customer' : 'system',
+			transcript: log.content || log.summary || '',
+			occurredAt: log.created
+		});
+
+		await linkCommunicationLogToContainer(
+			logId,
+			{ id: resolution.commId, commRef: resolution.candidate.commRef },
+			resolution.reason || 'context_continuation',
+			{ companyId: log.companyId, contactId: log.customerId || null }
+		);
+
+		return {
+			resolved: true,
+			containerId: resolution.commId,
+			commRef: resolution.candidate.commRef
+		};
+	} catch (e) {
+		console.error(`[thread-resolver] resolveAndContinueContext failed for ${logId}:`, e);
+		return { resolved: false, reason: 'error' };
+	}
+}

@@ -25,17 +25,16 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				where: { companyId },
 				select: { phoneNumber: true }
 			});
-			const validNumbers = companyNumbers.map(n => normalizePhoneNumber(n.phoneNumber)).filter(Boolean);
-			
+			const validNumbers = companyNumbers
+				.map((n) => normalizePhoneNumber(n.phoneNumber))
+				.filter(Boolean);
+
 			// Find the last communication log with this customer to see which number was used
 			const formattedPhoneNumber = normalizePhoneNumber(phoneNumber);
 			const lastLog = await prisma.communicationLog.findFirst({
 				where: {
 					companyId,
-					OR: [
-						{ source: formattedPhoneNumber },
-						{ destination: formattedPhoneNumber }
-					]
+					OR: [{ source: formattedPhoneNumber }, { destination: formattedPhoneNumber }]
 				},
 				orderBy: { created: 'desc' }
 			});
@@ -53,7 +52,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 			if (matchedNumber) {
 				fromNumber = matchedNumber;
-				console.log(`[Outbound Route] Found matching company number from last communication: ${fromNumber}`);
+				console.log(
+					`[Outbound Route] Found matching company number from last communication: ${fromNumber}`
+				);
 			} else if (validNumbers.length > 0) {
 				// Prefer the company's own bought number. The env TELNYX_PHONE_NUMBER is only a
 				// last resort (the default above) for companies with no numbers of their own.
@@ -123,6 +124,22 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			content: message,
 			metadata: {
 				telnyx_id: result.data?.id
+			}
+		}).then((log) => {
+			// Universal context check (outbound): merge this sent SMS into the conversation it
+			// continues, even when that conversation lives on email/voice.
+			if (log?.id) {
+				Promise.resolve().then(async () => {
+					try {
+						const { resolveAndLinkContext } = await import('$lib/server/container/thread-resolver');
+						const linked = await resolveAndLinkContext(log.id);
+						console.log(
+							`[Telnyx SMS] Context check: ${linked.resolved ? `linked to ${linked.commRef}` : `no link (${linked.reason})`}`
+						);
+					} catch (e) {
+						console.error('[Telnyx SMS] Context check failed:', e);
+					}
+				});
 			}
 		});
 

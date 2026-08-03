@@ -41,28 +41,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	}
 	fromNumber = fromNumber ?? TELNYX_PHONE_NUMBER;
 
-	// Universal context check (outbound): a sent SMS should join the container that topic and
-	// people live in — even if the last exchange happened on EMAIL or VOICE, not just SMS in the
-	// last 48h. Falls back to the plain phone-window lookup when the matcher is unsure.
-	async function findRecentThreadId(
-		companyId: string,
-		phone: string,
-		message: string
-	): Promise<string | null> {
+	// Universal context check (outbound): a sent SMS joins the container that topic and people
+	// live in — even if the last exchange happened on EMAIL or VOICE. Only when the matcher is
+	// genuinely unsure do we fall back to the plain 48h phone-window reuse.
+	async function linkContext(companyId: string, phone: string, logId: string): Promise<void> {
 		try {
-			const { resolveContextContainer } = await import('$lib/server/container/thread-resolver');
-			const resolution = await resolveContextContainer({
-				companyId,
-				contactId: null,
-				customerProfileId: null,
-				phone,
-				email: null,
-				channel: 'sms',
-				direction: 'outbound',
-				subject: null,
-				content: message.slice(0, 4000)
-			});
-			if (resolution.matched && resolution.commId) return resolution.commId;
+			const { resolveAndLinkContext } = await import('$lib/server/container/thread-resolver');
+			const linked = await resolveAndLinkContext(logId);
+			if (linked.resolved) return;
 		} catch (e) {
 			console.error('[Telnyx SMS] Context thread lookup failed:', e);
 		}
@@ -77,10 +63,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				select: { communicationThreadId: true },
 				orderBy: { created: 'desc' }
 			});
-			return recent?.communicationThreadId ?? null;
+			if (recent?.communicationThreadId) {
+				await prisma.communicationLog.update({
+					where: { id: logId },
+					data: { communicationThreadId: recent.communicationThreadId }
+				});
+			}
 		} catch (e) {
 			console.error('[Telnyx SMS] Failed to find recent thread:', e);
-			return null;
 		}
 	}
 
@@ -136,8 +126,15 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 					customer_id: customerId ?? undefined,
 					summary: message.slice(0, 50) + (message.length > 50 ? '...' : ''),
 					content: message,
-					thread_id: (await findRecentThreadId(auth.companyId, formatted, message)) || undefined,
 					metadata: { telnyx_id: result.data.id, thread_id: formatted }
+				}).then((outboundLog) => {
+					// Route the sent SMS through the universal context checker (and the 48h
+					// phone-window backstop) so it shares the conversation's COM id.
+					if (outboundLog?.id) {
+						Promise.resolve()
+							.then(() => linkContext(auth.companyId, formatted, outboundLog.id))
+							.catch((e) => console.error('[Telnyx SMS] Context link failed:', e));
+					}
 				});
 				results.push({ recipient: formatted, messageId: result.data.id, status: 'sent' });
 			} else {

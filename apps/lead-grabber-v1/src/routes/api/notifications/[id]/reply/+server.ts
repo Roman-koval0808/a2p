@@ -43,7 +43,10 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	if (replyMethod === 'sms') {
 		const destinationPhone = normalizePhoneNumber(n.threadId || n.sourceName || '');
 		if (!destinationPhone) {
-			return json({ success: false, error: 'No valid destination phone number found' }, { status: 400 });
+			return json(
+				{ success: false, error: 'No valid destination phone number found' },
+				{ status: 400 }
+			);
 		}
 
 		let fromNumber = normalizePhoneNumber(n.sourceIdentifier || '');
@@ -53,7 +56,9 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 				where: { companyId: auth.companyId },
 				select: { phoneNumber: true }
 			});
-			const validNumbers = companyNumbers.map(num => normalizePhoneNumber(num.phoneNumber)).filter(Boolean);
+			const validNumbers = companyNumbers
+				.map((num) => normalizePhoneNumber(num.phoneNumber))
+				.filter(Boolean);
 			const telnyxNorm = normalizePhoneNumber(TELNYX_PHONE_NUMBER);
 			if (validNumbers.includes(telnyxNorm)) {
 				fromNumber = TELNYX_PHONE_NUMBER;
@@ -108,23 +113,37 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 				metadata: {
 					telnyx_id: parsedResponse.data?.id
 				}
+			}).then((log) => {
+				// Universal context check (outbound): keep the reply in the same conversation thread,
+				// even if that conversation started on another channel.
+				if (log?.id) {
+					Promise.resolve().then(async () => {
+						try {
+							const { resolveAndLinkContext } =
+								await import('$lib/server/container/thread-resolver');
+							const linked = await resolveAndLinkContext(log.id);
+							console.log(
+								`[Notification Reply] Context check: ${linked.resolved ? `linked to ${linked.commRef}` : `no link (${linked.reason})`}`
+							);
+						} catch (e) {
+							console.error('[Notification Reply] Context check failed:', e);
+						}
+					});
+				}
 			});
 
 			// Update the message thread (inbox chat) in the local database
 			try {
 				const messageThread = await prisma.message.findFirst({
 					where: {
-						OR: [
-							{ threadId: destinationPhone },
-							{ customerPhone: destinationPhone }
-						]
+						OR: [{ threadId: destinationPhone }, { customerPhone: destinationPhone }]
 					}
 				});
 
 				if (messageThread) {
-					const existingMessages = (Array.isArray(messageThread.messages)
-						? messageThread.messages
-						: []) as any[];
+					const existingMessages = (
+						Array.isArray(messageThread.messages) ? messageThread.messages : []
+					) as any[];
 
 					await prisma.message.update({
 						where: { id: messageThread.id },
@@ -147,10 +166,12 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 			} catch (dbErr) {
 				console.error('Failed to update message thread during notification reply:', dbErr);
 			}
-
 		} catch (error: any) {
 			console.error('Error sending reply SMS:', error);
-			return json({ success: false, error: error?.message || 'Failed to send SMS' }, { status: 500 });
+			return json(
+				{ success: false, error: error?.message || 'Failed to send SMS' },
+				{ status: 500 }
+			);
 		}
 	}
 

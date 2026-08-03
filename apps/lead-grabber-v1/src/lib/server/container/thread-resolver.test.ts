@@ -4,6 +4,7 @@ import {
 	companyOpenCandidatesFor,
 	matchContinuationToCandidates,
 	resolveContextContainer,
+	resolveAndLinkContext,
 	appendEntryToContainer,
 	linkCommunicationLogToContainer
 } from './thread-resolver';
@@ -360,6 +361,100 @@ describe('appendEntryToContainer', () => {
 				data: expect.objectContaining({ state: 'open' })
 			})
 		);
+	});
+});
+
+describe('resolveAndLinkContext — universal entry point for non-orchestrator handlers', () => {
+	const outboundSmsLog = {
+		id: 'log_sms_out_1',
+		companyId: 'comp_1',
+		customerId: 'contact_1',
+		type: 'sms',
+		direction: 'outbound',
+		source: '+17055550100',
+		destination: '+17865550123',
+		summary: 'Monday at 10 works',
+		content: 'Monday at 10 works',
+		communicationThreadId: null,
+		created: new Date('2026-08-03T10:00:00Z'),
+		metadata: {}
+	};
+
+	it('merges an outbound SMS into the container it continues (cross-channel)', async () => {
+		mockPrisma.communicationLog.findUnique.mockResolvedValue(outboundSmsLog);
+		mockPrisma.commContainer.findMany.mockResolvedValue([candidate({})]);
+		mockPrisma.commContainer.findUnique.mockResolvedValue({ id: 'cnt_email_1', state: 'open' });
+		mockPrisma.commEntry.create.mockResolvedValue({ id: 'entry_1' });
+		mockPrisma.communicationThread.upsert.mockResolvedValue({});
+		mockPrisma.communicationLog.update.mockResolvedValue({});
+		const ai = vi.fn().mockResolvedValue({
+			linked: true,
+			commRef: '#1001',
+			confidence: 0.9,
+			reason: 'continuing the emailed appointment'
+		});
+
+		const result = await resolveAndLinkContext('log_sms_out_1', { ai });
+
+		expect(result.resolved).toBe(true);
+		expect(result.containerId).toBe('cnt_email_1');
+		expect(result.commRef).toBe('#1001');
+		// Entry appended for the outbound leg with rep → customer parties.
+		expect(mockPrisma.commEntry.create).toHaveBeenCalledWith(
+			expect.objectContaining({
+				data: expect.objectContaining({
+					commId: 'cnt_email_1',
+					direction: 'outbound',
+					channel: 'sms',
+					fromPartyType: 'rep',
+					toPartyType: 'customer'
+				})
+			})
+		);
+		// Log re-linked to the container with the shared COM id.
+		const update = mockPrisma.communicationLog.update.mock.calls[0][0];
+		expect(update.where.id).toBe('log_sms_out_1');
+		expect(update.data.communicationThreadId).toBe('cnt_email_1');
+		expect(update.data.metadata.commRef).toBe('#1001');
+		expect(update.data.metadata.thread_merge.mergedInto).toBe('cnt_email_1');
+	});
+
+	it('leaves the message on its own thread when the AI says no-match', async () => {
+		mockPrisma.communicationLog.findUnique.mockResolvedValue(outboundSmsLog);
+		mockPrisma.commContainer.findMany.mockResolvedValue([candidate({})]);
+		const ai = vi.fn().mockResolvedValue({
+			linked: false,
+			commRef: '',
+			confidence: 0.3,
+			reason: 'new topic'
+		});
+
+		const result = await resolveAndLinkContext('log_sms_out_1', { ai });
+
+		expect(result.resolved).toBe(false);
+		expect(mockPrisma.commEntry.create).not.toHaveBeenCalled();
+		expect(mockPrisma.communicationLog.update).not.toHaveBeenCalled();
+	});
+
+	it('skips logs already anchored to a container', async () => {
+		mockPrisma.communicationLog.findUnique.mockResolvedValue({
+			...outboundSmsLog,
+			communicationThreadId: 'cnt_existing',
+			metadata: { commContainerId: 'cnt_existing', commRef: '#2000' }
+		});
+
+		const result = await resolveAndLinkContext('log_sms_out_1');
+
+		expect(result.resolved).toBe(false);
+		expect(result.reason).toBe('already_linked');
+		expect(mockPrisma.commContainer.findMany).not.toHaveBeenCalled();
+	});
+
+	it('returns log_not_found and never throws', async () => {
+		mockPrisma.communicationLog.findUnique.mockResolvedValue(null);
+		const result = await resolveAndLinkContext('missing');
+		expect(result.resolved).toBe(false);
+		expect(result.reason).toBe('log_not_found');
 	});
 });
 
