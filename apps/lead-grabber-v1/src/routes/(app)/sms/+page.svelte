@@ -23,6 +23,24 @@
 
 	const contacts = $derived(data.contacts);
 
+	function getDisplayName(m: any) {
+		const contactNumber = m.direction === 'inbound' ? m.source : m.destination;
+		if (!contactNumber) return m.customer?.name || 'Unknown';
+		
+		const normNum = normalizePhoneNumber(contactNumber);
+		const profileMatch = contacts.find((c: any) => c.phone && normalizePhoneNumber(c.phone) === normNum);
+		
+		if (profileMatch?.name && profileMatch.name !== 'Anonymous Lead' && profileMatch.name !== 'Anonymous' && !profileMatch.name.startsWith('Caller (')) {
+			return profileMatch.name;
+		}
+		
+		if (m.customer?.name && m.customer.name !== 'Anonymous' && m.customer.name !== contactNumber) {
+			return m.customer.name;
+		}
+		
+		return contactNumber;
+	}
+
 	// Set initial selected number when phoneNumbers are loaded
 	$effect(() => {
 		if (phoneNumbers.length > 0 && !selectedFromNumber) {
@@ -46,7 +64,7 @@
 			const query = searchQuery.toLowerCase();
 			const source = (m.source || '').toLowerCase();
 			const destination = (m.destination || '').toLowerCase();
-			const name = (m.customer?.name || '').toLowerCase();
+			const name = getDisplayName(m).toLowerCase();
 			return source.includes(query) || destination.includes(query) || name.includes(query);
 		})
 	);
@@ -259,7 +277,7 @@
 					<div class="flex-1 space-y-2 overflow-y-auto pr-1">
 						{#each filteredMessages as m}
 							{@const contactNumber = m.direction === 'inbound' ? m.source : m.destination}
-							{@const displayName = m.customer?.name || contactNumber}
+							{@const displayName = getDisplayName(m)}
 							<div
 								class="flex items-center border-l-[3px] {m.direction === 'inbound' ? 'border-l-teal-500' : 'border-l-indigo-500'} bg-[#FAFAFA] py-2.5 pl-4 pr-3 rounded-r-md transition-all hover:bg-[#F3F4F6] group cursor-pointer"
 								onclick={() => handleMessageClick(m)}
