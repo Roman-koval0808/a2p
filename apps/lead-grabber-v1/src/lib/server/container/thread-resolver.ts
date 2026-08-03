@@ -313,7 +313,7 @@ export async function resolveContextContainer(
 	opts?: { ai?: (user: string, system: string) => Promise<any | null> }
 ): Promise<ResolverResult> {
 	const excludeCommIds = input.excludeCommIds || [];
-	let candidates = await openContainerCandidatesFor({
+	const ownCandidates = await openContainerCandidatesFor({
 		companyId: input.companyId,
 		contactId: input.contactId,
 		customerProfileId: input.customerProfileId,
@@ -322,15 +322,22 @@ export async function resolveContextContainer(
 		excludeCommIds
 	});
 
-	// Brand-new (or cross-channel) identity: no containers of their own — fall back to the
-	// company's recent open conversations so a text reply to an emailed offer still lands in
-	// the right conversation instead of starting a duplicate one.
-	if (candidates.length === 0) {
-		candidates = await companyOpenCandidatesFor(input.companyId, {
-			excludeCommIds,
-			windowDays: input.windowDays
-		});
+	// ALWAYS also include the company's recent open conversations (not only as a fallback): the
+	// customer's reply may continue a conversation started on ANOTHER channel/identity (we emailed
+	// studioblopp@…, they text back from a phone we've never linked). Merge + dedupe by id so those
+	// cross-channel containers are offered to the matcher too, capped at MAX_CANDIDATES.
+	const companyCandidates = await companyOpenCandidatesFor(input.companyId, {
+		excludeCommIds,
+		windowDays: input.windowDays
+	});
+	const seen = new Set<string>();
+	let candidates: ContainerCandidate[] = [];
+	for (const c of [...ownCandidates, ...companyCandidates]) {
+		if (seen.has(c.id)) continue;
+		seen.add(c.id);
+		candidates.push(c);
 	}
+	candidates = candidates.slice(0, MAX_CANDIDATES);
 
 	if (candidates.length === 0) {
 		return { matched: false, candidates, reason: 'no_open_candidates' };

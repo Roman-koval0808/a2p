@@ -646,32 +646,34 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				orderBy: { openedAt: 'desc' }
 			});
 
-			// Cross-channel continuation: the local lookup above only sees THIS phone/contact. The
-			// customer may be replying on a different channel/identity than an existing conversation
-			// (e.g. we emailed studioblopp@…, they text back "Monday works for the furnace"). The AI
-			// resolver checks the company's recent open containers company-wide and links them into
-			// ONE comm id instead of spawning a duplicate.
-			if (!container) {
-				try {
-					const { resolveContextContainer } = await import('./container/thread-resolver');
-					const res = await resolveContextContainer({
-						companyId: company.id,
-						contactId: customer.id,
-						customerProfileId: pipelineCustomerProfileId || null,
-						phone: customerPhone || null,
-						email: customer.email || null,
-						channel: commLog.type === 'sms' ? 'sms' : commLog.type === 'email' ? 'email' : 'voice',
-						direction: 'inbound',
-						subject: commLog.summary || ((commLog.metadata as any)?.subject ?? null),
-						content: rawMessage
-					});
-					if (res.matched && res.commId) {
-						container = await prisma.commContainer.findUnique({ where: { id: res.commId } });
-						if (container) olog(`[Orchestrator] Booking linked to existing conversation ${container.commRef} (${res.reason}).`);
+			// Cross-channel continuation: run the AI resolver EVEN WHEN a local container exists — the
+			// ProfileDB pipeline pre-creates a fresh container per message, so the findFirst above
+			// almost always returns that new one. We exclude it so the AI can instead match an EARLIER
+			// conversation on another channel/identity (we emailed studioblopp@…, they text back
+			// "Monday works for the furnace") and link both legs into ONE comm id.
+			try {
+				const { resolveContextContainer } = await import('./container/thread-resolver');
+				const res = await resolveContextContainer({
+					companyId: company.id,
+					contactId: customer.id,
+					customerProfileId: pipelineCustomerProfileId || null,
+					phone: customerPhone || null,
+					email: customer.email || null,
+					channel: commLog.type === 'sms' ? 'sms' : commLog.type === 'email' ? 'email' : 'voice',
+					direction: 'inbound',
+					subject: commLog.summary || ((commLog.metadata as any)?.subject ?? null),
+					content: rawMessage,
+					excludeCommIds: container ? [container.id] : []
+				});
+				if (res.matched && res.commId && res.commId !== container?.id) {
+					const matched = await prisma.commContainer.findUnique({ where: { id: res.commId } });
+					if (matched) {
+						container = matched;
+						olog(`[Orchestrator] Booking linked to existing conversation ${matched.commRef} (${res.reason}).`);
 					}
-				} catch (e) {
-					oerr('[Orchestrator] cross-channel resolve failed:', e);
 				}
+			} catch (e) {
+				oerr('[Orchestrator] cross-channel resolve failed:', e);
 			}
 
 			if (!container) {
@@ -906,28 +908,32 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						orderBy: { openedAt: 'desc' }
 					});
 
-					// Cross-channel continuation before creating a new one (same as the sales branch).
-					if (!supportContainer) {
-						try {
-							const { resolveContextContainer } = await import('./container/thread-resolver');
-							const res = await resolveContextContainer({
-								companyId: company.id,
-								contactId: customer.id,
-								customerProfileId: pipelineCustomerProfileId || null,
-								phone: customerPhone || null,
-								email: customer.email || targetEmail || null,
-								channel: commLog.type === 'sms' ? 'sms' : commLog.type === 'email' ? 'email' : 'voice',
-								direction: 'inbound',
-								subject: commLog.summary || ((commLog.metadata as any)?.subject ?? null),
-								content: rawMessage
-							});
-							if (res.matched && res.commId) {
-								supportContainer = await prisma.commContainer.findUnique({ where: { id: res.commId } });
-								if (supportContainer) olog(`[Orchestrator] Support linked to existing conversation ${supportContainer.commRef} (${res.reason}).`);
+					// Cross-channel continuation: run even when a local container exists (the pipeline
+					// pre-creates one per message), excluding it so the AI can match an EARLIER
+					// conversation on another channel and link both legs into ONE comm id.
+					try {
+						const { resolveContextContainer } = await import('./container/thread-resolver');
+						const res = await resolveContextContainer({
+							companyId: company.id,
+							contactId: customer.id,
+							customerProfileId: pipelineCustomerProfileId || null,
+							phone: customerPhone || null,
+							email: customer.email || targetEmail || null,
+							channel: commLog.type === 'sms' ? 'sms' : commLog.type === 'email' ? 'email' : 'voice',
+							direction: 'inbound',
+							subject: commLog.summary || ((commLog.metadata as any)?.subject ?? null),
+							content: rawMessage,
+							excludeCommIds: supportContainer ? [supportContainer.id] : []
+						});
+						if (res.matched && res.commId && res.commId !== supportContainer?.id) {
+							const matched = await prisma.commContainer.findUnique({ where: { id: res.commId } });
+							if (matched) {
+								supportContainer = matched;
+								olog(`[Orchestrator] Support linked to existing conversation ${matched.commRef} (${res.reason}).`);
 							}
-						} catch (e) {
-							oerr('[Orchestrator] cross-channel resolve failed:', e);
 						}
+					} catch (e) {
+						oerr('[Orchestrator] cross-channel resolve failed:', e);
 					}
 
 					if (!supportContainer) {
