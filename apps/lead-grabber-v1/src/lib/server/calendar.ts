@@ -1,6 +1,71 @@
 // Shared calendar helpers (no external deps) used by the orchestrator and the conversational
 // SMS reply handler.
 
+/** The timezone the business (and every human-facing time string) operates in. */
+export const BUSINESS_TZ = 'America/Toronto';
+
+/**
+ * The AI extractors emit a NAIVE wall-clock stamp ("2026-08-10T12:00:00") meaning "noon at the
+ * business". `new Date()` would read that in the SERVER's zone — our host runs +02:00, so noon
+ * became 06:00 Toronto and a customer was offered a 3:00 AM slot. Parse the fields as UTC instead
+ * and format with timeZone:'UTC', so the wall-clock we were given is the wall-clock we show,
+ * whatever zone the server happens to be in. Strings that carry an explicit Z/offset are real
+ * instants and keep normal conversion.
+ */
+const NAIVE_TS = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/;
+
+export function parseWallClock(datetimeStr: string): { date: Date; naive: boolean } | null {
+	const m = NAIVE_TS.exec((datetimeStr || '').trim());
+	if (m) {
+		const [, y, mo, d, h, mi, s] = m;
+		const date = new Date(
+			Date.UTC(+y, +mo - 1, +d, +h, +mi, s ? +s : 0)
+		);
+		return isNaN(date.getTime()) ? null : { date, naive: true };
+	}
+	const date = new Date(datetimeStr);
+	return isNaN(date.getTime()) ? null : { date, naive: false };
+}
+
+/** "Now" as a business wall clock, in the same UTC-fields form `parseWallClock` returns for naive stamps. */
+function businessNowAsWallClock(now: Date): Date {
+	const parts = new Intl.DateTimeFormat('en-CA', {
+		timeZone: BUSINESS_TZ,
+		year: 'numeric',
+		month: '2-digit',
+		day: '2-digit',
+		hour: '2-digit',
+		minute: '2-digit',
+		second: '2-digit',
+		hour12: false
+	}).formatToParts(now);
+	const get = (t: string) => +(parts.find((p) => p.type === t)?.value || '0');
+	return new Date(
+		Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'))
+	);
+}
+
+/**
+ * Appointments can't be booked in the past. The extractor resolves a bare weekday against "today",
+ * so when the customer says "Monday works" ON a Monday it hands back today — a slot that has often
+ * already passed by the time we reply. Roll forward in whole weeks so the weekday they named is
+ * preserved. Returns the (possibly shifted) naive stamp, or the input unchanged if unparseable.
+ */
+export function ensureFutureWallClock(datetimeStr: string, now: Date = new Date()): string {
+	const parsed = parseWallClock(datetimeStr);
+	if (!parsed || !parsed.naive) return datetimeStr;
+
+	const nowWall = businessNowAsWallClock(now);
+	if (parsed.date.getTime() > nowWall.getTime()) return datetimeStr;
+
+	const shifted = new Date(parsed.date.getTime());
+	while (shifted.getTime() <= nowWall.getTime()) {
+		shifted.setUTCDate(shifted.getUTCDate() + 7);
+	}
+	const p = (n: number) => String(n).padStart(2, '0');
+	return `${shifted.getUTCFullYear()}-${p(shifted.getUTCMonth() + 1)}-${p(shifted.getUTCDate())}T${p(shifted.getUTCHours())}:${p(shifted.getUTCMinutes())}:${p(shifted.getUTCSeconds())}`;
+}
+
 /** Checks if a requested datetime is within business hours of any location; falls back to 9-5 M-F. */
 export function checkCalendarAvailability(datetimeStr: string, locations: any[]): boolean {
 	const lower = (datetimeStr || '').toLowerCase();
@@ -8,11 +73,16 @@ export function checkCalendarAvailability(datetimeStr: string, locations: any[])
 	let reqDay: string | null = null;
 	let reqHour24 = -1;
 
-	const d = new Date(datetimeStr);
-	if (!isNaN(d.getTime())) {
+	const parsed = parseWallClock(datetimeStr);
+	if (parsed) {
 		const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thurs', 'Fri', 'Sat'];
-		reqDay = days[d.getDay()];
-		reqHour24 = d.getHours();
+		// Naive stamps were parsed as UTC, so read them back as UTC; real instants are compared
+		// against business-local time. Either way the business's own clock decides "open".
+		const inTz = parsed.naive
+			? parsed.date
+			: new Date(parsed.date.toLocaleString('en-US', { timeZone: BUSINESS_TZ }));
+		reqDay = parsed.naive ? days[inTz.getUTCDay()] : days[inTz.getDay()];
+		reqHour24 = parsed.naive ? inTz.getUTCHours() : inTz.getHours();
 	} else {
 		if (lower.includes('mon')) reqDay = 'Mon';
 		else if (lower.includes('tue')) reqDay = 'Tue';
@@ -209,16 +279,18 @@ export function describeLocations(locations: any[]): string | null {
 
 /** Formats an ISO string into a readable date/time. Leaves relative strings alone. */
 export function formatDatetime(datetimeStr: string): string {
-	const d = new Date(datetimeStr);
-	if (!isNaN(d.getTime()) && datetimeStr.includes('T')) {
-		return d
+	const parsed = parseWallClock(datetimeStr);
+	if (parsed && datetimeStr.includes('T')) {
+		return parsed.date
 			.toLocaleString('en-US', {
 				weekday: 'long',
 				month: 'long',
 				day: 'numeric',
 				hour: 'numeric',
 				minute: '2-digit',
-				timeZone: 'America/Toronto'
+				// Naive stamps were parsed as UTC precisely so that rendering them as UTC gives
+				// back the original wall clock unchanged.
+				timeZone: parsed.naive ? 'UTC' : BUSINESS_TZ
 			})
 			.replace(/, 20\d\d/, '');
 	}
