@@ -240,16 +240,34 @@ async function syncCompanyEmailsInner(companyId: string) {
 				: customerEmail;
 			if (!customerName) customerName = customerEmail;
 
-			// Extract body
+			// Extract body. Capture BOTH text/plain and text/html — our own outbound confirmations are
+			// HTML-only, so a text/plain-only reader left their comm-log content empty.
 			let textBody = '';
+			let htmlBody = '';
 			const extractBody = (part: any) => {
 				if (part.mimeType === 'text/plain' && part.body?.data) {
 					textBody += Buffer.from(part.body.data, 'base64url').toString('utf8');
+				} else if (part.mimeType === 'text/html' && part.body?.data) {
+					htmlBody += Buffer.from(part.body.data, 'base64url').toString('utf8');
 				} else if (part.parts) {
 					for (const p of part.parts) extractBody(p);
 				}
 			};
 			if (msgData.payload) extractBody(msgData.payload);
+			if (!textBody && htmlBody) {
+				// HTML-only email: strip tags/styles to readable plain text.
+				textBody = htmlBody
+					.replace(/<style[\s\S]*?<\/style>/gi, '')
+					.replace(/<script[\s\S]*?<\/script>/gi, '')
+					.replace(/<br\s*\/?>(?=)/gi, '\n')
+					.replace(/<\/(p|div|tr|h[1-6])>/gi, '\n')
+					.replace(/<[^>]+>/g, ' ')
+					.replace(/&nbsp;/gi, ' ')
+					.replace(/&amp;/gi, '&')
+					.replace(/[ \t]+/g, ' ')
+					.replace(/\n\s*\n\s*\n+/g, '\n\n')
+					.trim();
+			}
 			if (!textBody && msgData.snippet) textBody = msgData.snippet;
 
 			// Sanitize the body before it hits the comm log, identity matching,
