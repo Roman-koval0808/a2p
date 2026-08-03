@@ -344,6 +344,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// SCENARIO 2 confirm: if this inbound affirms a pending appointment proposal we sent this
 	// caller, BOOK it now — create the calendar event, persist the Appointment, notify the rep.
 	let bookedConfirmation: string | null = null;
+	let mergedContainerId: string | null = null;
 	if (isAffirmative(rawMessage) && commLog.companyId && customerPhone) {
 		olog(
 			`[Orchestrator] Affirmative reply detected — looking for a pending proposal for ${customerPhone}.`
@@ -399,6 +400,81 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	let proposedAppointment: any = null;
 	let skipSafetyNet = false;
 	let scenarioLocked = false; // a scenario produced a specific draft — don't let the conversational reply override it
+
+	// --- SCENARIO 2b: proposal on a context-matched container ---
+	// The customer replied on a channel/identity the phone-based lookup can't see (e.g. we
+	// proposed a time by EMAIL, they text back "Monday works for the check."). Resolve the
+	// container by context, find the pending proposal attached to it, and — because the reply
+	// renegotiates the time — DRAFT the booking for approval instead of auto-booking. The draft
+	// lands in the approval queue ("a draft to be sent"), not a self-serve booking link.
+	if (!bookedConfirmation && isAffirmative(rawMessage) && commLog.companyId) {
+		try {
+			const { resolveContextContainer } = await import('./container/thread-resolver');
+			const resolution = await resolveContextContainer({
+				companyId: commLog.companyId,
+				contactId: customer.id,
+				customerProfileId: pipelineCustomerProfileId || null,
+				phone: customerPhone || null,
+				email: customer.email || null,
+				channel: commLog.type === 'sms' ? 'sms' : commLog.type === 'email' ? 'email' : 'voice',
+				direction: 'inbound',
+				subject: commLog.subject,
+				content: (commLog.content || commLog.summary || '').slice(0, 4000),
+				excludeCommIds: [metadata.commContainerId, metadata.commId].filter(Boolean) as string[]
+			});
+			if (resolution.matched && resolution.commId) {
+				const viaContainer = await findPendingProposal(commLog.companyId, customerPhone || '', {
+					containerId: resolution.commId
+				});
+				if (viaContainer) {
+					messageCategory = 'sales';
+					metadata.message_category = 'sales';
+					metadata.ivr_intent = 'Sales';
+					const replyDatetime = metadata.datetime || null;
+					if (replyDatetime) {
+						// The customer gave their own time — propose it and DRAFT the confirmation.
+						const proposed = await proposeAppointment(commLog.companyId, replyDatetime, 60);
+						const proposal = proposed.proposal || {
+							requestedISO: replyDatetime,
+							proposedStartISO: replyDatetime,
+							proposedEndISO: replyDatetime,
+							proposedLabel: replyDatetime,
+							booked: false
+						};
+						proposedAppointment = proposal;
+						draftedResponse = `You're all set — we've got you down for ${proposal.proposedLabel}. See you then!`;
+						scenarioLocked = true;
+						olog(
+							`[Orchestrator] Scenario 2b: proposal found on container ${resolution.commId}; drafted ${proposal.proposedLabel} for approval.`
+						);
+					} else {
+						// Plain "yes" — book the originally proposed time right away.
+						const result = await bookProposedAppointment({
+							companyId: commLog.companyId,
+							contactId: customer.id,
+							contactName: customer.name,
+							phone: customerPhone,
+							proposal: viaContainer.proposal,
+							proposalCommId: viaContainer.commId
+						});
+						bookedConfirmation = result.message;
+						metadata.appointment_booked = {
+							appointmentId: result.appointmentId,
+							calendarEventId: result.calendarEventId,
+							when: viaContainer.proposal.proposedStartISO
+						};
+						scenarioLocked = true;
+						draftedResponse = bookedConfirmation;
+						olog(
+							`[Orchestrator] Scenario 2b: auto-booked ${viaContainer.proposal.proposedLabel} via container ${resolution.commId}.`
+						);
+					}
+				}
+			}
+		} catch (e) {
+			oerr('[Orchestrator] Scenario 2b container proposal lookup failed:', e);
+		}
+	}
 
 	olog(
 		`[Orchestrator] Debug -> digit: "${digit}", intent: "${intent}", sub_intent: "${sub_intent}"`
@@ -1175,51 +1251,50 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		}
 	}
 
-	// --- 3b. Cross-channel continuation matching (CommContainer) ---
-	// A customer often responds on a DIFFERENT channel than the one we contacted them on (we
-	// emailed them, they call back). Ask the AI whether this inbound message continues one of the
-	// customer's OPEN containers — e.g. an email container created by the outbound-review path
-	// (mailbox-sent email awaiting a reply). When matched, the entry is appended to that
-	// container and the comm log is relinked so the whole conversation shares the container's
-	// COM id, no matter which channel the customer used.
-	if (
-		commLog.direction === 'inbound' &&
-		(commLog.content || commLog.summary) &&
-		(commLog.type === 'voice' || commLog.type === 'sms' || commLog.type === 'email')
-	) {
+	// --- 3b. Universal conversation resolver (CommContainer) ---
+	// Every message — inbound OR outbound, on ANY channel — goes through the same context check:
+	// does it continue one of the company's open conversation containers (e.g. an email container
+	// created by the outbound-review path, awaiting the customer's reply)? When matched, the entry
+	// is appended to that container and the comm log is relinked so the whole conversation shares
+	// the container's COM id, no matter which channel either side used.
+	if (commLog.type === 'voice' || commLog.type === 'sms' || commLog.type === 'email') {
 		try {
-			const {
-				resolveContinuationForComm,
-				appendEntryToContainer,
-				linkCommunicationLogToContainer
-			} = await import('./container/thread-resolver');
-			const resolution = await resolveContinuationForComm({
+			const { resolveContextContainer, appendEntryToContainer, linkCommunicationLogToContainer } =
+				await import('./container/thread-resolver');
+			const resolution = await resolveContextContainer({
 				companyId: commLog.companyId,
 				contactId: customer.id,
 				customerProfileId: pipelineCustomerProfileId || null,
 				phone: customerPhone || null,
 				email: customer.email || null,
 				channel: commLog.type === 'sms' ? 'sms' : commLog.type === 'email' ? 'email' : 'voice',
-				direction: 'inbound',
+				direction: commLog.direction === 'outbound' ? 'outbound' : 'inbound',
+				subject: commLog.subject,
 				content: (commLog.content || commLog.summary || '').slice(0, 4000),
 				summary: commLog.summary,
-				// The booking/support flows create a container for THIS call earlier in this
-				// function — never let the matcher pick the call's own container.
-				excludeCommIds: metadata.commId ? [String(metadata.commId)] : undefined
+				// The booking/support flows create a container for THIS comm earlier in this
+				// function — never let the matcher pick the comm's own container.
+				excludeCommIds: [metadata.commContainerId, metadata.commId].filter(Boolean) as string[]
 			});
 
 			if (resolution.matched && resolution.commId && resolution.candidate) {
 				const cand = resolution.candidate;
-				const mergeReason = resolution.reason || 'cross_channel_continuation';
+				const mergeReason = resolution.reason || 'context_continuation';
 
 				await appendEntryToContainer(prisma, {
 					commId: resolution.commId,
-					direction: 'inbound',
+					direction: commLog.direction === 'outbound' ? 'outbound' : 'inbound',
 					channel: commLog.type === 'sms' ? 'sms' : commLog.type === 'email' ? 'email' : 'voice',
-					fromParty: customerPhone || commLog.source || 'unknown',
-					toParty: companyNumber || commLog.destination || 'unknown',
-					fromPartyType: 'customer',
-					toPartyType: 'system',
+					fromParty:
+						commLog.direction === 'outbound'
+							? companyNumber || commLog.source || 'unknown'
+							: customerPhone || commLog.source || 'unknown',
+					toParty:
+						commLog.direction === 'outbound'
+							? customerPhone || commLog.destination || 'unknown'
+							: companyNumber || commLog.destination || 'unknown',
+					fromPartyType: commLog.direction === 'outbound' ? 'rep' : 'customer',
+					toPartyType: commLog.direction === 'outbound' ? 'customer' : 'system',
 					transcript: commLog.content || commLog.summary || null,
 					analysisJson: {
 						intent: metadata.intent || null,
@@ -1235,7 +1310,8 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					{ companyId: commLog.companyId, contactId: customer.id }
 				);
 
-				// Keep the in-memory metadata in sync so the final persist keeps the link fields.
+				// Keep the in-memory metadata in sync so the final persist keeps the link fields
+				// and any draft logged below shares the container's COM id.
 				metadata.commContainerId = cand.id;
 				metadata.commRef = cand.commRef;
 				metadata.thread_merge = {
@@ -1246,9 +1322,10 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					mergedAt: new Date().toISOString()
 				};
 				commLog.communicationThreadId = cand.id;
+				mergedContainerId = cand.id;
 
 				olog(
-					`[Orchestrator] Cross-channel: linked ${commLog.type} to container ${cand.commRef} (${mergeReason})`
+					`[Orchestrator] Cross-channel: linked ${commLog.type} (${commLog.direction}) to container ${cand.commRef} (${mergeReason})`
 				);
 			} else if (resolution.reason) {
 				olog(`[Orchestrator] Cross-channel: no container match (${resolution.reason})`);
@@ -1311,6 +1388,8 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					confirm_email: true,
 					target_email: destinationEmail,
 					trigger_comm_id: commId,
+					commContainerId: metadata.commContainerId || undefined,
+					commRef: metadata.commRef || undefined,
 					message_category: messageCategory || null
 				}
 			});
@@ -1400,6 +1479,8 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						is_draft: true,
 						orchestrator_draft: true,
 						trigger_comm_id: commId,
+						commContainerId: metadata.commContainerId || undefined,
+						commRef: metadata.commRef || undefined,
 						proposed_appointment: proposedAppointment || undefined,
 						confirm_action: metadata.confirm_action || undefined,
 						callback_number: metadata.callback_number || undefined,

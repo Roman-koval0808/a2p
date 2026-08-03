@@ -20,8 +20,7 @@ import {
 } from '$lib/server/container/container-service';
 import { registerTimer } from '$lib/server/timer/timer-service';
 import {
-	openContainerCandidatesFor,
-	matchContinuationToCandidates,
+	resolveContextContainer,
 	appendEntryToContainer,
 	linkCommunicationLogToContainer
 } from '$lib/server/container/thread-resolver';
@@ -127,32 +126,63 @@ export async function reviewOutboundEmail(
 		console.error('[outbound-review] AI analysis failed:', e);
 	}
 
-	// 2. Reuse an open container when the customer's conversation continues; otherwise create one.
-	const candidates = await openContainerCandidatesFor({
-		companyId: input.companyId,
-		contactId: input.customerContactId || null,
-		customerProfileId: input.customerProfileId || null,
-		phone: input.customerPhone || null,
-		email: input.customerEmail || null
-	});
+	// 1b. If the sent email proposed a specific time, record it as a pending appointment
+	// proposal. An affirmative reply on ANY channel then auto-books it — or, when the reply
+	// renegotiates the time, lands as a booking DRAFT in the approval queue (see orchestrator
+	// Scenario 2b) instead of a self-serve booking link.
+	let proposedAppointment: any = null;
+	if (analysis.datetime) {
+		try {
+			const start = new Date(analysis.datetime);
+			if (!isNaN(start.getTime())) {
+				const end = new Date(start.getTime() + 60 * 60000);
+				const label = start.toLocaleString('en-US', {
+					weekday: 'short',
+					month: 'short',
+					day: 'numeric',
+					hour: 'numeric',
+					minute: '2-digit'
+				});
+				proposedAppointment = {
+					requestedISO: start.toISOString(),
+					proposedStartISO: start.toISOString(),
+					proposedEndISO: end.toISOString(),
+					proposedLabel: label,
+					booked: false,
+					source: 'outbound_email_review'
+				};
+			}
+		} catch (e) {
+			console.error('[outbound-review] Failed to build proposed appointment:', e);
+		}
+	}
 
-	const match = await matchContinuationToCandidates(
+	// 2. Universal context check: reuse the conversation this email continues — the sender's
+	// identity first, falling back to company-wide open containers — regardless of which channel
+	// the rest of the conversation happened on. Only when the matcher is genuinely unsure do we
+	// start a fresh container.
+	const resolution = await resolveContextContainer(
 		{
+			companyId: input.companyId,
+			contactId: input.customerContactId || null,
+			customerProfileId: input.customerProfileId || null,
+			phone: input.customerPhone || null,
+			email: input.customerEmail || null,
 			channel: 'email',
 			direction: 'outbound',
 			subject: input.subject ?? log.summary ?? null,
-			content
+			content,
+			summary: log.summary || null,
+			occurredAt: now
 		},
-		candidates
+		{}
 	);
 
 	let container: { id: string; commRef: string };
 	let reusedContainer = false;
 
-	if (match.matched && match.commId) {
-		container = { id: match.commId, commRef: '' };
-		const found = candidates.find((c) => c.id === match.commId);
-		container.commRef = found?.commRef || '';
+	if (resolution.matched && resolution.commId) {
+		container = { id: resolution.commId, commRef: resolution.candidate?.commRef || '' };
 		reusedContainer = true;
 	} else {
 		const createResult = await createContainerAtIntake(prisma, {
@@ -240,6 +270,7 @@ export async function reviewOutboundEmail(
 				commContainerId: container.id,
 				commRef: container.commRef,
 				outbound_reviewed: true,
+				...(proposedAppointment ? { proposed_appointment: proposedAppointment } : {}),
 				outbound_review: {
 					intent: analysis.intent,
 					sub_intent: analysis.sub_intent,
@@ -249,6 +280,7 @@ export async function reviewOutboundEmail(
 					tasksCreated,
 					timerRegistered,
 					reusedContainer,
+					proposed: !!proposedAppointment,
 					reviewedAt: now.toISOString()
 				}
 			}

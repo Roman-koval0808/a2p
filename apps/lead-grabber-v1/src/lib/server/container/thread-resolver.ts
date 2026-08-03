@@ -1,13 +1,14 @@
-// Cross-channel thread resolution: decide whether a new communication (phone call, SMS, email)
-// is a continuation of an EXISTING open CommContainer (e.g. an outbound email the company sent
-// that is waiting for a reply) so the new entry is appended to that container's conversation
-// instead of starting a brand-new one.
+// Universal conversation resolver: decide whether ANY communication (inbound or outbound, any
+// channel) continues an EXISTING open CommContainer so every leg of the conversation shares one
+// COM id.
 //
-// Rules (mirror the anti-hallucination policy used everywhere else in the pipeline):
-//  - Candidate containers are scoped to the company AND the resolved customer identity
-//    (contact id + PipelineCustomerProfile/comm_identifiers for phone and email).
-//  - Only the AI decides whether the content is a continuation. When in doubt it MUST NOT
-//    link — a fresh thread is safer than a wrong merge.
+// How it works (kept deliberately simple):
+//  1. Gather candidate containers: the customer's own open containers first; when the customer
+//     has none of their own (e.g. a brand-new customer replying by text to an email we sent),
+//     fall back to the company's recent open containers (they are almost always conversations
+//     the company started and that are awaiting a reply).
+//  2. ONE AI context check decides: does this message clearly continue one of them?
+//  3. When in doubt, no link — a fresh thread is safer than a wrong merge.
 
 import { prisma } from '$lib/db';
 import { claudeJSON } from '$lib/server/anthropic';
@@ -30,6 +31,8 @@ export interface ThreadResolverInput {
 	occurredAt?: Date;
 	/** Containers to never match (e.g. a container created for THIS same communication). */
 	excludeCommIds?: string[];
+	/** How far back to look for company-wide open containers (default 14 days). */
+	windowDays?: number;
 }
 
 export interface ContainerCandidate {
@@ -169,6 +172,55 @@ export async function openContainerCandidatesFor(
 }
 
 /**
+ * Company-wide fallback candidates: open containers with recent activity. Used when the incoming
+ * identity has no containers of its own (brand-new customer) — the company's pending conversations
+ * are the only place a cross-channel continuation can live.
+ */
+export async function companyOpenCandidatesFor(
+	companyId: string,
+	opts?: { excludeCommIds?: string[]; windowDays?: number; limit?: number }
+): Promise<ContainerCandidate[]> {
+	const windowDays = opts?.windowDays ?? 14;
+	const where: Record<string, unknown> = {
+		companyId,
+		state: { not: 'closed' },
+		lifecycle: { not: 'merged' },
+		lastActivityAt: { gte: new Date(Date.now() - windowDays * 24 * 3600 * 1000) }
+	};
+	if (opts?.excludeCommIds && opts.excludeCommIds.length > 0) {
+		where.id = { notIn: opts.excludeCommIds };
+	}
+	const containers = await prisma.commContainer.findMany({
+		where,
+		include: {
+			entries: { orderBy: { occurredAt: 'desc' }, take: 3 }
+		},
+		orderBy: { lastActivityAt: 'desc' },
+		take: opts?.limit ?? 15
+	});
+	return containers.map((c: any) => toCandidate(c));
+}
+
+function toCandidate(c: any): ContainerCandidate {
+	const entryText = [...(c.entries || [])]
+		.reverse()
+		.map((e: any) => e.transcript || e.analysisJson?.summary || '')
+		.filter(Boolean)
+		.join(' | ');
+	const snippet = [c.subject, entryText].filter(Boolean).join(' — ').slice(0, 600);
+	return {
+		id: c.id,
+		commRef: c.commRef,
+		subject: c.subject || null,
+		threadType: c.threadType,
+		state: c.state,
+		openedAt: c.openedAt,
+		lastActivityAt: c.lastActivityAt,
+		snippet
+	};
+}
+
+/**
  * Ask the AI whether the new message continues one of the candidate containers. The AI receives
  * the candidates' commRef, subject, type and recent content and must return exactly one commRef
  * or none. Ambiguity must resolve to "no match". The `ai` option exists for tests only.
@@ -197,12 +249,12 @@ export async function matchContinuationToCandidates(
 	const user = `New ${input.direction} ${input.channel} message${input.subject ? ` (subject: "${input.subject}")` : ''}:
 "${input.content.slice(0, 4000)}"
 
-Open conversation containers for this customer:
+Open conversation containers for this customer/company:
 ${listText}`;
 
-	const system = `You are the continuation matcher of a business communications platform. A new message just arrived from a customer, and the platform has an open conversation container per customer per topic (a container has a commRef, a thread type, a subject and a snippet of its recent content).
+	const system = `You are the continuation matcher of a business communications platform. A message just arrived — it may be FROM a customer (inbound: they are replying to something the company sent or following up on a pending request) or FROM the company (outbound: the company is replying to the customer or continuing a conversation). Each open conversation container below is one customer+topic conversation (it has a commRef, a thread type, a subject and a snippet of its recent content).
 
-Decide whether this new message CONTINUES one of the listed open containers — i.e. the customer is clearly responding to that conversation's specific topic (answering a question the company asked, confirming/rescheduling an appointment that was proposed, following up on a pending request, continuing the same issue).
+Decide whether this new message CONTINUES one of the listed open containers — i.e. the message clearly refers to that same specific topic (answering/confirming a question or appointment the company proposed, following up on a pending request, continuing the same issue). The reply may arrive on a DIFFERENT channel than the original conversation (company emailed, customer texts back) — the channel does not matter, the topic and the people do.
 
 Rules:
 - Return "linked" = true for AT MOST ONE container, and only when the message clearly refers to that same specific topic (same appointment, same pending request, same issue).
@@ -252,14 +304,34 @@ Rules:
 }
 
 /**
- * High-level resolver: gather open candidates for the identity, ask the AI for a continuation,
- * and return the target container when a match is found. Does NOT write anything.
+ * Universal resolver: gather candidate containers (customer's own first, then the company's
+ * recent open containers) and ask the AI for a continuation. Works for inbound AND outbound
+ * messages on every channel. Does NOT write anything.
  */
-export async function resolveContinuationForComm(
+export async function resolveContextContainer(
 	input: ThreadResolverInput,
 	opts?: { ai?: (user: string, system: string) => Promise<any | null> }
 ): Promise<ResolverResult> {
-	const candidates = await openContainerCandidatesFor(input);
+	const excludeCommIds = input.excludeCommIds || [];
+	let candidates = await openContainerCandidatesFor({
+		companyId: input.companyId,
+		contactId: input.contactId,
+		customerProfileId: input.customerProfileId,
+		phone: input.phone,
+		email: input.email,
+		excludeCommIds
+	});
+
+	// Brand-new (or cross-channel) identity: no containers of their own — fall back to the
+	// company's recent open conversations so a text reply to an emailed offer still lands in
+	// the right conversation instead of starting a duplicate one.
+	if (candidates.length === 0) {
+		candidates = await companyOpenCandidatesFor(input.companyId, {
+			excludeCommIds,
+			windowDays: input.windowDays
+		});
+	}
+
 	if (candidates.length === 0) {
 		return { matched: false, candidates, reason: 'no_open_candidates' };
 	}

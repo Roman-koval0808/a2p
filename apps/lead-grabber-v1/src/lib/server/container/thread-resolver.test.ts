@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
 	openContainerCandidatesFor,
+	companyOpenCandidatesFor,
 	matchContinuationToCandidates,
+	resolveContextContainer,
 	appendEntryToContainer,
-	resolveContinuationForComm,
 	linkCommunicationLogToContainer
 } from './thread-resolver';
 
@@ -195,7 +196,49 @@ describe('matchContinuationToCandidates — AI decision + no-hallucination', () 
 	});
 });
 
-describe('resolveContinuationForComm — cross-channel scenario', () => {
+describe('companyOpenCandidatesFor — company-wide fallback', () => {
+	it('scopes by company, excludes closed/merged, filters on recent activity', async () => {
+		mockPrisma.commContainer.findMany.mockResolvedValue([candidate({})]);
+		await companyOpenCandidatesFor('comp_1');
+		const where = mockPrisma.commContainer.findMany.mock.calls[0][0].where;
+		expect(where.companyId).toBe('comp_1');
+		expect(where.state.not).toBe('closed');
+		expect(where.lifecycle.not).toBe('merged');
+		expect(where.lastActivityAt.gte).toBeInstanceOf(Date);
+		expect(mockPrisma.commContainer.findMany.mock.calls[0][0].take).toBe(15);
+	});
+
+	it('honors windowDays, limit, and excludeCommIds', async () => {
+		mockPrisma.commContainer.findMany.mockResolvedValue([candidate({})]);
+		await companyOpenCandidatesFor('comp_1', {
+			windowDays: 3,
+			limit: 4,
+			excludeCommIds: ['c_own']
+		});
+		const call = mockPrisma.commContainer.findMany.mock.calls[0][0];
+		expect(call.where.id.notIn).toEqual(['c_own']);
+		expect(call.take).toBe(4);
+		const cutoff = Date.now() - 3 * 24 * 3600 * 1000;
+		expect((call.where.lastActivityAt.gte as Date).getTime()).toBeGreaterThan(cutoff - 5000);
+	});
+
+	it('builds snippets from subject + recent entries', async () => {
+		mockPrisma.commContainer.findMany.mockResolvedValue([
+			{
+				...candidate({}),
+				entries: [
+					{ transcript: 'We proposed Monday at 10.', analysisJson: null },
+					{ transcript: 'What time works for you?', analysisJson: null }
+				]
+			}
+		]);
+		const out = await companyOpenCandidatesFor('comp_1');
+		expect(out[0].snippet).toContain('proposed Monday');
+		expect(out[0].snippet).toContain('Re: appointment');
+	});
+});
+
+describe('resolveContextContainer — universal cross-channel matching', () => {
 	it('appends an inbound SMS reply to the matching outbound-email container', async () => {
 		mockPrisma.pipelineCustomerProfile.findMany.mockResolvedValue([]);
 		mockPrisma.commContainer.findMany.mockResolvedValue([candidate({})]);
@@ -205,7 +248,7 @@ describe('resolveContinuationForComm — cross-channel scenario', () => {
 			confidence: 0.9,
 			reason: 'response to the appointment request'
 		});
-		const result = await resolveContinuationForComm(
+		const result = await resolveContextContainer(
 			{
 				companyId: 'comp_1',
 				contactId: 'contact_1',
@@ -223,9 +266,60 @@ describe('resolveContinuationForComm — cross-channel scenario', () => {
 		expect(String(ai.mock.calls[0][0])).toContain('#1001');
 	});
 
-	it('returns no_match when there are no open candidates', async () => {
+	it('matches an OUTBOUND company reply (outbound leg support)', async () => {
+		mockPrisma.pipelineCustomerProfile.findMany.mockResolvedValue([]);
+		mockPrisma.commContainer.findMany.mockResolvedValue([candidate({})]);
+		const ai = vi.fn().mockResolvedValue({
+			linked: true,
+			commRef: '#1001',
+			confidence: 0.88,
+			reason: 'replying to their email about the furnace'
+		});
+		const result = await resolveContextContainer(
+			{
+				companyId: 'comp_1',
+				contactId: 'contact_1',
+				channel: 'email',
+				direction: 'outbound',
+				subject: 'Re: furnace maintenance',
+				content: 'We can send a tech Thursday morning.'
+			},
+			{ ai }
+		);
+		expect(result.matched).toBe(true);
+		expect(result.commId).toBe('cnt_email_1');
+	});
+
+	it('falls back to company-wide candidates for a brand-new customer', async () => {
+		mockPrisma.pipelineCustomerProfile.findMany.mockResolvedValue([]);
+		// No containers under the caller's own identity → company-wide fallback.
+		mockPrisma.commContainer.findMany
+			.mockResolvedValueOnce([])
+			.mockResolvedValueOnce([candidate({})]);
+		const ai = vi.fn().mockResolvedValue({
+			linked: true,
+			commRef: '#1001',
+			confidence: 0.85,
+			reason: 'texting back about the emailed quote'
+		});
+		const result = await resolveContextContainer(
+			{
+				companyId: 'comp_1',
+				contactId: 'contact_1',
+				channel: 'sms',
+				direction: 'inbound',
+				content: 'The quote works — let us schedule it.'
+			},
+			{ ai }
+		);
+		expect(mockPrisma.commContainer.findMany).toHaveBeenCalledTimes(2);
+		expect(result.matched).toBe(true);
+		expect(result.commId).toBe('cnt_email_1');
+	});
+
+	it('returns no_match when there are no open candidates anywhere', async () => {
 		mockPrisma.commContainer.findMany.mockResolvedValue([]);
-		const result = await resolveContinuationForComm({
+		const result = await resolveContextContainer({
 			companyId: 'comp_1',
 			contactId: 'contact_1',
 			channel: 'voice',
