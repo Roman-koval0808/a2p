@@ -15,8 +15,7 @@ const { mocks } = vi.hoisted(() => ({
 		},
 		registerTimer: vi.fn(),
 		resolver: {
-			openContainerCandidatesFor: vi.fn(),
-			matchContinuationToCandidates: vi.fn(),
+			resolveContextContainer: vi.fn(),
 			appendEntryToContainer: vi.fn(),
 			linkCommunicationLogToContainer: vi.fn()
 		}
@@ -58,8 +57,11 @@ beforeEach(() => {
 	});
 	mocks.containerService.createTask.mockResolvedValue({});
 	mocks.registerTimer.mockResolvedValue({});
-	mocks.resolver.openContainerCandidatesFor.mockResolvedValue([]);
-	mocks.resolver.matchContinuationToCandidates.mockResolvedValue({ matched: false });
+	mocks.resolver.resolveContextContainer.mockResolvedValue({
+		matched: false,
+		candidates: [],
+		reason: 'no_open_candidates'
+	});
 	mocks.resolver.appendEntryToContainer.mockResolvedValue({ id: 'entry_out_1' });
 	mocks.resolver.linkCommunicationLogToContainer.mockResolvedValue({});
 });
@@ -161,13 +163,11 @@ describe('reviewOutboundEmail', () => {
 	});
 
 	it('reuses an existing matching container instead of creating a new one', async () => {
-		mocks.resolver.openContainerCandidatesFor.mockResolvedValue([
-			{ id: 'c_email_1', commRef: '#1001' }
-		]);
-		mocks.resolver.matchContinuationToCandidates.mockResolvedValue({
+		mocks.resolver.resolveContextContainer.mockResolvedValue({
 			matched: true,
 			commId: 'c_email_1',
-			confidence: 0.9
+			candidate: { id: 'c_email_1', commRef: '#1001' },
+			candidates: [{ id: 'c_email_1', commRef: '#1001' }]
 		});
 
 		await reviewOutboundEmail({
@@ -187,5 +187,38 @@ describe('reviewOutboundEmail', () => {
 			expect.any(String),
 			expect.any(Object)
 		);
+	});
+
+	it('records a proposed_appointment when the sent email proposed a time', async () => {
+		mocks.analyzeCallLog.mockResolvedValue({
+			intent: 'sales',
+			summary: 'Proposing the furnace checkup Monday at 10am.',
+			datetime: '2026-08-10T10:00:00-04:00',
+			actionItems: []
+		});
+		mocks.resolver.resolveContextContainer.mockResolvedValue({
+			matched: false,
+			candidates: [],
+			reason: 'no_open_candidates'
+		});
+
+		const result = await reviewOutboundEmail({
+			companyId: 'comp_1',
+			logId: 'l_email_1',
+			content: 'Proposing the furnace checkup Monday at 10am.',
+			subject: 'Re: your furnace checkup',
+			customerEmail: 'r@o.com',
+			customerContactId: 'contact_1',
+			fromEmail: 'x@p.com'
+		});
+
+		expect(result.reviewed).toBe(true);
+		const update = mocks.db.communicationLog.update.mock.calls[0][0];
+		const proposal = update.data.metadata.proposed_appointment;
+		expect(proposal).toBeDefined();
+		expect(proposal.booked).toBe(false);
+		expect(proposal.proposedStartISO).toBeDefined();
+		expect(proposal.proposedLabel).toContain('Aug');
+		expect(update.data.metadata.outbound_review.proposed).toBe(true);
 	});
 });

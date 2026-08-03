@@ -418,7 +418,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				email: customer.email || null,
 				channel: commLog.type === 'sms' ? 'sms' : commLog.type === 'email' ? 'email' : 'voice',
 				direction: 'inbound',
-				subject: commLog.subject,
+				subject: commLog.summary || ((commLog.metadata as any)?.subject ?? null),
 				content: (commLog.content || commLog.summary || '').slice(0, 4000),
 				excludeCommIds: [metadata.commContainerId, metadata.commId].filter(Boolean) as string[]
 			});
@@ -1269,7 +1269,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				email: customer.email || null,
 				channel: commLog.type === 'sms' ? 'sms' : commLog.type === 'email' ? 'email' : 'voice',
 				direction: commLog.direction === 'outbound' ? 'outbound' : 'inbound',
-				subject: commLog.subject,
+				subject: commLog.summary || ((commLog.metadata as any)?.subject ?? null),
 				content: (commLog.content || commLog.summary || '').slice(0, 4000),
 				summary: commLog.summary,
 				// The booking/support flows create a container for THIS comm earlier in this
