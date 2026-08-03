@@ -337,6 +337,18 @@ export async function resolveContextContainer(
 		seen.add(c.id);
 		candidates.push(c);
 	}
+
+	// A conversation you are CONTINUING must have existed before your message arrived. The
+	// ProfileDB pipeline pre-creates a container for each incoming message moments before the
+	// resolver runs, so without this the message is offered its OWN container — whose only entry
+	// is that same text — and the matcher links it to itself ("exact match to the snippet"),
+	// stranding the real earlier conversation on another id. excludeCommIds only helps when the
+	// caller already knows that container's id, which the SMS path does not.
+	if (input.occurredAt) {
+		const cutoff = input.occurredAt.getTime();
+		candidates = candidates.filter((c) => new Date(c.openedAt).getTime() < cutoff);
+	}
+
 	candidates = candidates.slice(0, MAX_CANDIDATES);
 
 	if (candidates.length === 0) {

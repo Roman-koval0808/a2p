@@ -222,7 +222,18 @@ async function syncCompanyEmailsInner(companyId: string) {
 				headers.find((h: any) => h.name.toLowerCase() === name.toLowerCase())?.value || '';
 
 			const from = getHeader('From');
-			const to = getHeader('To');
+			// Not every sent message carries a usable `To` — Gmail omits it on some sends, and a
+			// message promoted from a draft can land here with the recipient only in the delivery
+			// headers. An empty recipient used to flow straight through: the row logged with a blank
+			// destination ("—" in the UI), the contact was created without an address, and the
+			// outbound review resolved with email:null — stripping the identity the cross-channel
+			// matcher keys on, so a later SMS/call could never be linked back to this email.
+			const to =
+				getHeader('To') ||
+				getHeader('Delivered-To') ||
+				getHeader('X-Original-To') ||
+				getHeader('Cc') ||
+				getHeader('Bcc');
 			const subject = getHeader('Subject');
 			const date = getHeader('Date');
 
@@ -230,10 +241,19 @@ async function syncCompanyEmailsInner(companyId: string) {
 			const extractEmail = (str: string) =>
 				str.match(/<(.+)>|(\S+@\S+)/)?.[0]?.replace(/[<>]/g, '') || str;
 			const fromEmail = extractEmail(from).toLowerCase();
-			const toEmail = extractEmail(to).toLowerCase();
+			// `To` may list several recipients ("a@x.com, b@y.com") — the first is the customer.
+			const toEmail = extractEmail(to.split(',')[0] || '').toLowerCase();
 
 			const isOutgoing = fromEmail === auth.email.toLowerCase();
 			const customerEmail = isOutgoing ? toEmail : fromEmail;
+			if (!customerEmail.includes('@')) {
+				// Without a counterparty there is nothing to thread this message to. Skip it rather
+				// than logging an orphan row that silently breaks cross-channel matching.
+				console.warn(
+					`[gmail-sync] Skipping message ${msgId}: no resolvable ${isOutgoing ? 'recipient' : 'sender'} (from="${from}" to="${to}").`
+				);
+				continue;
+			}
 			const customerNameMatch = (isOutgoing ? to : from).match(/^([^<]+)/);
 			let customerName = customerNameMatch
 				? customerNameMatch[1].trim().replace(/^"|"$/g, '')
@@ -297,17 +317,38 @@ async function syncCompanyEmailsInner(companyId: string) {
 			if (isOutgoing) {
 				// Don't duplicate: link this Gmail message to an existing draft/log on the
 				// same thread, so the UI shows tracking status on the correct row.
-				const existingOutbound = await prisma.communicationLog.findFirst({
+				//
+				// `email_message_id` is the only per-message identity. The thread fallback exists
+				// solely to ADOPT a draft we logged ourselves that hasn't been matched to its sent
+				// message yet — it must never match an already-synced message. Matching the whole
+				// thread meant the SECOND email in a thread was mistaken for the first: its body
+				// overwrote the earlier row, `outbound_reviewed` was already true so no review ran,
+				// and the `continue` below dropped it — leaving the conversation with no container
+				// for a later SMS/call to thread onto.
+				let existingOutbound = await prisma.communicationLog.findFirst({
 					where: {
 						companyId,
 						direction: 'outbound',
 						type: 'email',
-						OR: [
-							{ metadata: { path: ['email_message_id'], equals: msgId } },
-							{ metadata: { path: ['thread_id'], equals: threadId } }
-						]
+						metadata: { path: ['email_message_id'], equals: msgId }
 					}
 				});
+				if (!existingOutbound) {
+					const threadDrafts = await prisma.communicationLog.findMany({
+						where: {
+							companyId,
+							direction: 'outbound',
+							type: 'email',
+							metadata: { path: ['thread_id'], equals: threadId }
+						},
+						orderBy: { created: 'desc' }
+					});
+					// Only an un-adopted draft (no Gmail message id yet) may claim this message.
+					existingOutbound =
+						threadDrafts.find(
+							(l) => !((l.metadata as Record<string, any>) || {}).email_message_id
+						) || null;
+				}
 				if (existingOutbound) {
 					// Update the existing log with the Gmail message ID and latest content
 					const meta = (existingOutbound.metadata as Record<string, any>) || {};

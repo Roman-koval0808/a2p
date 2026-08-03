@@ -488,3 +488,71 @@ describe('linkCommunicationLogToContainer', () => {
 		expect(update.data.metadata.thread_merge.mergedInto).toBe('c_email_1');
 	});
 });
+
+describe('resolveContextContainer — self-match guard', () => {
+	// Regression: the ProfileDB pipeline pre-creates a container for each arriving message. It was
+	// offered back as a candidate and the matcher linked the message to ITSELF ("exact match to the
+	// snippet"), leaving the real earlier conversation on a separate comm id.
+	const arrivedAt = new Date('2026-08-03T17:50:00Z');
+
+	it('ignores containers opened after the message arrived', async () => {
+		mockPrisma.pipelineCustomerProfile.findMany.mockResolvedValue([]);
+		mockPrisma.commContainer.findMany.mockResolvedValue([
+			candidate({
+				id: 'cnt_own',
+				commRef: '#5248',
+				openedAt: new Date('2026-08-03T17:50:20Z'),
+				lastActivityAt: new Date('2026-08-03T17:50:20Z'),
+				snippet: 'Monday works for the furnace appointment.'
+			})
+		]);
+		const ai = vi.fn();
+		const result = await resolveContextContainer(
+			{
+				companyId: 'comp_1',
+				contactId: 'contact_1',
+				channel: 'sms',
+				direction: 'inbound',
+				content: 'Monday works for the furnace appointment.',
+				occurredAt: arrivedAt
+			},
+			{ ai }
+		);
+		expect(result.matched).toBe(false);
+		expect(result.reason).toBe('no_open_candidates');
+		expect(ai).not.toHaveBeenCalled();
+	});
+
+	it('still offers the earlier email container', async () => {
+		mockPrisma.pipelineCustomerProfile.findMany.mockResolvedValue([]);
+		mockPrisma.commContainer.findMany.mockResolvedValue([
+			candidate({
+				id: 'cnt_own',
+				commRef: '#5248',
+				openedAt: new Date('2026-08-03T17:50:20Z'),
+				lastActivityAt: new Date('2026-08-03T17:50:20Z')
+			}),
+			candidate({ id: 'cnt_email', commRef: '#5247' })
+		]);
+		const ai = vi.fn().mockResolvedValue({
+			linked: true,
+			commRef: '#5247',
+			confidence: 0.9,
+			reason: 'continues the emailed furnace proposal'
+		});
+		const result = await resolveContextContainer(
+			{
+				companyId: 'comp_1',
+				contactId: 'contact_1',
+				channel: 'sms',
+				direction: 'inbound',
+				content: 'Monday works for the furnace appointment.',
+				occurredAt: arrivedAt
+			},
+			{ ai }
+		);
+		expect(result.matched).toBe(true);
+		expect(result.commId).toBe('cnt_email');
+		expect(result.candidates.map((c) => c.id)).toEqual(['cnt_email']);
+	});
+});

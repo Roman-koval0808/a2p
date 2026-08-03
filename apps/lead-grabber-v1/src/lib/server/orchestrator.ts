@@ -420,6 +420,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				direction: 'inbound',
 				subject: commLog.summary || ((commLog.metadata as any)?.subject ?? null),
 				content: (commLog.content || commLog.summary || '').slice(0, 4000),
+				// The message's own arrival time: containers opened AFTER it (the pipeline pre-creates
+				// one per message) cannot be conversations it continues.
+				occurredAt: commLog.created,
 				excludeCommIds: [metadata.commContainerId, metadata.commId].filter(Boolean) as string[]
 			});
 			if (resolution.matched && resolution.commId) {
@@ -663,6 +666,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					direction: 'inbound',
 					subject: commLog.summary || ((commLog.metadata as any)?.subject ?? null),
 					content: rawMessage,
+					occurredAt: commLog.created,
 					excludeCommIds: container ? [container.id] : []
 				});
 				if (res.matched && res.commId && res.commId !== container?.id) {
@@ -932,6 +936,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 							direction: 'inbound',
 							subject: commLog.summary || ((commLog.metadata as any)?.subject ?? null),
 							content: rawMessage,
+							occurredAt: commLog.created,
 							excludeCommIds: supportContainer ? [supportContainer.id] : []
 						});
 						if (res.matched && res.commId && res.commId !== supportContainer?.id) {
@@ -1344,6 +1349,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				subject: commLog.summary || ((commLog.metadata as any)?.subject ?? null),
 				content: (commLog.content || commLog.summary || '').slice(0, 4000),
 				summary: commLog.summary,
+				occurredAt: commLog.created,
 				// The booking/support flows create a container for THIS comm earlier in this
 				// function — never let the matcher pick the comm's own container.
 				excludeCommIds: [metadata.commContainerId, metadata.commId].filter(Boolean) as string[]
