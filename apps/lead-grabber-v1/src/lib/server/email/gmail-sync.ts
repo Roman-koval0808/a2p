@@ -291,14 +291,55 @@ async function syncCompanyEmailsInner(companyId: string) {
 					}
 				});
 				if (existingOutbound) {
-					// Update the existing log with the Gmail message ID if missing
+					// Update the existing log with the Gmail message ID and latest content
 					const meta = (existingOutbound.metadata as Record<string, any>) || {};
+					let needsUpdate = false;
+					const updateData: any = {};
+					const newMeta = { ...meta };
+
 					if (!meta.email_message_id) {
+						newMeta.email_message_id = msgId;
+						updateData.metadata = newMeta;
+						needsUpdate = true;
+					}
+
+					if (existingOutbound.content !== cleanBody || existingOutbound.summary !== subject) {
+						updateData.content = cleanBody;
+						updateData.summary = subject;
+						needsUpdate = true;
+					}
+
+					if (needsUpdate) {
 						await prisma.communicationLog.update({
 							where: { id: existingOutbound.id },
-							data: { metadata: { ...meta, email_message_id: msgId } }
+							data: updateData
 						});
 					}
+
+					// If it now has content but hasn't been reviewed yet (e.g., started as an empty draft), review it now.
+					if (cleanBody && !meta.outbound_reviewed) {
+						Promise.resolve().then(async () => {
+							try {
+								const { reviewOutboundEmail } = await import('./outbound-review');
+								const review = await reviewOutboundEmail({
+									companyId,
+									logId: existingOutbound.id,
+									content: cleanBody,
+									subject,
+									customerEmail,
+									customerPhone: contact?.phone || undefined,
+									customerContactId: contact?.id ?? undefined,
+									fromEmail
+								});
+								console.log(
+									`[gmail-sync] Outbound review (draft->sent): ${review.reviewed ? 'done' : `skipped (${review.reason})`} commRef=${review.commRef || '—'} reused=${review.reusedContainer} tasks=${review.tasksCreated} timer=${review.timerRegistered}`
+								);
+							} catch (reviewErr) {
+								console.error('[gmail-sync] Outbound review error on draft->sent:', reviewErr);
+							}
+						});
+					}
+
 					processed++;
 					continue;
 				}
