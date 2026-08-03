@@ -1,7 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { TELNYX_API_KEY } from '$env/static/private';
-import { getTenantProfiles } from '$lib/server/profiledb/profiles';
 
 export const load: PageServerLoad = async ({ locals, fetch }) => {
 	const user = locals.user;
@@ -10,21 +9,21 @@ export const load: PageServerLoad = async ({ locals, fetch }) => {
 		throw redirect(303, '/login');
 	}
 
-	// 1. Fetch profiles from ProfileDB (same as /profiles page)
+	// 1. Fetch contacts from the contacts table (CommunicationLog source of truth)
 	let contacts: any[] = [];
 	try {
-		const result = await getTenantProfiles(locals.user.company.id, { limit: '100' });
-		if (result.status >= 200 && result.status < 300) {
-			const json = result.body;
-			if (json && Array.isArray(json.data)) {
-				contacts = json.data.map((p: any) => ({
-					name: p.isAnonymous ? (p.clearPhone && p.clearPhone !== '—' ? 'Caller (' + p.clearPhone + ')' : 'Anonymous Lead') : (p.name || 'Anonymous Lead'),
-					phone: p.clearPhone && p.clearPhone !== '—' ? p.clearPhone : (p.phone || '')
-				}));
-			}
-		}
+		const dbContacts = await locals.prisma.contact.findMany({
+			where: { companyId: user.company.id },
+			select: { name: true, phone: true, email: true }
+		});
+		contacts = dbContacts
+			.filter((c: any) => c.name || c.phone)
+			.map((c: any) => ({
+				name: c.name || (c.phone ? `Caller (${c.phone})` : 'Unknown'),
+				phone: c.phone || ''
+			}));
 	} catch (err) {
-		console.error('Failed to load profiles from ProfileDB for dialer:', err);
+		console.error('Failed to load contacts for dialer:', err);
 	}
 
 	// 2. Fetch company phone numbers from DB

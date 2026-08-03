@@ -23,22 +23,34 @@
 
 	const contacts = $derived(data.contacts);
 
+	function looksLikeName(s: string | null | undefined): s is string {
+		if (!s) return false;
+		if (s.length > 60) return false; // reject hashes / long IDs
+		if (/^[0-9a-f]{20,}$/i.test(s)) return false; // hex hash
+		if (/^\d{10,}$/.test(s)) return false; // raw digits
+		const skip = ['Anonymous', 'Unknown', 'Unknown Caller', 'Unknown Customer', 'Anonymous Lead'];
+		if (skip.includes(s.trim())) return false;
+		return true;
+	}
+
 	function getDisplayName(m: any) {
-		const contactNumber = m.direction === 'inbound' ? m.source : m.destination;
-		if (!contactNumber) return m.customer?.name || 'Unknown';
-		
-		const normNum = normalizePhoneNumber(contactNumber);
-		const profileMatch = contacts.find((c: any) => c.phone && normalizePhoneNumber(c.phone) === normNum);
-		
-		if (profileMatch?.name && profileMatch.name !== 'Anonymous Lead' && profileMatch.name !== 'Anonymous' && !profileMatch.name.startsWith('Caller (')) {
-			return profileMatch.name;
-		}
-		
-		if (m.customer?.name && m.customer.name !== 'Anonymous' && m.customer.name !== contactNumber) {
+		// Priority 1: CommunicationLog → Contact name
+		if (looksLikeName(m.customer?.name)) {
 			return m.customer.name;
 		}
-		
-		return contactNumber;
+
+		// Priority 2: Match against contacts list (from contacts table)
+		const contactNumber = m.direction === 'inbound' ? m.source : m.destination;
+		if (contactNumber) {
+			const normNum = normalizePhoneNumber(contactNumber);
+			const match = contacts.find((c: any) => c.phone && normalizePhoneNumber(c.phone) === normNum);
+			if (match && looksLikeName(match.name)) {
+				return match.name;
+			}
+		}
+
+		// Priority 3: raw phone number
+		return contactNumber || 'Unknown';
 	}
 
 	// Set initial selected number when phoneNumbers are loaded
