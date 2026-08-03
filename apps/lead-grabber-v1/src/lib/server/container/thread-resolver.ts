@@ -58,6 +58,8 @@ export interface ResolverResult {
 	commId?: string;
 	candidate?: ContainerCandidate;
 	reason?: string;
+	/** The matcher's certainty (0-1). Callers taking irreversible action must gate on this. */
+	confidence?: number;
 	candidates: ContainerCandidate[];
 }
 
@@ -392,6 +394,7 @@ export async function resolveContextContainer(
 		commId: match.commId,
 		candidate: candidates.find((c) => c.id === match.commId),
 		reason: match.reason,
+		confidence: match.confidence,
 		candidates
 	};
 }

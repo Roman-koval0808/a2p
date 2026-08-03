@@ -674,6 +674,26 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					if (matched) {
 						container = matched;
 						olog(`[Orchestrator] Booking linked to existing conversation ${matched.commRef} (${res.reason}).`);
+
+					// The matcher just concluded this message and that container are the same
+					// conversation — i.e. the same person behind two different identifiers. Feed
+					// that into profile identity so the email profile and phone profile merge.
+					try {
+						const { bridgeIdentitiesForMatchedContainer } = await import(
+							'./container/identity-bridge'
+						);
+						const bridged = await bridgeIdentitiesForMatchedContainer({
+							companyId: company.id,
+							containerId: matched.id,
+							confidence: res.confidence,
+							phone: customerPhone || null,
+							email: customer.email || null,
+							log: olog
+						});
+						if (!bridged.merged) olog(`[IdentityBridge] No merge: ${bridged.reason}.`);
+					} catch (e) {
+						oerr('[IdentityBridge] Profile merge failed (link kept):', e);
+					}
 					}
 				} else {
 					// Say WHY on every path — a silent no-match here is indistinguishable from the
@@ -954,6 +974,26 @@ export async function process_orchestrator(commId: string, trigger: string) {
 							if (matched) {
 								supportContainer = matched;
 								olog(`[Orchestrator] Support linked to existing conversation ${matched.commRef} (${res.reason}).`);
+
+							// The matcher just concluded this message and that container are the same
+							// conversation — i.e. the same person behind two different identifiers. Feed
+							// that into profile identity so the email profile and phone profile merge.
+							try {
+								const { bridgeIdentitiesForMatchedContainer } = await import(
+									'./container/identity-bridge'
+								);
+								const bridged = await bridgeIdentitiesForMatchedContainer({
+									companyId: company.id,
+									containerId: matched.id,
+									confidence: res.confidence,
+									phone: customerPhone || null,
+									email: customer.email || null,
+									log: olog
+								});
+								if (!bridged.merged) olog(`[IdentityBridge] No merge: ${bridged.reason}.`);
+							} catch (e) {
+								oerr('[IdentityBridge] Profile merge failed (link kept):', e);
+							}
 							}
 						} else {
 							olog(
@@ -1423,6 +1463,25 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				olog(
 					`[Orchestrator] Cross-channel: linked ${commLog.type} (${commLog.direction}) to container ${cand.commRef} (${mergeReason})`
 				);
+
+				// Same conversation across channels means one person behind two identifiers —
+				// merge their profiles too.
+				try {
+					const { bridgeIdentitiesForMatchedContainer } = await import(
+						'./container/identity-bridge'
+					);
+					const bridged = await bridgeIdentitiesForMatchedContainer({
+						companyId: commLog.companyId,
+						containerId: cand.id,
+						confidence: resolution.confidence,
+						phone: customerPhone || null,
+						email: customer.email || null,
+						log: olog
+					});
+					if (!bridged.merged) olog(`[IdentityBridge] No merge: ${bridged.reason}.`);
+				} catch (e) {
+					oerr('[IdentityBridge] Profile merge failed (link kept):', e);
+				}
 			} else if (resolution.reason) {
 				olog(`[Orchestrator] Cross-channel: no container match (${resolution.reason})`);
 			}
