@@ -772,6 +772,11 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						// hold_expiry timer, and the hold id so it can flip tentative → booked + create
 						// the calendar event. Without these the /communication-log "Confirm" was a no-op.
 						commId: container.id,
+						// commCode() keys off commRef first and only falls back to the thread id, so
+						// without these the draft hashes the container's cuid while the inbound leg
+						// hashes the "#5233" ref — one container, two COM ids in the UI.
+						commContainerId: container.id,
+						commRef: container.commRef,
 						holdId: bookingResult.hold?.id,
 						proposedDate: bookingResult.hold?.startTime
 							? new Date(bookingResult.hold.startTime).toISOString()
@@ -996,6 +1001,8 @@ export async function process_orchestrator(commId: string, trigger: string) {
 							metadata: {
 								is_system_note: true,
 								commId: commLog.communicationThreadId || commId,
+								commContainerId: metadata.commContainerId || undefined,
+								commRef: metadata.commRef || undefined,
 								thread_id: customerPhone,
 								message_category: 'support',
 								waiting_for_calendar: true,
