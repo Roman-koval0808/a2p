@@ -64,6 +64,14 @@ export interface ResolverResult {
 const MAX_CANDIDATES = 15;
 const MIN_CONFIDENCE = 0.6;
 
+/** Loose comparison key for "is this container just my own message echoed back?". */
+function normalizeForEcho(text: string): string {
+	return (text || '')
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, ' ')
+		.trim();
+}
+
 /**
  * Collect open (non-closed, non-merged) CommContainers for the company that belong to the
  * resolved customer identity — matched by contact id and/or PipelineCustomerProfile ids found
@@ -338,15 +346,24 @@ export async function resolveContextContainer(
 		candidates.push(c);
 	}
 
-	// A conversation you are CONTINUING must have existed before your message arrived. The
-	// ProfileDB pipeline pre-creates a container for each incoming message moments before the
-	// resolver runs, so without this the message is offered its OWN container — whose only entry
-	// is that same text — and the matcher links it to itself ("exact match to the snippet"),
+	// Drop the container the pipeline pre-created for THIS message. Left in, the matcher sees its
+	// own text quoted back and links the message to itself ("exact match to the snippet"),
 	// stranding the real earlier conversation on another id. excludeCommIds only helps when the
-	// caller already knows that container's id, which the SMS path does not.
-	if (input.occurredAt) {
+	// caller already knows that container's id, which the SMS/voice paths do not.
+	//
+	// Both conditions are required. Time alone is not enough: a comm log's `created` is when the
+	// ROW was written — for a voicemail that is the start of the call, which can predate a
+	// container opened while the caller was still talking. Filtering on time alone therefore threw
+	// away legitimate earlier conversations. A self-container is specifically one opened after the
+	// message AND whose content is this same message echoed back.
+	const selfEchoed = normalizeForEcho(input.content || '');
+	if (input.occurredAt && selfEchoed.length >= 12) {
 		const cutoff = input.occurredAt.getTime();
-		candidates = candidates.filter((c) => new Date(c.openedAt).getTime() < cutoff);
+		candidates = candidates.filter((c) => {
+			const openedAfter = new Date(c.openedAt).getTime() >= cutoff;
+			if (!openedAfter) return true;
+			return !normalizeForEcho(c.snippet).includes(selfEchoed);
+		});
 	}
 
 	candidates = candidates.slice(0, MAX_CANDIDATES);

@@ -675,6 +675,16 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						container = matched;
 						olog(`[Orchestrator] Booking linked to existing conversation ${matched.commRef} (${res.reason}).`);
 					}
+				} else {
+					// Say WHY on every path — a silent no-match here is indistinguishable from the
+					// resolver never running, which has cost real debugging time.
+					olog(
+						`[Orchestrator] Booking cross-channel: no link (${res.reason || 'no_reason'}); ` +
+							`${res.candidates.length} candidate(s) considered` +
+							(res.candidates.length
+								? `: ${res.candidates.map((c) => c.commRef).join(', ')}`
+								: '')
+					);
 				}
 			} catch (e) {
 				oerr('[Orchestrator] cross-channel resolve failed:', e);
@@ -945,6 +955,14 @@ export async function process_orchestrator(commId: string, trigger: string) {
 								supportContainer = matched;
 								olog(`[Orchestrator] Support linked to existing conversation ${matched.commRef} (${res.reason}).`);
 							}
+						} else {
+							olog(
+								`[Orchestrator] Support cross-channel: no link (${res.reason || 'no_reason'}); ` +
+									`${res.candidates.length} candidate(s) considered` +
+									(res.candidates.length
+										? `: ${res.candidates.map((c) => c.commRef).join(', ')}`
+										: '')
+							);
 						}
 					} catch (e) {
 						oerr('[Orchestrator] cross-channel resolve failed:', e);

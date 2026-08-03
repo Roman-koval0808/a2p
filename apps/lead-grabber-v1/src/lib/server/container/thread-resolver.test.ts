@@ -494,18 +494,23 @@ describe('resolveContextContainer — self-match guard', () => {
 	// offered back as a candidate and the matcher linked the message to ITSELF ("exact match to the
 	// snippet"), leaving the real earlier conversation on a separate comm id.
 	const arrivedAt = new Date('2026-08-03T17:50:00Z');
+	const message = 'Monday works for the furnace appointment.';
 
-	it('ignores containers opened after the message arrived', async () => {
+	// The container the pipeline just opened for this very message: opened after it arrived, and
+	// its only entry is the message itself.
+	const selfContainer = () =>
+		candidate({
+			id: 'cnt_own',
+			commRef: '#5248',
+			subject: null,
+			openedAt: new Date('2026-08-03T17:50:20Z'),
+			lastActivityAt: new Date('2026-08-03T17:50:20Z'),
+			entries: [{ transcript: message }]
+		});
+
+	it('ignores the container holding only this message echoed back', async () => {
 		mockPrisma.pipelineCustomerProfile.findMany.mockResolvedValue([]);
-		mockPrisma.commContainer.findMany.mockResolvedValue([
-			candidate({
-				id: 'cnt_own',
-				commRef: '#5248',
-				openedAt: new Date('2026-08-03T17:50:20Z'),
-				lastActivityAt: new Date('2026-08-03T17:50:20Z'),
-				snippet: 'Monday works for the furnace appointment.'
-			})
-		]);
+		mockPrisma.commContainer.findMany.mockResolvedValue([selfContainer()]);
 		const ai = vi.fn();
 		const result = await resolveContextContainer(
 			{
@@ -513,7 +518,7 @@ describe('resolveContextContainer — self-match guard', () => {
 				contactId: 'contact_1',
 				channel: 'sms',
 				direction: 'inbound',
-				content: 'Monday works for the furnace appointment.',
+				content: message,
 				occurredAt: arrivedAt
 			},
 			{ ai }
@@ -523,15 +528,10 @@ describe('resolveContextContainer — self-match guard', () => {
 		expect(ai).not.toHaveBeenCalled();
 	});
 
-	it('still offers the earlier email container', async () => {
+	it('still offers the earlier email container alongside it', async () => {
 		mockPrisma.pipelineCustomerProfile.findMany.mockResolvedValue([]);
 		mockPrisma.commContainer.findMany.mockResolvedValue([
-			candidate({
-				id: 'cnt_own',
-				commRef: '#5248',
-				openedAt: new Date('2026-08-03T17:50:20Z'),
-				lastActivityAt: new Date('2026-08-03T17:50:20Z')
-			}),
+			selfContainer(),
 			candidate({ id: 'cnt_email', commRef: '#5247' })
 		]);
 		const ai = vi.fn().mockResolvedValue({
@@ -546,7 +546,7 @@ describe('resolveContextContainer — self-match guard', () => {
 				contactId: 'contact_1',
 				channel: 'sms',
 				direction: 'inbound',
-				content: 'Monday works for the furnace appointment.',
+				content: message,
 				occurredAt: arrivedAt
 			},
 			{ ai }
@@ -554,5 +554,40 @@ describe('resolveContextContainer — self-match guard', () => {
 		expect(result.matched).toBe(true);
 		expect(result.commId).toBe('cnt_email');
 		expect(result.candidates.map((c) => c.id)).toEqual(['cnt_email']);
+	});
+
+	it('keeps a newer container whose content is NOT this message echoed back', async () => {
+		// A voicemail's log row is created when the CALL starts, so a container opened while the
+		// caller was still talking is still a legitimate earlier conversation. Filtering on time
+		// alone threw these away; only self-echoes may be dropped.
+		mockPrisma.pipelineCustomerProfile.findMany.mockResolvedValue([]);
+		mockPrisma.commContainer.findMany.mockResolvedValue([
+			candidate({
+				id: 'cnt_email',
+				commRef: '#5284',
+				subject: 'Furnace Appointment',
+				openedAt: new Date('2026-08-03T17:50:30Z'),
+				entries: [{ transcript: 'want to schedule your furnace check-up for Friday?' }]
+			})
+		]);
+		const ai = vi.fn().mockResolvedValue({
+			linked: true,
+			commRef: '#5284',
+			confidence: 0.9,
+			reason: 'confirms the emailed proposal'
+		});
+		const result = await resolveContextContainer(
+			{
+				companyId: 'comp_1',
+				contactId: 'contact_1',
+				channel: 'voice',
+				direction: 'inbound',
+				content: message,
+				occurredAt: arrivedAt
+			},
+			{ ai }
+		);
+		expect(result.matched).toBe(true);
+		expect(result.commId).toBe('cnt_email');
 	});
 });
