@@ -848,7 +848,10 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					const emailMatch = rawMessage.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
 					const targetEmail = emailMatch
 						? emailMatch[0]
-						: aiIntent?.email || metadata.ai_extracted_email || customer.email || undefined;
+						: (aiIntent as any)?.email ||
+							metadata.ai_extracted_email ||
+							customer.email ||
+							undefined;
 
 					// Fetch ALL upcoming calendar events (don't pre-filter by customer, so we catch manually added events)
 					const { getUpcomingAppointments } = await import('$lib/server/google-calendar');
@@ -888,7 +891,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					}
 
 					const result = await processSupportCallMeetingConfirmation({
-						commId: supportContainer.id,
+						commId: supportContainer!.id,
 						companyId: company.id,
 						customerProfileId: pipelineCustomerProfileId || undefined,
 						contactId: customer.id,

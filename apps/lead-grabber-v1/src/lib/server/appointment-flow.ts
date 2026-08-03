@@ -146,12 +146,20 @@ export async function bookProposedAppointment(opts: {
 	phone: string;
 	proposal: Proposal;
 	proposalCommId: string;
-}): Promise<{ booked: boolean; calendarEventId: string | null; appointmentId: string; message: string }> {
+}): Promise<{
+	booked: boolean;
+	calendarEventId: string | null;
+	appointmentId: string;
+	message: string;
+}> {
 	let resolvedName = opts.contactName?.trim();
 	if (!resolvedName || resolvedName === phone || /^\+?\d+$/.test(resolvedName)) {
 		try {
 			if (contactId) {
-				const c = await prisma.contact.findUnique({ where: { id: contactId }, select: { name: true } });
+				const c = await prisma.contact.findUnique({
+					where: { id: contactId },
+					select: { name: true }
+				});
 				if (c?.name) resolvedName = c.name;
 			}
 			if (!resolvedName && phone) {
@@ -179,7 +187,10 @@ export async function bookProposedAppointment(opts: {
 			addMeet: false
 		});
 	} catch (e: any) {
-		console.error('[appointment-flow] createEvent failed; booking without calendar sync:', e?.message || e);
+		console.error(
+			'[appointment-flow] createEvent failed; booking without calendar sync:',
+			e?.message || e
+		);
 	}
 	const appt = await prisma.appointment.create({
 		data: {
@@ -204,7 +215,11 @@ export async function bookProposedAppointment(opts: {
 			data: {
 				metadata: {
 					...md,
-					proposed_appointment: { ...(md.proposed_appointment || {}), booked: true, appointmentId: appt.id }
+					proposed_appointment: {
+						...(md.proposed_appointment || {}),
+						booked: true,
+						appointmentId: appt.id
+					}
 				}
 			}
 		});
@@ -214,11 +229,15 @@ export async function bookProposedAppointment(opts: {
 	// Notify reps (lazy import keeps firebase off the request module graph).
 	try {
 		const { notifyRepsOfBooking } = await import('./rep-notify');
-		await notifyRepsOfBooking(companyId, `New appointment: ${displayName} (${reason}) — ${proposal.proposedLabel}`, {
-			contactName: displayName,
-			reason,
-			commId: opts.proposalCommId
-		});
+		await notifyRepsOfBooking(
+			companyId,
+			`New appointment: ${displayName} (${reason}) — ${proposal.proposedLabel}`,
+			{
+				contactName: displayName,
+				reason,
+				commId: opts.proposalCommId
+			}
+		);
 	} catch (e: any) {
 		console.error('[appointment-flow] rep notify failed:', e?.message || e);
 	}
