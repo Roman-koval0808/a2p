@@ -182,7 +182,19 @@ export async function reviewOutboundEmail(
 	let reusedContainer = false;
 
 	if (resolution.matched && resolution.commId) {
-		container = { id: resolution.commId, commRef: resolution.candidate?.commRef || '' };
+		// The candidate carries the commRef, but a cross-channel/deduped match can resolve to a
+		// container that isn't in the candidate list. Never fall through with an empty commRef —
+		// the log would then be anchored to its thread id and show a different COM id than the
+		// rest of the conversation. Read it off the container instead.
+		let commRef = resolution.candidate?.commRef || '';
+		if (!commRef) {
+			const row = await prisma.commContainer.findUnique({
+				where: { id: resolution.commId },
+				select: { commRef: true }
+			});
+			commRef = row?.commRef || '';
+		}
+		container = { id: resolution.commId, commRef };
 		reusedContainer = true;
 	} else {
 		const createResult = await createContainerAtIntake(prisma, {
