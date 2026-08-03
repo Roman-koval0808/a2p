@@ -11,7 +11,16 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 	depends('app:communication-log');
 
 	if (!locals.user || !locals.user.company) {
-		return { logs: [], members: [], useA2pCommLog: false, totalCount: 0, limit: 20, page: 1, bookingUrl: null, googleCalendar: { connected: false, email: null } };
+		return {
+			logs: [],
+			members: [],
+			useA2pCommLog: false,
+			totalCount: 0,
+			limit: 20,
+			page: 1,
+			bookingUrl: null,
+			googleCalendar: { connected: false, email: null }
+		};
 	}
 
 	const limitParam = url.searchParams.get('limit');
@@ -96,7 +105,7 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 		// Map communication logs
 		const mappedLogs = dbLogs.map((log) => {
 			const assignedMemberNames = log.assignedMembers.map((am) => am.user.name || am.user.email);
-			
+
 			let status = 'green';
 			if (log.status === 'pending_approval') {
 				status = 'blue';
@@ -111,10 +120,16 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 			const isOutbound = log.direction === 'outbound';
 			let customerValue = isOutbound ? log.destination : log.source;
 			let companyValue = isOutbound ? log.source : log.destination;
-			
+
 			// Treat placeholder names as "no name" so we show the phone number instead of
 			// a useless "Unknown Caller" for the source/endpoint.
-			const GENERIC_NAMES = ['Unknown Caller', 'Unknown Customer', 'Anonymous', 'Unknown', 'Valued Customer'];
+			const GENERIC_NAMES = [
+				'Unknown Caller',
+				'Unknown Customer',
+				'Anonymous',
+				'Unknown',
+				'Valued Customer'
+			];
 			// The thread's contact is only the right label when the endpoint on THIS row is actually
 			// that person. Emergency dispatch rows join the customer's thread but are addressed to a
 			// technician — labelling that leg with the customer's name said the system was calling the
@@ -133,7 +148,8 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 						threadContact.email.toLowerCase() === customerValue.toLowerCase()));
 			const rawContactName =
 				log.customer?.name || (threadContactMatchesEndpoint ? threadContact?.name : '') || '';
-			const realName = rawContactName && !GENERIC_NAMES.includes(rawContactName) ? rawContactName : '';
+			const realName =
+				rawContactName && !GENERIC_NAMES.includes(rawContactName) ? rawContactName : '';
 			const customerNameOrPhone = realName || customerValue || '—';
 			const companyNameOrPhone = companyValue || companyId;
 
@@ -141,7 +157,7 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 			// If outbound: company sent it (source), customer received it (destination)
 			let displaySource = isOutbound ? companyNameOrPhone : customerNameOrPhone;
 			let displayDestination = isOutbound ? customerNameOrPhone : companyNameOrPhone;
-			
+
 			// Any row carrying `recipients` was addressed to on-call staff, not the customer — the
 			// initial dispatch AND the escalation legs, which set `is_escalation` instead of
 			// `is_emergency_dispatch` and so used to fall through to the customer's name.
@@ -161,10 +177,9 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 			// COM ID identifies the THREAD (topic/context): every message the thread-matcher linked
 			// into the same conversation shares one random-LOOKING code; a different context — even
 			// from the same customer — is a different thread and gets a different code. Unlinked
-			// (brand-new) messages anchor on their own id.
-			const convoCode = commCode(log.communicationThreadId, log.id);
-
-
+			// (brand-new) messages anchor on their own id. Rows linked to a CommContainer display
+			// the container's commRef as the shared code (cross-channel threading).
+			const convoCode = commCode(log.communicationThreadId, log.id, meta.commRef);
 
 			return {
 				id: log.id,
@@ -235,6 +250,15 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 		};
 	} catch (err) {
 		console.error('Error loading communication logs:', err);
-		return { logs: [], members: [], useA2pCommLog: false, totalCount: 0, limit: 20, page: 1, bookingUrl: null, googleCalendar: { connected: false, email: null } };
+		return {
+			logs: [],
+			members: [],
+			useA2pCommLog: false,
+			totalCount: 0,
+			limit: 20,
+			page: 1,
+			bookingUrl: null,
+			googleCalendar: { connected: false, email: null }
+		};
 	}
 };

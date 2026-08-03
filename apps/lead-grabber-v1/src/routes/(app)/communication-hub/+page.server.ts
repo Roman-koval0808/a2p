@@ -57,8 +57,7 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 			const meta = (log.metadata as Record<string, any>) || {};
 			const isOutbound = log.direction === 'outbound';
 
-			const rawContactName =
-				log.customer?.name || log.communicationThread?.contact?.name || '';
+			const rawContactName = log.customer?.name || log.communicationThread?.contact?.name || '';
 			const realName =
 				rawContactName && !GENERIC_NAMES.includes(rawContactName) ? rawContactName : '';
 
@@ -92,9 +91,11 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 				ext: '',
 				company: log.customer?.companyName || '',
 				disposition,
-				// Fields used by the AI Summary popup.
-				commId: commCode(log.communicationThreadId, log.id),
-				category: cap(meta.message_category) || cap(meta.category_gpt) || cap(meta.intent) || 'General',
+				// Fields used by the AI Summary popup. Rows linked to a CommContainer display the
+				// container's commRef as the shared code (cross-channel threading).
+				commId: commCode(log.communicationThreadId, log.id, meta.commRef),
+				category:
+					cap(meta.message_category) || cap(meta.category_gpt) || cap(meta.intent) || 'General',
 				subCategory: cap(meta.subcat_gpt) || cap(meta.sub_intent) || 'General',
 				email: log.type === 'email' ? (isOutbound ? log.destination : log.source) || '' : source,
 				subject: meta.subject || log.summary || 'No subject',

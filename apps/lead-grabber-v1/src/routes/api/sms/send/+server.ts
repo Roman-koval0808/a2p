@@ -41,6 +41,29 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	}
 	fromNumber = fromNumber ?? TELNYX_PHONE_NUMBER;
 
+	// Reuse the customer's most-recent conversation (48h window, same phone on either leg) so a
+	// sent SMS and the customer's reply group under ONE COM id instead of starting a new thread —
+	// mirrors what the email sweep does for outbound mail. The returned id may be a legacy thread
+	// id or a CommContainer id (booking flows bridge threads onto containers).
+	async function findRecentThreadId(companyId: string, phone: string): Promise<string | null> {
+		try {
+			const recent = await prisma.communicationLog.findFirst({
+				where: {
+					companyId,
+					OR: [{ source: phone }, { destination: phone }],
+					communicationThreadId: { not: null },
+					created: { gte: new Date(Date.now() - 48 * 3600 * 1000) }
+				},
+				select: { communicationThreadId: true },
+				orderBy: { created: 'desc' }
+			});
+			return recent?.communicationThreadId ?? null;
+		} catch (e) {
+			console.error('[Telnyx SMS] Failed to find recent thread:', e);
+			return null;
+		}
+	}
+
 	const results: { recipient: string; messageId?: string; status: string; error?: string }[] = [];
 	for (const to of recipients) {
 		const formatted = normalizePhoneNumber(to);
@@ -93,6 +116,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 					customer_id: customerId ?? undefined,
 					summary: message.slice(0, 50) + (message.length > 50 ? '...' : ''),
 					content: message,
+					thread_id: (await findRecentThreadId(auth.companyId, formatted)) || undefined,
 					metadata: { telnyx_id: result.data.id, thread_id: formatted }
 				});
 				results.push({ recipient: formatted, messageId: result.data.id, status: 'sent' });

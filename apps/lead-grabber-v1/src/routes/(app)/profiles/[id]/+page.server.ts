@@ -33,7 +33,11 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			where: { companyId: user.company.id, role: 'member' },
 			include: { user: true }
 		});
-		representatives = members.map(m => ({ id: m.user.id, name: m.user.name, email: m.user.email }));
+		representatives = members.map((m) => ({
+			id: m.user.id,
+			name: m.user.name,
+			email: m.user.email
+		}));
 	}
 
 	try {
@@ -65,8 +69,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				occurredAt: log.created,
 				pageUrl: md.pageUrl ?? null,
 				name: md.callerName ?? dbContact.name ?? null,
-				phone: isEmail ? null : (log.direction === 'inbound' ? log.source : log.destination),
-				email: isEmail ? (log.direction === 'inbound' ? log.source : log.destination) : (dbContact.email ?? null),
+				phone: isEmail ? null : log.direction === 'inbound' ? log.source : log.destination,
+				email: isEmail
+					? log.direction === 'inbound'
+						? log.source
+						: log.destination
+					: (dbContact.email ?? null),
 				payload: { ...md, textContent: log.content ?? undefined }
 			};
 		});
@@ -97,9 +105,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 		historyEvents.forEach((ev: any) => {
 			const payload = ev.payload || {};
-			const emailVal = payload.email || payload.metadata?.email || payload.payload?.email || ev.email || null;
-			let nameVal = payload.name || payload.metadata?.name || payload.payload?.name || ev.name || null;
-			const phoneVal = payload.phone || payload.metadata?.phone || payload.payload?.phone || ev.phone || null;
+			const emailVal =
+				payload.email || payload.metadata?.email || payload.payload?.email || ev.email || null;
+			let nameVal =
+				payload.name || payload.metadata?.name || payload.payload?.name || ev.name || null;
+			const phoneVal =
+				payload.phone || payload.metadata?.phone || payload.payload?.phone || ev.phone || null;
 
 			// Do not record "Unknown Caller" or Anonymous as valid identity updates
 			if (nameVal === 'Unknown Caller' || nameVal === 'Anonymous') {
@@ -176,19 +187,22 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		else if (cdpProfile.scoreLive >= 50 || (viewedService && viewedPricing)) intentLevel = 'High';
 		else if (viewedService) intentLevel = 'Medium';
 
-		let interpretation = 'Monitor page views and visitor interaction logs to build a behavioral profile.';
+		let interpretation =
+			'Monitor page views and visitor interaction logs to build a behavioral profile.';
 		let recAction = 'Monitor Behavior';
 
 		const isAnonymous = !clearEmail && !clearPhone;
 		if (cdpProfile.intentBucket === 'emergency') {
-			interpretation = 'Active emergency situation detected. Urgent assistance required. Auto-dispatching technician.';
+			interpretation =
+				'Active emergency situation detected. Urgent assistance required. Auto-dispatching technician.';
 			recAction = 'Verify dispatch status';
 		} else if (intentLevel === 'High' && !formSubmitted) {
 			interpretation =
 				"Visitor viewed service pages and pricing, showing strong buying intent but hasn't booked yet. Recommend showing a limited-time promo banner or exit intent discount.";
 			recAction = 'Show 20% Promo Banner';
 		} else if (formSubmitted) {
-			interpretation = 'Visitor successfully submitted a lead capture form. Follow-up workflow initiated.';
+			interpretation =
+				'Visitor successfully submitted a lead capture form. Follow-up workflow initiated.';
 			recAction = 'Queue follow-up draft';
 		} else if (intentLevel === 'Very High' && !isAnonymous) {
 			interpretation =
@@ -198,7 +212,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 		// 5. Query CommunicationLog for the table
 		const dbLogs = await prisma.communicationLog.findMany({
-			where: { 
+			where: {
 				companyId: locals.user.company.id,
 				OR: [
 					{ customerId: params.id },
@@ -221,13 +235,13 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 					mime: a.mime ?? '',
 					direction: log.direction,
 					created: log.created.toISOString(),
-					commId: commCode(log.communicationThreadId, log.id),
+					commId: commCode(log.communicationThreadId, log.id, md.commRef),
 					summary: log.summary || ''
 				}));
 			})
 			.sort((a, b) => b.created.localeCompare(a.created));
 
-		const comms = dbLogs.map(log => {
+		const comms = dbLogs.map((log) => {
 			const dateObj = new Date(log.created);
 			const date = dateObj.toLocaleDateString('en-US', {
 				month: 'short',
@@ -276,10 +290,15 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 			// Random-looking per-THREAD COM ID (hash of the thread id, anchored on the message's own
 			// id when unlinked) — related messages share it, a different context gets a new one.
-			const convoCode = commCode(log.communicationThreadId, log.id);
-			
+			// Rows linked to a CommContainer display the container's commRef (cross-channel).
+			const convoCode = commCode(log.communicationThreadId, log.id, meta.commRef);
+
 			let endpoint = log.destination || locals.user.company.id;
-			if (log.direction === 'outbound' && meta.is_emergency_dispatch && Array.isArray(meta.recipients)) {
+			if (
+				log.direction === 'outbound' &&
+				meta.is_emergency_dispatch &&
+				Array.isArray(meta.recipients)
+			) {
 				endpoint = meta.recipients.map((r: any) => r.name || r.number).join(', ');
 			}
 
@@ -306,7 +325,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				...cdpProfile,
 				clearPhone,
 				clearEmail,
-				past_names: identityHistory.filter(h => h.field === 'Name').map(h => h.newValue)
+				past_names: identityHistory.filter((h) => h.field === 'Name').map((h) => h.newValue)
 			},
 			accountBalance: dbContact?.accountBalance ?? null,
 			engagementScore: dbContact.engagementScore ?? 0,

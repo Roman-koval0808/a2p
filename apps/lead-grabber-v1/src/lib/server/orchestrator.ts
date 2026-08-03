@@ -3,8 +3,18 @@ import { logCommunication } from '$lib/utils/communication-log';
 import { toE164 } from '$lib/company-numbers';
 import { extractCallbackNumber } from '$lib/utils/phone';
 import { decideRouting, isOffHours } from '$lib/server/emergency-routing';
-import { classifyMessageIntent, bucketToCategory, looksLikeActiveEmergency } from './message-intent';
-import { checkCalendarAvailability, formatDatetime, describeLocations, describeDayHours, resolveNamedDays } from './calendar';
+import {
+	classifyMessageIntent,
+	bucketToCategory,
+	looksLikeActiveEmergency
+} from './message-intent';
+import {
+	checkCalendarAvailability,
+	formatDatetime,
+	describeLocations,
+	describeDayHours,
+	resolveNamedDays
+} from './calendar';
 import { getBookingUrl, bookingLinkWith } from '$lib/utils/booking';
 import { resolveBalanceByPhone } from './balance';
 import {
@@ -18,7 +28,12 @@ import {
 import { ANTHROPIC_AI_KEY } from '$env/static/private';
 import { isInternalCaller } from '$lib/server/internal-call-guard';
 import { sendCallbackAck } from '$lib/server/callback-ack';
-import { isAffirmative, proposeAppointment, findPendingProposal, bookProposedAppointment } from '$lib/server/appointment-flow';
+import {
+	isAffirmative,
+	proposeAppointment,
+	findPendingProposal,
+	bookProposedAppointment
+} from '$lib/server/appointment-flow';
 import { buildBalanceEmail, wantsEmailedBalance } from '$lib/server/billing-email';
 import { phoneGeo, dayOfWeek, lookupLineType } from '$lib/server/phone-geo';
 import { weatherForLocation } from '$lib/server/weather';
@@ -43,11 +58,11 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// Fetch the communication log
 	const commLog = await prisma.communicationLog.findUnique({
 		where: { id: commId },
-		include: { 
+		include: {
 			company: {
 				include: { locations: true }
-			}, 
-			customer: true 
+			},
+			customer: true
 		}
 	});
 
@@ -83,8 +98,8 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// Inbound logs are source=customer / destination=company; dialer outbound logs are the
 	// reverse (source=company / destination=customer). Flip so the whole flow below — profile
 	// lookup, SMS from/to, booking link, callback number — always sees the customer's number.
-	const companyNumber = toE164(isDialerOutbound ? (commLog.source || '') : cleanDestination);
-	const customerPhone = toE164(isDialerOutbound ? (commLog.destination || '') : (commLog.source || ''));
+	const companyNumber = toE164(isDialerOutbound ? commLog.source || '' : cleanDestination);
+	const customerPhone = toE164(isDialerOutbound ? commLog.destination || '' : commLog.source || '');
 
 	// Company Gmail address (the account any email draft is sent FROM). Best-effort: if the
 	// company hasn't connected Gmail, we fall back to the customer email so the UI still shows
@@ -123,7 +138,10 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// as customer contacts would score a false emergency.
 	if (
 		commLog.companyId &&
-		(await isInternalCaller(commLog.companyId, isDialerOutbound ? (commLog.destination || '') : (commLog.source || '')))
+		(await isInternalCaller(
+			commLog.companyId,
+			isDialerOutbound ? commLog.destination || '' : commLog.source || ''
+		))
 	) {
 		olog('[Orchestrator] Internal/operational caller — skipping customer classification.');
 		return;
@@ -140,9 +158,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// available (0s)". That is call metadata, not something the customer said. Treating it as a
 	// message made the AI try to reply to it and narrate its own limitations instead:
 	// "I understand you've left a voicemail, but I'm not able to listen to recordings through text."
-	const hasCustomerMessage = !/^\s*call\s+(completed|recording available)\s*\(\d+s\)\s*$/i.test(
-		rawMessage.trim()
-	) && rawMessage.trim().length > 0;
+	const hasCustomerMessage =
+		!/^\s*call\s+(completed|recording available)\s*\(\d+s\)\s*$/i.test(rawMessage.trim()) &&
+		rawMessage.trim().length > 0;
 	const digitCategory: 'billing' | 'sales' | 'support' | null =
 		digit === '1' ? 'billing' : digit === '2' ? 'sales' : digit === '3' ? 'support' : null;
 
@@ -191,7 +209,8 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			`[Orchestrator] AI intent: ${aiIntent.intent_bucket} (urgency ${aiIntent.urgency}, appt ${aiIntent.wants_appointment}, balance ${aiIntent.wants_balance}, callback ${aiIntent.wants_callback}, conf ${aiIntent.confidence}) -> ${messageCategory}`
 		);
 		if (aiIntent.reason) olog(`[Orchestrator] AI reason: ${aiIntent.reason}`);
-		if (aiIntent.needs_human_review) olog('[Orchestrator] AI flagged this for human review (low confidence / ambiguous).');
+		if (aiIntent.needs_human_review)
+			olog('[Orchestrator] AI flagged this for human review (low confidence / ambiguous).');
 	} else {
 		// Classification unavailable (empty message or AI error): route to a human, never guess.
 		messageCategory = 'support';
@@ -203,7 +222,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// be routed to booking/sales/support because the AI weighed a scheduling mention over the
 	// danger. This is exactly what happened to Brahma's roof leak ("water coming into my kitchen").
 	if (messageCategory !== 'emergency' && looksLikeActiveEmergency(rawMessage)) {
-		olog(`[Orchestrator] Emergency backstop: message describes an ACTIVE emergency but AI classified "${messageCategory}" — forcing emergency.`);
+		olog(
+			`[Orchestrator] Emergency backstop: message describes an ACTIVE emergency but AI classified "${messageCategory}" — forcing emergency.`
+		);
 		messageCategory = 'emergency';
 	}
 
@@ -239,7 +260,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				where: {
 					companyId: company.id,
 					OR: [
-						...(pipelineCustomerProfileId ? [{ customerProfileId: pipelineCustomerProfileId }] : []),
+						...(pipelineCustomerProfileId
+							? [{ customerProfileId: pipelineCustomerProfileId }]
+							: []),
 						{ contactId: customer.id }
 					],
 					state: 'open',
@@ -248,7 +271,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				}
 			});
 			if (hasOpenEmergency) {
-				olog(`[Orchestrator] Scenario 3 backstop: urgent message during an open emergency. Forcing "${messageCategory}" to emergency.`);
+				olog(
+					`[Orchestrator] Scenario 3 backstop: urgent message during an open emergency. Forcing "${messageCategory}" to emergency.`
+				);
 				messageCategory = 'emergency';
 			}
 		}
@@ -257,7 +282,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// Scenario 1 backstop: if the caller explicitly pressed Support, but asked for a meeting,
 	// keep it in the Support flow so the Calendar Verification logic can run, instead of hijacking it to Sales.
 	if (digitCategory === 'support' && messageCategory === 'sales' && aiIntent?.wants_appointment) {
-		olog(`[Orchestrator] Scenario 1 backstop: caller pressed Support but asked for a meeting. Keeping as Support.`);
+		olog(
+			`[Orchestrator] Scenario 1 backstop: caller pressed Support but asked for a meeting. Keeping as Support.`
+		);
 		messageCategory = 'support';
 	}
 
@@ -274,7 +301,12 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// T3.1: pre-approved callback acknowledgement ("a representative will call you in X minutes").
 	// Fires without human approval, but sendCallbackAck gates it on config (sms_auto_reply_allowed),
 	// transactional consent, and office hours. Deduped so a re-delivered webhook can't double-send.
-	if (aiIntent?.wants_callback && !metadata.callback_ack_sent && commLog.companyId && customerPhone) {
+	if (
+		aiIntent?.wants_callback &&
+		!metadata.callback_ack_sent &&
+		commLog.companyId &&
+		customerPhone
+	) {
 		try {
 			const ack = await sendCallbackAck({
 				companyId: commLog.companyId,
@@ -313,7 +345,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// caller, BOOK it now — create the calendar event, persist the Appointment, notify the rep.
 	let bookedConfirmation: string | null = null;
 	if (isAffirmative(rawMessage) && commLog.companyId && customerPhone) {
-		olog(`[Orchestrator] Affirmative reply detected — looking for a pending proposal for ${customerPhone}.`);
+		olog(
+			`[Orchestrator] Affirmative reply detected — looking for a pending proposal for ${customerPhone}.`
+		);
 		const pending = await findPendingProposal(commLog.companyId, customerPhone);
 		olog(
 			pending
@@ -341,11 +375,16 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					calendarEventId: result.calendarEventId,
 					when: pending.proposal.proposedStartISO
 				};
-				olog(`[Orchestrator] Auto-booked appointment ${result.appointmentId} from affirmative reply.`);
+				olog(
+					`[Orchestrator] Auto-booked appointment ${result.appointmentId} from affirmative reply.`
+				);
 			} catch (e) {
 				// Never leave an affirmative reply to fall through to the generic/agentic path
 				// (which can ramble). Confirm the time and flag it for manual calendar entry.
-				oerr('[Orchestrator] Auto-book failed; confirming anyway and flagging for manual entry:', e);
+				oerr(
+					'[Orchestrator] Auto-book failed; confirming anyway and flagging for manual entry:',
+					e
+				);
 				bookedConfirmation = `You're all set — we've got you down for ${pending.proposal.proposedLabel}. See you then!`;
 				metadata.appointment_booked = { manual: true, when: pending.proposal.proposedStartISO };
 				metadata.needs_manual_calendar = true;
@@ -354,13 +393,16 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	}
 
 	let draftedResponse = '';
-	let draftChannel: 'sms' | 'email' = (metadata.requested_contact_method === 'email' || commLog.type === 'email') ? 'email' : 'sms';
+	let draftChannel: 'sms' | 'email' =
+		metadata.requested_contact_method === 'email' || commLog.type === 'email' ? 'email' : 'sms';
 	let emailSubject = '';
 	let proposedAppointment: any = null;
 	let skipSafetyNet = false;
 	let scenarioLocked = false; // a scenario produced a specific draft — don't let the conversational reply override it
 
-	olog(`[Orchestrator] Debug -> digit: "${digit}", intent: "${intent}", sub_intent: "${sub_intent}"`);
+	olog(
+		`[Orchestrator] Debug -> digit: "${digit}", intent: "${intent}", sub_intent: "${sub_intent}"`
+	);
 
 	// Engagement score: a sales/booking message is a hot opportunity; an emergency is urgent
 	// and high-value to retain. Billing (already a paying customer) and plain support don't move it.
@@ -382,7 +424,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// There is nothing to reply TO, so we must not ask the AI to try. Acknowledge the missed call
 	// honestly and invite them to say what they need — never pretend to have heard something.
 	else if (!hasCustomerMessage) {
-		olog('[Orchestrator] No customer message (call metadata only) — using the missed-call acknowledgement.');
+		olog(
+			'[Orchestrator] No customer message (call metadata only) — using the missed-call acknowledgement.'
+		);
 		const dept = digitCategory ? ` about ${digitCategory}` : '';
 		draftedResponse = `Hi${customer.name ? ` ${customer.name}` : ''}, sorry we missed your call${dept} just now. Reply here with what you need and we'll help, or we'll call you back shortly. — ${company.name || 'our team'}`;
 		metadata.no_customer_message = true;
@@ -433,7 +477,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		);
 		olog(
 			`[Orchestrator] Balance resolved: ${
-				balance === null || balance === undefined ? 'none on file' : '$' + Number(balance).toFixed(2)
+				balance === null || balance === undefined
+					? 'none on file'
+					: '$' + Number(balance).toFixed(2)
 			}.`
 		);
 		// Only STATE the balance when the customer actually asks for it (or asks to be emailed it).
@@ -459,7 +505,11 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				scenarioLocked = true;
 			} else if (customer.email && wantsEmailedBalance(rawMessage)) {
 				olog('[Orchestrator] Billing: emailing the balance statement.');
-				const em = buildBalanceEmail({ customerName: customer.name, balance, companyName: company.name });
+				const em = buildBalanceEmail({
+					customerName: customer.name,
+					balance,
+					companyName: company.name
+				});
 				draftedResponse = em.htmlContent;
 				draftChannel = 'email';
 				emailSubject = em.subject;
@@ -476,7 +526,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 	// --- SCENARIO 2: SALES / BOOKING (message is about sales/booking) ---
 	else if (messageCategory === 'sales' || String(metadata.ai_intent).toLowerCase() === 'sales') {
-		olog('[Orchestrator] Detected Scenario 2: Sales / Booking Request, initiating Confirmation Loop...');
+		olog(
+			'[Orchestrator] Detected Scenario 2: Sales / Booking Request, initiating Confirmation Loop...'
+		);
 		scenarioLocked = true;
 		// A booking draft may only be created from an EXPLICIT, parseable date the customer
 		// named. Vague mentions ("sometime next week") or garbage strings fall through to the
@@ -485,7 +537,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		const hasExplicitDatetime = !!bookingDatetime && !isNaN(bookingDatetime.getTime());
 		if (hasExplicitDatetime) {
 			const { processSalesVoicemailBooking } = await import('./scenarios/s4-sms-booking');
-			
+
 			// Stubbed resources since this is a platform-agnostic setup
 			const availableResources = {
 				personnel: ['u_sales_owner'],
@@ -508,7 +560,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				where: {
 					companyId: company.id,
 					OR: [
-						...(pipelineCustomerProfileId ? [{ customerProfileId: pipelineCustomerProfileId }] : []),
+						...(pipelineCustomerProfileId
+							? [{ customerProfileId: pipelineCustomerProfileId }]
+							: []),
 						{ contactId: customer.id }
 					],
 					state: { not: 'closed' }
@@ -549,12 +603,12 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 				await prisma.communicationLog.update({
 					where: { id: commLog.id },
-					data: { 
+					data: {
 						metadata: { ...metadata },
 						communicationThreadId: container.id
 					}
 				});
-				
+
 				// Update our local reference so any fall-through logic uses the right ID
 				commLog.communicationThreadId = container.id;
 			} catch (e) {
@@ -582,7 +636,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				const isEmailDraft = bookingResult.approval.draftType === 'email';
 				// Pull the "Subject:" line out of the draft so the confirm step emails a real subject
 				// (and not the generic "Booking Confirmation Approval" summary).
-				const subjMatch = (bookingResult.approval.draftContent || '').match(/^\s*Subject:\s*(.+)$/im);
+				const subjMatch = (bookingResult.approval.draftContent || '').match(
+					/^\s*Subject:\s*(.+)$/im
+				);
 				const draftSubject = subjMatch ? subjMatch[1].trim() : undefined;
 				await logCommunication({
 					type: (bookingResult.approval.draftType || 'sms') as any,
@@ -594,7 +650,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					source: isEmailDraft
 						? companyEmail || metadata.ai_extracted_email || customer.email || customerPhone
 						: companyNumber,
-					destination: isEmailDraft ? (metadata.ai_extracted_email || customer.email || customerPhone) : customerPhone,
+					destination: isEmailDraft
+						? metadata.ai_extracted_email || customer.email || customerPhone
+						: customerPhone,
 					company_id: company.id,
 					customer_id: customer.id,
 					summary: 'Booking Confirmation Approval',
@@ -678,130 +736,140 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 		// Scenario 1: Support Call Calendar Verification
 		if (aiIntent?.wants_appointment) {
-			olog('[Orchestrator] Support call requested a meeting. Triggering Scenario 1 Verification...');
+			olog(
+				'[Orchestrator] Support call requested a meeting. Triggering Scenario 1 Verification...'
+			);
 			// Calendar verification needs an EXPLICIT datetime the customer named. Without one
 			// (e.g. "I'd like to come in sometime") the hardcoded Wednesday/10:00 defaults would
 			// check a made-up slot — fall through and ask for a day/time instead.
 			const meetingDatetime = datetime ? new Date(datetime) : null;
 			const hasExplicitMeetingDatetime = !!meetingDatetime && !isNaN(meetingDatetime.getTime());
 			if (!hasExplicitMeetingDatetime) {
-				olog('[Orchestrator] Support meeting requested without an explicit datetime — asking for day/time.');
+				olog(
+					'[Orchestrator] Support meeting requested without an explicit datetime — asking for day/time.'
+				);
 				draftedResponse = `Hi ${customer.name || 'there'}, happy to set that up! What day and time works best for you?`;
 			} else {
-			try {
-				const { processSupportCallMeetingConfirmation } = await import('./scenarios/s1-meeting-confirm');
-				
-				let hour = 10;
-				let minute = 0;
-				let transcriptWeekday = 'Wednesday';
-				if (datetime) {
-					try {
-						const dt = new Date(datetime);
-						if (!isNaN(dt.getTime())) {
-							hour = dt.getHours();
-							minute = dt.getMinutes();
-							transcriptWeekday = dt.toLocaleDateString('en-US', { weekday: 'long' });
-						}
-					} catch (e) {}
-				}
+				try {
+					const { processSupportCallMeetingConfirmation } =
+						await import('./scenarios/s1-meeting-confirm');
 
-				// Look for email in message (or rely on AI extraction)
-				const emailMatch = rawMessage.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-				const targetEmail = emailMatch ? emailMatch[0] : (aiIntent?.email || metadata.ai_extracted_email || customer.email || undefined);
-
-				// Fetch ALL upcoming calendar events (don't pre-filter by customer, so we catch manually added events)
-				const { getUpcomingAppointments } = await import('$lib/server/google-calendar');
-				const rawAppts = await getUpcomingAppointments(company.id, 7);
-				
-				const realCalendarEntries = rawAppts.map(a => ({
-					id: a.id,
-					title: a.summary || 'Appointment',
-					startTime: new Date(a.start?.dateTime || a.start?.date),
-					attendees: (a.attendees || []).map((att: any) => att.email)
-				}));
-
-				let supportContainer = await prisma.commContainer.findFirst({
-					where: {
-						companyId: company.id,
-						OR: [
-							...(pipelineCustomerProfileId ? [{ customerProfileId: pipelineCustomerProfileId }] : []),
-							{ contactId: customer.id }
-						],
-						state: { not: 'closed' }
-					},
-					orderBy: { openedAt: 'desc' }
-				});
-
-				if (!supportContainer) {
-					const { createContainerAtIntake } = await import('$lib/server/container/container-service');
-					const createResult = await createContainerAtIntake(prisma, {
-						companyId: company.id,
-						customerProfileId: pipelineCustomerProfileId || null,
-						contactId: customer.id,
-						threadType: 'general'
-					});
-					supportContainer = createResult.container;
-				}
-
-				const result = await processSupportCallMeetingConfirmation({
-					commId: supportContainer.id,
-					companyId: company.id,
-					customerProfileId: pipelineCustomerProfileId || undefined,
-					contactId: customer.id,
-					customerName: customer.name || undefined,
-					repEnteredEmail: undefined,
-					aiExtractedEmail: targetEmail,
-					transcriptWeekday,
-					transcriptDateStr: undefined,
-					transcriptHour: hour,
-					transcriptMinute: minute,
-					callStartTime: new Date(),
-					calendarEntries: realCalendarEntries,
-					hasMeetingSignal: true,
-					now: new Date()
-				});
-
-				if (result.draftCreated && result.approval) {
-					olog('[Orchestrator] Scenario 1: Calendar verified, drafting email.');
-					draftChannel = 'email';
-					if (targetEmail) {
-						emailSubject = 'Meeting Confirmation';
-						draftedResponse = result.approval.draftContent;
-						scenarioLocked = true;
+					let hour = 10;
+					let minute = 0;
+					let transcriptWeekday = 'Wednesday';
+					if (datetime) {
+						try {
+							const dt = new Date(datetime);
+							if (!isNaN(dt.getTime())) {
+								hour = dt.getHours();
+								minute = dt.getMinutes();
+								transcriptWeekday = dt.toLocaleDateString('en-US', { weekday: 'long' });
+							}
+						} catch (e) {}
 					}
-				} else if (result.blocked) {
-					olog(`[Orchestrator] Scenario 1 Verification Blocked: ${result.reason}`);
-				} else if (result.inGracePeriod) {
-					olog(`[Orchestrator] Scenario 1: Meeting not found, started grace period timer.`);
-					
-					await logCommunication({
-						type: 'voice',
-						direction: 'outbound',
-						status: 'pending',
-						source: 'System',
-						destination: customer.name || customerPhone,
-						company_id: company.id,
-						customer_id: customer.id,
-						summary: `Waiting for Calendar Verification (15m)`,
-						content: `System checked calendar for ${transcriptWeekday} at ${hour}:${minute.toString().padStart(2, '0')} but found no matching event. Waiting 15 minutes for representative to add it before failing.`,
-						metadata: {
-							is_system_note: true,
-							commId: commLog.communicationThreadId || commId,
-							thread_id: customerPhone,
-							message_category: 'support',
-							waiting_for_calendar: true,
-							timer_due_at: new Date(Date.now() + 15 * 60 * 1000).toISOString()
-						}
+
+					// Look for email in message (or rely on AI extraction)
+					const emailMatch = rawMessage.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+					const targetEmail = emailMatch
+						? emailMatch[0]
+						: aiIntent?.email || metadata.ai_extracted_email || customer.email || undefined;
+
+					// Fetch ALL upcoming calendar events (don't pre-filter by customer, so we catch manually added events)
+					const { getUpcomingAppointments } = await import('$lib/server/google-calendar');
+					const rawAppts = await getUpcomingAppointments(company.id, 7);
+
+					const realCalendarEntries = rawAppts.map((a) => ({
+						id: a.id,
+						title: a.summary || 'Appointment',
+						startTime: new Date(a.start?.dateTime || a.start?.date),
+						attendees: (a.attendees || []).map((att: any) => att.email)
+					}));
+
+					let supportContainer = await prisma.commContainer.findFirst({
+						where: {
+							companyId: company.id,
+							OR: [
+								...(pipelineCustomerProfileId
+									? [{ customerProfileId: pipelineCustomerProfileId }]
+									: []),
+								{ contactId: customer.id }
+							],
+							state: { not: 'closed' }
+						},
+						orderBy: { openedAt: 'desc' }
 					});
 
-					// Don't draft a response yet, the timer will handle it
-					draftedResponse = ''; 
-					scenarioLocked = true;
-					skipSafetyNet = true;
+					if (!supportContainer) {
+						const { createContainerAtIntake } =
+							await import('$lib/server/container/container-service');
+						const createResult = await createContainerAtIntake(prisma, {
+							companyId: company.id,
+							customerProfileId: pipelineCustomerProfileId || null,
+							contactId: customer.id,
+							threadType: 'general'
+						});
+						supportContainer = createResult.container;
+					}
+
+					const result = await processSupportCallMeetingConfirmation({
+						commId: supportContainer.id,
+						companyId: company.id,
+						customerProfileId: pipelineCustomerProfileId || undefined,
+						contactId: customer.id,
+						customerName: customer.name || undefined,
+						repEnteredEmail: undefined,
+						aiExtractedEmail: targetEmail,
+						transcriptWeekday,
+						transcriptDateStr: undefined,
+						transcriptHour: hour,
+						transcriptMinute: minute,
+						callStartTime: new Date(),
+						calendarEntries: realCalendarEntries,
+						hasMeetingSignal: true,
+						now: new Date()
+					});
+
+					if (result.draftCreated && result.approval) {
+						olog('[Orchestrator] Scenario 1: Calendar verified, drafting email.');
+						draftChannel = 'email';
+						if (targetEmail) {
+							emailSubject = 'Meeting Confirmation';
+							draftedResponse = result.approval.draftContent;
+							scenarioLocked = true;
+						}
+					} else if (result.blocked) {
+						olog(`[Orchestrator] Scenario 1 Verification Blocked: ${result.reason}`);
+					} else if (result.inGracePeriod) {
+						olog(`[Orchestrator] Scenario 1: Meeting not found, started grace period timer.`);
+
+						await logCommunication({
+							type: 'voice',
+							direction: 'outbound',
+							status: 'pending',
+							source: 'System',
+							destination: customer.name || customerPhone,
+							company_id: company.id,
+							customer_id: customer.id,
+							summary: `Waiting for Calendar Verification (15m)`,
+							content: `System checked calendar for ${transcriptWeekday} at ${hour}:${minute.toString().padStart(2, '0')} but found no matching event. Waiting 15 minutes for representative to add it before failing.`,
+							metadata: {
+								is_system_note: true,
+								commId: commLog.communicationThreadId || commId,
+								thread_id: customerPhone,
+								message_category: 'support',
+								waiting_for_calendar: true,
+								timer_due_at: new Date(Date.now() + 15 * 60 * 1000).toISOString()
+							}
+						});
+
+						// Don't draft a response yet, the timer will handle it
+						draftedResponse = '';
+						scenarioLocked = true;
+						skipSafetyNet = true;
+					}
+				} catch (e) {
+					oerr('[Orchestrator] Scenario 1 execution failed:', e);
 				}
-			} catch (e) {
-				oerr('[Orchestrator] Scenario 1 execution failed:', e);
-			}
 			}
 		}
 	}
@@ -820,9 +888,11 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		const when = (metadata.appointment_booked as any)?.when;
 		const whenLabel = when ? formatDatetime(when) : 'booked';
 		tasks.push(`Confirm the ${whenLabel} appointment with the assigned rep`);
-		if ((metadata.appointment_booked as any)?.manual) tasks.push('Add the appointment to the calendar manually (calendar sync was unavailable)');
+		if ((metadata.appointment_booked as any)?.manual)
+			tasks.push('Add the appointment to the calendar manually (calendar sync was unavailable)');
 	}
-	if (messageCategory === 'billing') tasks.push(`Review & send the account balance to ${customer.name || 'the customer'}`);
+	if (messageCategory === 'billing')
+		tasks.push(`Review & send the account balance to ${customer.name || 'the customer'}`);
 	if (proposedAppointment) tasks.push('Approve the proposed appointment time');
 	if (aiIntent?.wants_callback) tasks.push(`Call ${customer.name || 'the customer'} back`);
 	if (!tasks.length) tasks.push(`Review and follow up with ${customer.name || 'the customer'}`);
@@ -835,7 +905,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		metadata.confirm_action = 'call';
 		metadata.callback_number =
 			extractCallbackNumber(rawMessage) || customerPhone || commLog.source || null;
-		olog(`[Orchestrator] Customer wants a callback — Confirm will CALL ${metadata.callback_number}.`);
+		olog(
+			`[Orchestrator] Customer wants a callback — Confirm will CALL ${metadata.callback_number}.`
+		);
 	}
 
 	// Generate a conversational/agentic reply for anything that isn't a LOCKED scenario draft
@@ -868,7 +940,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						const body = isVoice ? l.content || l.summary || m.summary || '' : l.content || '';
 						const prefix = isVoice ? (l.direction === 'inbound' ? '[Voicemail] ' : '[Call] ') : '';
 						return {
-							from: (l.direction === 'inbound' ? 'customer' : 'business') as 'customer' | 'business',
+							from: (l.direction === 'inbound' ? 'customer' : 'business') as
+								| 'customer'
+								| 'business',
 							text: `${prefix}${body}`.trim()
 						};
 					})
@@ -900,7 +974,8 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					const locations = (company as any).locations || [];
 					// Self-service link: pasted Appointment Schedule link, or our booking page when
 					// Google Calendar is connected — the customer picks a slot from live availability.
-					const bookingLink = getBookingUrl(company) || (await getBookingLinkIfConnected(company.id));
+					const bookingLink =
+						getBookingUrl(company) || (await getBookingLinkIfConnected(company.id));
 					const gconn = await getConnectionInfo(company.id);
 					// Match by phone (the number they called/texted from — reliable), then email, then name.
 					const ident = {
@@ -961,13 +1036,18 @@ export async function process_orchestrator(commId: string, trigger: string) {
 									const allSlots = await getAvailableSlots(company.id, { locations, days: 14 });
 									const filtered =
 										named.length > 0
-											? allSlots.filter((d) => named.some((n) => new RegExp(`\\b${n}\\b`, 'i').test(d.label)))
+											? allSlots.filter((d) =>
+													named.some((n) => new RegExp(`\\b${n}\\b`, 'i').test(d.label))
+												)
 											: allSlots.slice(0, 3);
 									const nonEmpty = filtered.filter((d) => d.slots.length > 0);
 									// Empty can mean "fully booked" OR "freeBusy hiccup" — don't over-claim.
 									if (nonEmpty.length > 0) availableSlots = nonEmpty;
 								} catch (slotErr) {
-									console.warn('[Orchestrator] Live availability lookup failed; using business hours:', slotErr);
+									console.warn(
+										'[Orchestrator] Live availability lookup failed; using business hours:',
+										slotErr
+									);
 								}
 							}
 						} else if (asksAppointments && gconn.connected) {
@@ -1046,15 +1126,17 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			try {
 				const { matchThreadOpenAI } = await import('./openai');
 				const messagesForAi = recentComms
-					.filter(c => c.content)
-					.map(c => ({ id: c.id, content: c.content as string }));
+					.filter((c) => c.content)
+					.map((c) => ({ id: c.id, content: c.content as string }));
 
 				if (messagesForAi.length > 0) {
-					olog(`[Orchestrator] Asking OpenAI to match thread (${messagesForAi.length} candidates within 7 days)...`);
+					olog(
+						`[Orchestrator] Asking OpenAI to match thread (${messagesForAi.length} candidates within 7 days)...`
+					);
 					const aiMatchedCommId = await matchThreadOpenAI(commLog.content, messagesForAi);
 					if (aiMatchedCommId) {
 						// Resolve the matched comm's thread ID (or use its own ID as the thread)
-						const matchedComm = recentComms.find(c => c.id === aiMatchedCommId);
+						const matchedComm = recentComms.find((c) => c.id === aiMatchedCommId);
 						if (matchedComm) {
 							matchedThreadId = matchedComm.communicationThreadId || matchedComm.id;
 							matchReason = 'OpenAI semantic match';
@@ -1093,10 +1175,100 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		}
 	}
 
+	// --- 3b. Cross-channel continuation matching (CommContainer) ---
+	// A customer often responds on a DIFFERENT channel than the one we contacted them on (we
+	// emailed them, they call back). Ask the AI whether this inbound message continues one of the
+	// customer's OPEN containers — e.g. an email container created by the outbound-review path
+	// (mailbox-sent email awaiting a reply). When matched, the entry is appended to that
+	// container and the comm log is relinked so the whole conversation shares the container's
+	// COM id, no matter which channel the customer used.
+	if (
+		commLog.direction === 'inbound' &&
+		(commLog.content || commLog.summary) &&
+		(commLog.type === 'voice' || commLog.type === 'sms' || commLog.type === 'email')
+	) {
+		try {
+			const {
+				resolveContinuationForComm,
+				appendEntryToContainer,
+				linkCommunicationLogToContainer
+			} = await import('./container/thread-resolver');
+			const resolution = await resolveContinuationForComm({
+				companyId: commLog.companyId,
+				contactId: customer.id,
+				customerProfileId: pipelineCustomerProfileId || null,
+				phone: customerPhone || null,
+				email: customer.email || null,
+				channel: commLog.type === 'sms' ? 'sms' : commLog.type === 'email' ? 'email' : 'voice',
+				direction: 'inbound',
+				content: (commLog.content || commLog.summary || '').slice(0, 4000),
+				summary: commLog.summary,
+				// The booking/support flows create a container for THIS call earlier in this
+				// function — never let the matcher pick the call's own container.
+				excludeCommIds: metadata.commId ? [String(metadata.commId)] : undefined
+			});
+
+			if (resolution.matched && resolution.commId && resolution.candidate) {
+				const cand = resolution.candidate;
+				const mergeReason = resolution.reason || 'cross_channel_continuation';
+
+				await appendEntryToContainer(prisma, {
+					commId: resolution.commId,
+					direction: 'inbound',
+					channel: commLog.type === 'sms' ? 'sms' : commLog.type === 'email' ? 'email' : 'voice',
+					fromParty: customerPhone || commLog.source || 'unknown',
+					toParty: companyNumber || commLog.destination || 'unknown',
+					fromPartyType: 'customer',
+					toPartyType: 'system',
+					transcript: commLog.content || commLog.summary || null,
+					analysisJson: {
+						intent: metadata.intent || null,
+						sub_intent: metadata.sub_intent || null,
+						summary: commLog.summary || null
+					}
+				});
+
+				await linkCommunicationLogToContainer(
+					commId,
+					{ id: cand.id, commRef: cand.commRef },
+					mergeReason,
+					{ companyId: commLog.companyId, contactId: customer.id }
+				);
+
+				// Keep the in-memory metadata in sync so the final persist keeps the link fields.
+				metadata.commContainerId = cand.id;
+				metadata.commRef = cand.commRef;
+				metadata.thread_merge = {
+					previousThreadId: commLog.communicationThreadId || null,
+					mergedInto: cand.id,
+					mergedIntoRef: cand.commRef,
+					reason: mergeReason,
+					mergedAt: new Date().toISOString()
+				};
+				commLog.communicationThreadId = cand.id;
+
+				olog(
+					`[Orchestrator] Cross-channel: linked ${commLog.type} to container ${cand.commRef} (${mergeReason})`
+				);
+			} else if (resolution.reason) {
+				olog(`[Orchestrator] Cross-channel: no container match (${resolution.reason})`);
+			}
+		} catch (e) {
+			oerr('[Orchestrator] Cross-channel container matching failed:', e);
+		}
+	}
+
 	// Detect if caller asked to be gotten back to via email or provided an email address
 	const emailMatch = rawMessage.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-	const targetEmail = emailMatch ? emailMatch[0] : (metadata.ai_extracted_email || metadata.email || customer.email || null);
-	const asksEmail = !!emailMatch || /\b(email|send an? email|email me|reach me by email|get back to me at email|contact me by email)\b/i.test(rawMessage) || (customer.email && wantsEmailedBalance(rawMessage));
+	const targetEmail = emailMatch
+		? emailMatch[0]
+		: metadata.ai_extracted_email || metadata.email || customer.email || null;
+	const asksEmail =
+		!!emailMatch ||
+		/\b(email|send an? email|email me|reach me by email|get back to me at email|contact me by email)\b/i.test(
+			rawMessage
+		) ||
+		(customer.email && wantsEmailedBalance(rawMessage));
 
 	if (asksEmail && targetEmail) {
 		draftChannel = 'email';
@@ -1119,29 +1291,29 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	if (draftChannel === 'email' && (targetEmail || customer.email) && draftedResponse) {
 		const destinationEmail = targetEmail || customer.email!;
 		try {
-		await logCommunication({
-						type: 'email',
-						direction: 'outbound',
-						status: 'pending_approval',
-						thread_id: commLog.communicationThreadId || commId,
-						destination: destinationEmail,
-						// Source is the company's own Gmail address (who the email is FROM),
-						// not the customer's address.
-						source: companyEmail || destinationEmail,
-						company_id: company.id,
-						customer_id: customer.id,
-						summary: emailSubject || 'Email Follow-up',
-						content: draftedResponse,
-						metadata: {
-							subject: emailSubject,
-							is_draft: true,
-							orchestrator_draft: true,
-							confirm_email: true,
-							target_email: destinationEmail,
-							trigger_comm_id: commId,
-							message_category: messageCategory || null
-						}
-					});
+			await logCommunication({
+				type: 'email',
+				direction: 'outbound',
+				status: 'pending_approval',
+				thread_id: commLog.communicationThreadId || commId,
+				destination: destinationEmail,
+				// Source is the company's own Gmail address (who the email is FROM),
+				// not the customer's address.
+				source: companyEmail || destinationEmail,
+				company_id: company.id,
+				customer_id: customer.id,
+				summary: emailSubject || 'Email Follow-up',
+				content: draftedResponse,
+				metadata: {
+					subject: emailSubject,
+					is_draft: true,
+					orchestrator_draft: true,
+					confirm_email: true,
+					target_email: destinationEmail,
+					trigger_comm_id: commId,
+					message_category: messageCategory || null
+				}
+			});
 			// Annotate the triggering call row so UI highlights requested email contact
 			await prisma.communicationLog.update({
 				where: { id: commId },
@@ -1199,7 +1371,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		if (shouldDefer) {
 			olog('[Orchestrator] Outside business hours, flagging draft as deferred.');
 		}
-		
+
 		// Route via the pure three-case decision (unit-tested in emergency-routing.test.ts).
 		// Emergency → dispatch tech + SLA, no customer draft. Non-emergency → draft (deferred
 		// off-hours). NB the old check (`urgency === 'high' || intent === 'emergency'`) missed real
@@ -1213,31 +1385,31 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			// confusing 3 AM "Confirm Response" card when auto-dispatch should handle it.
 			if (!isEmergency) {
 				// Normal fallback behavior for non-sales messages
-					await logCommunication({
-						type: 'sms',
-						direction: 'outbound',
-						status: 'pending_approval',
-						thread_id: commLog.communicationThreadId || commId,
-						source: companyNumber,
-						destination: customerPhone,
-						company_id: company.id,
-						customer_id: customer.id,
-						summary: (shouldDefer ? '[DEFERRED] ' : '') + draftedResponse.substring(0, 40) + '...',
-						content: draftedResponse,
-						metadata: {
-							is_draft: true,
-							orchestrator_draft: true,
-							trigger_comm_id: commId,
-							proposed_appointment: proposedAppointment || undefined,
-							confirm_action: metadata.confirm_action || undefined,
-							callback_number: metadata.callback_number || undefined,
-							deferred_after_hours: shouldDefer,
-							message_category: messageCategory || null,
-							sentiment: aiIntent?.sentiment ?? null,
-							urgency: aiIntent?.urgency ?? null,
-							sub_intent: aiIntent?.intent_bucket ?? null
-						}
-					});
+				await logCommunication({
+					type: 'sms',
+					direction: 'outbound',
+					status: 'pending_approval',
+					thread_id: commLog.communicationThreadId || commId,
+					source: companyNumber,
+					destination: customerPhone,
+					company_id: company.id,
+					customer_id: customer.id,
+					summary: (shouldDefer ? '[DEFERRED] ' : '') + draftedResponse.substring(0, 40) + '...',
+					content: draftedResponse,
+					metadata: {
+						is_draft: true,
+						orchestrator_draft: true,
+						trigger_comm_id: commId,
+						proposed_appointment: proposedAppointment || undefined,
+						confirm_action: metadata.confirm_action || undefined,
+						callback_number: metadata.callback_number || undefined,
+						deferred_after_hours: shouldDefer,
+						message_category: messageCategory || null,
+						sentiment: aiIntent?.sentiment ?? null,
+						urgency: aiIntent?.urgency ?? null,
+						sub_intent: aiIntent?.intent_bucket ?? null
+					}
+				});
 			}
 
 			if (isEmergency) {
@@ -1248,7 +1420,8 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				const customerName = customer?.firstName || customer?.name || 'A customer';
 				const callbackNumber = customerPhone;
 				const { resolveSmsSender } = await import('./company-sender');
-				const dispatchFrom = (await resolveSmsSender(company.id, companyNumber)) || companyNumber || undefined;
+				const dispatchFrom =
+					(await resolveSmsSender(company.id, companyNumber)) || companyNumber || undefined;
 				let slaDueAt = new Date(Date.now() + 10 * 60 * 1000);
 
 				const { startDialLadder } = await import('./emergency-dial');
@@ -1256,9 +1429,12 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				for (let i = 0; i < smsNumbers.length; i++) {
 					const contactEntry = smsNumbers[i];
 					const phoneNum = typeof contactEntry === 'string' ? contactEntry : contactEntry.number;
-					const contactName = typeof contactEntry === 'object' && contactEntry.name ? contactEntry.name : `Tech ${i+1}`;
+					const contactName =
+						typeof contactEntry === 'object' && contactEntry.name
+							? contactEntry.name
+							: `Tech ${i + 1}`;
 					if (phoneNum) {
-						rota.push({ userId: `u_tech${i}`, name: contactName, phone: phoneNum, rung: i+1 });
+						rota.push({ userId: `u_tech${i}`, name: contactName, phone: phoneNum, rung: i + 1 });
 					}
 				}
 
@@ -1266,15 +1442,18 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				let workOrder: any = null;
 				let isRepeatEscalation = false;
 				if (rota.length === 0) {
-					oerr('[Orchestrator] EMERGENCY but no on-call numbers configured (Settings → notifications.phone_numbers) — nobody was alerted.');
+					oerr(
+						'[Orchestrator] EMERGENCY but no on-call numbers configured (Settings → notifications.phone_numbers) — nobody was alerted.'
+					);
 				} else {
-
 					// Check for an existing open emergency container (Scenario 3: Repeat Escalation)
 					let openEmergencyContainer = await prisma.commContainer.findFirst({
 						where: {
 							companyId: company.id,
 							OR: [
-								...(pipelineCustomerProfileId ? [{ customerProfileId: pipelineCustomerProfileId }] : []),
+								...(pipelineCustomerProfileId
+									? [{ customerProfileId: pipelineCustomerProfileId }]
+									: []),
 								{ contactId: customer.id }
 							],
 							state: 'open',
@@ -1283,16 +1462,17 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						orderBy: { openedAt: 'desc' }
 					});
 
-					const existingWorkOrder = openEmergencyContainer?.metadata 
-						? (openEmergencyContainer.metadata as Record<string, any>).active_work_order 
+					const existingWorkOrder = openEmergencyContainer?.metadata
+						? (openEmergencyContainer.metadata as Record<string, any>).active_work_order
 						: null;
-
 
 					if (openEmergencyContainer && existingWorkOrder) {
 						isRepeatEscalation = true;
-						olog(`[Orchestrator] Found open emergency container ${openEmergencyContainer.id}, handling repeat escalation...`);
+						olog(
+							`[Orchestrator] Found open emergency container ${openEmergencyContainer.id}, handling repeat escalation...`
+						);
 						const { processSecondEmergencyVoicemail } = await import('./scenarios/s3-escalation');
-						
+
 						// Inherit the original SLA deadline so it doesn't reset on a frantic callback!
 						slaDueAt = new Date(existingWorkOrder.slaDeadline);
 
@@ -1316,11 +1496,16 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						});
 
 						workOrder = result.updatedWorkOrder;
-						olog(`[Orchestrator] Processed repeat voicemail. Escalating to rung ${workOrder.currentRung}.`);
+						olog(
+							`[Orchestrator] Processed repeat voicemail. Escalating to rung ${workOrder.currentRung}.`
+						);
 					} else {
 						// Scenario 2: Standard Emergency
-						olog(`[Orchestrator] No open emergency container found. Creating new emergency container.`);
-						const { createContainerAtIntake } = await import('$lib/server/container/container-service');
+						olog(
+							`[Orchestrator] No open emergency container found. Creating new emergency container.`
+						);
+						const { createContainerAtIntake } =
+							await import('$lib/server/container/container-service');
 						const createResult = await createContainerAtIntake(prisma, {
 							companyId: company.id,
 							customerProfileId: pipelineCustomerProfileId || null,
@@ -1343,19 +1528,23 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						};
 					}
 
-					await startDialLadder(workOrder, dispatchFrom || companyNumber || "");
-					olog(`[Orchestrator] EMERGENCY auto-dispatched to ${dispatched} on-call number(s) from ${dispatchFrom} — callback ${callbackNumber} via Dial Ladder.`);
+					await startDialLadder(workOrder, dispatchFrom || companyNumber || '');
+					olog(
+						`[Orchestrator] EMERGENCY auto-dispatched to ${dispatched} on-call number(s) from ${dispatchFrom} — callback ${callbackNumber} via Dial Ladder.`
+					);
 
 					try {
 						if (openEmergencyContainer) {
 							await prisma.commContainer.update({
 								where: { id: openEmergencyContainer.id },
-								data: { 
+								data: {
 									slaDeadline: slaDueAt,
 									metadata: { active_work_order: workOrder } as any
 								}
 							});
-							olog(`[Orchestrator] SLA+WorkOrder synced to CommContainer ${openEmergencyContainer.id}.`);
+							olog(
+								`[Orchestrator] SLA+WorkOrder synced to CommContainer ${openEmergencyContainer.id}.`
+							);
 						}
 					} catch (e) {
 						oerr('[Orchestrator] Failed to sync SLA and workOrder to CommContainer:', e);
@@ -1364,65 +1553,65 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 				metadata.emergency_dispatched = dispatched;
 				metadata.emergency_callback_number = callbackNumber;
-					
-					// ONE communication-log record for the whole dispatch (not one per recipient), so the a2p
-					// Communication Log shows a SINGLE emergency-dispatch row carrying the SLA countdown.
-					if (dispatched > 0) {
-						if (isRepeatEscalation) {
-							await logCommunication({
-								type: 'voice',
-								direction: 'outbound',
-								status: 'completed',
-								thread_id: commLog.communicationThreadId || commId,
-								source: dispatchFrom || companyNumber,
-								destination: rota.map((r) => r.phone).join(', '),
-								company_id: company.id,
-								customer_id: customer.id,
-								summary: `Escalation: emergency dispatch advanced to rung ${workOrder?.currentRung}`,
-								content: `System advanced dial ladder for repeat call. Whisper text: "${workOrder?.whisperText || 'Emergency dispatch'}"`,
-								metadata: {
-									is_escalation: true,
-									recipients: rota,
-									callback_number: callbackNumber,
-									trigger_comm_id: commId,
-									message_category: 'emergency',
-									sla_due_at: slaDueAt.toISOString()
-								}
-							}).catch((e) =>
-								oerr('[Orchestrator] Emergency escalation logged but failed to save record:', e)
-							);
-							olog('[Orchestrator] Logged escalation row (no duplicate SLA timer created).');
-						} else {
-							await logCommunication({
-								type: 'voice',
-								direction: 'outbound',
-								status: 'completed',
-								thread_id: commLog.communicationThreadId || commId,
-								source: dispatchFrom || companyNumber,
-								destination: rota.map((r) => r.phone).join(', '),
-								company_id: company.id,
-								customer_id: customer.id,
-								summary: `Emergency dispatch to ${dispatched} on-call number(s) — call ${callbackNumber}`,
-								content: `System dispatched dial ladder. Whisper text: "${workOrder?.whisperText || 'Emergency dispatch'}"`,
-								metadata: {
-									is_emergency_dispatch: true,
-									emergency_dispatch: true,
-									recipients: rota,
-									recipient_count: dispatched,
-									callback_number: callbackNumber,
-									trigger_comm_id: commId,
-									// Thread this dispatch into the customer's conversation (the inbound emergency
-									// call's thread) so the inbound call, this alert, and the callback all connect.
-									message_category: 'emergency',
-									sla_minutes: 10,
-									sla_due_at: slaDueAt.toISOString(),
-									sla_status: 'pending'
-								}
-							}).catch((e) =>
-								oerr('[Orchestrator] Emergency SMS sent but failed to log the record:', e)
-							);
-						}
+
+				// ONE communication-log record for the whole dispatch (not one per recipient), so the a2p
+				// Communication Log shows a SINGLE emergency-dispatch row carrying the SLA countdown.
+				if (dispatched > 0) {
+					if (isRepeatEscalation) {
+						await logCommunication({
+							type: 'voice',
+							direction: 'outbound',
+							status: 'completed',
+							thread_id: commLog.communicationThreadId || commId,
+							source: dispatchFrom || companyNumber,
+							destination: rota.map((r) => r.phone).join(', '),
+							company_id: company.id,
+							customer_id: customer.id,
+							summary: `Escalation: emergency dispatch advanced to rung ${workOrder?.currentRung}`,
+							content: `System advanced dial ladder for repeat call. Whisper text: "${workOrder?.whisperText || 'Emergency dispatch'}"`,
+							metadata: {
+								is_escalation: true,
+								recipients: rota,
+								callback_number: callbackNumber,
+								trigger_comm_id: commId,
+								message_category: 'emergency',
+								sla_due_at: slaDueAt.toISOString()
+							}
+						}).catch((e) =>
+							oerr('[Orchestrator] Emergency escalation logged but failed to save record:', e)
+						);
+						olog('[Orchestrator] Logged escalation row (no duplicate SLA timer created).');
+					} else {
+						await logCommunication({
+							type: 'voice',
+							direction: 'outbound',
+							status: 'completed',
+							thread_id: commLog.communicationThreadId || commId,
+							source: dispatchFrom || companyNumber,
+							destination: rota.map((r) => r.phone).join(', '),
+							company_id: company.id,
+							customer_id: customer.id,
+							summary: `Emergency dispatch to ${dispatched} on-call number(s) — call ${callbackNumber}`,
+							content: `System dispatched dial ladder. Whisper text: "${workOrder?.whisperText || 'Emergency dispatch'}"`,
+							metadata: {
+								is_emergency_dispatch: true,
+								emergency_dispatch: true,
+								recipients: rota,
+								recipient_count: dispatched,
+								callback_number: callbackNumber,
+								trigger_comm_id: commId,
+								// Thread this dispatch into the customer's conversation (the inbound emergency
+								// call's thread) so the inbound call, this alert, and the callback all connect.
+								message_category: 'emergency',
+								sla_minutes: 10,
+								sla_due_at: slaDueAt.toISOString(),
+								sla_status: 'pending'
+							}
+						}).catch((e) =>
+							oerr('[Orchestrator] Emergency SMS sent but failed to log the record:', e)
+						);
 					}
+				}
 
 				// --- SLA BREACH TRACKER ---
 				// Create a 10-minute countdown task for the technician callback. The SLA monitor
@@ -1430,51 +1619,56 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				// engine, we must synthesize the Event/Decision records to hook into the existing SLA.
 				if (dispatched > 0) {
 					const fakeId = `emg_${Math.random().toString(36).substring(2, 9)}`;
-				await prisma.pipelineEvent.create({
-					data: {
-						eventId: `evt_${fakeId}`,
-						traceId: `trc_${fakeId}`,
-						provider: 'orchestrator_emergency',
-						providerEventName: 'emergency_dispatch',
-						providerEventId: commId,
-						eventType: 'emergency_alert',
-						networkCategory: 'Communication',
-						companyId: company.id,
-						processingStatus: 'handoff_eligible',
-						handoffEligible: true,
-						unstructuredText: `Emergency auto-dispatch to ${dispatched} owner(s). Callback: ${callbackNumber}`,
-						decisions: {
-							create: {
-								decisionId: `dec_${fakeId}`,
-								executionMode: 'automatic',
-								owner: 'system',
-								priority: 1,
-								reason: 'Emergency auto-dispatch'
-							}
-						}
-					},
-					include: { decisions: true }
-				}).then(async (evt) => {
-					const dec = evt.decisions[0];
-					await prisma.pipelineActionQueue.create({
-						data: {
-							queueTraceId: `q_${fakeId}`,
-							decisionId: dec.id,
-							actionId: 'ACT-A2P-004',
-							executionLane: 'approval_required', // Force it to sit in the OPEN queue for the SLA monitor
-							status: 'ready_for_execution',
-							dueAt: slaDueAt, // SAME deadline shown on the dispatch record above
-							parameters: { 
-								phone_number: callbackNumber, 
-								emergency_type: 'automated_dispatch',
-								callback_number: callbackNumber
-							}
-						}
-					});
-					olog(`[Orchestrator] 10-minute SLA callback task created for emergency (q_${fakeId}).`);
-				}).catch(e => {
-					oerr('[Orchestrator] Failed to insert SLA tracking records for emergency:', e);
-				});
+					await prisma.pipelineEvent
+						.create({
+							data: {
+								eventId: `evt_${fakeId}`,
+								traceId: `trc_${fakeId}`,
+								provider: 'orchestrator_emergency',
+								providerEventName: 'emergency_dispatch',
+								providerEventId: commId,
+								eventType: 'emergency_alert',
+								networkCategory: 'Communication',
+								companyId: company.id,
+								processingStatus: 'handoff_eligible',
+								handoffEligible: true,
+								unstructuredText: `Emergency auto-dispatch to ${dispatched} owner(s). Callback: ${callbackNumber}`,
+								decisions: {
+									create: {
+										decisionId: `dec_${fakeId}`,
+										executionMode: 'automatic',
+										owner: 'system',
+										priority: 1,
+										reason: 'Emergency auto-dispatch'
+									}
+								}
+							},
+							include: { decisions: true }
+						})
+						.then(async (evt) => {
+							const dec = evt.decisions[0];
+							await prisma.pipelineActionQueue.create({
+								data: {
+									queueTraceId: `q_${fakeId}`,
+									decisionId: dec.id,
+									actionId: 'ACT-A2P-004',
+									executionLane: 'approval_required', // Force it to sit in the OPEN queue for the SLA monitor
+									status: 'ready_for_execution',
+									dueAt: slaDueAt, // SAME deadline shown on the dispatch record above
+									parameters: {
+										phone_number: callbackNumber,
+										emergency_type: 'automated_dispatch',
+										callback_number: callbackNumber
+									}
+								}
+							});
+							olog(
+								`[Orchestrator] 10-minute SLA callback task created for emergency (q_${fakeId}).`
+							);
+						})
+						.catch((e) => {
+							oerr('[Orchestrator] Failed to insert SLA tracking records for emergency:', e);
+						});
 				} // end if (dispatched > 0)
 
 				metadata.emergency_callback_number = callbackNumber;
@@ -1483,7 +1677,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			oerr('[Orchestrator] Failed to log pending SMS:', err);
 		}
 	} else if (intent?.toLowerCase() === 'emergency' || intent?.toLowerCase() === 'support') {
-		olog(`[Orchestrator] Acknowledging intent "${intent}". No extra response drafted as webhook handles emergencies or support is manual.`);
+		olog(
+			`[Orchestrator] Acknowledging intent "${intent}". No extra response drafted as webhook handles emergencies or support is manual.`
+		);
 	} else {
 		olog(`[Orchestrator] No action taken for intent: ${intent}`);
 	}
@@ -1516,18 +1712,21 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		}
 		if (instructions.length > 0) {
 			olog(`[Orchestrator] Dispatching ${instructions.length} command(s) via registry.`);
-			await executeInstructions({
-				companyId: company.id,
-				customerId: customer?.id,
-				customerPhone: customerPhone || undefined,
-				customerEmail: customer?.email || undefined,
-				customerName: customer?.name || undefined,
-				commLogId: commId,
-				trigger,
-				// Only meaningful while the call is still up (mid-call triggers). Post-hangup the leg
-				// is dead and any call-control command fails harmlessly inside executeInstructions.
-				callControlId: (metadata.call_control_id as string) || undefined
-			}, instructions);
+			await executeInstructions(
+				{
+					companyId: company.id,
+					customerId: customer?.id,
+					customerPhone: customerPhone || undefined,
+					customerEmail: customer?.email || undefined,
+					customerName: customer?.name || undefined,
+					commLogId: commId,
+					trigger,
+					// Only meaningful while the call is still up (mid-call triggers). Post-hangup the leg
+					// is dead and any call-control command fails harmlessly inside executeInstructions.
+					callControlId: (metadata.call_control_id as string) || undefined
+				},
+				instructions
+			);
 		}
 	} catch (cmdErr) {
 		oerr('[Orchestrator] Command dispatch error:', cmdErr);
@@ -1548,5 +1747,4 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	} catch (err) {
 		oerr('[Orchestrator] Failed to mark as processed:', err);
 	}
-
 }

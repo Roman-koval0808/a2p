@@ -18,19 +18,23 @@ function hash(key: string): string {
 		h ^= key.charCodeAt(i);
 		h = Math.imul(h, 0x01000193);
 	}
-	return (h >>> 0)
-		.toString(36)
-		.toUpperCase()
-		.padStart(5, '0')
-		.slice(-5);
+	return (h >>> 0).toString(36).toUpperCase().padStart(5, '0').slice(-5);
 }
 
 /**
  * COM code for a thread. `threadId` is the conversation's grouping key (communicationThreadId);
  * `fallbackId` is the message's own id, used as the thread anchor when it isn't linked to
  * anything yet (a brand-new conversation).
+ *
+ * When a log is linked to a CommContainer (cross-channel threading), pass its `containerRef`
+ * (e.g. "#1234") — it wins over everything so every channel of the same conversation shares the
+ * container's COM code.
  */
-export function commCode(threadId: string | null | undefined, fallbackId?: string | null): string {
-	const key = (threadId || fallbackId || '').trim();
+export function commCode(
+	threadId: string | null | undefined,
+	fallbackId?: string | null,
+	containerRef?: string | null
+): string {
+	const key = (containerRef || threadId || fallbackId || '').trim();
 	return key ? hash(key) : '';
 }

@@ -113,11 +113,18 @@ export async function fetchAndSaveAttachment(
 export async function syncCompanyEmails(companyId: string) {
 	const existing = syncLocks.get(companyId);
 	if (existing) {
-		try { return await existing; } catch { /* fall through to rerun */ }
+		try {
+			return await existing;
+		} catch {
+			/* fall through to rerun */
+		}
 	}
 	const promise = (async () => {
-		try { return await syncCompanyEmailsInner(companyId); }
-		finally { syncLocks.delete(companyId); }
+		try {
+			return await syncCompanyEmailsInner(companyId);
+		} finally {
+			syncLocks.delete(companyId);
+		}
 	})().catch((e) => {
 		syncLocks.delete(companyId);
 		throw e;
@@ -132,7 +139,7 @@ async function syncCompanyEmailsInner(companyId: string) {
 		if (!auth || !auth.email) {
 			return { success: false, reason: 'not_connected_or_missing_email' };
 		}
-		
+
 		const conn = await prisma.googleCalendarConnection.findUnique({
 			where: { companyId }
 		});
@@ -146,9 +153,12 @@ async function syncCompanyEmailsInner(companyId: string) {
 		const connCreated = conn.created;
 		if (lastHistoryId) {
 			// Fetch history
-			const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/history?startHistoryId=${lastHistoryId}`, {
-				headers: { Authorization: `Bearer ${auth.token}` }
-			});
+			const res = await fetch(
+				`https://gmail.googleapis.com/gmail/v1/users/me/history?startHistoryId=${lastHistoryId}`,
+				{
+					headers: { Authorization: `Bearer ${auth.token}` }
+				}
+			);
 			if (res.ok) {
 				const data = await res.json();
 				if (data.history) {
@@ -166,7 +176,9 @@ async function syncCompanyEmailsInner(companyId: string) {
 			} else {
 				// History ID might be expired (404), fallback to fetching recent
 				const errText = await res.text();
-				console.warn(`[gmail-sync] History sync failed for ${companyId}, falling back to recent messages. Error: ${errText}`);
+				console.warn(
+					`[gmail-sync] History sync failed for ${companyId}, falling back to recent messages. Error: ${errText}`
+				);
 				await fetchRecentMessages(auth.token, messagesToFetch, connCreated);
 			}
 		} else {
@@ -188,36 +200,44 @@ async function syncCompanyEmailsInner(companyId: string) {
 
 		// 2. Fetch and Process each message
 		let processed = 0;
-		for (const msgId of Array.from(messagesToFetch).slice(0, 50)) { // limit to 50 per run
+		for (const msgId of Array.from(messagesToFetch).slice(0, 50)) {
+			// limit to 50 per run
 			// Check if already processed
 			const existingLog = await prisma.communicationLog.findFirst({
 				where: { companyId, metadata: { path: ['email_message_id'], equals: msgId } }
 			});
 			if (existingLog) continue;
 
-			const msgRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msgId}?format=full`, {
-				headers: { Authorization: `Bearer ${auth.token}` }
-			});
+			const msgRes = await fetch(
+				`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msgId}?format=full`,
+				{
+					headers: { Authorization: `Bearer ${auth.token}` }
+				}
+			);
 			if (!msgRes.ok) continue;
 			const msgData = await msgRes.json();
 
 			const headers = msgData.payload?.headers || [];
-			const getHeader = (name: string) => headers.find((h: any) => h.name.toLowerCase() === name.toLowerCase())?.value || '';
+			const getHeader = (name: string) =>
+				headers.find((h: any) => h.name.toLowerCase() === name.toLowerCase())?.value || '';
 
 			const from = getHeader('From');
 			const to = getHeader('To');
 			const subject = getHeader('Subject');
 			const date = getHeader('Date');
-			
+
 			// Simple extraction of email address from "Name <email@domain.com>"
-			const extractEmail = (str: string) => str.match(/<(.+)>|(\S+@\S+)/)?.[0]?.replace(/[<>]/g, '') || str;
+			const extractEmail = (str: string) =>
+				str.match(/<(.+)>|(\S+@\S+)/)?.[0]?.replace(/[<>]/g, '') || str;
 			const fromEmail = extractEmail(from).toLowerCase();
 			const toEmail = extractEmail(to).toLowerCase();
-			
+
 			const isOutgoing = fromEmail === auth.email.toLowerCase();
 			const customerEmail = isOutgoing ? toEmail : fromEmail;
 			const customerNameMatch = (isOutgoing ? to : from).match(/^([^<]+)/);
-			let customerName = customerNameMatch ? customerNameMatch[1].trim().replace(/^"|"$/g, '') : customerEmail;
+			let customerName = customerNameMatch
+				? customerNameMatch[1].trim().replace(/^"|"$/g, '')
+				: customerEmail;
 			if (!customerName) customerName = customerEmail;
 
 			// Extract body
@@ -325,7 +345,7 @@ async function syncCompanyEmailsInner(companyId: string) {
 						`[gmail-sync] Linking outgoing message ${msgId} to existing thread ${linkThreadId}`
 					);
 				}
-				await logCommunication({
+				const outboundLog = await logCommunication({
 					type: 'email',
 					direction: 'outbound',
 					status: 'success',
@@ -337,6 +357,32 @@ async function syncCompanyEmailsInner(companyId: string) {
 					content: cleanBody,
 					thread_id: linkThreadId || undefined,
 					metadata: { thread_id: threadId, email_message_id: msgId }
+				});
+
+				// Mailbox-sent email: run the outbound review so the orchestrator world gets an
+				// AI summary, an open container and pending follow-up tasks for what was sent. A
+				// later phone/SMS/email reply from the customer is then matched to this container.
+				const outboundLogId = outboundLog?.id;
+				Promise.resolve().then(async () => {
+					try {
+						if (!outboundLogId) return;
+						const { reviewOutboundEmail } = await import('./outbound-review');
+						const review = await reviewOutboundEmail({
+							companyId,
+							logId: outboundLogId,
+							content: cleanBody,
+							subject,
+							customerEmail,
+							customerPhone: contact?.phone || undefined,
+							customerContactId: contact?.id ?? undefined,
+							fromEmail
+						});
+						console.log(
+							`[gmail-sync] Outbound review: ${review.reviewed ? 'done' : `skipped (${review.reason})`} commRef=${review.commRef || '—'} reused=${review.reusedContainer} tasks=${review.tasksCreated} timer=${review.timerRegistered}`
+						);
+					} catch (reviewErr) {
+						console.error('[gmail-sync] Outbound review error:', reviewErr);
+					}
 				});
 			} else {
 				// Store as inbound
@@ -420,9 +466,16 @@ async function syncCompanyEmailsInner(companyId: string) {
 						const attachments = extractAttachments(msgData.payload);
 						const savedAttachments: { name: string; url: string; mime: string }[] = [];
 						if (attachments.length > 0) {
-							console.log(`[gmail-sync] Processing ${attachments.length} attachment(s) for message ${msgId}`);
+							console.log(
+								`[gmail-sync] Processing ${attachments.length} attachment(s) for message ${msgId}`
+							);
 							for (const att of attachments) {
-								const url = await fetchAndSaveAttachment(auth.token, msgId, att, inboundEmailLog.id);
+								const url = await fetchAndSaveAttachment(
+									auth.token,
+									msgId,
+									att,
+									inboundEmailLog.id
+								);
 								if (url) {
 									savedAttachments.push({ name: att.filename, url, mime: att.mimeType });
 								}
@@ -435,7 +488,11 @@ async function syncCompanyEmailsInner(companyId: string) {
 						// The AI often extracts the customer's real name ("Sam") from the message
 						// body, which beats the From-header display name ("Studio Blopp"). Persist
 						// it onto the Contact so the comm log / profiles show the real person.
-						if (analysis.callerName && analysis.callerName.trim() && analysis.callerName !== contact?.name) {
+						if (
+							analysis.callerName &&
+							analysis.callerName.trim() &&
+							analysis.callerName !== contact?.name
+						) {
 							try {
 								const updated = await createOrUpdateContact({
 									company_id: companyId,
@@ -444,7 +501,9 @@ async function syncCompanyEmailsInner(companyId: string) {
 									phone: contact?.phone || undefined
 								});
 								if (updated) {
-									console.log(`[gmail-sync] Updated contact name to "${analysis.callerName.trim()}" for ${customerEmail}`);
+									console.log(
+										`[gmail-sync] Updated contact name to "${analysis.callerName.trim()}" for ${customerEmail}`
+									);
 								}
 							} catch (nameErr) {
 								console.error('[gmail-sync] Failed to persist AI-extracted name:', nameErr);
@@ -513,7 +572,7 @@ async function syncCompanyEmailsInner(companyId: string) {
 									data: {
 										companyId,
 										email: senderEmail,
-										displayName: customerName || senderEmail,
+										displayName: customerName || senderEmail
 									}
 								});
 							}
@@ -558,9 +617,7 @@ async function syncCompanyEmailsInner(companyId: string) {
 									reason: enrichResult.mergeCandidate.reason
 								};
 								// Persist it too — metadata on one log is invisible to the review screen.
-								const { recordMergeCandidate } = await import(
-									'$lib/server/identity/merge-service'
-								);
+								const { recordMergeCandidate } = await import('$lib/server/identity/merge-service');
 								await recordMergeCandidate({
 									companyId,
 									primaryProfileId: enrichResult.mergeCandidate.profileId,
@@ -602,7 +659,7 @@ async function syncCompanyEmailsInner(companyId: string) {
 			}
 			processed++;
 		}
-		
+
 		// Update history id if we fetched profile
 		if (!newHistoryId) {
 			const profRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/profile`, {
@@ -637,9 +694,12 @@ function formatGmailDate(d: Date): string {
 
 async function fetchRecentMessages(token: string, set: Set<string>, since: Date) {
 	const sinceStr = formatGmailDate(since);
-	const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=20&q=-in:chats+after:${sinceStr}`, {
-		headers: { Authorization: `Bearer ${token}` }
-	});
+	const res = await fetch(
+		`https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=20&q=-in:chats+after:${sinceStr}`,
+		{
+			headers: { Authorization: `Bearer ${token}` }
+		}
+	);
 	if (res.ok) {
 		const data = await res.json();
 		if (data.messages) {
