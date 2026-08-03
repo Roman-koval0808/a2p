@@ -16,6 +16,7 @@ import { logCommunication } from '$lib/utils/communication-log';
 import { getFirstCompanyNumber } from '$lib/company-numbers';
 import { prisma } from '$lib/db';
 import { requireAuth, unauthorized } from '$lib/api/spec';
+import { createOrUpdateContact } from '$lib/utils/contacts';
 
 export const POST: RequestHandler = async ({ request, locals }) => {
 	const auth = requireAuth(locals);
@@ -69,6 +70,18 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			const result = await response.json();
 			if (response.ok && result.data?.id) {
 				console.log('[Telnyx SMS] API Success:', JSON.stringify(result, null, 2));
+				// Resolve/create the recipient contact so the comms log row links to the customer
+				// (same as the inbound webhook path) instead of appearing as a bare number.
+				let customerId: string | null = null;
+				try {
+					const contact = await createOrUpdateContact({
+						company_id: auth.companyId,
+						phone: formatted
+					});
+					customerId = contact?.id ?? null;
+				} catch (contactErr) {
+					console.error('[Telnyx SMS] Failed to resolve contact:', contactErr);
+				}
 				await logCommunication({
 					type: 'sms',
 					direction: 'outbound',
@@ -76,9 +89,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 					source: fromNumber,
 					destination: formatted,
 					company_id: auth.companyId,
+					user_id: auth.id,
+					customer_id: customerId ?? undefined,
 					summary: message.slice(0, 50) + (message.length > 50 ? '...' : ''),
 					content: message,
-					metadata: { telnyx_id: result.data.id }
+					metadata: { telnyx_id: result.data.id, thread_id: formatted }
 				});
 				results.push({ recipient: formatted, messageId: result.data.id, status: 'sent' });
 			} else {
