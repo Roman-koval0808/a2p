@@ -11,6 +11,7 @@ import {
 import { PUBLIC_BASE_URL } from '$env/static/public';
 import { normalizeUrl } from '$lib/utils';
 import { normalizePhoneNumber, formatPhoneForDialing } from '$lib/utils/phone';
+import { splitDraftSubject, draftBodyToHtml } from '$lib/utils/email-draft';
 
 export const POST: RequestHandler = async ({ params, locals }) => {
 	const auth = requireAuth(locals);
@@ -202,11 +203,19 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 		// account (same one used for Calendar); fall back to the single-account GMAIL_* sender.
 		if (log.type === 'email' && log.direction === 'outbound') {
 			const m = (log.metadata as any) || {};
-			const subjMatch = (log.content || '').match(/^\s*Subject:\s*(.+)$/im);
-			const subject = subjMatch
-				? subjMatch[1].trim()
-				: m.subject || log.summary || `Appointment Confirmation — ${m.product || m.purpose || 'Sales Opportunity'}`;
-			let htmlBody = (log.content || '').replace(/^\s*Subject:\s*.+(\r?\n)+/i, '').trim();
+			// The draft opens with its own "Subject:" line, often markdown-wrapped
+			// (`**Subject: ...**`). Parsing it with a bare-prefix regex missed those,
+			// so the customer got a literal "**Subject: ...**" as the first line of
+			// the email and the header read "Email Follow-up".
+			const { subject: draftedSubject, body: draftedBody } = splitDraftSubject(log.content);
+			const subject =
+				draftedSubject ||
+				m.subject ||
+				log.summary ||
+				`Appointment Confirmation — ${m.product || m.purpose || 'Sales Opportunity'}`;
+			// The body goes into a text/html part, where raw newlines collapse — which
+			// turned every multi-paragraph reply into one run-on block.
+			let htmlBody = draftBodyToHtml(draftedBody);
 			const to = log.destination || '';
 			// Guard: a half-transcribed address ("romankovalenko", no domain) makes Gmail 400. Don't
 			// attempt to send to a non-address — the booking below still proceeds.

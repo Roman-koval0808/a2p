@@ -2,6 +2,7 @@ import { env } from '$env/dynamic/private';
 import { prisma } from '$lib/db';
 import { claudeText } from '$lib/server/anthropic';
 import { generateReviewReplyDraft, getOrderTakerSystemPrompt } from './ai-review-reply';
+import { splitDraftSubject } from '$lib/utils/email-draft';
 import { KNOWN_EXECUTION_MODES } from './execution-modes';
 
 export interface ExecutionRecord {
@@ -1003,19 +1004,27 @@ async function prepareApprovalRequiredOutputs(
 					businessName,
 					brandTone: bizConfig.brandTone || 'professional_friendly',
 					instruction:
-						'Write a reply to this customer email on behalf of the business. Acknowledge what the customer said and confirm the business is ready to help. If the customer said they will call or follow up themselves, acknowledge that instead of asking for anything. Include a "Subject:" line and sign off with the business name.',
+						'Write a reply to this customer email on behalf of the business. Acknowledge what the customer said and confirm the business is ready to help. If the customer said they will call or follow up themselves, acknowledge that instead of asking for anything. Start the reply with a plain "Subject: ..." line — no markdown, no asterisks, no bold — then a blank line, then the message. Sign off with the business name.',
 					context,
 					mockText: `Subject: Re: ${subject || 'Your Message'}\n\nHi ${customerName},\n\nThank you for reaching out to ${businessName}. We have your message and will follow up with you shortly.\n\nBest regards,\n${businessName}`
 				});
 
+				// The draft carries its own "Subject:" line. Separate it here so the
+				// stored reply is just the reply, and the subject is the one the model
+				// actually wrote rather than "Re: " glued onto whatever the param held.
+				const emailSplit = splitDraftSubject(emailDraft);
+				const emailBodyOnly = emailSplit.body || emailDraft;
+				const replySubject =
+					emailSplit.subject || (subject ? `Re: ${subject}` : 'Re: Your message');
+
 				const generatedOutput = {
-					draft_reply: emailDraft,
-					email_draft: emailDraft,
+					draft_reply: emailBodyOnly,
+					email_draft: emailBodyOnly,
 					action: 'ACT-EMAIL-002',
 					gmail_thread_id: threadId,
 					gmail_message_id: messageId,
 					to: event?.customerEmail || 'unknown',
-					subject: `Re: ${subject}`,
+					subject: replySubject,
 					original_email_body: emailBody,
 					ai_summary_used: aiSummary,
 					ready_for_approval: true
@@ -1083,7 +1092,7 @@ async function prepareApprovalRequiredOutputs(
 					businessName,
 					brandTone: bizConfig.brandTone || 'professional_friendly',
 					instruction:
-						'Write a reply to this customer email on behalf of the business. Acknowledge what the customer said and confirm the business is ready to help. If the customer said they will call or follow up themselves, acknowledge that instead of asking for anything. Include a "Subject:" line and sign off with the business name.',
+						'Write a reply to this customer email on behalf of the business. Acknowledge what the customer said and confirm the business is ready to help. If the customer said they will call or follow up themselves, acknowledge that instead of asking for anything. Start the reply with a plain "Subject: ..." line — no markdown, no asterisks, no bold — then a blank line, then the message. Sign off with the business name.',
 					context,
 					mockText: `Subject: Re: Your Message\n\nHi ${customerName},\n\nThank you for reaching out to ${businessName}. We have your message and will follow up with you shortly.\n\nBest regards,\n${businessName}`
 				});

@@ -9,6 +9,7 @@ import {
 	looksLikeActiveEmergency
 } from './message-intent';
 import { deriveNextActionPlan } from './next-action';
+import { splitDraftSubject } from '$lib/utils/email-draft';
 import {
 	checkCalendarAvailability,
 	formatDatetime,
@@ -780,11 +781,13 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			if (bookingResult.smsDrafted && bookingResult.approval) {
 				const isEmailDraft = bookingResult.approval.draftType === 'email';
 				// Pull the "Subject:" line out of the draft so the confirm step emails a real subject
-				// (and not the generic "Booking Confirmation Approval" summary).
-				const subjMatch = (bookingResult.approval.draftContent || '').match(
-					/^\s*Subject:\s*(.+)$/im
-				);
-				const draftSubject = subjMatch ? subjMatch[1].trim() : undefined;
+				// (and not the generic "Booking Confirmation Approval" summary), and so the line
+				// itself never ships as the first thing the customer reads.
+				const bookingSplit = splitDraftSubject(bookingResult.approval.draftContent);
+				const draftSubject = bookingSplit.subject || undefined;
+				const bookingDraftBody = isEmailDraft
+					? bookingSplit.body || bookingResult.approval.draftContent
+					: bookingResult.approval.draftContent;
 				await logCommunication({
 					type: (bookingResult.approval.draftType || 'sms') as any,
 					direction: 'outbound',
@@ -800,8 +803,8 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						: customerPhone,
 					company_id: company.id,
 					customer_id: customer.id,
-					summary: 'Booking Confirmation Approval',
-					content: bookingResult.approval.draftContent,
+					summary: draftSubject || 'Booking Confirmation Approval',
+					content: bookingDraftBody,
 					metadata: {
 						// Real CommContainer id (NOT the thread id) so the confirm step can cancel the
 						// hold_expiry timer, and the hold id so it can flip tentative → booked + create
@@ -885,7 +888,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					const { claudeText } = await import('./anthropic');
 					const isEmail = commLog.type === 'email';
 					const prompt = isEmail
-						? `Write a reply to this customer email on behalf of the business. Acknowledge what the customer said and confirm the business is ready to help. If the customer said they will call or follow up themselves, acknowledge that instead of asking for anything. Include a "Subject:" line and sign off with the business name.\n\nCustomer name: ${customer.displayName || customer.name || 'there'}\nEmail subject: ${commLog.summary || ''}\nOriginal email from customer:\n${rawMessage}`
+						? `Write a reply to this customer email on behalf of the business. Acknowledge what the customer said and confirm the business is ready to help. If the customer said they will call or follow up themselves, acknowledge that instead of asking for anything. Start the reply with a plain "Subject: ..." line — no markdown, no asterisks, no bold — then a blank line, then the message. Sign off with the business name.\n\nCustomer name: ${customer.displayName || customer.name || 'there'}\nEmail subject: ${commLog.summary || ''}\nOriginal email from customer:\n${rawMessage}`
 						: `Write a short SMS reply to this customer message on behalf of the business. Acknowledge what the customer said and confirm the business is ready to help. If the customer said they will call or follow up themselves, acknowledge that instead of asking for anything.\n\nCustomer name: ${customer.displayName || customer.name || 'there'}\nOriginal message from customer:\n${rawMessage}`;
 
 					const aiResponse = await claudeText({
@@ -921,7 +924,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				const { claudeText } = await import('./anthropic');
 				const isEmail = commLog.type === 'email';
 				const supportPrompt = isEmail
-					? `Write a reply to this customer support email on behalf of the business. Acknowledge what the customer said with empathy and confirm someone will follow up. If they described a complaint, show understanding without being defensive. Include a "Subject:" line and sign off with the business name.\n\nCustomer name: ${customer.name || 'there'}\nEmail subject: ${commLog.summary || ''}\nOriginal email from customer:\n${rawMessage}`
+					? `Write a reply to this customer support email on behalf of the business. Acknowledge what the customer said with empathy and confirm someone will follow up. If they described a complaint, show understanding without being defensive. Start the reply with a plain "Subject: ..." line — no markdown, no asterisks, no bold — then a blank line, then the message. Sign off with the business name.\n\nCustomer name: ${customer.name || 'there'}\nEmail subject: ${commLog.summary || ''}\nOriginal email from customer:\n${rawMessage}`
 					: `Write a short SMS reply to this customer support message on behalf of the business. Acknowledge what the customer said with empathy and confirm someone will follow up. If they described a complaint, show understanding without being defensive.\n\nCustomer name: ${customer.name || 'there'}\nOriginal message from customer:\n${rawMessage}`;
 
 				const aiResponse = await claudeText({
@@ -1404,7 +1407,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				const { getOrderTakerSystemPrompt } = await import('./pipeline/ai-review-reply');
 				const { claudeText } = await import('./anthropic');
 				const safetyPrompt = commLog.type === 'email'
-					? `Write a brief reply to this customer email. Acknowledge what they said and confirm the business will follow up. Include a "Subject:" line and sign off with the business name.\n\nCustomer name: ${customer.name || 'there'}\nEmail subject: ${commLog.summary || ''}\nOriginal email:\n${rawMessage}`
+					? `Write a brief reply to this customer email. Acknowledge what they said and confirm the business will follow up. Start the reply with a plain "Subject: ..." line — no markdown, no asterisks, no bold — then a blank line, then the message. Sign off with the business name.\n\nCustomer name: ${customer.name || 'there'}\nEmail subject: ${commLog.summary || ''}\nOriginal email:\n${rawMessage}`
 					: `Write a brief SMS reply to this customer message. Acknowledge what they said and confirm the business will follow up.\n\nCustomer name: ${customer.name || 'there'}\nOriginal message:\n${rawMessage}`;
 				const aiResponse = await claudeText({
 					apiKey: ANTHROPIC_AI_KEY,
@@ -1640,6 +1643,12 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// Email draft: created when caller requested email follow-up or draftChannel === 'email' → approval queue.
 	if (draftChannel === 'email' && (targetEmail || customer.email) && draftedResponse) {
 		const destinationEmail = targetEmail || customer.email!;
+		// The model writes its own "Subject:" line at the top of the draft. Lift it
+		// into the subject so the row carries a real one (instead of the generic
+		// "Email Follow-up") and the body reads as a reply, not as a labelled memo.
+		const split = splitDraftSubject(draftedResponse);
+		if (split.subject) emailSubject = split.subject;
+		const draftBody = split.body || draftedResponse;
 		try {
 			await logCommunication({
 				type: 'email',
@@ -1653,7 +1662,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				company_id: company.id,
 				customer_id: customer.id,
 				summary: emailSubject || 'Email Follow-up',
-				content: draftedResponse,
+				content: draftBody,
 				metadata: {
 					subject: emailSubject,
 					is_draft: true,
