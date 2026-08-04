@@ -225,6 +225,13 @@ export class ActionQueueEngine {
 		const businessConfig = await prisma.pipelineBusinessConfig.findUnique({ where: { companyId } });
 		const enrichment = event.enrichments?.[0] || {};
 
+		let meta: Record<string, any> = {};
+		if (event.unstructuredText && event.unstructuredText.trim().startsWith('{')) {
+			try {
+				meta = JSON.parse(event.unstructuredText);
+			} catch (e) {}
+		}
+
 		for (const key of requiredParams) {
 			switch (key) {
 				case 'customer_name':
@@ -309,25 +316,25 @@ export class ActionQueueEngine {
 						: [];
 					break;
 				case 'gmail_thread_id':
-					params[key] = event.gmailThreadId || null;
+					params[key] = meta.gmailThreadId || meta.gmail_thread_id || meta.thread_id || meta.sessionId || null;
 					break;
 				case 'gmail_message_id':
-					params[key] = event.gmailMessageId || null;
+					params[key] = meta.gmailMessageId || meta.gmail_message_id || meta.email_message_id || event.providerEventId || null;
 					break;
 				case 'subject':
-					params[key] = event.subject || '(no subject)';
+					params[key] = meta.subject || event.reviewText || '(no subject)';
 					break;
 				case 'customer_email':
-					params[key] = event.customerEmail || null;
+					params[key] = event.customerProfile?.email || meta.customerEmail || meta.customer_email || null;
 					break;
 				case 'ivr_path':
-					params[key] = event.ivrPath || 'unknown';
+					params[key] = meta.ivrPath || meta.ivr_path || meta.ivr_intent || 'unknown';
 					break;
 				case 'call_priority':
-					params[key] = event.callPriority || 'standard';
+					params[key] = meta.callPriority || meta.call_priority || meta.urgency || 'standard';
 					break;
 				case 'call_event_id':
-					params[key] = event.eventId || null;
+					params[key] = event.eventId || meta.call_control_id || null;
 					break;
 				default:
 					params[key] = null;
