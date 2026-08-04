@@ -363,12 +363,26 @@ export const actions: Actions = {
 				logs.push(`👤 Matched existing contact ${contact.id}`);
 			}
 
-			// 2. Create the communication thread
+			// 2. Perform AI analysis on the email body (similar to voice call)
+			const { analyzeCallLog } = await import('$lib/server/openai');
+			const analysis = await analyzeCallLog(body, 'Sales');
+			logs.push(`🧠 analyzeCallLog → intent=${analysis?.intent}, urgency=${analysis?.urgency}, sentiment=${analysis?.sentiment}`);
+
+			if (analysis?.callerName && (!contact.name || ['Unknown', 'Anonymous'].includes(contact.name))) {
+				await prisma.contact.update({
+					where: { id: contact.id },
+					data: { name: analysis.callerName }
+				});
+				contact = { ...contact, name: analysis.callerName };
+				logs.push(`👤 Resolved sender name: ${analysis.callerName}`);
+			}
+
+			// 3. Create the communication thread
 			const thread = await prisma.communicationThread.create({
 				data: { companyId, contactId: contact.id, status: 'open', summary: `Email: ${subject}` }
 			});
 
-			// 3. Create the inbound email log
+			// 4. Create the inbound email log with complete metadata
 			const commLog = await prisma.communicationLog.create({
 				data: {
 					type: 'email',
@@ -384,13 +398,22 @@ export const actions: Actions = {
 					metadata: {
 						email_message_id: msgId,
 						email_sanitized: true,
-						subject: subject
+						subject: subject,
+						urgency: analysis?.urgency,
+						sentiment: analysis?.sentiment,
+						intent: analysis?.intent,
+						sub_intent: analysis?.sub_intent,
+						datetime: analysis?.datetime,
+						ai_extracted_email: fromEmail,
+						actionItems: analysis?.actionItems,
+						estimatedPrice: analysis?.estimatedPrice,
+						simulated: true
 					}
 				}
 			});
 			logs.push(`📝 Created CommunicationLog ${commLog.id}`);
 
-			// 4. Run orchestrator
+			// 5. Run orchestrator
 			const { process_orchestrator } = await import('$lib/server/orchestrator');
 			await process_orchestrator(commLog.id, 'ai_ready');
 			logs.push('🤖 Orchestrator ran: AI-classified the message and drafted a reply.');

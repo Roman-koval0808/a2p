@@ -256,6 +256,7 @@ async function main() {
 		{ signalRuleId: 'SIG-COMM-003', actionId: 'ACT-A2P-003', isPrimary: false, isSecondary: true },
 
 		{ signalRuleId: 'SIG-COMM-004', actionId: 'ACT-A2P-005', isPrimary: true, isSecondary: false },
+		{ signalRuleId: 'SIG-COMM-004', actionId: 'ACT-EMAIL-002', isPrimary: true, isSecondary: false },
 		{ signalRuleId: 'SIG-COMM-004', actionId: 'ACT-A2P-007', isPrimary: false, isSecondary: true },
 		{ signalRuleId: 'SIG-COMM-004', actionId: 'ACT-A2P-003', isPrimary: false, isSecondary: true },
 
