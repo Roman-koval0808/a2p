@@ -1893,6 +1893,14 @@ export const POST: RequestHandler = async ({ request }) => {
 							// skipped. Scoping it to the callback threw "webhookTrace is not defined" and
 							// crashed the whole call.recording.saved handler.
 							const webhookTrace: string[] = [];
+							// Dismissal state for silent/accidental calls. Declared at this scope so the
+							// log metadata + orchestrator gate below can see it on every path (analysis
+							// runs inside `if (transcript)`, but recordingMetadata is outside it).
+							let dismissed = false;
+							let dismissReason: string | null = null;
+							// Same scope reasoning: the recording metadata below stamps the IVR path
+							// on dismissed calls, but it is resolved inside `if (transcript)`.
+							let finalIvrPath = 'Direct Call';
 							// Hoisted so the pipeline callback (which resolves AFTER the log is written)
 							// can find the row to patch its trace onto. See the write-back at the end of
 							// the .then() below.
@@ -1985,7 +1993,28 @@ export const POST: RequestHandler = async ({ request }) => {
 									transcript = sttResult.text;
 									if (transcript) {
 										const intentName = callState?.intentName || null;
-										const analysis = await analyzeCallLog(transcript, intentName);
+										// Resolve final path and priority from client state BEFORE analysis so the
+										// AI has the full picture (what the caller pressed in the IVR) before it
+										// decides what the silence means.
+										let finalPriority = 'standard';
+										if (decoded) {
+											finalIvrPath = decoded.ivrPath || finalIvrPath;
+											finalPriority = decoded.callPriority || finalPriority;
+										}
+										const analysis = await analyzeCallLog(
+											transcript,
+											intentName,
+											finalIvrPath,
+											finalPriority,
+											recDurationSeconds
+										);
+										dismissed = analysis.dismiss === true;
+										dismissReason = analysis.dismiss_reason;
+										if (dismissed) {
+											console.log(
+												`[A2P] Call dismissed after IVR: ${dismissReason}. IVR path: ${finalIvrPath}. Not running pipeline or orchestrator.`
+											);
+										}
 										summary = analysis.summary;
 										intent = intentName || analysis.intent;
 										sub_intent = analysis.sub_intent;
@@ -2036,13 +2065,6 @@ export const POST: RequestHandler = async ({ request }) => {
 										}
 
 										// Resolve final path and priority from client state
-										let finalIvrPath = 'Direct Call';
-										let finalPriority = 'standard';
-										if (decoded) {
-											finalIvrPath = decoded.ivrPath || finalIvrPath;
-											finalPriority = decoded.callPriority || finalPriority;
-										}
-
 										let bucketSignal = 'research';
 										const lowerTranscript = transcript.toLowerCase();
 										const emergencyKeywords = ['burst', 'flood', 'leak', 'emergency', 'pipe', 'water', 'immediate', 'urgent'];
@@ -2068,7 +2090,9 @@ export const POST: RequestHandler = async ({ request }) => {
 										}
 
 										// RUN SVELTEKIT INTERNAL AI SIGNALS PIPELINE:
-										if (!isDropCall) {
+										// Dismissed calls (silent after IVR selection, pocket dials) never reach the
+										// pipeline: no ProfileDB event, no safety SMS, no score delta, no escalation.
+										if (!isDropCall && !dismissed) {
 											PipelineSimulator.run({
 											author_name: contact?.name || callerName || contactNumber || 'Unknown Caller',
 											customer_phone: contactNumber || undefined,
@@ -2250,8 +2274,17 @@ export const POST: RequestHandler = async ({ request }) => {
 											}
 										}).catch(err => console.error('[Voice Pipeline Error]', err));
 										} else {
-											console.log('🎥 Skipping PipelineSimulator run for drop call');
+											console.log('🎥 Skipping PipelineSimulator run (drop call or dismissed after IVR)');
 										}
+									} else {
+										// No speech detected at all — deterministic dismissal, no AI call needed.
+										// Without this, a silent call with an IVR intent still reached the
+										// orchestrator (transcriptionClaimed was true) and got an AI reply draft.
+										dismissed = true;
+										dismissReason = 'no_speech_detected';
+										summary =
+											'No speech detected from the caller. Likely an accidental dial, wrong number, or one-way audio.';
+										console.log('[A2P] No speech detected — call dismissed:', callControlId);
 									}
 								} catch (err) {
 									console.error('❌ OpenAI processing failed:', err);
@@ -2273,10 +2306,17 @@ export const POST: RequestHandler = async ({ request }) => {
 								requested_contact_method: requested_contact_method || undefined,
 								actionItems,
 								tasks: actionItems,
-								origin: direction,
-								estimatedPrice,
-								pipeline_logs: webhookTrace
-							};
+									origin: direction,
+									estimatedPrice,
+									pipeline_logs: webhookTrace,
+									...(dismissed
+										? {
+												dismissed: true,
+												dismiss_reason: dismissReason || 'no_content',
+												ivr_path: finalIvrPath
+											}
+										: {})
+								};
 
 							if (existingLog) {
 								const updatedLog = await prisma.communicationLog.update({
@@ -2297,21 +2337,26 @@ export const POST: RequestHandler = async ({ request }) => {
 								finalLogId = updatedLog.id;
 								console.log('📝 Updated CommunicationLog with recording link', callControlId);
 
-								// Create notification for updated call log with recording/voicemail
-								await createNotification({
-									company_id: numberInfo.companyId,
-									type: 'voice',
-									direction: direction === 'incoming' ? 'inbound' : 'outbound',
-									// Source = who initiated: the CUSTOMER for inbound, but OUR company number for
-									// outbound — presenting the callee as the source made outbound rows read backwards.
-									source_name:
-										direction === 'incoming' ? contact?.name || contactNumber : companyNumber,
-									source_identifier: direction === 'incoming' ? contactNumber : companyNumber,
-									message_preview: summary || transcript || `Call recording available (${recDurationSeconds}s)`,
-									content: transcript || `Call recording available (${recDurationSeconds}s)`,
-									communication_log_id: updatedLog.id,
-									thread_id: contactNumber
-								});
+								// Create notification for updated call log with recording/voicemail.
+								// Dismissed calls stay silent — no consultant alert for a pocket dial.
+								if (!dismissed) {
+									await createNotification({
+										company_id: numberInfo.companyId,
+										type: 'voice',
+										direction: direction === 'incoming' ? 'inbound' : 'outbound',
+										// Source = who initiated: the CUSTOMER for inbound, but OUR company number for
+										// outbound — presenting the callee as the source made outbound rows read backwards.
+										source_name:
+											direction === 'incoming' ? contact?.name || contactNumber : companyNumber,
+										source_identifier: direction === 'incoming' ? contactNumber : companyNumber,
+										message_preview: summary || transcript || `Call recording available (${recDurationSeconds}s)`,
+										content: transcript || `Call recording available (${recDurationSeconds}s)`,
+										communication_log_id: updatedLog.id,
+										thread_id: contactNumber
+									});
+								} else {
+									console.log('🔕 Skipping notification for dismissed call (silent after IVR):', callControlId);
+								}
 							} else {
 								const hasIntent = !!callState?.intentDigit || !!decoded?.ivrDigit || !!decoded?.callPriority;
 								const isDropCall = !hasIntent && !hasVoicemail && direction === 'incoming';
@@ -2372,20 +2417,25 @@ export const POST: RequestHandler = async ({ request }) => {
 										callControlId
 									);
 
-									// Create notification for new call log with recording/voicemail
-									await createNotification({
-										company_id: numberInfo.companyId,
-										type: 'voice',
-										direction: direction === 'incoming' ? 'inbound' : 'outbound',
-										// Outbound: the source is OUR number, not the person we called.
-										source_name:
-											direction === 'incoming' ? contact?.name || contactNumber : companyNumber,
-										source_identifier: direction === 'incoming' ? contactNumber : companyNumber,
-										message_preview: summary || transcript || `Call recording available (${recDurationSeconds}s)`,
-										content: transcript || `Call recording available (${recDurationSeconds}s)`,
-										communication_log_id: createdLog.id,
-										thread_id: contactNumber
-									});
+									// Create notification for new call log with recording/voicemail.
+									// Dismissed calls stay silent — no consultant alert for a pocket dial.
+									if (!dismissed) {
+										await createNotification({
+											company_id: numberInfo.companyId,
+											type: 'voice',
+											direction: direction === 'incoming' ? 'inbound' : 'outbound',
+											// Outbound: the source is OUR number, not the person we called.
+											source_name:
+												direction === 'incoming' ? contact?.name || contactNumber : companyNumber,
+											source_identifier: direction === 'incoming' ? contactNumber : companyNumber,
+											message_preview: summary || transcript || `Call recording available (${recDurationSeconds}s)`,
+											content: transcript || `Call recording available (${recDurationSeconds}s)`,
+											communication_log_id: createdLog.id,
+											thread_id: contactNumber
+										});
+									} else {
+										console.log('🔕 Skipping notification for dismissed call (silent after IVR):', callControlId);
+									}
 									finalLogId = createdLog.id;
 								}
 							}
@@ -2393,7 +2443,9 @@ export const POST: RequestHandler = async ({ request }) => {
 							// Only the recording that actually produced the transcript may drive the reply.
 							// Outbound calls only trigger the orchestrator when they're DIALER calls
 							// (booking draft + tasks + confirmation reply); other outbound legs skip.
-							const shouldTriggerOrchestrator = finalLogId && (!isOutboundCall || dialerOutboundCall) && (hasVoicemail ? !isFullCallRecording : true) && transcriptionClaimed;
+							// Dismissed calls (silent after IVR) never trigger the orchestrator — no
+							// AI reply drafts, no callback tasks, no consultant escalation.
+							const shouldTriggerOrchestrator = finalLogId && !dismissed && (!isOutboundCall || dialerOutboundCall) && (hasVoicemail ? !isFullCallRecording : true) && transcriptionClaimed;
 							if (shouldTriggerOrchestrator) {
 								import('$lib/server/orchestrator').then(({ process_orchestrator }) => {
 									process_orchestrator(finalLogId as string, 'ai_ready').catch(e => console.error('[Orchestrator] Error:', e));

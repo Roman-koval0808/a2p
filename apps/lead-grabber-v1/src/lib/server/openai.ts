@@ -50,6 +50,16 @@ const ANALYSIS_SCHEMA = {
 			type: 'object',
 			description: 'Any structured data extracted from the message, such as address, vehicle info, appointment date/time, model numbers, part numbers, service details, or other key-value pairs. Return an empty object if nothing structured is found.',
 			additionalProperties: { type: 'string' }
+		},
+		dismiss: {
+			type: 'boolean',
+			description:
+				'true if the call contains no genuine caller content (silent, accidental dial, wrong number, only IVR menu audio). false otherwise.'
+		},
+		dismiss_reason: {
+			type: 'string',
+			description:
+				'Why the call was dismissed (e.g. "silent_after_ivr_selection"), or an empty string if not dismissed.'
 		}
 	},
 	required: [
@@ -155,7 +165,10 @@ Reference Calendar for resolving relative days (like "saturday", "tomorrow", "ne
  */
 export async function analyzeCallLog(
 	transcript: string,
-	department?: string | null
+	department?: string | null,
+	ivrPath: string = 'unknown',
+	callPriority: string = 'standard',
+	durationSeconds: number = 0
 ): Promise<{
 	summary: string;
 	intent: string;
@@ -170,10 +183,37 @@ export async function analyzeCallLog(
 	ai_extracted_email: string | null;
 	ai_extracted_phone: string | null;
 	structured_fields: Record<string, string>;
+	dismiss: boolean;
+	dismiss_reason: string | null;
 	analysisSucceeded: boolean;
 }> {
 	try {
 		const calendarReference = getReferenceCalendar();
+		// Only voice-call callers supply IVR context (ivrPath / duration). SMS/email callers hit
+		// the same function with the defaults, so the dismissal block is omitted for them.
+		const hasVoiceContext = durationSeconds > 0 || (!!ivrPath && ivrPath !== 'unknown');
+		const ivrContextBlock = hasVoiceContext
+			? `
+    IVR CONTEXT:
+    ${ivrPath !== 'unknown' && ivrPath !== 'direct' && ivrPath !== 'Direct Call' ? `The caller navigated the IVR and selected: "${ivrPath}".` : 'The caller did not navigate the IVR.'}
+    Call duration: ${durationSeconds} seconds.
+    Call priority flagged by IVR: ${callPriority}.
+
+    DISMISSAL RULES — set "dismiss" to true (and "dismiss_reason" to a short slug) if ANY apply:
+    - Transcript is empty, blank, or under 3 meaningful words
+    - Caller said nothing after navigating to a department (the transcript is only the IVR menu script)
+    - Only filler sounds detected: "um", "uh", "hello?", breathing
+    - Call duration under 8 seconds after IVR selection
+    - No question, request, complaint, or intent can be identified
+    - Caller pressed a digit then immediately disconnected
+    - A caller who pressed a Support key but said nothing is most likely a pocket dial, wrong number,
+      or accidental press — NOT a service request. Do NOT generate actionItems/tasks for silent IVR completions.
+    - Only flag urgency "high" if the caller explicitly uses emergency language OR call_priority is
+      "emergency" AND there is actual speech content. A silent call with call_priority: emergency is
+      still a pocket dial unless there is speech to support the classification.
+    If dismiss is true, return an empty actionItems array, intent "No Intent", urgency "low", and a
+    summary that states the caller pressed [IVR selection] but provided no speech content.`
+			: '';
 		const prompt = `
     Analyze the following phone call transcript / voicemail message.
     IMPORTANT: The transcript may START with an automated IVR greeting/menu spoken by the system,
@@ -184,6 +224,7 @@ export async function analyzeCallLog(
     valid routing context — but the caller's actual words decide the true intent if they differ.)
     If the caller said nothing meaningful beyond the greeting, say so in the summary.
     ${department ? `\nDepartment selected by caller via IVR: ${department}\nUse this as context for determining intent, priority, and response.\n` : ''}
+    ${ivrContextBlock}
     ${calendarReference}
     Provide the output in valid JSON format with the following keys:
     - "summary": A concise summary of the call (2-3 sentences).
@@ -242,16 +283,24 @@ export async function analyzeCallLog(
 		const validUrgencies = ['low', 'medium', 'high'];
 		const rawUrgency = result.urgency?.toLowerCase();
 		const parsedUrgency = rawUrgency === 'critical' ? 'high' : rawUrgency;
+		const dismissed = result.dismiss === true;
 
 		return {
-			summary: result.summary || 'No summary generated',
-			intent: result.intent ?? '',
-			sub_intent: result.sub_intent || null,
-			urgency: validUrgencies.includes(parsedUrgency) ? parsedUrgency : 'medium',
-			actionItems: result.actionItems || [],
+			summary: dismissed
+				? result.summary ||
+					`Caller pressed ${ivrPath !== 'unknown' && ivrPath !== 'direct' ? ivrPath : 'an IVR menu option'} but provided no speech content. Likely accidental dial or wrong number.`
+				: result.summary || 'No summary generated',
+			intent: dismissed ? 'No Intent' : (result.intent ?? ''),
+			sub_intent: dismissed ? null : result.sub_intent || null,
+			urgency: dismissed
+				? 'low'
+				: validUrgencies.includes(parsedUrgency)
+					? parsedUrgency
+					: 'medium',
+			actionItems: dismissed ? [] : result.actionItems || [],
 			sentiment: result.sentiment || 'Neutral',
 			callerName: result.callerName || null,
-			buyingSignals: result.buyingSignals || [],
+			buyingSignals: dismissed ? [] : result.buyingSignals || [],
 			estimatedPrice:
 				typeof result.estimatedPrice === 'number' && result.estimatedPrice > 0
 					? result.estimatedPrice
@@ -261,6 +310,8 @@ export async function analyzeCallLog(
 			ai_extracted_phone: result.ai_extracted_phone || null,
 			structured_fields: result.structured_fields || {},
 			booking_reason: result.booking_reason || result.sub_intent || result.intent || null,
+			dismiss: dismissed,
+			dismiss_reason: dismissed ? result.dismiss_reason || 'no_content' : null,
 			analysisSucceeded: true
 		};
 	} catch (error) {
@@ -280,6 +331,8 @@ export async function analyzeCallLog(
 			ai_extracted_phone: null,
 			structured_fields: {},
 			booking_reason: null,
+			dismiss: false,
+			dismiss_reason: null,
 			analysisSucceeded: false
 		};
 	}
