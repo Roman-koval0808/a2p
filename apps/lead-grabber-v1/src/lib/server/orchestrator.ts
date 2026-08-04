@@ -8,6 +8,7 @@ import {
 	bucketToCategory,
 	looksLikeActiveEmergency
 } from './message-intent';
+import { deriveNextActionPlan } from './next-action';
 import {
 	checkCalendarAvailability,
 	formatDatetime,
@@ -1149,11 +1150,23 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// instead of the first-touch scenario template above. (Emergencies keep the urgent template.)
 	// Action items for the rep — the AI's suggestions plus scenario-specific tasks; never empty.
 	// A booking confirmation supersedes the AI's generic "clarify the request" items — it's booked.
-	const tasks: string[] = metadata.appointment_booked
-		? []
-		: Array.isArray(aiIntent?.action_items)
-			? [...aiIntent.action_items]
-			: [];
+	// The AI's raw action_items are suggestions, not orders: they promise quotes we
+	// have no specifications to price, and they chase customers who told us they
+	// would make the next contact themselves. deriveNextActionPlan applies those
+	// two rules before anything becomes a task.
+	const nextActionPlan = deriveNextActionPlan(aiIntent, customer.name || 'the customer');
+	metadata.next_action_owner = nextActionPlan.owner;
+	metadata.intake_required = nextActionPlan.intakeRequired;
+	for (const { task, reason } of nextActionPlan.dropped) {
+		olog(`[Orchestrator] Dropped AI task "${task}" — ${reason}.`);
+	}
+	if (nextActionPlan.owner === 'customer') {
+		olog(
+			`[Orchestrator] Next move belongs to ${customer.name || 'the customer'} — holding, not chasing.`
+		);
+	}
+
+	const tasks: string[] = metadata.appointment_booked ? [] : [...nextActionPlan.tasks];
 	if (metadata.appointment_booked) {
 		const when = (metadata.appointment_booked as any)?.when;
 		const whenLabel = when ? formatDatetime(when) : 'booked';
@@ -1164,7 +1177,10 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	if (messageCategory === 'billing')
 		tasks.push(`Review & send the account balance to ${customer.name || 'the customer'}`);
 	if (proposedAppointment) tasks.push('Approve the proposed appointment time');
-	if (aiIntent?.wants_callback) tasks.push(`Call ${customer.name || 'the customer'} back`);
+	// Only when they actually asked us to call — a customer who said "I'll call you"
+	// gets a hold task from the plan above instead.
+	if (aiIntent?.wants_callback && nextActionPlan.owner === 'business')
+		tasks.push(`Call ${customer.name || 'the customer'} back`);
 	if (!tasks.length) tasks.push(`Review and follow up with ${customer.name || 'the customer'}`);
 	metadata.actionItems = Array.from(new Set(tasks));
 
@@ -2025,13 +2041,18 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					args: { delta: 5 }
 				});
 			}
-			if (aiIntent.action_items?.length) {
-				for (const item of aiIntent.action_items) {
-					instructions.push({
-						command: 'create_task',
-						args: { description: item, category: 'internal_followup' }
-					});
-				}
+			// The vetted plan, not the raw AI suggestions — see deriveNextActionPlan.
+			// The hold task is the customer's own commitment, so it is filed as a
+			// customer_promise: that category is what keeps the container open and
+			// what the suspense timer watches.
+			for (const item of metadata.actionItems as string[]) {
+				// The hold task is created below instead, where its id can be handed to
+				// the suspense timer that watches whether the customer actually returns.
+				if (nextActionPlan.suspense && item === nextActionPlan.tasks[0]) continue;
+				instructions.push({
+					command: 'create_task',
+					args: { description: item, category: 'internal_followup' }
+				});
 			}
 		}
 		if (instructions.length > 0) {
@@ -2054,6 +2075,67 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		}
 	} catch (cmdErr) {
 		oerr('[Orchestrator] Command dispatch error:', cmdErr);
+	}
+
+	// ── Suspense state: the customer owns the next move ─────────────────────────
+	// "I'll call you when I get back in a couple of weeks" must not sit in the
+	// active pipeline (it clutters the rep's day with something they must not act
+	// on) and must not be closed either (that silently loses the lead). Park the
+	// promise as a customer_promise task and set a timer past the window they
+	// named. If they come back before it fires the task is closed and the timer
+	// cancels itself; if they don't, it produces a follow-up.
+	if (nextActionPlan.suspense) {
+		try {
+			const containerId =
+				(metadata.commContainerId as string) ||
+				(
+					await prisma.commContainer.findFirst({
+						where: {
+							companyId: company.id,
+							state: { not: 'closed' },
+							...(customer?.id ? { contactId: customer.id } : {})
+						},
+						orderBy: { lastActivityAt: 'desc' },
+						select: { id: true }
+					})
+				)?.id;
+
+			if (!containerId) {
+				olog('[Orchestrator] No container to park the customer promise on — skipped.');
+			} else {
+				const { createTask } = await import('$lib/server/container/container-service');
+				const promiseTask = await createTask(prisma, {
+					commId: containerId,
+					description: nextActionPlan.tasks[0],
+					ownerUserId: 'system',
+					due: nextActionPlan.suspense.dueAt,
+					category: 'customer_promise'
+				});
+
+				const { registerTimer } = await import('$lib/server/timer/timer-service');
+				await registerTimer(prisma, {
+					commId: containerId,
+					companyId: company.id,
+					type: 'promise_due',
+					fireAt: nextActionPlan.suspense.dueAt,
+					supersedeSameType: true,
+					payload: {
+						taskId: promiseTask.id,
+						contactId: customer?.id || null,
+						promisedAt: new Date().toISOString(),
+						timeframeDays: nextActionPlan.suspense.timeframeDays,
+						followUpDescription: nextActionPlan.suspense.description
+					}
+				});
+
+				metadata.suspense_until = nextActionPlan.suspense.dueAt.toISOString();
+				olog(
+					`[Orchestrator] Customer promise parked. Suspense check ${nextActionPlan.suspense.dueAt.toISOString()} (${nextActionPlan.suspense.timeframeDays}d + grace).`
+				);
+			}
+		} catch (suspenseErr) {
+			oerr('[Orchestrator] Failed to register the customer-promise suspense:', suspenseErr);
+		}
 	}
 
 	// Always mark as processed

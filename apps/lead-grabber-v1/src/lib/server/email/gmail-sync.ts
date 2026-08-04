@@ -496,7 +496,7 @@ async function syncCompanyEmailsInner(companyId: string) {
 					summary: subject,
 					content: cleanBody,
 					thread_id: linkThreadId || undefined,
-					metadata: { thread_id: threadId, email_message_id: msgId }
+					metadata: { thread_id: threadId, subject, email_message_id: msgId }
 				});
 
 				// Mailbox-sent email: run the outbound review so the orchestrator world gets an
@@ -570,6 +570,11 @@ async function syncCompanyEmailsInner(companyId: string) {
 					content: cleanBody,
 					metadata: {
 						thread_id: threadId,
+						// The subject also lives in `summary`, but the orchestrator overwrites
+						// that with the AI summary and every consumer (summary dialog, hub,
+						// ACT-EMAIL-002's subject param) reads metadata.subject — leaving them
+						// all showing "No subject" for a mail that plainly had one.
+						subject,
 						email_message_id: msgId,
 						email_sanitized: true,
 						...(isMarketing ? { marketing_email: true } : {})

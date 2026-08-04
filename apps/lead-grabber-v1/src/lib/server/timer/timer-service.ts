@@ -158,6 +158,34 @@ export async function sweepTimers(now = new Date()): Promise<{ due: number; fire
 				}
 			});
 			
+			// The customer promised to come back and hasn't. Turn the parked promise
+			// into work someone will actually see: the hold task is closed out and a
+			// follow-up takes its place, so the lead re-enters the active pipeline
+			// instead of ageing quietly in a wait state.
+			if (timer.type === 'promise_due') {
+				const payload = (timer.payload as any) || {};
+				if (payload.taskId) {
+					await prisma.commTask.updateMany({
+						where: { id: payload.taskId, status: 'open' },
+						data: { status: 'escalated' }
+					});
+				}
+				await prisma.commTask.create({
+					data: {
+						commId: timer.commId,
+						description:
+							payload.followUpDescription ||
+							'Customer said they would be in touch and has not been. Follow up.',
+						ownerUserId: 'u_sales_owner',
+						due: new Date(now.getTime() + 24 * 3600 * 1000),
+						category: 'internal_followup'
+					}
+				});
+				console.log(
+					`[TimerService] Promise not kept for container ${container.commRef} — follow-up task created.`
+				);
+			}
+
 			if (timer.type === 'calendar_grace') {
 				const { processGraceExpiration } = await import('../scenarios/s1-meeting-confirm');
 				await processGraceExpiration(prisma, timer);
@@ -230,7 +258,33 @@ async function evaluateTimerCondition(timer: any, container: any, now: Date): Pr
 			const taskId = (timer.payload as any)?.taskId;
 			if (!taskId) return true;
 			const task = await prisma.commTask.findUnique({ where: { id: taskId } });
-			return !!task && task.status === 'open';
+			if (!task || task.status !== 'open') return false;
+
+			// The customer said they would come back to us. If they since have —
+			// any inbound contact on any channel after the promise — the promise was
+			// kept, so close it out rather than nagging someone who already called.
+			const payload = (timer.payload as any) || {};
+			const { contactId, promisedAt } = payload;
+			if (contactId && promisedAt) {
+				const inboundSince = await prisma.communicationLog.count({
+					where: {
+						customerId: contactId,
+						direction: 'inbound',
+						created: { gt: new Date(promisedAt) }
+					}
+				});
+				if (inboundSince > 0) {
+					await prisma.commTask.update({
+						where: { id: taskId },
+						data: { status: 'done' }
+					});
+					console.log(
+						`[TimerService] Promise kept — ${inboundSince} inbound message(s) since ${promisedAt}. Closing task ${taskId}.`
+					);
+					return false;
+				}
+			}
+			return true;
 		}
 
 		case 'customer_retry': {

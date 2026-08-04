@@ -248,8 +248,12 @@ export class ActionQueueEngine {
 					const logMeta = (matchingLog.metadata as Record<string, any>) || {};
 					meta.gmail_thread_id = logMeta.thread_id || logMeta.gmail_thread_id || meta.gmail_thread_id;
 					meta.gmail_message_id = logMeta.email_message_id || logMeta.gmail_message_id || meta.gmail_message_id;
-					if (matchingLog.summary) {
-						meta.subject = matchingLog.summary;
+					// The real Subject: header, not `summary` — the orchestrator replaces
+					// summary with the AI summary, which then became the "subject" of the
+					// drafted reply ("Re: Caller Sam is interested in obtaining a quote...").
+					const realSubject = logMeta.subject || matchingLog.summary;
+					if (realSubject) {
+						meta.subject = realSubject;
 					}
 				}
 			} catch (err) {
