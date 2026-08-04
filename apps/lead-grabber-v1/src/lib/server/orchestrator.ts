@@ -1,7 +1,7 @@
 import { prisma } from '$lib/db';
 import { logCommunication } from '$lib/utils/communication-log';
 import { toE164 } from '$lib/company-numbers';
-import { extractCallbackNumber } from '$lib/utils/phone';
+import { extractCallbackNumber, normalizePhoneNumber } from '$lib/utils/phone';
 import { decideRouting, isOffHours } from '$lib/server/emergency-routing';
 import {
 	classifyMessageIntent,
@@ -1188,12 +1188,26 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// sending the drafted SMS. Dial the number they LEFT in the message if there is one — they may
 	// be calling from a blocked/borrowed line — otherwise the number they contacted us from.
 	if (aiIntent?.wants_callback) {
-		metadata.confirm_action = 'call';
-		metadata.callback_number =
+		// `commLog.source` is the channel they arrived on — an email address on the
+		// email channel. Routing that to Confirm produced a "Confirm call" button
+		// that could only ever fail ("No callback number available to dial") and
+		// left the drafted reply unsent. Only switch Confirm to a call when we have
+		// something actually dialable; otherwise Confirm keeps sending the draft.
+		const candidate =
 			extractCallbackNumber(rawMessage) || customerPhone || commLog.source || null;
-		olog(
-			`[Orchestrator] Customer wants a callback — Confirm will CALL ${metadata.callback_number}.`
-		);
+		const normalized = candidate ? normalizePhoneNumber(candidate) : '';
+		// normalizePhoneNumber only strips non-digits, so "sam123@x.com" would come
+		// back as "123". Require a real subscriber-length number.
+		const dialable = normalized.replace(/\D/g, '').length >= 10 ? normalized : null;
+		if (dialable) {
+			metadata.confirm_action = 'call';
+			metadata.callback_number = dialable;
+			olog(`[Orchestrator] Customer wants a callback — Confirm will CALL ${dialable}.`);
+		} else {
+			olog(
+				`[Orchestrator] Customer wants a callback but left no phone number — Confirm will send the ${draftChannel} draft instead. A task covers the call.`
+			);
+		}
 	}
 
 	// Generate a conversational/agentic reply for anything that isn't a LOCKED scenario draft

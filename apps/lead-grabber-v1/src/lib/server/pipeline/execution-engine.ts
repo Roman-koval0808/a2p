@@ -70,6 +70,45 @@ function shortId(prefix: string) {
 	return `${prefix}_${Math.random().toString(36).substring(2, 12)}`;
 }
 
+const PRIORITY_LABELS: Record<number, string> = {
+	1: 'CRITICAL',
+	2: 'HIGH',
+	3: 'MEDIUM',
+	4: 'LOW',
+	5: 'INFO'
+};
+
+const URGENCY_LABELS: Record<string, string> = {
+	critical: 'CRITICAL',
+	high: 'HIGH',
+	medium: 'MEDIUM',
+	low: 'LOW'
+};
+
+/**
+ * Owner alert text for the ACT-A2P-* internal notifications.
+ *
+ * The severity used to come from the dominant signal's priority, which is a
+ * routing weight, not a measure of how urgent the customer's problem is:
+ * CRITICAL_CHURN_RISK is priority 1, so "my new furnace makes a noise, call me
+ * tomorrow" paged the owner as a CRITICAL ALERT. The AI's own urgency reading is
+ * the honest signal; the priority stays as the fallback when there isn't one.
+ * The siren is reserved for alerts that warrant one — otherwise it trains the
+ * owner to ignore it.
+ */
+export function buildOwnerAlertText(opts: {
+	customerName: string;
+	aiSummary: string;
+	urgencyLevel?: string | null;
+	priorityLevel?: number | null;
+}): string {
+	const fromUrgency = URGENCY_LABELS[String(opts.urgencyLevel || '').toLowerCase()];
+	const label =
+		fromUrgency || PRIORITY_LABELS[opts.priorityLevel ?? 3] || `P${opts.priorityLevel ?? 3}`;
+	const siren = label === 'CRITICAL' || label === 'HIGH' ? ' 🚨' : '';
+	return `[ClearSky ${label} ALERT]${siren}\nCustomer: ${opts.customerName}\nIssue: ${opts.aiSummary}\n\nPlease check the dashboard for details.`;
+}
+
 /**
  * Shared draft writer for the approval-required handlers. Uses the order-taker
  * system prompt so every draft acknowledges what the customer actually said and
@@ -437,17 +476,12 @@ async function executeAutomaticActions(
 				const aiSummary =
 					params.ai_summary || event?.enrichments?.[0]?.aiSummary || 'No summary available.';
 
-				const priorityLabels: Record<number, string> = {
-					1: 'CRITICAL',
-					2: 'HIGH',
-					3: 'MEDIUM',
-					4: 'LOW',
-					5: 'INFO'
-				};
-				const priorityLevel = decision?.priority ?? 3;
-				const urgencyText = priorityLabels[priorityLevel] || `P${priorityLevel}`;
-
-				const smsText = `[ClearSky ${urgencyText} ALERT] 🚨\nCustomer: ${customerName}\nIssue: ${aiSummary}\n\nPlease check the dashboard for details.`;
+				const smsText = buildOwnerAlertText({
+					customerName,
+					aiSummary,
+					urgencyLevel: params.urgency_level || event?.enrichments?.[0]?.aiUrgencyLevel,
+					priorityLevel: decision?.priority
+				});
 
 				// Call sendOwnerSmsAlert
 				const { sendOwnerSmsAlert } = await import('../sms-alert');
@@ -617,17 +651,12 @@ async function executeAutomaticActions(
 				const aiSummary =
 					params.ai_summary || event?.enrichments?.[0]?.aiSummary || 'No summary available.';
 
-				const priorityLabels: Record<number, string> = {
-					1: 'CRITICAL',
-					2: 'HIGH',
-					3: 'MEDIUM',
-					4: 'LOW',
-					5: 'INFO'
-				};
-				const priorityLevel = decision?.priority ?? 3;
-				const urgencyText = priorityLabels[priorityLevel] || `P${priorityLevel}`;
-
-				const smsText = `[ClearSky ${urgencyText} ALERT] 🚨\nCustomer: ${customerName}\nIssue: ${aiSummary}\n\nPlease check the dashboard for details.`;
+				const smsText = buildOwnerAlertText({
+					customerName,
+					aiSummary,
+					urgencyLevel: params.urgency_level || event?.enrichments?.[0]?.aiUrgencyLevel,
+					priorityLevel: decision?.priority
+				});
 
 				const generatedOutput = {
 					action: rec.action_id,

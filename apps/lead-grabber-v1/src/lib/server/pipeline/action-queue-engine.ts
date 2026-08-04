@@ -264,11 +264,18 @@ export class ActionQueueEngine {
 		for (const key of requiredParams) {
 			switch (key) {
 				case 'customer_name':
+					// On a review, authorName IS the reviewer — always trust it. On a
+					// message, authorName is whatever the mailbox/handset advertises
+					// ("Studio Blopp"), while the AI reads who actually wrote ("Sam").
+					// Addressing a customer by their email account's display name reads
+					// as a machine talking, so the extracted name wins on those channels.
 					params[key] =
-						event.authorName ||
-						enrichment?.aiCustomerName ||
-						event.customerProfile?.displayName ||
-						'Valued Customer';
+						event.provider === 'google_business_profile'
+							? event.authorName || enrichment?.aiCustomerName || 'Valued Customer'
+							: enrichment?.aiCustomerName ||
+								event.authorName ||
+								event.customerProfile?.displayName ||
+								'Valued Customer';
 					break;
 				case 'rating':
 					params[key] = event.reviewRatingNumeric;
