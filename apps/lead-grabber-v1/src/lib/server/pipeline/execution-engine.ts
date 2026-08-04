@@ -928,6 +928,87 @@ async function prepareApprovalRequiredOutputs(
 					generated_output: generatedOutput,
 					approval_package_id: approvalPkgId
 				});
+			} else if (rec.action_id === 'ACT-EMAIL-002') {
+				// ── Email Reply Draft (dedicated handler) ──────────────────────
+				// body_text is now resolved by resolveParameters — it carries the
+				// full original email body, not just the AI summary.
+				const customerName = params.customer_name || event?.authorName || 'Valued Customer';
+				const enrichment = event?.enrichments?.[0] || {};
+				const aiSummary = params.ai_summary || enrichment.aiSummary || 'No summary available.';
+				const emailBody = params.body_text || event?.reviewText || '';
+				const subject = params.subject || '';
+				const threadId = params.gmail_thread_id || null;
+				const messageId = params.gmail_message_id || null;
+
+				const context = [
+					`Customer name: ${customerName}`,
+					subject ? `Email subject: ${subject}` : '',
+					`AI summary: ${aiSummary}`,
+					emailBody ? `Original email from customer:\n${emailBody}` : ''
+				]
+					.filter(Boolean)
+					.join('\n');
+
+				const emailDraft = await writeOrderTakerDraft({
+					mockMode,
+					businessName,
+					brandTone: bizConfig.brandTone || 'professional_friendly',
+					instruction:
+						'Write a reply to this customer email on behalf of the business. Acknowledge what the customer said and confirm the business is ready to help. If the customer said they will call or follow up themselves, acknowledge that instead of asking for anything. Include a "Subject:" line and sign off with the business name.',
+					context,
+					mockText: `Subject: Re: ${subject || 'Your Message'}\n\nHi ${customerName},\n\nThank you for reaching out to ${businessName}. We have your message and will follow up with you shortly.\n\nBest regards,\n${businessName}`
+				});
+
+				const generatedOutput = {
+					draft_reply: emailDraft,
+					email_draft: emailDraft,
+					action: 'ACT-EMAIL-002',
+					gmail_thread_id: threadId,
+					gmail_message_id: messageId,
+					to: event?.customerEmail || 'unknown',
+					subject: `Re: ${subject}`,
+					original_email_body: emailBody,
+					ai_summary_used: aiSummary,
+					ready_for_approval: true
+				};
+
+				await prisma.pipelineExecution.update({
+					where: { id: rec.execution_row_id },
+					data: {
+						executionStatus: 'draft_created',
+						generatedOutput: JSON.stringify(generatedOutput),
+						requiresHumanApproval: true,
+						updatedAt: new Date()
+					}
+				});
+
+				const approvalPkgId = shortId('approval_pkg_email');
+				await prisma.pipelineApprovalPackage.create({
+					data: {
+						approvalPackageId: approvalPkgId,
+						executionId: rec.execution_row_id,
+						owner: rec.approval_owner || 'business_owner',
+						status: 'pending_approval'
+					}
+				});
+
+				await prisma.pipelineActionQueue.update({
+					where: { id: rec.action_queue_id },
+					data: { status: 'draft_ready_pending_approval', updatedAt: new Date() }
+				});
+
+				log.step(
+					'draft_created',
+					`${rec.execution_id} ACT-EMAIL-002 contextual email reply drafted.`,
+					'Approval-required email draft stored.'
+				);
+
+				results.push({
+					...rec,
+					execution_status: 'draft_created',
+					generated_output: generatedOutput,
+					approval_package_id: approvalPkgId
+				});
 			} else if (
 				event?.provider === 'google_workspace_email' ||
 				event?.provider === 'email_inbound'

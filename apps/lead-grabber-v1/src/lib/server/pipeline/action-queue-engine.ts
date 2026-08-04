@@ -308,6 +308,27 @@ export class ActionQueueEngine {
 							: enrichment.aiComplaintTopics
 						: [];
 					break;
+				case 'gmail_thread_id':
+					params[key] = event.gmailThreadId || null;
+					break;
+				case 'gmail_message_id':
+					params[key] = event.gmailMessageId || null;
+					break;
+				case 'subject':
+					params[key] = event.subject || '(no subject)';
+					break;
+				case 'customer_email':
+					params[key] = event.customerEmail || null;
+					break;
+				case 'ivr_path':
+					params[key] = event.ivrPath || 'unknown';
+					break;
+				case 'call_priority':
+					params[key] = event.callPriority || 'standard';
+					break;
+				case 'call_event_id':
+					params[key] = event.eventId || null;
+					break;
 				default:
 					params[key] = null;
 			}

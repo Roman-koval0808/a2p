@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { toast } from 'svelte-sonner';
-	import { MessageSquare, Phone, Server, ListFilter, Play, Database, FileText } from 'lucide-svelte';
+	import { MessageSquare, Phone, Server, ListFilter, Play, Database, FileText, Mail } from 'lucide-svelte';
 
 	let { data, form } = $props();
 
-	let activeTab = $state<'sms' | 'call'>('sms');
+	let activeTab = $state<'sms' | 'call' | 'email'>('sms');
 
 	let senderPhone = $state('+15550001111');
 	let recipientPhone = $state('');
@@ -15,6 +15,11 @@
 	let calledPhone = $state('');
 	let callTranscript = $state('');
 	let callDigit = $state('3');
+
+	let fromEmail = $state('customer@example.com');
+	let toEmail = $state('company@hub.com');
+	let emailSubject = $state('Need a quote for plumbing repair');
+	let emailBody = $state('');
 
 	let isSubmitting = $state(false);
 
@@ -60,10 +65,14 @@
 		if (activeTab === 'sms') {
 			senderPhone = preset.sender;
 			messageContent = preset.comment;
-		} else {
+		} else if (activeTab === 'call') {
 			callerPhone = preset.sender;
 			callTranscript = preset.comment;
 			if (preset.digit) callDigit = preset.digit;
+		} else {
+			fromEmail = preset.sender.includes('@') ? preset.sender : `${preset.sender.replace('+', 'c')}@example.com`;
+			emailBody = preset.comment;
+			emailSubject = preset.title;
 		}
 		toast.success(`Preset "${preset.title}" applied!`);
 	}
@@ -110,7 +119,7 @@
 					onclick={() => activeTab = 'sms'}
 				>
 					<MessageSquare class="h-4 w-4" />
-					SMS Simulation
+					SMS
 				</button>
 				<button
 					type="button"
@@ -121,7 +130,18 @@
 					onclick={() => activeTab = 'call'}
 				>
 					<Phone class="h-4 w-4" />
-					Call Simulation
+					Call
+				</button>
+				<button
+					type="button"
+					class="flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-sm font-semibold transition-all
+						{activeTab === 'email' 
+						? 'bg-white text-slate-900 shadow-sm' 
+						: 'text-slate-600 hover:text-slate-900'}"
+					onclick={() => activeTab = 'email'}
+				>
+					<Mail class="h-4 w-4" />
+					Email
 				</button>
 			</div>
 
@@ -218,7 +238,7 @@
 							{isSubmitting ? 'Processing...' : 'Send Test SMS'}
 						</button>
 					</form>
-				{:else}
+				{:else if activeTab === 'call'}
 					<form
 						method="POST"
 						action="?/triggerCall"
@@ -304,6 +324,89 @@
 							class="w-full py-3 px-4 bg-primary hover:bg-primary/95 disabled:bg-slate-300 text-white font-semibold rounded-xl shadow-md transition-all flex items-center justify-center gap-2"
 						>
 							{isSubmitting ? 'Processing...' : 'Simulate Inbound Call'}
+						</button>
+					</form>
+				{:else if activeTab === 'email'}
+					<form
+						method="POST"
+						action="?/triggerEmail"
+						use:enhance={() => {
+							isSubmitting = true;
+							return async ({ update }) => {
+								isSubmitting = false;
+								await update({ reset: false });
+								if (form?.success) {
+									toast.success('Simulation Email processed successfully!');
+								} else if (form?.error) {
+									toast.error(`Simulation failed: ${form.error}`);
+								}
+							};
+						}}
+						class="space-y-4"
+					>
+						<h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
+							<Play class="h-5 w-5 text-blue-500" />
+							Trigger Inbound Email
+						</h3>
+
+						<div class="space-y-1.5">
+							<label for="email-from" class="text-xs font-bold text-slate-500 uppercase tracking-wider">From (Customer Email)</label>
+							<input
+								id="email-from"
+								name="from"
+								type="email"
+								bind:value={fromEmail}
+								class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-sm"
+								placeholder="customer@example.com"
+								required
+							/>
+						</div>
+
+						<div class="space-y-1.5">
+							<label for="email-to" class="text-xs font-bold text-slate-500 uppercase tracking-wider">To (Company Email)</label>
+							<input
+								id="email-to"
+								name="to"
+								type="text"
+								bind:value={toEmail}
+								class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-sm"
+								placeholder="company@hub.com"
+								required
+							/>
+						</div>
+
+						<div class="space-y-1.5">
+							<label for="email-subject" class="text-xs font-bold text-slate-500 uppercase tracking-wider">Subject</label>
+							<input
+								id="email-subject"
+								name="subject"
+								type="text"
+								bind:value={emailSubject}
+								class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-sm"
+								placeholder="Email subject..."
+								required
+							/>
+						</div>
+
+						<div class="space-y-1.5">
+							<label for="email-body" class="text-xs font-bold text-slate-500 uppercase tracking-wider">Email Body</label>
+							<textarea
+								id="email-body"
+								name="body"
+								rows="5"
+								bind:value={emailBody}
+								class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-sm resize-none"
+								placeholder="Type email body here or click a preset..."
+								required
+							></textarea>
+						</div>
+
+						<button
+							type="submit"
+							disabled={isSubmitting}
+							class="w-full py-3 px-4 bg-primary hover:bg-primary/95 disabled:bg-slate-300 text-white font-semibold rounded-xl shadow-md transition-all flex items-center justify-center gap-2"
+						>
+							{isSubmitting ? 'Processing...' : 'Simulate Inbound Email'}
 						</button>
 					</form>
 				{/if}
@@ -397,6 +500,42 @@
 									{#if c.accountBalance != null}<div><span class="text-[11px] text-slate-500">Balance</span><br /><b>${c.accountBalance}</b></div>{/if}
 									<div class="ml-auto flex gap-2">
 										<a href={`/profiles/${c.contactId}`} class="rounded bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-200">View profile →</a>
+										<a href="/communication-log" class="rounded bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-200">Comm log →</a>
+									</div>
+								</div>
+							</div>
+						{/if}
+
+						<!-- Email outcome -->
+						{#if form.mode === 'email' && form.email}
+							{@const e = form.email}
+							<div class="space-y-3">
+								<div class="rounded-xl border border-blue-100 bg-blue-50/40 p-4">
+									<div class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Email</div>
+									<div class="mt-1 text-sm font-semibold text-slate-800">{e.from} → {e.to}</div>
+									<div class="text-xs font-bold text-slate-700">Subject: {e.subject}</div>
+									<div class="mt-2 text-xs italic text-slate-600">"{e.body}"</div>
+								</div>
+
+								<div class="rounded-xl border-2 {e.draftedReply ? 'border-blue-200 bg-blue-50/50' : 'border-slate-200 bg-slate-50'} p-4">
+									<div class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Drafted reply{e.draftStatus ? ` (${e.draftStatus})` : ''}</div>
+									{#if e.draftedReply}
+										<div class="mt-1 text-sm font-medium text-slate-800">
+											{#each e.draftedReply.split('\n') as line}
+												<div>{line}</div>
+											{/each}
+										</div>
+									{:else}
+										<div class="mt-1 text-sm text-slate-500">No automated reply — routed to a human.</div>
+									{/if}
+								</div>
+
+								<div class="flex flex-wrap items-center gap-4 rounded-xl border border-slate-200 bg-white p-4 text-sm">
+									<div><span class="text-[11px] text-slate-500">Contact</span><br /><b>{e.contactName || 'Unknown'}</b></div>
+									<div><span class="text-[11px] text-slate-500">Engagement</span><br /><b>{e.engagementScore}</b></div>
+									{#if e.accountBalance != null}<div><span class="text-[11px] text-slate-500">Balance</span><br /><b>${e.accountBalance}</b></div>{/if}
+									<div class="ml-auto flex gap-2">
+										<a href={`/profiles/${e.contactId}`} class="rounded bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-200">View profile →</a>
 										<a href="/communication-log" class="rounded bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-200">Comm log →</a>
 									</div>
 								</div>

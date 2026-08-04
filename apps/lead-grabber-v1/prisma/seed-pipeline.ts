@@ -132,7 +132,17 @@ async function main() {
 			isPublicFacing: false,
 			defaultExecutionMode: 'approval_required',
 			defaultOwner: 'consultant',
-			requiredParams: ['customer_name', 'ai_summary', 'body_text', 'urgency_level']
+			requiredParams: [
+				'customer_name',
+				'phone_number',
+				'ai_summary',
+				'body_text',
+				'urgency_level',
+				'brand_tone',
+				'ivr_path',
+				'call_priority',
+				'call_event_id'
+			]
 		},
 		{
 			actionId: 'ACT-A2P-006',
@@ -151,6 +161,24 @@ async function main() {
 			defaultExecutionMode: 'approval_required',
 			defaultOwner: 'consultant',
 			requiredParams: ['customer_name', 'phone_number']
+		},
+		// EMAIL Domain
+		{
+			actionId: 'ACT-EMAIL-002',
+			name: 'draft_email_reply',
+			domain: 'EMAIL',
+			isPublicFacing: true,
+			defaultExecutionMode: 'approval_required',
+			defaultOwner: 'consultant',
+			requiredParams: [
+				'customer_name',
+				'subject',
+				'ai_summary',
+				'body_text',
+				'gmail_thread_id',
+				'gmail_message_id',
+				'brand_tone'
+			]
 		},
 		// Epic 6 — job fulfillment (internal logging, automatic)
 		{

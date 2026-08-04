@@ -330,5 +330,128 @@ export const actions: Actions = {
 			console.error('Test Call Trigger failed:', err);
 			return { success: false, error: err.message || 'Internal processing error', logs };
 		}
+	},
+	triggerEmail: async ({ request, locals }) => {
+		const user = locals.user;
+		if (!user || !user.companyId) {
+			return { success: false, error: 'Unauthorized' };
+		}
+		const companyId = user.companyId;
+
+		const data = await request.formData();
+		const fromEmail = String(data.get('from') || 'customer@example.com').trim();
+		const toEmail = String(data.get('to') || 'company@hub.com').trim();
+		const subject = String(data.get('subject') || 'Question about service').trim();
+		const body = String(data.get('body') || '').trim();
+
+		const logs: string[] = [];
+		const msgId = `email_sim_${Date.now()}`;
+
+		try {
+			if (!body) {
+				return { success: false, error: 'Email body is required' };
+			}
+
+			logs.push(`📧 Inbound email from ${fromEmail} → ${toEmail} | Subject: "${subject}"`);
+
+			// 1. Resolve contact
+			let contact = await prisma.contact.findFirst({ where: { companyId, email: fromEmail } });
+			if (!contact) {
+				contact = await prisma.contact.create({ data: { companyId, email: fromEmail, name: fromEmail.split('@')[0] } });
+				logs.push(`👤 Created new contact profile ${contact.id}`);
+			} else {
+				logs.push(`👤 Matched existing contact ${contact.id}`);
+			}
+
+			// 2. Create the communication thread
+			const thread = await prisma.communicationThread.create({
+				data: { companyId, contactId: contact.id, status: 'open', summary: `Email: ${subject}` }
+			});
+
+			// 3. Create the inbound email log
+			const commLog = await prisma.communicationLog.create({
+				data: {
+					type: 'email',
+					direction: 'inbound',
+					status: 'completed',
+					source: fromEmail,
+					destination: toEmail,
+					companyId,
+					customerId: contact.id,
+					communicationThreadId: thread.id,
+					content: body,
+					summary: subject,
+					metadata: {
+						email_message_id: msgId,
+						email_sanitized: true,
+						subject: subject
+					}
+				}
+			});
+			logs.push(`📝 Created CommunicationLog ${commLog.id}`);
+
+			// 4. Run orchestrator
+			const { process_orchestrator } = await import('$lib/server/orchestrator');
+			await process_orchestrator(commLog.id, 'ai_ready');
+			logs.push('🤖 Orchestrator ran: AI-classified the message and drafted a reply.');
+
+			// 5. Run ProfileDB signals pipeline
+			try {
+				await PipelineSimulator.run({
+					author_name: contact.name || fromEmail.split('@')[0],
+					customer_email: fromEmail,
+					rating: 0,
+					comment: body,
+					mode: 'email',
+					sessionId: msgId,
+					companyId
+				});
+			} catch (e: any) {
+				logs.push(`⚠️ ProfileDB pipeline skipped: ${e?.message}`);
+			}
+
+			// 6. Read back outcome
+			const finalLog = await prisma.communicationLog.findUnique({ where: { id: commLog.id } });
+			const draft = await prisma.communicationLog.findFirst({
+				where: {
+					companyId,
+					type: 'email',
+					direction: 'outbound',
+					status: 'pending_approval',
+					destination: fromEmail
+				},
+				orderBy: { created: 'desc' }
+			});
+			const updatedContact = await prisma.contact.findUnique({
+				where: { id: contact.id },
+				select: { name: true, engagementScore: true, accountBalance: true }
+			});
+
+			if (draft) logs.push(`🎉 Drafted email reply (pending approval): "${draft.content}"`);
+			else logs.push('ℹ️ No automated reply drafted (routed to a human / support).');
+
+			return {
+				success: true,
+				mode: 'email',
+				email: {
+					from: fromEmail,
+					to: toEmail,
+					subject,
+					body,
+					draftedReply: draft?.content || null,
+					draftStatus: draft?.status || null,
+					commLogId: commLog.id,
+					contactId: contact.id,
+					contactName: updatedContact?.name || null,
+					engagementScore: updatedContact?.engagementScore ?? 0,
+					accountBalance: updatedContact?.accountBalance ?? null
+				},
+				dbRecord: finalLog ? JSON.parse(JSON.stringify(finalLog)) : null,
+				logs
+			};
+		} catch (err: any) {
+			console.error('Test Email Trigger failed:', err);
+			return { success: false, error: err.message || 'Internal processing error', logs };
+		}
 	}
 };
