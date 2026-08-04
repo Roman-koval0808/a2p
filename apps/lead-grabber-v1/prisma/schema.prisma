@@ -163,6 +163,21 @@ model GoogleCalendarConnection {
   @@map("google_calendar_connections")
 }
 
+/// Cross-instance claim on a Gmail message id. Every deployment sharing this
+/// database polls the same mailbox, so the in-process sync mutex cannot stop two
+/// hosts from logging the same inbound email twice. A message is processed only
+/// by the instance that wins the insert here; a claim older than the takeover
+/// window is assumed to belong to a crashed run and can be re-claimed.
+model EmailSyncClaim {
+  id        String   @id @default(cuid())
+  companyId String
+  messageId String
+  claimedAt DateTime @default(now())
+
+  @@unique([companyId, messageId])
+  @@map("email_sync_claims")
+}
+
 model SlotHold {
   id               String    @id @default(cuid())
   companyId        String

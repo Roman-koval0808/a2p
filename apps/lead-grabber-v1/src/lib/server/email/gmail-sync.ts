@@ -14,6 +14,39 @@ import { existsSync } from 'fs';
 /** Per-company mutex so concurrent sweep calls don't create duplicate logs for the same message. */
 const syncLocks = new Map<string, Promise<SyncResult>>();
 
+/**
+ * How long a claim is trusted before another instance may take the message over.
+ * Covers the slowest observed message processing (AI analysis + pipeline + draft)
+ * with room to spare, so a healthy run is never stolen from, while a message left
+ * claimed by a crashed process is retried instead of being lost forever.
+ */
+const CLAIM_TAKEOVER_MS = 10 * 60 * 1000;
+
+/**
+ * Atomically claim a Gmail message for processing, across every instance sharing
+ * this database. `syncLocks` only guards one process; two deployments polling the
+ * same mailbox both passed the "already logged?" read before either wrote, and the
+ * message was logged — and drafted a reply — twice. Returns false when another
+ * instance holds a live claim.
+ */
+async function claimGmailMessage(companyId: string, messageId: string): Promise<boolean> {
+	const staleBefore = new Date(Date.now() - CLAIM_TAKEOVER_MS);
+	try {
+		const rows = await prisma.$queryRaw<{ id: string }[]>`
+			INSERT INTO email_sync_claims ("id", "companyId", "messageId", "claimedAt")
+			VALUES (gen_random_uuid()::text, ${companyId}, ${messageId}, NOW())
+			ON CONFLICT ("companyId", "messageId")
+			DO UPDATE SET "claimedAt" = NOW()
+			WHERE email_sync_claims."claimedAt" < ${staleBefore}
+			RETURNING "id"
+		`;
+		return rows.length > 0;
+	} catch (err) {
+		console.error(`[gmail-sync] Claim failed for message ${messageId}:`, err);
+		return false;
+	}
+}
+
 interface SyncResult {
 	success: boolean;
 	reason?: string;
@@ -207,6 +240,13 @@ async function syncCompanyEmailsInner(companyId: string) {
 				where: { companyId, metadata: { path: ['email_message_id'], equals: msgId } }
 			});
 			if (existingLog) continue;
+
+			// The read above races with every other instance sharing this database, so
+			// take a durable claim before doing any work on the message.
+			if (!(await claimGmailMessage(companyId, msgId))) {
+				console.log(`[gmail-sync] Message ${msgId} claimed by another instance — skipping`);
+				continue;
+			}
 
 			const msgRes = await fetch(
 				`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msgId}?format=full`,
