@@ -75,6 +75,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 		'/login',
 		'/signup',
 		'/docs',
+		'/documentation',
 		'/api',
 		'/book',
 		'/embed',
