@@ -56,7 +56,7 @@ VALUES
 	('seed_act_a2p_004', 'ACT-A2P-004', 'Emergency dispatch alert', 'TASK', false, true,  'approval_required', 'business_owner',
 		'["emergency_type","customer_name","phone_number","urgency_level"]'::jsonb, true),
 	('seed_act_a2p_005', 'ACT-A2P-005', 'Schedule callback within SLA', 'TASK', false, false, 'approval_required', 'business_owner',
-		'["customer_name","phone_number","urgency_level"]'::jsonb, true),
+		'["customer_name","phone_number","ai_summary","body_text","urgency_level"]'::jsonb, true),
 	('seed_act_a2p_006', 'ACT-A2P-006', 'Log complaint theme', 'TASK', false, false, 'approval_required', 'system',
 		'["complaint_topics","sentiment","ai_summary"]'::jsonb, true),
 	('seed_act_a2p_007', 'ACT-A2P-007', 'Create booking follow-up task', 'TASK', false, false, 'approval_required', 'business_owner',

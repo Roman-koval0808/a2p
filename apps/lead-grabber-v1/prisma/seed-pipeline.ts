@@ -68,7 +68,7 @@ async function main() {
 			isPublicFacing: true,
 			defaultExecutionMode: 'approval_required',
 			defaultOwner: 'consultant',
-			requiredParams: ['customer_name', 'rating', 'platform', 'brand_tone', 'review_text']
+			requiredParams: ['customer_name', 'rating', 'platform', 'brand_tone', 'review_text', 'ai_summary']
 		},
 		{
 			actionId: 'ACT-REV-002',
@@ -132,7 +132,7 @@ async function main() {
 			isPublicFacing: false,
 			defaultExecutionMode: 'approval_required',
 			defaultOwner: 'consultant',
-			requiredParams: ['customer_name', 'ai_summary']
+			requiredParams: ['customer_name', 'ai_summary', 'body_text', 'urgency_level']
 		},
 		{
 			actionId: 'ACT-A2P-006',
