@@ -32,13 +32,14 @@ export async function getCompanyAndFlowByPhoneNumber(
 	return row ? { companyId: row.companyId, callFlowId: row.callFlowId } : null;
 }
 
-/** Get first number assigned to company (for outbound dial/SMS). */
+/** Get the primary number assigned to company (for outbound dial/SMS). */
 export async function getFirstCompanyNumber(
 	prisma: PrismaClient,
 	companyId: string
 ): Promise<{ phoneNumber: string; id: string } | null> {
 	const row = await prisma.companyPhoneNumber.findFirst({
 		where: { companyId },
+		orderBy: { created: 'asc' },
 		select: { phoneNumber: true, id: true }
 	});
 	return row ?? null;

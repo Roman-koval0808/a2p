@@ -65,11 +65,13 @@
 		"nodemailer": "^6.9.16",
 		"openai": "^6.44.0",
 		"pg": "^8.13.1",
+		"profiledb-client": "link:./profiledb-client",
 		"svelte-dnd-action": "^0.9.52",
 		"svelte-use-form": "^2.10.0",
+		"sveltekit-openapi-generator": "^0.1.6",
+		"swagger-ui-dist": "^5.32.11",
 		"uuid": "^14.0.0",
 		"ws": "^8.18.3",
-		"zod": "^4.4.3",
-		"profiledb-client": "link:./profiledb-client"
+		"zod": "^4.4.3"
 	}
 }

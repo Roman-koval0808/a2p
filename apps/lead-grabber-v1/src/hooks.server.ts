@@ -63,10 +63,18 @@ if (!timerCronGlobal.__timerSweepStarted) {
 const authRefreshCache = new Map<string, number>();
 const AUTH_REFRESH_CACHE_MS = 60000; // Cache auth refresh for 60 seconds
 
+// Extract a Bearer token from an Authorization header ("Bearer <jwt>").
+function parseBearerToken(header: string | null): string | null {
+	if (!header) return null;
+	const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+	return match?.[1] ?? null;
+}
+
 export const handle: Handle = async ({ event, resolve }) => {
 	const publicRoutes = [
 		'/login',
 		'/signup',
+		'/docs',
 		'/api',
 		'/book',
 		'/embed',
@@ -90,8 +98,10 @@ export const handle: Handle = async ({ event, resolve }) => {
 		return event.url.pathname.startsWith(route);
 	});
 
-	// Get user from session cookie using SvelteKit's native cookies
-	const token = event.cookies.get('app_session');
+	// Get user from session cookie using SvelteKit's native cookies.
+	// Mobile clients can also authenticate with `Authorization: Bearer <token>`
+	// where <token> is the JWT returned by POST /api/auth/login.
+	const token = event.cookies.get('app_session') ?? parseBearerToken(event.request.headers.get('authorization'));
 	let user = null;
 
 	if (token) {
