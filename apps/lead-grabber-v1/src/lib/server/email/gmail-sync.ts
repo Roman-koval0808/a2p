@@ -660,8 +660,14 @@ async function syncCompanyEmailsInner(companyId: string) {
 						const normalizedExtractedPhone = extractedPhone
 							? normalizePhoneNumber(extractedPhone)
 							: null;
+						// This object REPLACES the metadata written when the log row was
+						// created — anything not repeated here is lost. That is what kept
+						// erasing the Subject: header (and the sanitisation flag) seconds
+						// after it was stored, leaving every consumer showing "No subject".
 						const metadata: Record<string, any> = {
 							thread_id: threadId,
+							subject,
+							email_sanitized: true,
 							email_message_id: msgId,
 							channel: 'email',
 							intent: analysis.intent,
