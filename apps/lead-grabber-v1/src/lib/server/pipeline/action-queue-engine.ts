@@ -232,6 +232,31 @@ export class ActionQueueEngine {
 			} catch (e) {}
 		}
 
+		// Query recent CommunicationLog entries to find the synced email and extract Gmail metadata
+		if (event.provider === 'google_workspace_email' || event.provider === 'email_inbound') {
+			try {
+				const recentLogs = await prisma.communicationLog.findMany({
+					where: { companyId: companyId || event.companyId || undefined },
+					orderBy: { created: 'desc' },
+					take: 50
+				});
+				const matchingLog = recentLogs.find(log => {
+					const logMeta = (log.metadata as Record<string, any>) || {};
+					return log.id === event.providerEventId || logMeta.email_message_id === event.providerEventId || logMeta.thread_id === event.providerEventId;
+				});
+				if (matchingLog) {
+					const logMeta = (matchingLog.metadata as Record<string, any>) || {};
+					meta.gmail_thread_id = logMeta.thread_id || logMeta.gmail_thread_id || meta.gmail_thread_id;
+					meta.gmail_message_id = logMeta.email_message_id || logMeta.gmail_message_id || meta.gmail_message_id;
+					if (matchingLog.summary) {
+						meta.subject = matchingLog.summary;
+					}
+				}
+			} catch (err) {
+				console.error('[ActionQueueEngine] Failed to enrich meta from CommunicationLog:', err);
+			}
+		}
+
 		for (const key of requiredParams) {
 			switch (key) {
 				case 'customer_name':
