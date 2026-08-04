@@ -1,4 +1,10 @@
-{
+/**
+ * GENERATED FILE - do not edit by hand.
+ * Regenerate with: node scripts/gen-openapi.mjs
+ */
+
+// @ts-nocheck
+export default {
   "openapi": "3.0.0",
   "info": {
     "title": "ClearSky / A2P Backend API",
@@ -8434,6 +8440,18 @@
     }
   },
   "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      },
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "app_session"
+      }
+    },
     "schemas": {
       "Error": {
         "type": "object",
@@ -8626,19 +8644,6 @@
           }
         }
       }
-    },
-    "securitySchemes": {
-      "bearerAuth": {
-        "type": "http",
-        "scheme": "bearer",
-        "bearerFormat": "JWT"
-      },
-      "cookieAuth": {
-        "type": "apiKey",
-        "in": "cookie",
-        "name": "app_session"
-      }
     }
-  },
-  "tags": []
-}
+  }
+};

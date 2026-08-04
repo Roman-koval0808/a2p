@@ -1,5 +1,6 @@
 import { prisma } from '$lib/db';
 import { getUserFromToken, parseSessionCookie, createSessionCookie } from '$lib/auth';
+import { env } from '$env/dynamic/private';
 import type { Handle } from '@sveltejs/kit';
 import { redirect } from '@sveltejs/kit';
 
@@ -71,6 +72,30 @@ function parseBearerToken(header: string | null): string | null {
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
+	// --- Docs access gate -------------------------------------------------
+	// /docs, /docs/*, /documentation and the dev OpenAPI middleware are public
+	// in name only — they need the shared access code (DOCS_ACCESS_CODE env),
+	// delivered via the /docs-access form. Fail closed: if the env var is not
+	// set, nobody gets in. JSON clients (spec import) get a 401, browsers a
+	// redirect to the code form.
+	const pathname = event.url.pathname;
+	const DOCS_ACCESS_CODE = env.DOCS_ACCESS_CODE ?? null;
+	const isDocsRoute =
+		pathname === '/docs' ||
+		pathname.startsWith('/docs/') ||
+		pathname.startsWith('/documentation') ||
+		pathname === '/openapi-spec.json';
+	if (isDocsRoute && DOCS_ACCESS_CODE && event.cookies.get('docs_access') !== DOCS_ACCESS_CODE) {
+		const wantsHtml = (event.request.headers.get('accept') ?? '').includes('text/html');
+		if (wantsHtml) {
+			throw redirect(303, `/docs-access?next=${encodeURIComponent(pathname)}`);
+		}
+		return new Response(
+			JSON.stringify({ success: false, error: 'Docs access code required — open /docs-access in a browser first.' }),
+			{ status: 401, headers: { 'content-type': 'application/json' } }
+		);
+	}
+
 	const publicRoutes = [
 		'/login',
 		'/signup',

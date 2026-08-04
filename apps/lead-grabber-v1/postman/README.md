@@ -9,8 +9,14 @@ For the mobile app developer.
 | `clearsky-api.openapi.json` | **OpenAPI 3.0 spec (142 endpoints).** Import this into Postman (or Insomnia) and it becomes a collection. |
 | `clearsky-api.postman_environment.json` | Environment variables (base URL, test credentials). Import via Postman → Environments → Import. |
 | `../static/openapi.json` | Same spec, generated at build time. |
-| Live OpenAPI URLs | `GET /docs/spec.json` (any mode) · `/openapi-spec.json` (dev) · `/openapi.json` (static build) |
+| Live OpenAPI URLs | `GET /docs/spec.json` (any mode) · `/openapi-spec.json` (dev) |
 | Interactive Swagger UI | `GET /docs` in a browser |
+
+> ⚠️ **The live URLs are access-code protected.** `/docs` and `/documentation`
+> require the shared docs access code (ask the backend owner for
+> `DOCS_ACCESS_CODE`, then enter it at `GET /docs-access` — the cookie lasts 30
+> days). The `clearsky-api.openapi.json` file in this folder is the
+> unguarded snapshot — import that if you don't have the code.
 
 ## How to import into Postman
 

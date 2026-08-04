@@ -6,6 +6,11 @@
 > importable into Postman). A ready-made collection + environment live in
 > [`../postman/`](../postman/).
 
+> 🔒 **The docs pages are access-code protected.** Enter the shared code
+> (`DOCS_ACCESS_CODE` — ask the backend owner) at `GET /docs-access` once;
+> the cookie lasts 30 days. The `postman/clearsky-api.openapi.json` snapshot
+> in the repo does not need the code.
+
 ---
 
 ## 1. Base URL & environment

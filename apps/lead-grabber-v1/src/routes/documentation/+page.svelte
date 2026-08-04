@@ -236,6 +236,11 @@ curl -s $BASE/api/communication-logs -H "Authorization: Bearer $TOKEN"`;
 		<h2 class="mb-4 text-lg font-semibold">Postman / Swagger</h2>
 		<div class="space-y-2 text-sm leading-relaxed text-slate-700">
 			<p>
+				<b>Access code required:</b> this page and <a href="/docs" class="font-medium text-primary underline">/docs</a>
+				are restricted — ask the backend owner for the <b>docs access code</b> and enter it at
+				<a href="/docs-access" class="font-medium text-primary underline">/docs-access</a> (it lasts 30 days).
+			</p>
+			<p>
 				<b>Swagger UI</b> (interactive, hosted here):
 				<a href="/docs" class="font-medium text-primary underline">GET /docs</a>.
 			</p>
@@ -247,7 +252,7 @@ curl -s $BASE/api/communication-logs -H "Authorization: Bearer $TOKEN"`;
 			<p>
 				<b>Files in the repo</b> (apps/lead-grabber-v1/postman/):
 				<code class="rounded bg-slate-100 px-1.5 py-0.5">clearsky-api.openapi.json</code>
-				(collection source) and
+				(collection source — no access code needed, it's a snapshot) and
 				<code class="rounded bg-slate-100 px-1.5 py-0.5">clearsky-api.postman_environment.json</code>
 				(environment: base URL, test credentials, caller ID).
 			</p>

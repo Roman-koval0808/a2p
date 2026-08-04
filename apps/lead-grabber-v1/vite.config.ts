@@ -23,7 +23,6 @@ export default defineConfig(({ mode }) => {
 					'src/lib/api/openapi-paths.generated.js',
 					'src/lib/api/openapi-schemas.js'
 				],
-				outputPath: 'static/openapi.json',
 				debounceMs: 100
 			}),
 			sveltekit()

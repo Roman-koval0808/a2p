@@ -868,6 +868,45 @@ for (const [path, pathItem] of Object.entries(paths)) {
 writeFileSync(join(OUT_DIR, 'openapi-schemas.generated.js'), schemasJs);
 writeFileSync(join(OUT_DIR, 'openapi-paths.generated.js'), pathsJs);
 
+// 4c. full spec as a server-bundled module (consumed by GET /docs/spec.json).
+// Kept out of `static/` so it is never served publicly — the /docs* routes are
+// gated by an access code in hooks.server.ts.
+function loadEnvFile(name) {
+	try {
+		const match = readFileSync(join(process.cwd(), '.env'), 'utf8').match(
+			new RegExp(`^${name}=(.*)$`, 'm')
+		);
+		return match ? match[1].trim() : null;
+	} catch {
+		return null;
+	}
+}
+
+const publicBaseUrl = (process.env.PUBLIC_BASE_URL || loadEnvFile('PUBLIC_BASE_URL') || 'http://localhost:3005').replace(
+	/\/+$/,
+	''
+);
+
+const fullSpec = {
+	openapi: '3.0.0',
+	info: {
+		title: 'ClearSky / A2P Backend API',
+		version: '1.0.0',
+		description:
+			'REST API for the ClearSky dialer, messaging, contacts, notifications and call tracking backend. Auth via `Authorization: Bearer <token>` (token returned by POST /api/auth/login) or the app_session cookie.'
+	},
+	servers: [{ url: publicBaseUrl, description: 'Backend server' }],
+	paths,
+	components
+};
+
+const specJs =
+	header +
+	'\n// @ts-nocheck\n' +
+	`export default ${JSON.stringify(fullSpec, null, 2)};\n`;
+writeFileSync(join(OUT_DIR, 'openapi-spec.generated.js'), specJs);
+
 console.log(`Generated ${Object.keys(paths).length} path docs from ${files.length} route files`);
 console.log(`  ${join(OUT_DIR, 'openapi-schemas.generated.js')}`);
 console.log(`  ${join(OUT_DIR, 'openapi-paths.generated.js')}`);
+console.log(`  ${join(OUT_DIR, 'openapi-spec.generated.js')}`);
