@@ -238,21 +238,32 @@ async function main() {
 	}
 
 	// 5. Signal Action Mappings
+	// Reply-draft actions (ACT-EMAIL-002 / ACT-A2P-005) are mapped to every inbound
+	// communication signal so the customer always gets an acknowledgement drafted.
+	// The orchestrator gates them by channel, so only the one matching the channel
+	// the customer actually used is queued.
 	const mappings = [
 		// A2P Domain Mappings
 		{ signalRuleId: 'SIG-COMM-000', actionId: 'ACT-A2P-004', isPrimary: true, isSecondary: false },
 		{ signalRuleId: 'SIG-COMM-000', actionId: 'ACT-A2P-002', isPrimary: false, isSecondary: true },
+		{ signalRuleId: 'SIG-COMM-000', actionId: 'ACT-A2P-005', isPrimary: false, isSecondary: true },
+		{ signalRuleId: 'SIG-COMM-000', actionId: 'ACT-EMAIL-002', isPrimary: false, isSecondary: true },
 		{ signalRuleId: 'SIG-COMM-000', actionId: 'ACT-A2P-003', isPrimary: false, isSecondary: true },
-		
+
 		{ signalRuleId: 'SIG-COMM-001', actionId: 'ACT-A2P-002', isPrimary: true, isSecondary: false },
 		{ signalRuleId: 'SIG-COMM-001', actionId: 'ACT-A2P-005', isPrimary: false, isSecondary: true },
+		{ signalRuleId: 'SIG-COMM-001', actionId: 'ACT-EMAIL-002', isPrimary: false, isSecondary: true },
 		{ signalRuleId: 'SIG-COMM-001', actionId: 'ACT-A2P-003', isPrimary: false, isSecondary: true },
 
 		{ signalRuleId: 'SIG-COMM-002', actionId: 'ACT-A2P-001', isPrimary: true, isSecondary: false },
+		{ signalRuleId: 'SIG-COMM-002', actionId: 'ACT-A2P-005', isPrimary: false, isSecondary: true },
+		{ signalRuleId: 'SIG-COMM-002', actionId: 'ACT-EMAIL-002', isPrimary: false, isSecondary: true },
 		{ signalRuleId: 'SIG-COMM-002', actionId: 'ACT-A2P-003', isPrimary: false, isSecondary: true },
 
 		{ signalRuleId: 'SIG-COMM-003', actionId: 'ACT-A2P-002', isPrimary: true, isSecondary: false },
 		{ signalRuleId: 'SIG-COMM-003', actionId: 'ACT-A2P-006', isPrimary: false, isSecondary: true },
+		{ signalRuleId: 'SIG-COMM-003', actionId: 'ACT-A2P-005', isPrimary: false, isSecondary: true },
+		{ signalRuleId: 'SIG-COMM-003', actionId: 'ACT-EMAIL-002', isPrimary: false, isSecondary: true },
 		{ signalRuleId: 'SIG-COMM-003', actionId: 'ACT-A2P-003', isPrimary: false, isSecondary: true },
 
 		{ signalRuleId: 'SIG-COMM-004', actionId: 'ACT-A2P-005', isPrimary: true, isSecondary: false },
@@ -261,13 +272,19 @@ async function main() {
 		{ signalRuleId: 'SIG-COMM-004', actionId: 'ACT-A2P-003', isPrimary: false, isSecondary: true },
 
 		{ signalRuleId: 'SIG-COMM-005', actionId: 'ACT-A2P-002', isPrimary: true, isSecondary: false },
+		{ signalRuleId: 'SIG-COMM-005', actionId: 'ACT-A2P-005', isPrimary: false, isSecondary: true },
+		{ signalRuleId: 'SIG-COMM-005', actionId: 'ACT-EMAIL-002', isPrimary: false, isSecondary: true },
 		{ signalRuleId: 'SIG-COMM-005', actionId: 'ACT-A2P-003', isPrimary: false, isSecondary: true },
 
 		{ signalRuleId: 'SIG-COMM-006', actionId: 'ACT-A2P-002', isPrimary: true, isSecondary: false },
 		{ signalRuleId: 'SIG-COMM-006', actionId: 'ACT-A2P-006', isPrimary: false, isSecondary: true },
+		{ signalRuleId: 'SIG-COMM-006', actionId: 'ACT-A2P-005', isPrimary: false, isSecondary: true },
+		{ signalRuleId: 'SIG-COMM-006', actionId: 'ACT-EMAIL-002', isPrimary: false, isSecondary: true },
 		{ signalRuleId: 'SIG-COMM-006', actionId: 'ACT-A2P-003', isPrimary: false, isSecondary: true },
 
 		{ signalRuleId: 'SIG-COMM-007', actionId: 'ACT-A2P-003', isPrimary: true, isSecondary: false },
+		{ signalRuleId: 'SIG-COMM-007', actionId: 'ACT-A2P-005', isPrimary: false, isSecondary: true },
+		{ signalRuleId: 'SIG-COMM-007', actionId: 'ACT-EMAIL-002', isPrimary: false, isSecondary: true },
 
 		// REV Domain Mappings
 		{ signalRuleId: 'SIG-TRUST-001', actionId: 'ACT-REV-001', isPrimary: true, isSecondary: false },

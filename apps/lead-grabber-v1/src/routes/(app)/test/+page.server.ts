@@ -331,6 +331,53 @@ export const actions: Actions = {
 			return { success: false, error: err.message || 'Internal processing error', logs };
 		}
 	},
+	triggerReview: async ({ request, locals }) => {
+		const user = locals.user;
+		if (!user || !user.companyId) {
+			return { success: false, error: 'Unauthorized' };
+		}
+		const companyId = user.companyId;
+
+		const data = await request.formData();
+		const authorName = String(data.get('author_name') || 'Anonymous Reviewer').trim();
+		const rating = Number(data.get('rating') || 5);
+		const comment = String(data.get('comment') || '').trim();
+
+		if (!comment) {
+			return { success: false, error: 'Review text is required' };
+		}
+
+		const sessionId = `review_sim_${Date.now()}`;
+		const logs: string[] = [`⭐ Inbound ${rating}-star review from ${authorName}`];
+
+		try {
+			const result = await PipelineSimulator.run({
+				author_name: authorName,
+				rating,
+				comment,
+				mode: 'review',
+				sessionId,
+				companyId
+			});
+
+			return {
+				success: true,
+				mode: 'review',
+				review: {
+					author_name: authorName,
+					rating,
+					comment,
+					sessionId
+				},
+				pipeline: JSON.parse(JSON.stringify(result ?? null)),
+				logs
+			};
+		} catch (err: any) {
+			console.error('Test Review Trigger failed:', err);
+			return { success: false, error: err.message || 'Internal processing error', logs };
+		}
+	},
+
 	triggerEmail: async ({ request, locals }) => {
 		const user = locals.user;
 		if (!user || !user.companyId) {

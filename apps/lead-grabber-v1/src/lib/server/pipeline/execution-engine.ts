@@ -864,24 +864,44 @@ async function prepareApprovalRequiredOutputs(
 					approval_package_id: approvalPkgId
 				});
 			} else if (rec.action_id === 'ACT-A2P-007') {
-				// SMS Followup Draft
+				// SMS Followup Draft — always use Claude for contextual replies
 				const customerName = params.customer_name || event?.authorName || 'Valued Customer';
 				const enrichment = event?.enrichments?.[0] || {};
+				const aiSummary = enrichment.aiSummary || params.ai_summary || '';
+				const bodyText = params.body_text || event?.reviewText || event?.unstructuredText || '';
 
 				const isComplaint = enrichment.aiContainsProblem === true;
 				const isPraise = enrichment.aiPraiseDetected === true && !isComplaint;
 				const isQuote = enrichment.aiContainsQuoteRequest === true;
 
-				let smsText = '';
-				if (isPraise) {
-					smsText = `Hi ${customerName}, this is ${businessName}. Thank you so much for the kind words! We're thrilled you're happy with the work. Have a great day!`;
-				} else if (isQuote) {
-					smsText = `Hi ${customerName}, this is ${businessName}. We received your quote request and are putting the details together now. We'll call you shortly to discuss!`;
-				} else if (isComplaint) {
-					smsText = `Hi ${customerName}, this is ${businessName}. We are very sorry to hear about the issue you mentioned. Our manager is reviewing this now and will call you ASAP to resolve it.`;
-				} else {
-					smsText = `Hi ${customerName}, this is ${businessName}. We received your message and are looking into it right now. We'll follow up shortly!`;
-				}
+				const toneHint = isPraise
+					? 'The customer left positive feedback. Thank them warmly and specifically for what they praised.'
+					: isQuote
+						? 'The customer is requesting a quote. Acknowledge their request and confirm you are preparing the details.'
+						: isComplaint
+							? 'The customer has a complaint. Show empathy, acknowledge the issue without being defensive, and confirm someone will follow up.'
+							: 'Acknowledge what the customer said and confirm the business will follow up.';
+
+				const smsText = await writeOrderTakerDraft({
+					mockMode,
+					businessName,
+					brandTone: bizConfig.brandTone || 'professional_friendly',
+					instruction: `Write a short SMS reply (under 160 characters if possible) to this customer message on behalf of the business. ${toneHint}`,
+					context: [
+						`Customer name: ${customerName}`,
+						aiSummary ? `AI summary: ${aiSummary}` : '',
+						bodyText ? `Original message from customer:\n${bodyText}` : ''
+					]
+						.filter(Boolean)
+						.join('\n'),
+					mockText: isPraise
+						? `Hi ${customerName}, this is ${businessName}. Thank you so much for the kind words! We're thrilled you're happy with the work. Have a great day!`
+						: isQuote
+							? `Hi ${customerName}, this is ${businessName}. We got your quote request and are putting the details together now. We'll call you shortly to discuss!`
+							: isComplaint
+								? `Hi ${customerName}, this is ${businessName}. We are very sorry to hear about the issue you mentioned. Our manager is reviewing this now and will call you ASAP to resolve it.`
+								: `Hi ${customerName}, this is ${businessName}. We got your message and are looking into it right now. We'll follow up shortly!`
+				});
 
 				const generatedOutput = {
 					draft_reply: smsText,

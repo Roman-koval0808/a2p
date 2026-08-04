@@ -32,6 +32,27 @@ export interface OrchestratorDecisionResult {
 	decision_record: any | null;
 }
 
+/**
+ * Reply-draft actions are channel-specific: an email reply only makes sense for
+ * an inbound email, a spoken callback script only for a phone channel. The
+ * signal→action mappings are channel-agnostic, so gate them here instead of
+ * duplicating every signal mapping per provider.
+ */
+const CHANNEL_SCOPED_ACTIONS: Record<string, (provider: string, eventType: string) => boolean> = {
+	'ACT-EMAIL-002': (provider, eventType) =>
+		provider.includes('email') || eventType.includes('email'),
+	'ACT-A2P-005': (provider, eventType) =>
+		provider.includes('voice') || provider.includes('telnyx') || eventType.includes('call') || eventType.includes('voicemail'),
+	'ACT-A2P-007': (provider, eventType) =>
+		provider.includes('telnyx') || eventType.includes('sms') || eventType.includes('voicemail') || eventType.includes('call')
+};
+
+function isActionAllowedForChannel(actionId: string, event: any): boolean {
+	const gate = CHANNEL_SCOPED_ACTIONS[actionId];
+	if (!gate) return true;
+	return gate(String(event?.provider || '').toLowerCase(), String(event?.eventType || '').toLowerCase());
+}
+
 export class OrchestratorLog {
 	event_id: string;
 	steps: { status: string; message: string; timestamp: string; description?: string }[] = [];
@@ -326,6 +347,15 @@ export class OrchestratorEngine {
 
 		const selectedActions: SelectedAction[] = [];
 		for (const mapping of mappingsForDominant) {
+			if (!isActionAllowedForChannel(mapping.actionId, event)) {
+				log.step(
+					'action_skipped_channel',
+					`${mapping.actionId} skipped: not applicable to ${event.provider}/${event.eventType}`,
+					'Reply-draft actions only run on the channel the customer actually used.'
+				);
+				continue;
+			}
+
 			const actionLib = await prisma.pipelineActionLibrary.findUnique({
 				where: { actionId: mapping.actionId }
 			});

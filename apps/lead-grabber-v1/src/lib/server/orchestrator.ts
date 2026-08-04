@@ -874,14 +874,70 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 			return; // Exit early because the draft was logged
 		} else {
-			draftedResponse = `Hi! Thanks for contacting ${company.name || 'us'}. We received your booking request. What day and time works best for you?`;
+			// Non-booking sales: always draft via Claude (order-taker prompt).
+			// Never fall back to a hardcoded template — templates produce generic
+			// "What day and time works best?" replies that don't match what the
+			// customer actually said.
+			if (ANTHROPIC_AI_KEY) {
+				try {
+					const { getOrderTakerSystemPrompt } = await import('./pipeline/ai-review-reply');
+					const { claudeText } = await import('./anthropic');
+					const isEmail = commLog.type === 'email';
+					const prompt = isEmail
+						? `Write a reply to this customer email on behalf of the business. Acknowledge what the customer said and confirm the business is ready to help. If the customer said they will call or follow up themselves, acknowledge that instead of asking for anything. Include a "Subject:" line and sign off with the business name.\n\nCustomer name: ${customer.displayName || customer.name || 'there'}\nEmail subject: ${commLog.summary || ''}\nOriginal email from customer:\n${rawMessage}`
+						: `Write a short SMS reply to this customer message on behalf of the business. Acknowledge what the customer said and confirm the business is ready to help. If the customer said they will call or follow up themselves, acknowledge that instead of asking for anything.\n\nCustomer name: ${customer.displayName || customer.name || 'there'}\nOriginal message from customer:\n${rawMessage}`;
+
+					const aiResponse = await claudeText({
+						apiKey: ANTHROPIC_AI_KEY,
+						system: getOrderTakerSystemPrompt(company.name || 'the business', 'professional_friendly'),
+						messages: [{ role: 'user', content: prompt }],
+						temperature: 0.3,
+						maxTokens: 400
+					});
+					if (aiResponse) {
+						draftedResponse = aiResponse.trim();
+					} else {
+						olog('[Orchestrator] Claude returned null — using minimal contextual fallback.');
+						draftedResponse = `Hi ${customer.displayName || customer.name || 'there'}, thanks for reaching out to ${company.name || 'us'}. We got your message and someone from our team will follow up with you shortly.`;
+					}
+				} catch (err) {
+					oerr('[Orchestrator] Claude draft generation failed:', err);
+					draftedResponse = `Hi ${customer.displayName || customer.name || 'there'}, thanks for reaching out to ${company.name || 'us'}. We got your message and someone from our team will follow up with you shortly.`;
+				}
+			} else {
+				draftedResponse = `Hi ${customer.displayName || customer.name || 'there'}, thanks for reaching out to ${company.name || 'us'}. We got your message and someone from our team will follow up with you shortly.`;
+			}
 		}
 	}
 
 	// --- SUPPORT (default — and where reclassified non-billing/non-sales calls land) ---
 	else {
 		olog('[Orchestrator] Detected Support request.');
-		draftedResponse = `Hi ${customer.name || 'there'}, thanks for reaching out to ${company.name || 'us'}. We received your message and a support agent will get back to you shortly.`;
+		// Contextual support draft via Claude — never hardcode a template here.
+		if (ANTHROPIC_AI_KEY) {
+			try {
+				const { getOrderTakerSystemPrompt } = await import('./pipeline/ai-review-reply');
+				const { claudeText } = await import('./anthropic');
+				const isEmail = commLog.type === 'email';
+				const supportPrompt = isEmail
+					? `Write a reply to this customer support email on behalf of the business. Acknowledge what the customer said with empathy and confirm someone will follow up. If they described a complaint, show understanding without being defensive. Include a "Subject:" line and sign off with the business name.\n\nCustomer name: ${customer.name || 'there'}\nEmail subject: ${commLog.summary || ''}\nOriginal email from customer:\n${rawMessage}`
+					: `Write a short SMS reply to this customer support message on behalf of the business. Acknowledge what the customer said with empathy and confirm someone will follow up. If they described a complaint, show understanding without being defensive.\n\nCustomer name: ${customer.name || 'there'}\nOriginal message from customer:\n${rawMessage}`;
+
+				const aiResponse = await claudeText({
+					apiKey: ANTHROPIC_AI_KEY,
+					system: getOrderTakerSystemPrompt(company.name || 'the business', 'professional_friendly'),
+					messages: [{ role: 'user', content: supportPrompt }],
+					temperature: 0.3,
+					maxTokens: 400
+				});
+				draftedResponse = aiResponse ? aiResponse.trim() : `Hi ${customer.name || 'there'}, thanks for reaching out to ${company.name || 'us'}. We got your message and someone from our team will follow up with you shortly.`;
+			} catch (err) {
+				oerr('[Orchestrator] Support Claude draft failed:', err);
+				draftedResponse = `Hi ${customer.name || 'there'}, thanks for reaching out to ${company.name || 'us'}. We got your message and someone from our team will follow up with you shortly.`;
+			}
+		} else {
+			draftedResponse = `Hi ${customer.name || 'there'}, thanks for reaching out to ${company.name || 'us'}. We got your message and someone from our team will follow up with you shortly.`;
+		}
 
 		// Scenario 1: Support Call Calendar Verification
 		if (aiIntent?.wants_appointment) {
@@ -897,7 +953,10 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				olog(
 					'[Orchestrator] Support meeting requested without an explicit datetime — asking for day/time.'
 				);
-				draftedResponse = `Hi ${customer.name || 'there'}, happy to set that up! What day and time works best for you?`;
+				// No explicit datetime given — ask politely. This is the ONE case
+				// where asking a question is valid (they asked for an appointment
+				// but didn't say when).
+				draftedResponse = `Hi ${customer.name || 'there'}, we'd love to get that set up for you! Could you let us know what day and time works best?`;
 			} else {
 				try {
 					const { processSupportCallMeetingConfirmation } =
@@ -1175,9 +1234,14 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 				// Reply whenever this is a returning caller, an explicit support message, or a
 				// scheduling / account ask. The AI itself then decides which real data it needs.
+				// Always generate a contextual agentic reply for emails (even
+				// first-contact), returning callers, support, and scheduling asks.
+				// This overwrites any template that was set earlier with a reply
+				// grounded in real data (appointments, account, availability).
 				if (
 					history.length > 0 ||
 					messageCategory === 'support' ||
+					commLog.type === 'email' ||
 					asksReschedule ||
 					asksAppointments ||
 					asksAvailability
@@ -1302,9 +1366,33 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	}
 
 	// Safety net: never leave a non-emergency inbound without a drafted reply.
+	// Try Claude first so even the safety net produces a contextual response.
 	if (!draftedResponse && messageCategory !== 'emergency' && !skipSafetyNet) {
-		olog('[Orchestrator] No draft produced upstream — using the generic follow-up safety net.');
-		draftedResponse = `Hi ${customer.name || 'there'}, thanks for reaching out to ${company.name || 'us'}. Someone from our team will follow up with you shortly.`;
+		olog('[Orchestrator] No draft produced upstream — safety net generating contextual reply.');
+		if (ANTHROPIC_AI_KEY) {
+			try {
+				const { getOrderTakerSystemPrompt } = await import('./pipeline/ai-review-reply');
+				const { claudeText } = await import('./anthropic');
+				const safetyPrompt = commLog.type === 'email'
+					? `Write a brief reply to this customer email. Acknowledge what they said and confirm the business will follow up. Include a "Subject:" line and sign off with the business name.\n\nCustomer name: ${customer.name || 'there'}\nEmail subject: ${commLog.summary || ''}\nOriginal email:\n${rawMessage}`
+					: `Write a brief SMS reply to this customer message. Acknowledge what they said and confirm the business will follow up.\n\nCustomer name: ${customer.name || 'there'}\nOriginal message:\n${rawMessage}`;
+				const aiResponse = await claudeText({
+					apiKey: ANTHROPIC_AI_KEY,
+					system: getOrderTakerSystemPrompt(company.name || 'the business', 'professional_friendly'),
+					messages: [{ role: 'user', content: safetyPrompt }],
+					temperature: 0.3,
+					maxTokens: 400
+				});
+				if (aiResponse) {
+					draftedResponse = aiResponse.trim();
+				}
+			} catch (err) {
+				oerr('[Orchestrator] Safety net Claude draft failed:', err);
+			}
+		}
+		if (!draftedResponse) {
+			draftedResponse = `Hi ${customer.name || 'there'}, thanks for reaching out to ${company.name || 'us'}. We got your message and someone from our team will follow up with you shortly.`;
+		}
 	}
 
 	// --- 3. Post-Processing: Thread Similarity Matching ---
