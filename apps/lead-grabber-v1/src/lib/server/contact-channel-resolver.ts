@@ -58,6 +58,15 @@ export function resolveContactChannel(input: ContactChannelInput): ResolvedConta
 		// a landline cannot be automated — that is a job for a person (§11).
 		if (input.mobile) return { outcome: 'voice', target: input.mobile, reason: 'requested_channel' };
 		if (input.landline) return { outcome: 'manual_call', target: input.landline, reason: 'requested_voice_landline' };
+		// No number at all. "Call" is often the customer saying THEY will call us ("I'll call
+		// you in a couple of weeks") rather than asking for a callback — don't lose him over
+		// the literal word: reach him on the channel he actually used (§11 fallback).
+		if (input.originalChannel === 'email' && input.originalTarget) {
+			return { outcome: 'email', target: input.originalTarget, reason: 'original_channel_voice_unavailable' };
+		}
+		if (input.originalChannel === 'sms' && input.originalTarget) {
+			return { outcome: 'sms', target: input.originalTarget, reason: 'original_channel_voice_unavailable' };
+		}
 		return { outcome: 'unreachable', reason: 'requested_voice_no_number' };
 	}
 	if (requested) return { outcome: 'unreachable', reason: `requested_channel_unavailable:${requested}` };

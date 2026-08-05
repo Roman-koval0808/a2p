@@ -768,6 +768,7 @@ export const POST: RequestHandler = async ({ request }) => {
 									profileId: contact.id,
 									extraction,
 									channel: 'sms',
+									originalTarget: normalizedPhoneNumber,
 									conversationId: threadId,
 									idempotencyKey: `si-sms-${smsId}`
 								});

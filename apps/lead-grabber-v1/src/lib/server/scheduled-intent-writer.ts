@@ -46,6 +46,8 @@ export async function writeScheduledIntent(opts: {
 	extraction: ScheduledIntentExtraction;
 	/** The channel the customer used (email | sms | voice | web) — for the CRM note's type. */
 	channel?: 'email' | 'sms' | 'voice' | 'web';
+	/** Where the customer reached us on that channel — kept so the §11 fallback can reach them later. */
+	originalTarget?: string | null;
 	conversationId?: string | null;
 	reference?: Date;
 	idempotencyKey: string;
@@ -98,6 +100,10 @@ export async function writeScheduledIntent(opts: {
 					calculatedTargetDate: extraction.calculatedTargetDate,
 					confidence: extraction.confidence,
 					preferredChannel: extraction.preferredChannel,
+					// Where and how the customer reached us — without this, a "call me back"
+					// intent filed from an email is unreachable when he never gave a number (§11).
+					originalChannel: opts.channel ?? null,
+					originalTarget: opts.originalTarget ?? null,
 					conversationId: opts.conversationId ?? null,
 					referenceIso: reference.toISOString()
 				}

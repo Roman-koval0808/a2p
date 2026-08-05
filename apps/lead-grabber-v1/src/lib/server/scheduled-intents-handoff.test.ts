@@ -91,4 +91,27 @@ describe('handoffDueIntent ordering — queue write comes before the CAS claim',
 		// The CommunicationLog type is not 'email' for a phone-targeted row.
 		expect(logged.type).toBe('voice');
 	});
+
+	it('"call" with no number at all falls back to his email — never unreachable (§11)', async () => {
+		vi.mocked(logCommunication).mockResolvedValue({ id: 'queue_2' } as any);
+		vi.mocked(prisma.contact.findUnique).mockResolvedValue({
+			id: 'contact_1',
+			name: 'Ray Charbonneau',
+			cell: null,
+			phone: null,
+			email: 'ray@example.com',
+			landline: null
+		} as any);
+
+		const out = await handoffDueIntent(intent, new Date('2026-08-25T13:00:00Z'));
+
+		expect(out.handedOff).toBe(true);
+		expect(out.channel?.outcome).toBe('email');
+		expect(out.channel?.target).toBe('ray@example.com');
+		const logged = vi.mocked(logCommunication).mock.calls[0][0];
+		expect(logged.metadata.channel).toBe('email');
+		expect(logged.type).toBe('email');
+		expect(logged.destination).toBe('ray@example.com');
+		expect(logged.summary).not.toContain('UNREACHABLE');
+	});
 });

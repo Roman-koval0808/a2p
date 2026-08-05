@@ -863,6 +863,7 @@ async function syncCompanyEmailsInner(companyId: string) {
 							profileId: contact.id,
 							extraction,
 							channel: 'email',
+							originalTarget: customerEmail,
 							conversationId: threadId,
 							reference,
 							idempotencyKey: `si-email-${msgId}`
