@@ -1,6 +1,23 @@
-import { describe, it, expect } from 'vitest';
-import { committedWindowDays, effectiveInactiveDays, type CommitmentWindow } from './open-commitments';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import {
+	committedWindowDays,
+	effectiveInactiveDays,
+	resolvePendingCustomerCommitments,
+	type CommitmentWindow
+} from './open-commitments';
 import { calculateDecayedScore, evaluateDemotion } from './profiledb/scoring.service';
+import { prisma } from '$lib/db';
+
+vi.mock('$lib/db', () => ({
+	prisma: {
+		scheduledIntent: { updateMany: vi.fn() }
+	}
+}));
+
+beforeEach(() => {
+	vi.clearAllMocks();
+	vi.mocked(prisma.scheduledIntent.updateMany).mockResolvedValue({ count: 0 } as any);
+});
 
 /** Ray's timeline: emailed 4 Aug, said he'd call in ~2 weeks, due 25 Aug (14 Aug target + 7 grace). */
 const AUG_4 = new Date('2026-08-04T13:00:00Z');
@@ -73,5 +90,32 @@ describe('decay protection (§7) — the score counts interest, and a stated pla
 
 	it('committedDays defaults to 0 — existing callers are unchanged', () => {
 		expect(calculateDecayedScore(60, AUG_4, 'active', AUG_10)).toBe(calculateDecayedScore(60, AUG_4, 'active', AUG_10, 0));
+	});
+});
+
+describe('resolvePendingCustomerCommitments (§8) — he did what he said, resolve now', () => {
+	it('marks pending Scenario-A commitments SKIPPED the moment the customer contacts us', async () => {
+		vi.mocked(prisma.scheduledIntent.updateMany).mockResolvedValue({ count: 1 } as any);
+
+		const count = await resolvePendingCustomerCommitments('company_1', 'contact_1');
+
+		expect(count).toBe(1);
+		expect(prisma.scheduledIntent.updateMany).toHaveBeenCalledWith(
+			expect.objectContaining({
+				where: {
+					clientId: 'company_1',
+					profileId: 'contact_1',
+					status: 'PENDING',
+					// Only rows where HE promised to act — our promises (B) survive his call.
+					intentType: 'CUSTOMER_COMMITMENT_A'
+				},
+				data: expect.objectContaining({ status: 'SKIPPED' })
+			})
+		);
+	});
+
+	it('touches nothing when there is no pending commitment', async () => {
+		const count = await resolvePendingCustomerCommitments('company_1', 'contact_1');
+		expect(count).toBe(0);
 	});
 });

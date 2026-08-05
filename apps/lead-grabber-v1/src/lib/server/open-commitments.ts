@@ -194,3 +194,33 @@ export async function shouldSuppressMarketing(
 	if (kind === 'service_reminder') return false;
 	return hasOpenCommitment(profileId, now);
 }
+
+/**
+ * The customer just got in touch. If there are pending plans where THEY were
+ * supposed to act (Scenario A), resolve them now — he did what he said (§8),
+ * and the answer is known the moment his message lands. Event-driven, not a
+ * background watcher. Scenario B rows (we owe HIM something) are untouched:
+ * his call doesn't fulfil our promise.
+ *
+ * Returns how many rows were resolved.
+ */
+export async function resolvePendingCustomerCommitments(
+	companyId: string,
+	profileId: string
+): Promise<number> {
+	const res = await prisma.scheduledIntent.updateMany({
+		where: {
+			clientId: companyId,
+			profileId,
+			status: 'PENDING',
+			intentType: 'CUSTOMER_COMMITMENT_A'
+		},
+		data: { status: 'SKIPPED', updatedAt: new Date() }
+	});
+	if (res.count > 0) {
+		console.log(
+			`[open-commitments] resolved ${res.count} pending customer commitment(s) for ${profileId} — they got in touch`
+		);
+	}
+	return res.count;
+}

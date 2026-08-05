@@ -844,6 +844,9 @@ async function syncCompanyEmailsInner(companyId: string) {
 				Promise.resolve().then(async () => {
 					try {
 						if (!contact?.id) return; // nobody to file the row under
+						const { resolvePendingCustomerCommitments } = await import('$lib/server/open-commitments');
+						// He just got in touch — any pending "he said he'd act" plan resolves now (§8).
+						await resolvePendingCustomerCommitments(companyId, contact.id);
 						const { extractScheduledIntent } = await import('$lib/server/ai/scheduled-intent-parser');
 						const { writeScheduledIntent } = await import('$lib/server/scheduled-intent-writer');
 						const { ANTHROPIC_AI_KEY } = await import('$env/static/private');

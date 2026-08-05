@@ -588,6 +588,20 @@ export const POST: RequestHandler = async ({ request }) => {
 							})
 						: undefined;
 
+					// He just got in touch — any pending "he said he'd act" plan resolves now (§8).
+					if (effectiveCompanyId && contact?.id) {
+						Promise.resolve().then(async () => {
+							try {
+								const { resolvePendingCustomerCommitments } = await import(
+									'$lib/server/open-commitments'
+								);
+								await resolvePendingCustomerCommitments(effectiveCompanyId, contact!.id);
+							} catch (e) {
+								console.error('[SMS webhook] resolve pending commitments error:', e);
+							}
+						});
+					}
+
 					const inboundCommLog = await logCommunication({
 						type: 'sms',
 						direction: 'inbound',

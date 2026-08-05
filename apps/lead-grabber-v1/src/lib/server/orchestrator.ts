@@ -1450,8 +1450,33 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			take: 10
 		});
 
+		// An unidentified caller (fresh number, no phone on file anywhere) can never match
+		// the same-phone query above. Fall back to the company's recent conversations and
+		// let the semantic judge decide — "I told you I'll call previously" IS the email
+		// that promised the call, even though the two messages never shared a phone number.
+		if (recentComms.length === 0) {
+			const companyRecent = await prisma.communicationLog.findMany({
+				where: {
+					companyId: commLog.companyId,
+					id: { not: commId },
+					status: { in: ['completed', 'success', 'pending_approval'] },
+					content: { not: null },
+					customerId: { not: null },
+					created: { gte: thirtyDaysAgo }
+				},
+				orderBy: { created: 'desc' },
+				take: 15
+			});
+			recentComms.push(...companyRecent);
+		}
+
 		let matchedThreadId: string | null = null;
 		let matchReason = '';
+		let matchedComm: {
+			id: string;
+			customerId: string | null;
+			communicationThreadId: string | null;
+		} | null = null;
 
 		// Use OpenAI as the sole matching engine — pass unique comm IDs
 		if (recentComms.length > 0 && commLog.content) {
@@ -1468,7 +1493,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					const aiMatchedCommId = await matchThreadOpenAI(commLog.content, messagesForAi);
 					if (aiMatchedCommId) {
 						// Resolve the matched comm's thread ID (or use its own ID as the thread)
-						const matchedComm = recentComms.find((c) => c.id === aiMatchedCommId);
+						matchedComm = recentComms.find((c) => c.id === aiMatchedCommId) ?? null;
 						if (matchedComm) {
 							matchedThreadId = matchedComm.communicationThreadId || matchedComm.id;
 							matchReason = 'OpenAI semantic match';
@@ -1504,6 +1529,68 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 			// Update in-memory so draft SMS gets the new thread ID
 			commLog.communicationThreadId = matchedThreadId;
+
+			// Identity bridge (§8): the matcher linked this message to a thread owned by
+			// ANOTHER contact — that's the system saying "same customer, different channel".
+			// If that customer had pending plans where THEY promised to act, resolve them
+			// now: he contacted us sooner than he promised, so the plan is done.
+			if (matchedComm?.customerId && matchedComm.customerId !== commLog.customerId) {
+				const { resolvePendingCustomerCommitments } = await import('./open-commitments');
+				const resolved = await resolvePendingCustomerCommitments(
+					commLog.companyId,
+					matchedComm.customerId
+				);
+				if (resolved > 0) {
+					olog(
+						`[Orchestrator] Resolved ${resolved} pending commitment(s) for ${matchedComm.customerId} — same customer reached us on another channel`
+					);
+				}
+
+				// Contact resolution: fold the caller's auto-created contact into the matched
+				// one, so the customer has ONE profile. Their comms move, the phone sticks
+				// (so the next call resolves directly), and the duplicate contact is removed.
+				const callerContactId = commLog.customerId;
+				if (callerContactId) {
+					// Only fold contacts that LOOK auto-created (no real name on file) — a
+					// named contact with its own history stays untouched. The matcher may be
+					// wrong, and destroying a real customer profile on a guess is not worth it.
+					const callerContact = await prisma.contact
+						.findUnique({ where: { id: callerContactId }, select: { id: true, name: true } })
+						.catch(() => null);
+					const looksAutoCreated =
+						!callerContact?.name ||
+						['Unknown', 'Unknown Caller', 'Unknown Customer', 'Anonymous', 'Valued Customer'].includes(
+							callerContact.name.trim()
+						);
+					if (!looksAutoCreated) {
+						olog(
+							`[Orchestrator] Skipped contact merge: ${callerContactId} has a real name ("${callerContact?.name}") — thread linked, profiles kept separate`
+						);
+					} else {
+						await prisma.communicationLog.update({
+							where: { id: commId },
+							data: { customerId: matchedComm.customerId }
+						});
+						await prisma.communicationLog.updateMany({
+							where: { customerId: callerContactId, id: { not: commId } },
+							data: { customerId: matchedComm.customerId }
+						});
+						if (callerPhone) {
+							await prisma.contact
+								.update({
+									where: { id: matchedComm.customerId },
+									data: { phone: callerPhone }
+								})
+								.catch(() => {});
+						}
+						await prisma.contact.delete({ where: { id: callerContactId } }).catch(() => {});
+						commLog.customerId = matchedComm.customerId;
+						olog(
+							`[Orchestrator] Contacts merged: ${callerContactId} → ${matchedComm.customerId} (${callerPhone || 'no phone'})`
+						);
+					}
+				}
+			}
 		}
 	}
 
