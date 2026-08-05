@@ -76,7 +76,9 @@ describe('handoffDueIntent ordering — queue write comes before the CAS claim',
 
 		expect(out.handedOff).toBe(true);
 		expect(out.queueId).toBe('queue_1');
-		expect(out.draft).toContain('a couple of weeks');
+		expect(out.draft).toContain('in a couple of weeks');
+		expect(out.draft).toContain('give us a call about air conditioning');
+		expect(out.draft).not.toContain('away');
 		expect(prisma.scheduledIntent.updateMany).toHaveBeenCalledWith(
 			expect.objectContaining({ where: { id: 'intent_1', status: 'PENDING' } })
 		);
@@ -85,7 +87,9 @@ describe('handoffDueIntent ordering — queue write comes before the CAS claim',
 			action: 'SCHED-INTENT-FOLLOWUP',
 			intentId: 'intent_1',
 			// He asked to be CALLED → voice outcome on his mobile.
-			channel: 'voice'
+			channel: 'voice',
+			// Never "No subject" when the draft is confirmed.
+			subject: 'About air conditioning'
 		});
 		expect(logged.status).toBe('pending_approval');
 		// The CommunicationLog type is not 'email' for a phone-targeted row.

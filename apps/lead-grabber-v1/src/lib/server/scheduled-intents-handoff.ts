@@ -37,11 +37,19 @@ export function buildFollowUpDraft(intent: {
 	const method = (intent.payload?.preferredChannel || '').trim();
 
 	if (intent.actor === 'CUSTOMER') {
-		// Ray: "You mentioned you'd be away a couple of weeks and would give us a call
-		// about air conditioning when you were back — thought I'd save you the job…"
-		const phrase = timeframe ? `you'd be away ${timeframe}` : "you'd be away";
-		const how = method ? `and would ${method} about ${what}` : `and would be in touch about ${what}`;
-		return `You mentioned ${phrase} ${how} when you were back — thought I'd save you the job…`;
+		// He said HE'D act. Restate only what he actually said — never why, never "when
+		// you're back" (he may not be going anywhere). Works for any trade: air
+		// conditioning or a manicure, the sentence is the same.
+		const phrase = timeframe ? ` in ${timeframe}` : '';
+		const how =
+			method === 'call'
+				? 'give us a call'
+				: method === 'email'
+					? 'email us'
+					: method === 'sms'
+						? 'text us'
+						: 'be in touch';
+		return `You mentioned you'd ${how} about ${what}${phrase} — thought I'd save you the job…`;
 	}
 
 	// Scenario B — they asked us to act; we're honouring a promise, not marketing.
@@ -90,6 +98,9 @@ export async function handoffDueIntent(
 
 	const draft = buildFollowUpDraft(intent);
 	const who = contact?.name?.trim() || 'the customer';
+	// A real subject for the email — the summary dialog and the confirm flow both read
+	// it, so a confirmed draft never goes out as "No subject" (§9).
+	const subject = `About ${(intent.payload?.whatHeWants || 'your message').trim()}`;
 
 	// The agent-facing summary carries the reachability verdict, so the
 	// "unreachable / manual call" rows (§11) are visibly work for a person.
@@ -125,6 +136,7 @@ export async function handoffDueIntent(
 			scheduled_intent_followup: true,
 			channel: channel.outcome,
 			channel_reason: channel.reason,
+			subject,
 			companyName: company?.name || null
 		}
 	});

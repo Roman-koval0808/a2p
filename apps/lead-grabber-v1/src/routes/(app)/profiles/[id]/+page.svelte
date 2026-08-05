@@ -86,6 +86,7 @@
 	let communications = $state<Communication[]>(data.communications || []);
 
 	let scheduledIntents = $state(data.scheduledIntents || []);
+	let sweeping = $state(false);
 
 	// Update when data changes
 	$effect(() => {
@@ -396,6 +397,37 @@
 		}
 	}
 
+	async function runSweep() {
+		sweeping = true;
+		const loadingId = toast.loading('Running schedule sweep...');
+		try {
+			const res = await fetch('/api/a2p/schedule/sweep', { method: 'POST' });
+			const result = await res.json();
+			if (result.ok) {
+				toast.success(
+					`Sweep done — due ${result.due ?? 0}, handed off ${result.handedOff ?? 0}, skipped ${result.skipped ?? 0}, expired ${result.expired ?? 0}`,
+					{ id: loadingId }
+				);
+				await invalidateAll();
+			} else {
+				toast.error(result.error || 'Sweep failed', { id: loadingId });
+			}
+		} catch (e) {
+			console.error(e);
+			toast.error('Sweep failed', { id: loadingId });
+		} finally {
+			sweeping = false;
+		}
+	}
+
+	function formatSIDate(d: Date): string {
+		return new Date(d).toLocaleDateString('en-US', {
+			month: 'short',
+			day: 'numeric',
+			year: 'numeric'
+		});
+	}
+
 	async function rescheduleIntent(si: { id: string; dueAt: Date | string }) {
 		const current = new Date(si.dueAt);
 		const iso = new Date(current.getTime() - current.getTimezoneOffset() * 60_000)
@@ -426,14 +458,6 @@
 			console.error(e);
 			toast.error('Failed to reschedule scheduled intent', { id: loadingId });
 		}
-	}
-
-	function formatSIDate(d: Date): string {
-		return new Date(d).toLocaleDateString('en-US', {
-			month: 'short',
-			day: 'numeric',
-			year: 'numeric'
-		});
 	}
 
 	function formatOrdinal(d: Date): string {
@@ -903,13 +927,23 @@
 					<h2 class="font-sans text-base font-semibold leading-[21px] text-[#555555]">
 						Pending Actions
 					</h2>
-					<a
-						href="/profiles/{data.profile.id}/scheduled-intents"
-						class="inline-flex items-center font-sans text-xs font-semibold text-[#577AB7] hover:text-[#3d5a8a]"
-					>
-						View all
-						<ArrowUpRight class="ml-1 h-3 w-3" />
-					</a>
+					<div class="flex items-center gap-4">
+						<button
+							type="button"
+							onclick={runSweep}
+							disabled={sweeping}
+							class="inline-flex items-center font-sans text-xs font-semibold text-[#577AB7] hover:text-[#3d5a8a] disabled:opacity-50"
+						>
+							{#if sweeping}Sweeping…{:else}Run sweep{/if}
+						</button>
+						<a
+							href="/profiles/{data.profile.id}/scheduled-intents"
+							class="inline-flex items-center font-sans text-xs font-semibold text-[#577AB7] hover:text-[#3d5a8a]"
+						>
+							View all
+							<ArrowUpRight class="ml-1 h-3 w-3" />
+						</a>
+					</div>
 				</div>
 
 				{#if scheduledIntents.length === 0}

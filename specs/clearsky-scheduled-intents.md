@@ -145,19 +145,16 @@ Marcus is the standing example: he deferred to "spring" and his story is still o
 
 ## 5. Do We Reply Straight Away?
 
-**Yes. Locked 4 August.**
+**No instant ack. Locked 5 August.** The instant ack ("Thanks Ray — we'll look forward
+to hearing from you when you're back.") was built, then removed in real-world testing:
+the Orchestrator already drafts a reply for every inbound message, so an ack plus a
+draft was **two messages for one email**. The customer gets one reply — the Orchestrator's
+drafted message, human-approved.
 
-*"Thanks Ray — we'll look forward to hearing from you when you're back."*
+The reasons the ack existed still apply to the draft that replaces it:
 
-He wrote to a business and should hear something back. Silence is its own message.
-
-**Fixed wording, so it's already approved** — approval happened when the template was written, the same way it works for the emergency confirmation. It goes out the same morning rather than waiting for someone to click.
-
-**No date in it.** "In a couple of weeks" is Ray's phrase, but it got there through AI reading his email — and if that reading grabbed the wrong words, an approved template sends something he never said. The follow-up on the 25th can quote him properly, because a human reads that one first.
-
-Same reason the emergency confirmation carries no arrival time.
-
-**Our reply doesn't count as him being in touch.** Obvious once said, and easy to get wrong — otherwise every follow-up cancels itself.
+**Our reply doesn't count as him being in touch.** Obvious once said, and easy to get
+wrong — otherwise every follow-up cancels itself.
 
 ---
 
@@ -256,9 +253,10 @@ He rings on the 16th, nothing fires on the 25th. No watching, nothing running in
 
 **A human approves it, and it can't be sent as part of a batch** — it's written against Ray's own words, so it isn't the same message as anyone else's.
 
-And it quotes him:
+And it quotes him — **restating only what he actually said. Never why, never "when you're
+back"** (he may not be going anywhere; a manicure or air conditioning, the sentence is the same):
 
-> *"You mentioned you'd be away a couple of weeks and would give us a call about air conditioning when you were back — thought I'd save you the job…"*
+> *"You mentioned you'd give us a call about air conditioning in a couple of weeks — thought I'd save you the job…"*
 
 That's the whole reason we kept his exact phrase. A generic "just checking in" throws away the only thing that makes it land: evidence we listened.
 
