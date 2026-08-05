@@ -410,6 +410,10 @@ export const actions: Actions = {
 		const user = locals.user;
 		if (!user?.company) return { success: false };
 		try {
+			// Our schedule rows are plans filed under this profile — they die with it.
+			await prisma.scheduledIntent.deleteMany({
+				where: { clientId: user.company.id, profileId: params.id }
+			});
 			await prisma.contact.deleteMany({
 				where: { id: params.id, companyId: user.company.id }
 			});

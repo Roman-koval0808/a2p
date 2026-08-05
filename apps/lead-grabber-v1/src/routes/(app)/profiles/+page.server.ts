@@ -98,6 +98,10 @@ export const actions: Actions = {
 		if (!profileId) return fail(400, { error: 'Profile ID is required' });
 
 		try {
+			// Our schedule rows are plans filed under this profile — they die with it.
+			await prisma.scheduledIntent.deleteMany({
+				where: { clientId: user.company.id, profileId }
+			});
 			await prisma.contact.deleteMany({
 				where: { id: profileId, companyId: user.company.id }
 			});
