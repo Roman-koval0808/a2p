@@ -855,9 +855,16 @@ async function syncCompanyEmailsInner(companyId: string) {
 							reference,
 							timeZone: 'America/Toronto'
 						});
-						if (!extraction?.schedulable) return;
+						if (!extraction) {
+							console.warn(`[Gmail Sync] Scheduled-intent: extraction returned null for ${msgId} (no schedule — check [anthropic.claudeJSON] errors above)`);
+							return;
+						}
+						if (!extraction.schedulable) {
+							console.warn(`[Gmail Sync] Scheduled-intent: not schedulable for ${msgId} — confidence=${extraction.confidence}, timeframe="${extraction.rawTimeframe}", target=${extraction.calculatedTargetDate ?? 'none'}`);
+							return;
+						}
 
-						await writeScheduledIntent({
+						const written = await writeScheduledIntent({
 							companyId,
 							contactId: contact.id,
 							profileId: contact.id,
@@ -868,6 +875,9 @@ async function syncCompanyEmailsInner(companyId: string) {
 							reference,
 							idempotencyKey: `si-email-${msgId}`
 						});
+						if (!written.recorded) {
+							console.warn(`[Gmail Sync] Scheduled-intent: not recorded for ${msgId} — ${written.reason}`);
+						}
 					} catch (siErr) {
 						console.error('[Gmail Sync] Scheduled-intent flow error:', siErr);
 					}

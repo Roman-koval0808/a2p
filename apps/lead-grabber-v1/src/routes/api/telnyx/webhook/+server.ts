@@ -760,9 +760,20 @@ export const POST: RequestHandler = async ({ request }) => {
 								const extraction = await extractScheduledIntent(smsText, ANTHROPIC_AI_KEY, {
 									timeZone: 'America/Toronto'
 								});
-								if (!extraction?.schedulable) return;
+								if (!extraction) {
+									console.warn(
+										`[SMS webhook] Scheduled-intent: extraction returned null for ${smsId} (no schedule — check [anthropic.claudeJSON] errors above)`
+									);
+									return;
+								}
+								if (!extraction.schedulable) {
+									console.warn(
+										`[SMS webhook] Scheduled-intent: not schedulable for ${smsId} — confidence=${extraction.confidence}, timeframe="${extraction.rawTimeframe}", target=${extraction.calculatedTargetDate ?? 'none'}`
+									);
+									return;
+								}
 
-								await writeScheduledIntent({
+								const written = await writeScheduledIntent({
 									companyId: effectiveCompanyId,
 									contactId: contact.id,
 									profileId: contact.id,
@@ -772,6 +783,11 @@ export const POST: RequestHandler = async ({ request }) => {
 									conversationId: threadId,
 									idempotencyKey: `si-sms-${smsId}`
 								});
+								if (!written.recorded) {
+									console.warn(
+										`[SMS webhook] Scheduled-intent: not recorded for ${smsId} — ${written.reason}`
+									);
+								}
 							} catch (siErr) {
 								console.error('[SMS webhook] Scheduled-intent flow error:', siErr);
 							}
