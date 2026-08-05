@@ -322,6 +322,22 @@
 		summaryDialogOpen = true;
 	}
 
+	// The customer-facing contact point for the summary dialog: for outbound rows
+	// that's the destination (who we contacted/sent to), for inbound it's the source
+	// (who contacted us). Emails resolve the raw address from the underlying record
+	// (comm.raw.raw) because source/destination are remapped to display *names* for
+	// known contacts; voice keeps the formatted display value like the table does.
+	function dialogContactPoint(comm: any): string {
+		const isOutbound = comm?.raw?.direction === 'outbound';
+		if (comm?.raw?.type === 'email') {
+			const raw = comm?.raw?.raw;
+			return isOutbound
+				? raw?.destination || comm.endpoint || ''
+				: raw?.source || comm.source || '';
+		}
+		return isOutbound ? comm.endpoint ?? '' : comm.source ?? '';
+	}
+
 	function handleActionClick(action: string, comm: any) {
 		if (action === 'sms' || action === 'reply' || action === 'email') {
 			replyComm = comm;
@@ -649,7 +665,7 @@
 			? ''
 			: capLabel(meta.subcat_gpt, meta.sub_intent) || 'General'}
 		sourceLabel={selectedComm.raw?.type === 'email' ? 'Email Address' : 'Phone'}
-		email={selectedComm.source ?? ''}
+		email={dialogContactPoint(selectedComm)}
 		subject={selectedComm.raw?.metadata?.subject || selectedComm.raw?.subject || 'No subject'}
 		body={selectedComm.raw?.content || selectedComm.summary || ''}
 		summary={selectedComm.summary}

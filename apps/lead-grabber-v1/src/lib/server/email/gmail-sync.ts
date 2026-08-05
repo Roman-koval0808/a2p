@@ -485,7 +485,11 @@ async function syncCompanyEmailsInner(companyId: string) {
 						`[gmail-sync] Linking outgoing message ${msgId} to existing thread ${linkThreadId}`
 					);
 				}
-				const outboundLog = await logCommunication({
+			// Same unique-index guard as the inbound path: a duplicate here means the
+			// sent message was already logged (e.g. adoption raced with a fresh insert).
+			let outboundLog;
+			try {
+				outboundLog = await logCommunication({
 					type: 'email',
 					direction: 'outbound',
 					status: 'success',
@@ -498,6 +502,15 @@ async function syncCompanyEmailsInner(companyId: string) {
 					thread_id: linkThreadId || undefined,
 					metadata: { thread_id: threadId, subject, email_message_id: msgId }
 				});
+			} catch (err) {
+				if ((err as any)?.code === 'P2002') {
+					console.warn(`[gmail-sync] Outbound message ${msgId} already logged — skipping duplicate.`);
+					processed++;
+					continue;
+				}
+				console.error(`[gmail-sync] Failed to log outbound message ${msgId}:`, err);
+				continue;
+			}
 
 				// Mailbox-sent email: run the outbound review so the orchestrator world gets an
 				// AI summary, an open container and pending follow-up tasks for what was sent. A
@@ -525,40 +538,46 @@ async function syncCompanyEmailsInner(companyId: string) {
 					}
 				});
 			} else {
-				// Store as inbound
-				const newItem = {
-					content: cleanBody || '(No content)',
-					timestamp: date || new Date().toISOString(),
-					is_agent_reply: false,
-					subject: subject,
-					type: 'email'
-				};
+			// Store as inbound
+			const newItem = {
+				content: cleanBody || '(No content)',
+				timestamp: date || new Date().toISOString(),
+				is_agent_reply: false,
+				subject: subject,
+				type: 'email'
+			};
 
-				let messageRecord = await prisma.message.findUnique({ where: { threadId } });
-				if (messageRecord && messageRecord.companyId === companyId) {
-					const prev = Array.isArray(messageRecord.messages) ? messageRecord.messages : [];
-					await prisma.message.update({
-						where: { id: messageRecord.id },
-						data: {
-							messages: [...prev, newItem],
-							status: 'new',
-							updated: new Date()
-						}
-					});
-				} else {
-					await prisma.message.create({
-						data: {
-							threadId,
-							companyId,
-							customerName,
-							customerEmail,
-							status: 'new',
-							messages: [newItem]
-						}
-					});
-				}
+			let messageRecord = await prisma.message.findUnique({ where: { threadId } });
+			if (messageRecord && messageRecord.companyId === companyId) {
+				const prev = Array.isArray(messageRecord.messages) ? messageRecord.messages : [];
+				await prisma.message.update({
+					where: { id: messageRecord.id },
+					data: {
+						messages: [...prev, newItem],
+						status: 'new',
+						updated: new Date()
+					}
+				});
+			} else {
+				await prisma.message.create({
+					data: {
+						threadId,
+						companyId,
+						customerName,
+						customerEmail,
+						status: 'new',
+						messages: [newItem]
+					}
+				});
+			}
 
-				const inboundEmailLog = await logCommunication({
+			// Belt-and-suspenders: the durable claim above stops a second instance from ever
+			// reaching this insert, but if a row for this message was written by another path
+			// (or the claim table was reset), the unique index on (companyId, email_message_id)
+			// rejects the duplicate — skip rather than firing the pipeline twice.
+			let inboundEmailLog;
+			try {
+				inboundEmailLog = await logCommunication({
 					type: 'email',
 					direction: 'inbound',
 					status: 'success',
@@ -580,6 +599,14 @@ async function syncCompanyEmailsInner(companyId: string) {
 						...(isMarketing ? { marketing_email: true } : {})
 					}
 				});
+			} catch (err) {
+				if ((err as any)?.code === 'P2002') {
+					console.warn(`[gmail-sync] Message ${msgId} already logged — skipping duplicate.`);
+					continue;
+				}
+				console.error(`[gmail-sync] Failed to log inbound message ${msgId}:`, err);
+				continue;
+			}
 
 				// Trigger the AI unified pipeline (ProfileDB signals) — same as SMS.
 				Promise.resolve().then(async () => {
