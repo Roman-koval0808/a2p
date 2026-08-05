@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { Search, Mic, MoreVertical, Pencil, Trash2 } from 'lucide-svelte';
 	import { goto } from '$app/navigation';
 	import { invalidateAll } from '$app/navigation';
@@ -12,6 +13,14 @@
 	let { data } = $props();
 	let searchQuery = $state('');
 	let selectedBucket = $state('');
+
+	// Keep the list live — new customers appear as they come in, no manual refresh.
+	onMount(() => {
+		const interval = setInterval(() => {
+			invalidateAll();
+		}, 4000);
+		return () => clearInterval(interval);
+	});
 
 	const profiles = $derived(data.profiles || []);
 	const filteredProfiles = $derived(

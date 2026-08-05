@@ -895,13 +895,13 @@
 				</div>
 			</div>
 
-			<!-- Scheduled Intents (§10): a look-up list, never the queue. What's coming,
+			<!-- Pending Actions (§10): a look-up list, never the queue. What's coming,
 			     by date, with the reason. Cancel/reschedule moves OUR plan only — the
 			     customer's words stay in the communications table below, untouched. -->
 			<div class="mb-6 rounded-lg bg-white p-6 shadow-[0px_0px_4px_rgba(0,0,0,0.41)]">
 				<div class="mb-4 flex items-center justify-between">
 					<h2 class="font-sans text-base font-semibold leading-[21px] text-[#555555]">
-						Scheduled Intents
+						Pending Actions
 					</h2>
 					<a
 						href="/profiles/{data.profile.id}/scheduled-intents"

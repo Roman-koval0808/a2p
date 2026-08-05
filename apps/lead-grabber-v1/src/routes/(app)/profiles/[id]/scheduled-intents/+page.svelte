@@ -154,7 +154,7 @@
 					Back to Profile
 				</Button>
 				<div>
-					<h1 class="font-sans text-2xl font-semibold text-[#555555]">Scheduled Commitments</h1>
+					<h1 class="font-sans text-2xl font-semibold text-[#555555]">Pending Actions</h1>
 					<p class="font-sans text-sm text-gray-500">
 						{data.profile.name} — plans that can be moved or cancelled. The customer's words stay on the profile.
 					</p>
