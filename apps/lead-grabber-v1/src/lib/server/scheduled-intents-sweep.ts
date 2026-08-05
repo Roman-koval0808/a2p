@@ -46,11 +46,14 @@ export async function checkDueScheduledIntents(
 		try {
 			// §12: a date that passes unserved isn't always still worth serving. The writer
 			// set the expiry because only it knew the shelf life. Marked, never deleted.
+			// Guarded by status: PENDING so a concurrent runner can't clobber a row the
+			// handoff just CAS'd to DONE (the sweep runs in-process AND as an external cron).
 			if (intent.expiresAt && intent.expiresAt <= now) {
-				await prisma.scheduledIntent.update({
-					where: { id: intent.id },
-					data: { status: 'EXPIRED' }
+				const expired = await prisma.scheduledIntent.updateMany({
+					where: { id: intent.id, status: 'PENDING' },
+					data: { status: 'EXPIRED', updatedAt: now }
 				});
+				if (expired.count === 0) continue;
 				result.expired++;
 				console.log(
 					`[schedule-sweep] expired ${intent.id} (${intent.intentType}) — was due ${intent.dueAt.toISOString()}, expired ${intent.expiresAt.toISOString()}`
@@ -61,10 +64,11 @@ export async function checkDueScheduledIntents(
 			// §8: the four checks on the trigger date.
 			const verdict = await verifyDueIntent(intent);
 			if (!verdict.pass) {
-				await prisma.scheduledIntent.update({
-					where: { id: intent.id },
+				const skipped = await prisma.scheduledIntent.updateMany({
+					where: { id: intent.id, status: 'PENDING' },
 					data: { status: 'SKIPPED', updatedAt: now }
 				});
+				if (skipped.count === 0) continue;
 				result.skipped++;
 				console.log(`[schedule-sweep] skipped ${intent.id}: ${verdict.reason}`);
 				continue;
@@ -72,7 +76,12 @@ export async function checkDueScheduledIntents(
 
 			const handoff = await handoffDueIntent(intent, now);
 			if (handoff.handedOff) result.handedOff++;
-			else console.log(`[schedule-sweep] ${intent.id} not handed off: ${handoff.reason}`);
+			else if (handoff.reason === 'queue_write_failed') {
+				result.failed++;
+				console.error(`[schedule-sweep] ${intent.id} queue write failed — will retry next run`);
+			} else {
+				console.log(`[schedule-sweep] ${intent.id} not handed off: ${handoff.reason}`);
+			}
 		} catch (e: any) {
 			result.failed++;
 			console.error(`[schedule-sweep] failed to process ${intent.id}:`, e?.message || e);
@@ -93,6 +102,17 @@ export interface VerificationVerdict {
 }
 
 /**
+ * Our own rows never count as the customer getting in touch — the automated ack
+ * we sent and the CRM note we wrote would otherwise cancel every follow-up (§5).
+ * Note the flags are checked in code, not SQL: a JSONB `NOT (path = true)`
+ * filter is NULL for every row where the key is absent, which excludes ALL rows.
+ */
+export function isAutomatedRow(metadata: unknown): boolean {
+	const meta = (metadata ?? {}) as Record<string, unknown>;
+	return meta.scheduled_intent_ack === true || meta.scheduled_intent_note === true;
+}
+
+/**
  * The four checks on the trigger date (spec §8). If ANY answers yes, the row is
  * skipped — he did what he said, the job moved on, or the customer opted out.
  */
@@ -106,23 +126,24 @@ export async function verifyDueIntent(intent: {
 
 	// 1. Has the customer been in touch since they told us? Our own automated ack and
 	//    the CRM note never count — otherwise every follow-up cancels itself (§5).
-	const inbound = await prisma.communicationLog.findFirst({
+	//
+	//    Deliberately NOT filtered in SQL: `metadata NOT (path = true)` compiles to
+	//    `NOT (metadata->'flag' = 'true'::jsonb)`, which is NULL for every row where the
+	//    key is absent — so a SQL NOT-filter excludes EVERYTHING, not just the flags.
+	//    Fetch the recent rows and exclude the flags in code instead.
+	const recentInbound = await prisma.communicationLog.findMany({
 		where: {
 			companyId: intent.clientId,
 			customerId: intent.profileId,
 			direction: 'inbound',
-			created: { gt: since },
-			NOT: {
-				metadata: {
-					path: ['scheduled_intent_ack'],
-					equals: true
-				}
-			},
-			AND: [{ NOT: { metadata: { path: ['scheduled_intent_note'], equals: true } } }]
+			created: { gt: since }
 		},
-		select: { id: true, created: true }
+		select: { id: true, metadata: true },
+		orderBy: { created: 'desc' },
+		take: 5
 	});
-	if (inbound) return { pass: false, reason: 'customer_contacted_since' };
+	const hasRealContact = recentInbound.some((row) => !isAutomatedRow(row.metadata));
+	if (hasRealContact) return { pass: false, reason: 'customer_contacted_since' };
 
 	// 2. Has he booked anything since?
 	const booked = await prisma.appointment.findFirst({

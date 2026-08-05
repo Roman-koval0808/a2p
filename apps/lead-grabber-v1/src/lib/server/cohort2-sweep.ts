@@ -1,6 +1,6 @@
 import { prisma } from '$lib/db';
 import { writeCohort2Trajectory, type LossReason } from './cohort2';
-import { hasOpenCommitment } from './open-commitments';
+import { getCommitmentWindows, effectiveInactiveDays } from './open-commitments';
 
 /**
  * Section 8 — the LOSS half.
@@ -70,8 +70,18 @@ export async function checkLostRelationships(): Promise<SweepResult> {
 		});
 		for (const contact of quiet) {
 			// §7 open commitments: Ray told us his plan — he's on holiday, not gone quiet.
-			// A customer inside a commitment window is never a loss, whatever the clock says.
-			if (await hasOpenCommitment(contact.id)) continue;
+			//
+			// Dated commitments (a scheduled intent with a dueAt, a booking with an end) are
+			// SUBTRACTED from the inactivity count — "the days he told us about". A contact
+			// whose committed window covers the quiet threshold hasn't actually gone quiet,
+			// and the moment the window resolves the clock runs normally again.
+			// Undated commitments (an open quote, a booking with no end) have no window to
+			// subtract, but the spec still stops the demotion for them — so they protect
+			// outright.
+			const windows = await getCommitmentWindows(contact.id, now);
+			const quietDays = effectiveInactiveDays(contact.updated, windows, now);
+			const hasUndatedCommitment = windows.some((w) => !w.resolvesAt);
+			if (hasUndatedCommitment || quietDays < GONE_QUIET_DAYS) continue;
 			await recordLoss(contact.companyId, contact.id, 'went_quiet', contact.updated);
 			result.wentQuiet++;
 		}

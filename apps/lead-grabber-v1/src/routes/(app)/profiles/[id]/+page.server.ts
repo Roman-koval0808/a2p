@@ -320,6 +320,26 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			};
 		});
 
+		// ClearSky Scheduled Intents (spec §10): this customer's schedule — a separate
+		// LOOK-UP list, deliberately not the agent queue ("the queue is today's work").
+		// Agents can see what's coming and cancel/reschedule OUR plan; the customer's
+		// words live on in the communication log above, untouched.
+		const scheduledIntents = await prisma.scheduledIntent.findMany({
+			where: { clientId: companyId, profileId: dbContact.id },
+			orderBy: { dueAt: 'asc' },
+			take: 20,
+			select: {
+				id: true,
+				intentType: true,
+				status: true,
+				actor: true,
+				dueAt: true,
+				expiresAt: true,
+				payload: true,
+				createdAt: true
+			}
+		});
+
 		return {
 			profile: {
 				...cdpProfile,
@@ -330,6 +350,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			accountBalance: dbContact?.accountBalance ?? null,
 			engagementScore: dbContact.engagementScore ?? 0,
 			communications: comms,
+			scheduledIntents,
 			files,
 			historyEvents,
 			identityHistory,

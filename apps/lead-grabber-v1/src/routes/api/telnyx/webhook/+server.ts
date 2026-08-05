@@ -741,6 +741,53 @@ export const POST: RequestHandler = async ({ request }) => {
 							console.error('[SMS Orchestrator] Error:', orchErr);
 						}
 					}
+
+					// ClearSky Scheduled Intents (spec §4/§5/§10): same one-more-question flow as
+					// email — pull the customer's stated future plan out of the text, write the
+					// dual record, and send the fixed pre-approved ack. Non-blocking and isolated;
+					// a failure here must never break the orchestrator flow above.
+					if (effectiveCompanyId && contact?.id && smsText.trim()) {
+						Promise.resolve().then(async () => {
+							try {
+								const { extractScheduledIntent } = await import(
+									'$lib/server/ai/scheduled-intent-parser'
+								);
+								const { writeScheduledIntent } = await import(
+									'$lib/server/scheduled-intent-writer'
+								);
+								const { sendScheduledIntentAck } = await import(
+									'$lib/server/scheduled-intent-ack'
+								);
+								const { ANTHROPIC_AI_KEY } = await import('$env/static/private');
+
+								const extraction = await extractScheduledIntent(smsText, ANTHROPIC_AI_KEY, {
+									timeZone: 'America/Toronto'
+								});
+								if (!extraction?.schedulable) return;
+
+								const written = await writeScheduledIntent({
+									companyId: effectiveCompanyId,
+									contactId: contact.id,
+									profileId: contact.id,
+									extraction,
+									channel: 'sms',
+									conversationId: threadId,
+									idempotencyKey: `si-sms-${smsId}`
+								});
+								if (!written.recorded) return;
+
+								await sendScheduledIntentAck({
+									companyId: effectiveCompanyId,
+									customerName: contact.name ?? null,
+									contactId: contact.id,
+									channel: 'sms',
+									to: normalizedPhoneNumber
+								});
+							} catch (siErr) {
+								console.error('[SMS webhook] Scheduled-intent flow error:', siErr);
+							}
+						});
+					}
 				} catch (dbError) {
 					console.error('Database error in background task:', dbError);
 				}

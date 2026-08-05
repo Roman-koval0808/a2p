@@ -83,9 +83,12 @@
 
 	let communications = $state<Communication[]>(data.communications || []);
 
+	let scheduledIntents = $state(data.scheduledIntents || []);
+
 	// Update when data changes
 	$effect(() => {
 		communications = data.communications || [];
+		scheduledIntents = data.scheduledIntents || [];
 	});
 
 	onMount(() => {
@@ -366,6 +369,69 @@
 			console.error(e);
 			toast.error('Failed to confirm communication', { id: loadingId });
 		}
+	}
+
+	// Spec §10: cancel/reschedule OUR plan only — the customer's words (the CRM
+	// note on the comm log) are a fact and are never touched by these.
+	async function cancelIntent(si: { id: string; payload?: { whatHeWants?: string } | null }) {
+		const loadingId = toast.loading('Cancelling scheduled intent...');
+		try {
+			const res = await fetch(`/api/a2p/schedule/${si.id}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ status: 'CANCELLED' })
+			});
+			const result = await res.json();
+			if (result.ok) {
+				toast.success('Scheduled intent cancelled (profile note kept)', { id: loadingId });
+				await invalidateAll();
+			} else {
+				toast.error(result.error || 'Failed to cancel', { id: loadingId });
+			}
+		} catch (e) {
+			console.error(e);
+			toast.error('Failed to cancel scheduled intent', { id: loadingId });
+		}
+	}
+
+	async function rescheduleIntent(si: { id: string; dueAt: Date }) {
+		const current = new Date(si.dueAt);
+		const iso = new Date(current.getTime() - current.getTimezoneOffset() * 60_000)
+			.toISOString()
+			.slice(0, 16);
+		const input = window.prompt('New due date (YYYY-MM-DD HH:mm, local):', iso);
+		if (!input) return;
+		const dueAt = new Date(input);
+		if (isNaN(dueAt.getTime())) {
+			toast.error('Invalid date — nothing changed.');
+			return;
+		}
+		const loadingId = toast.loading('Rescheduling...');
+		try {
+			const res = await fetch(`/api/a2p/schedule/${si.id}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ dueAt: dueAt.toISOString() })
+			});
+			const result = await res.json();
+			if (result.ok) {
+				toast.success('Scheduled intent rescheduled', { id: loadingId });
+				await invalidateAll();
+			} else {
+				toast.error(result.error || 'Failed to reschedule', { id: loadingId });
+			}
+		} catch (e) {
+			console.error(e);
+			toast.error('Failed to reschedule scheduled intent', { id: loadingId });
+		}
+	}
+
+	function formatSIDate(d: Date): string {
+		return new Date(d).toLocaleDateString('en-US', {
+			month: 'short',
+			day: 'numeric',
+			year: 'numeric'
+		});
 	}
 
 	async function simulateOutboundCall(profileId: string, clearPhone: string) {
@@ -811,6 +877,79 @@
 						</button>
 					</div>
 				</div>
+			</div>
+
+			<!-- Scheduled Intents (§10): a look-up list, never the queue. What's coming,
+			     by date, with the reason. Cancel/reschedule moves OUR plan only — the
+			     customer's words stay in the communications table below, untouched. -->
+			<div class="mb-6 rounded-lg bg-white p-6 shadow-[0px_0px_4px_rgba(0,0,0,0.41)]">
+				<h2 class="mb-4 font-sans text-base font-semibold leading-[21px] text-[#555555]">
+					Scheduled Intents
+				</h2>
+				{#if scheduledIntents.length === 0}
+					<p class="font-sans text-sm text-gray-400">Nothing scheduled.</p>
+				{:else}
+					<table class="w-full text-left font-sans text-sm">
+						<thead>
+							<tr class="border-b border-gray-200 text-xs font-semibold text-[#555555]">
+								<th class="py-2 pr-4">Due</th>
+								<th class="py-2 pr-4">Expires</th>
+								<th class="py-2 pr-4">Status</th>
+								<th class="py-2 pr-4">Actor</th>
+								<th class="py-2 pr-4">Reason</th>
+								<th class="py-2"></th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each scheduledIntents as si (si.id)}
+								<tr class="border-b border-gray-100">
+									<td class="py-2 pr-4">{formatSIDate(si.dueAt)}</td>
+									<td class="py-2 pr-4 text-gray-500">
+										{si.expiresAt ? formatSIDate(si.expiresAt) : '—'}
+									</td>
+									<td class="py-2 pr-4">
+										<span
+											class="rounded px-2 py-0.5 text-xs font-semibold {si.status === 'PENDING'
+												? 'bg-blue-100 text-blue-800'
+												: si.status === 'DONE'
+													? 'bg-emerald-100 text-emerald-800'
+													: si.status === 'EXPIRED' || si.status === 'CANCELLED' || si.status === 'SKIPPED'
+														? 'bg-gray-200 text-gray-600'
+														: ''}"
+										>
+											{si.status}
+										</span>
+									</td>
+									<td class="py-2 pr-4">{si.actor === 'CUSTOMER' ? 'They act' : 'We act'}</td>
+									<td class="py-2 pr-4 text-gray-600">
+										{si.payload?.whatHeWants ?? '—'}
+										{#if si.payload?.rawTimeframe}
+											<span class="text-gray-400">(" {si.payload.rawTimeframe} ")</span>
+										{/if}
+									</td>
+									<td class="py-2 text-right">
+										{#if si.status === 'PENDING'}
+											<button
+												type="button"
+												onclick={() => rescheduleIntent(si)}
+												class="mr-2 font-sans text-xs text-[#577AB7] underline hover:text-[#3d5a8a]"
+											>
+												Reschedule
+											</button>
+											<button
+												type="button"
+												onclick={() => cancelIntent(si)}
+												class="font-sans text-xs text-red-600 underline hover:text-red-800"
+											>
+												Cancel
+											</button>
+										{/if}
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				{/if}
 			</div>
 
 			<!-- Communications Container -->

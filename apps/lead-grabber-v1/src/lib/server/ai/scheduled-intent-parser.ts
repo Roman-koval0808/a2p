@@ -199,7 +199,12 @@ export function resolveCalculatedTargetDate(opts: {
 
 	if (exactDateIso) {
 		const d = new Date(exactDateIso);
-		if (!isNaN(d.getTime())) return d.toISOString();
+		// The model resolves named dates against ITS clock, which can drift from the
+		// message's actual arrival. A date in the past must not survive the gate —
+		// it would go due immediately and a follow-up drafts on the next sweep for a
+		// plan the customer never meant to be that. Drop it and fall through to the
+		// code-computed resolutions (§4: the date is computed in code, not by the model).
+		if (!isNaN(d.getTime()) && d.getTime() > reference.getTime()) return d.toISOString();
 	}
 
 	const weekday = weekdayFrom(rawTimeframe);

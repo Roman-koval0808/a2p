@@ -66,6 +66,30 @@ describe('resolveCalculatedTargetDate', () => {
 		).toBe('2026-08-18T14:00:00.000Z');
 	});
 
+	it('rejects an exact date in the past — the model resolved it against its own clock', () => {
+		// The model says "August 18th" but its internal today was wrong and it produced
+		// a date before the message arrived. It must not go due immediately.
+		expect(
+			resolveCalculatedTargetDate({
+				reference: RAY_REFERENCE,
+				rawTimeframe: 'August 18th',
+				timeframeDays: null,
+				exactDateIso: '2026-07-20T14:00:00.000Z'
+			})
+		).toBeNull();
+	});
+
+	it('rejects an exact date equal to the reference instant', () => {
+		expect(
+			resolveCalculatedTargetDate({
+				reference: RAY_REFERENCE,
+				rawTimeframe: 'August 4th',
+				timeframeDays: null,
+				exactDateIso: '2026-08-04T13:00:00.000Z'
+			})
+		).toBeNull();
+	});
+
 	it('returns null when nothing resolvable — the not-confident path', () => {
 		expect(
 			resolveCalculatedTargetDate({

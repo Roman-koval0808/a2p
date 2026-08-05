@@ -72,7 +72,21 @@ export async function completeJob(opts: {
 				content: `Hi ${who}, just checking in after your recent service with ${brand} — everything working well? Reply or call us anytime if anything comes up.`
 			}
 		];
+
+		// §7: keep-in-touch stops while a commitment is open. "Ray said he'd call about
+		// the new furnace in a couple of weeks" — a check-in queued in that window reads
+		// as not listening. Reviews and referrals are asks, not keep-in-touch, and stay.
+		let suppressKeepInTouch = false;
+		if (contactId) {
+			const { shouldSuppressMarketing } = await import('./open-commitments');
+			suppressKeepInTouch = await shouldSuppressMarketing(contactId, 'keep_in_touch');
+			if (suppressKeepInTouch) {
+				console.log(`[job-fulfillment] ${contactId} has an open commitment — ACT-COM-004 check-in suppressed (§7)`);
+			}
+		}
+
 		for (const m of messages) {
+			if (suppressKeepInTouch && m.action === 'ACT-COM-004') continue;
 			await logCommunication({
 				type: 'sms',
 				direction: 'outbound',

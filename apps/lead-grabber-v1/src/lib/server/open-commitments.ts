@@ -51,7 +51,15 @@ export async function getOpenCommitments(
 			take: 20
 		}),
 		prisma.scheduledIntent.findMany({
-			where: { profileId, status: 'PENDING', dueAt: { gt: now } },
+			where: {
+				profileId,
+				status: 'PENDING',
+				// Only rows that represent something the CUSTOMER said they'd do. Our own
+				// planned nudges (KEEP_IN_TOUCH, SERVICE_RECALL, REVIEW_REQUEST…) must not
+				// suppress decay or marketing — they ARE the nudges.
+				intentType: { in: ['CUSTOMER_COMMITMENT_A', 'CUSTOMER_COMMITMENT_B'] },
+				dueAt: { gt: now }
+			},
 			select: { id: true },
 			take: 20
 		}),
@@ -94,7 +102,12 @@ export async function getCommitmentWindows(
 			take: 20
 		}),
 		prisma.scheduledIntent.findMany({
-			where: { profileId, status: 'PENDING', dueAt: { gt: now } },
+			where: {
+				profileId,
+				status: 'PENDING',
+				intentType: { in: ['CUSTOMER_COMMITMENT_A', 'CUSTOMER_COMMITMENT_B'] },
+				dueAt: { gt: now }
+			},
 			select: { id: true, createdAt: true, dueAt: true },
 			take: 20
 		}),

@@ -17,7 +17,7 @@ import { resolveContactChannel, type ResolvedContactChannel } from './contact-ch
 
 export interface HandoffResult {
 	handedOff: boolean;
-	reason?: 'already_handled' | 'no_contact';
+	reason?: 'already_handled' | 'no_contact' | 'queue_write_failed';
 	channel?: ResolvedContactChannel;
 	queueId?: string;
 	draft?: string;
@@ -52,8 +52,14 @@ export function buildFollowUpDraft(intent: {
 
 /**
  * Queue the verified intent as an approval-gated draft and mark it done.
- * Idempotent: the PENDING → DONE transition is a compare-and-swap, so two sweeps
- * (or a sweep and a manual re-run) can never queue the same intent twice.
+ *
+ * Ordering matters (review finding): the queue write comes FIRST, the PENDING →
+ * DONE claim SECOND. If the queue write fails the row stays PENDING and the next
+ * sweep retries it. If the claim then loses the CAS (a concurrent runner already
+ * marked it DONE), the just-written draft is deleted — it would be a duplicate.
+ * The only remaining hole is a crash between queue write and CAS, which leaves a
+ * visible duplicate draft for the human reviewer rather than a silently lost
+ * follow-up.
  */
 export async function handoffDueIntent(
 	intent: {
@@ -65,14 +71,6 @@ export async function handoffDueIntent(
 	},
 	now: Date = new Date()
 ): Promise<HandoffResult> {
-	// CAS: only one runner wins the transition. A 0-row update means it was already
-	// handed off (or cancelled) — never queue a second draft.
-	const claimed = await prisma.scheduledIntent.updateMany({
-		where: { id: intent.id, status: 'PENDING' },
-		data: { status: 'DONE', updatedAt: now }
-	});
-	if (claimed.count === 0) return { handedOff: false, reason: 'already_handled' };
-
 	const [contact, company] = await Promise.all([
 		prisma.contact.findUnique({
 			where: { id: intent.profileId },
@@ -104,8 +102,15 @@ export async function handoffDueIntent(
 					? ` (call ${who} on ${channel.target})`
 					: '';
 
+	// The CommunicationLog `type` only offers sms/email/voice/web — manual_call and
+	// unreachable rows are work for a person, so they land as 'voice' (the metadata
+	// carries the exact outcome). email never appears as a type here for a row with
+	// a phone-number destination.
+	const type: 'sms' | 'email' | 'voice' =
+		channel.outcome === 'sms' ? 'sms' : channel.outcome === 'email' ? 'email' : 'voice';
+
 	const queue = await logCommunication({
-		type: channel.outcome === 'sms' ? 'sms' : 'email',
+		type,
 		direction: 'outbound',
 		status: 'pending_approval',
 		destination: channel.target ?? undefined,
@@ -124,14 +129,29 @@ export async function handoffDueIntent(
 		}
 	});
 
-	const queueId = queue?.id;
-	if (queueId) {
-		console.log(
-			`[schedule-handoff] queued follow-up for intent ${intent.id} (${channel.outcome}) as pending_approval ${queueId}`
-		);
-	} else {
-		console.error(`[schedule-handoff] queued intent ${intent.id} but no queue row was created`);
+	// The queue write must succeed before the row is claimed — otherwise a failure
+	// would leave the intent DONE forever with no draft behind it.
+	if (!queue) {
+		console.error(`[schedule-handoff] queue write failed for intent ${intent.id} — will retry next sweep`);
+		return { handedOff: false, reason: 'queue_write_failed' };
 	}
 
-	return { handedOff: true, channel, queueId, draft };
+	// CAS: only one runner wins the transition. Losing means a concurrent runner
+	// already queued this intent — remove the duplicate we just wrote.
+	const claimed = await prisma.scheduledIntent.updateMany({
+		where: { id: intent.id, status: 'PENDING' },
+		data: { status: 'DONE', updatedAt: now }
+	});
+	if (claimed.count === 0) {
+		await prisma.communicationLog.delete({ where: { id: queue.id } }).catch(() => {
+			// Best effort — the duplicate draft is at worst visible to the reviewer.
+		});
+		return { handedOff: false, reason: 'already_handled' };
+	}
+
+	console.log(
+		`[schedule-handoff] queued follow-up for intent ${intent.id} (${channel.outcome}) as pending_approval ${queue.id}`
+	);
+
+	return { handedOff: true, channel, queueId: queue.id, draft };
 }
