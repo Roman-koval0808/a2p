@@ -918,6 +918,7 @@
 					<div class="space-y-1">
 						{#each scheduledIntents.slice(0, 5) as si (si.id)}
 							{@const isPast = new Date(si.dueAt) < new Date() && si.status === 'PENDING'}
+							{@const payload = si.payload as any}
 							<div class="flex items-start justify-between gap-4 border-b border-gray-100 py-3 last:border-0">
 								<div class="flex items-start gap-4">
 									<div class="mt-0.5 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-[#f0f4fb]">
@@ -944,8 +945,7 @@
 												{si.actor === 'CUSTOMER' ? 'They act' : 'We act'}
 											</span>
 										</div>
-											{@const payload = si.payload as any}
-											<p class="max-w-2xl font-sans text-sm text-[#555555]">
+										<p class="max-w-2xl font-sans text-sm text-[#555555]">
 												{payload?.whatHeWants ?? '—'}
 												{#if payload?.rawTimeframe}
 													<span class="text-gray-400">(said: "{payload.rawTimeframe}")</span>
