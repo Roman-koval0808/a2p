@@ -72,16 +72,23 @@ export function clampScoreDelta(delta: number): number {
 
 /**
  * Calculates the live decayed score based on raw score, time elapsed, and bucket configurations.
+ *
+ * `committedDays` is the §7 decay correction: days the customer told us about
+ * ("I'll be back in a couple of weeks") that must NOT count as inactivity. The
+ * committed window is subtracted from the elapsed count rather than freezing the
+ * record — the moment the commitment resolves, the clock runs normally again.
  */
 export function calculateDecayedScore(
   scoreRaw: number,
   lastEventAt: Date,
   intentBucket: string,
-  now: Date = new Date()
+  now: Date = new Date(),
+  committedDays = 0
 ): number {
   const config = DECAY_CONFIGS[intentBucket] || DECAY_CONFIGS.unclassified;
   const diffMs = now.getTime() - lastEventAt.getTime();
-  const daysSinceLastEvent = Math.max(0, diffMs / (1000 * 60 * 60 * 24));
+  const rawDays = Math.max(0, diffMs / (1000 * 60 * 60 * 24));
+  const daysSinceLastEvent = Math.max(0, rawDays - committedDays);
 
   if (daysSinceLastEvent <= config.grace) {
     return scoreRaw;
@@ -160,17 +167,23 @@ export interface DemotionResult {
 
 /**
  * Calculates decay status and evaluates if the profile bucket demotes cross-session.
+ *
+ * `committedDays` (spec §7) subtracts the window the customer told us about from
+ * the inactivity count — a customer waiting out a promised date is not going
+ * cold, so their bucket must not demote inside that window.
  */
 export function evaluateDemotion(
   scoreRaw: number,
   lastEventAt: Date,
   intentBucket: string,
-  now: Date = new Date()
+  now: Date = new Date(),
+  committedDays = 0
 ): DemotionResult {
-  const scoreLive = calculateDecayedScore(scoreRaw, lastEventAt, intentBucket, now);
+  const scoreLive = calculateDecayedScore(scoreRaw, lastEventAt, intentBucket, now, committedDays);
   const config = DECAY_CONFIGS[intentBucket] || DECAY_CONFIGS.unclassified;
   const diffMs = now.getTime() - lastEventAt.getTime();
-  const daysSinceLastEvent = Math.max(0, diffMs / (1000 * 60 * 60 * 24));
+  const rawDays = Math.max(0, diffMs / (1000 * 60 * 60 * 24));
+  const daysSinceLastEvent = Math.max(0, rawDays - committedDays);
   const inGrace = daysSinceLastEvent <= config.grace;
   const decayPct = scoreRaw > 0 ? Math.round((1 - scoreLive / scoreRaw) * 100) : 0;
 

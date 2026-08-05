@@ -46,7 +46,7 @@ const DEFAULT_TIMEFRAME_DAYS = 14;
  */
 const SUSPENSE_BUFFER_DAYS = 2;
 
-const TIMEFRAME_PATTERNS: [RegExp, number][] = [
+export const TIMEFRAME_PATTERNS: [RegExp, number][] = [
 	[/\btomorrow\b/i, 1],
 	[/\b(a )?couple of days\b/i, 2],
 	[/\b(a )?few days\b/i, 3],

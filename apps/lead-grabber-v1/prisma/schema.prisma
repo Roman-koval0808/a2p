@@ -1506,3 +1506,57 @@ enum CommTaskStatus {
   escalated
   cancelled
 }
+
+/// ClearSky Scheduled Intents (specs/clearsky-scheduled-intents.md): a place to
+/// write down "come back to this on this date". The table knows *when*, not
+/// *whether* — each intent type runs its own verification when the row comes
+/// due, and only verified intents are handed to the Orchestrator.
+model ScheduledIntent {
+  id             String                @id @default(cuid())
+  /// Which trades business — needed for their settings and their timezone.
+  clientId       String
+  /// Which customer (PipelineCustomerProfile.id / Contact.id).
+  profileId      String
+  intentType     ScheduledIntentType
+  /// When to look at it.
+  dueAt          DateTime
+  /// After this, don't bother — set by whatever wrote the row.
+  expiresAt      DateTime?
+  /// The details: exact quoted words, target date, channel, conversation id, topic.
+  payload        Json?
+  status         ScheduledIntentStatus @default(PENDING)
+  /// Stops a double-run sending twice.
+  idempotencyKey String                @unique
+  /// Who is supposed to act — Scenario A (customer calls) vs B (they asked us to).
+  actor          ScheduledIntentActor
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  @@index([clientId])
+  @@index([profileId])
+  @@index([dueAt])
+  @@index([status, dueAt])
+  @@map("scheduled_intents")
+}
+
+enum ScheduledIntentType {
+  SERVICE_RECALL
+  KEEP_IN_TOUCH
+  REVIEW_REQUEST
+  REP_INSTRUCTION
+  CUSTOMER_COMMITMENT_A
+  CUSTOMER_COMMITMENT_B
+}
+
+enum ScheduledIntentStatus {
+  PENDING
+  DONE
+  SKIPPED
+  CANCELLED
+  EXPIRED
+}
+
+enum ScheduledIntentActor {
+  CUSTOMER
+  BUSINESS
+}

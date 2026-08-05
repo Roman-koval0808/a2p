@@ -1,5 +1,6 @@
 import { prisma } from '$lib/db';
 import { writeCohort2Trajectory, type LossReason } from './cohort2';
+import { hasOpenCommitment } from './open-commitments';
 
 /**
  * Section 8 — the LOSS half.
@@ -68,6 +69,9 @@ export async function checkLostRelationships(): Promise<SweepResult> {
 			take: 500
 		});
 		for (const contact of quiet) {
+			// §7 open commitments: Ray told us his plan — he's on holiday, not gone quiet.
+			// A customer inside a commitment window is never a loss, whatever the clock says.
+			if (await hasOpenCommitment(contact.id)) continue;
 			await recordLoss(contact.companyId, contact.id, 'went_quiet', contact.updated);
 			result.wentQuiet++;
 		}

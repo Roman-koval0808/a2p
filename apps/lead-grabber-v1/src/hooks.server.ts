@@ -45,6 +45,28 @@ if (!cohort2CronGlobal.__cohort2CronStarted) {
 	timer.unref?.();
 }
 
+// ClearSky Scheduled Intents sweep (§2): once a day, read the schedule rows that have come
+// due, run each type's own checks, and hand verified intents to the Orchestrator. Same pattern
+// as the SLA/cohort2 crons — lazy-imported inside the tick, guarded, .unref()'d. The sweep is
+// idempotent (CAS PENDING→DONE), so a shorter interval is harmless; the external-cron
+// alternative POST /api/a2p/schedule/sweep stays available.
+const scheduleCronGlobal = globalThis as unknown as { __scheduleCronStarted?: boolean };
+if (!scheduleCronGlobal.__scheduleCronStarted) {
+	scheduleCronGlobal.__scheduleCronStarted = true;
+	const timer = setInterval(
+		async () => {
+			try {
+				const { checkDueScheduledIntents } = await import('$lib/server/scheduled-intents-sweep');
+				await checkDueScheduledIntents();
+			} catch (e: any) {
+				console.error('[Schedule cron] sweep failed:', e?.message || e);
+			}
+		},
+		60 * 60_000
+	);
+	timer.unref?.();
+}
+
 // A2P Orchestrator general timer service sweep (runs every 30 seconds).
 const timerCronGlobal = globalThis as unknown as { __timerSweepStarted?: boolean };
 if (!timerCronGlobal.__timerSweepStarted) {
