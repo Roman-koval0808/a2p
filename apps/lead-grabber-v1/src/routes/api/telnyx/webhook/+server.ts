@@ -742,10 +742,10 @@ export const POST: RequestHandler = async ({ request }) => {
 						}
 					}
 
-					// ClearSky Scheduled Intents (spec §4/§5/§10): same one-more-question flow as
-					// email — pull the customer's stated future plan out of the text, write the
-					// dual record, and send the fixed pre-approved ack. Non-blocking and isolated;
-					// a failure here must never break the orchestrator flow above.
+					// ClearSky Scheduled Intents (spec §4/§10): same one-more-question flow as
+					// email — pull the customer's stated future plan out of the text and write
+					// the dual record. No instant ack: the Orchestrator drafts the real reply.
+					// Non-blocking and isolated; a failure here must never break the orchestrator flow.
 					if (effectiveCompanyId && contact?.id && smsText.trim()) {
 						Promise.resolve().then(async () => {
 							try {
@@ -755,9 +755,6 @@ export const POST: RequestHandler = async ({ request }) => {
 								const { writeScheduledIntent } = await import(
 									'$lib/server/scheduled-intent-writer'
 								);
-								const { sendScheduledIntentAck } = await import(
-									'$lib/server/scheduled-intent-ack'
-								);
 								const { ANTHROPIC_AI_KEY } = await import('$env/static/private');
 
 								const extraction = await extractScheduledIntent(smsText, ANTHROPIC_AI_KEY, {
@@ -765,7 +762,7 @@ export const POST: RequestHandler = async ({ request }) => {
 								});
 								if (!extraction?.schedulable) return;
 
-								const written = await writeScheduledIntent({
+								await writeScheduledIntent({
 									companyId: effectiveCompanyId,
 									contactId: contact.id,
 									profileId: contact.id,
@@ -773,15 +770,6 @@ export const POST: RequestHandler = async ({ request }) => {
 									channel: 'sms',
 									conversationId: threadId,
 									idempotencyKey: `si-sms-${smsId}`
-								});
-								if (!written.recorded) return;
-
-								await sendScheduledIntentAck({
-									companyId: effectiveCompanyId,
-									customerName: contact.name ?? null,
-									contactId: contact.id,
-									channel: 'sms',
-									to: normalizedPhoneNumber
 								});
 							} catch (siErr) {
 								console.error('[SMS webhook] Scheduled-intent flow error:', siErr);

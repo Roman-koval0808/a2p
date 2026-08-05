@@ -835,17 +835,17 @@ async function syncCompanyEmailsInner(companyId: string) {
 					}
 				});
 
-				// ClearSky Scheduled Intents (spec §4/§5/§10): one more question on top of what's
-				// already happening — pull the customer's stated future plan out of the message,
-				// write the dual record (Total Trades' CRM note + our schedule row), and reply
-				// with the fixed pre-approved ack. Non-blocking and isolated: a failure here
-				// must never break the orchestrator flow above.
+				// ClearSky Scheduled Intents (spec §4/§10): one more question on top of what's
+				// already happening — pull the customer's stated future plan out of the message
+				// and write the dual record (Total Trades' CRM note + our schedule row).
+				// No instant ack: the Orchestrator drafts the real reply (§ the app showed that
+				// an ack + a draft for the same email is two messages for one question).
+				// Non-blocking and isolated: a failure here must never break the orchestrator flow.
 				Promise.resolve().then(async () => {
 					try {
 						if (!contact?.id) return; // nobody to file the row under
 						const { extractScheduledIntent } = await import('$lib/server/ai/scheduled-intent-parser');
 						const { writeScheduledIntent } = await import('$lib/server/scheduled-intent-writer');
-						const { sendScheduledIntentAck } = await import('$lib/server/scheduled-intent-ack');
 						const { ANTHROPIC_AI_KEY } = await import('$env/static/private');
 
 						const emailDate = new Date(date);
@@ -857,7 +857,7 @@ async function syncCompanyEmailsInner(companyId: string) {
 						});
 						if (!extraction?.schedulable) return;
 
-						const written = await writeScheduledIntent({
+						await writeScheduledIntent({
 							companyId,
 							contactId: contact.id,
 							profileId: contact.id,
@@ -866,15 +866,6 @@ async function syncCompanyEmailsInner(companyId: string) {
 							conversationId: threadId,
 							reference,
 							idempotencyKey: `si-email-${msgId}`
-						});
-						if (!written.recorded) return;
-
-						await sendScheduledIntentAck({
-							companyId,
-							customerName: contact.name || customerName,
-							contactId: contact.id,
-							channel: 'email',
-							to: customerEmail
 						});
 					} catch (siErr) {
 						console.error('[Gmail Sync] Scheduled-intent flow error:', siErr);

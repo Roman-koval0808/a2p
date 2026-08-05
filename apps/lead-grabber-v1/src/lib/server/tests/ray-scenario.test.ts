@@ -1,16 +1,16 @@
 // ClearSky Scheduled Intents — Ray Charbonneau scenario, end to end (tasks §8.1).
 //
 // The whole feature, walked as one story with the DB mocked at the client level:
-//   4 Aug — Ray emails "we'll call in a couple of weeks" → date-free ack goes out,
-//           a CRM note lands on his profile, and a schedule row is filed for 25 Aug.
+//   4 Aug — Ray emails "we'll call in a couple of weeks" → a CRM note lands on his
+//           profile and a schedule row is filed for 25 Aug. (No instant ack: the
+//           Orchestrator drafts the real reply.)
 //  10 Aug — his committed window means decay is paused and nurture goes quiet.
 //  16 Aug — Ray calls. The 25 Aug row is SKIPPED at the trigger — no agent task.
 //  25 Aug — alternate: he never called → the sweep hands off to the Orchestrator,
 //           queueing a pending_approval draft quoting his exact phrase.
 //
-// It exercises the real modules (parser, writer, ack, sweep, handoff,
-// open-commitments) with only the Prisma client and the mail/sms/brand
-// senders mocked.
+// It exercises the real modules (parser, writer, sweep, handoff,
+// open-commitments) with only the Prisma client and the queue writer mocked.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { prisma } from '$lib/db';
@@ -18,9 +18,6 @@ import { logCommunication } from '$lib/utils/communication-log';
 import { extractScheduledIntent } from '../ai/scheduled-intent-parser';
 import { claudeJSON, CLAUDE_FAST } from '../anthropic';
 import { writeScheduledIntent } from '../scheduled-intent-writer';
-import { sendScheduledIntentAck } from '../scheduled-intent-ack';
-import { resolveBrand } from '../brand';
-import { sendEmailViaConnectedGmail } from '../gmail-send';
 import { checkDueScheduledIntents, verifyDueIntent } from '../scheduled-intents-sweep';
 import {
 	committedWindowDays,
@@ -49,11 +46,6 @@ vi.mock('../anthropic', () => ({
 	claudeJSON: vi.fn(),
 	CLAUDE_FAST: 'claude-fast'
 }));
-
-vi.mock('../brand', () => ({ resolveBrand: vi.fn() }));
-vi.mock('../gmail-send', () => ({ sendEmailViaConnectedGmail: vi.fn() }));
-vi.mock('../sms', () => ({ sendAutomatedSms: vi.fn() }));
-vi.mock('../consent', () => ({ hasSmsConsent: vi.fn() }));
 
 /** Ray's row, exactly as the writer files it: due 25 Aug, expires 8 Sep (§3). */
 const RAY_REFERENCE = new Date('2026-08-04T13:00:00Z'); // 09:00 Toronto
@@ -101,8 +93,6 @@ beforeEach(() => {
 		landline: null
 	} as any);
 	vi.mocked(logCommunication).mockResolvedValue({ id: 'queue_1' } as any);
-	vi.mocked(resolveBrand).mockResolvedValue('Total Trades');
-	vi.mocked(sendEmailViaConnectedGmail).mockResolvedValue({ messageId: 'ack_mail_1' });
 	vi.mocked(claudeJSON).mockResolvedValue({
 		hasFutureIntent: true,
 		whatHeWants: 'air conditioning',
@@ -164,25 +154,6 @@ describe('4 Aug — Ray emails "call in a couple of weeks"', () => {
 		const row = vi.mocked(prismaMock.scheduledIntent.create).mock.calls[0][0];
 		expect(row.data.actor).toBe('CUSTOMER');
 		expect(row.data.payload.rawTimeframe).toBe('a couple of weeks');
-	});
-
-	it('sends the instant, date-free ack — and flags it so our reply never counts as contact', async () => {
-		const ack = await sendScheduledIntentAck({
-			companyId: 'company_1',
-			customerName: 'Ray Charbonneau',
-			contactId: 'contact_1',
-			channel: 'email',
-			to: 'ray@example.com'
-		});
-
-		expect(ack.sent).toBe(true);
-		expect(ack.message).toContain('Thanks Ray');
-		// §5: nothing the AI could hallucinate — no dates, no numbers at all.
-		expect(ack.message).not.toMatch(/\d/);
-		expect(ack.message).not.toMatch(/Aug|Sep|weeks/);
-
-		const logged = vi.mocked(logCommunication).mock.calls[0][0];
-		expect(logged.metadata).toMatchObject({ scheduled_intent_ack: true, auto_reply: true });
 	});
 });
 

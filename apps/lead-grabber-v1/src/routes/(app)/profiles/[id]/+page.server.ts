@@ -223,9 +223,17 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			orderBy: { created: 'desc' }
 		});
 
+		// Our own scheduled-intent rows (the §10 CRM note and the old ack log) are internal
+		// bookkeeping, not conversation — keep them in the DB (the schedule card reads them)
+		// but keep them out of the conversation table so one email shows as one conversation.
+		const conversationLogs = dbLogs.filter((log) => {
+			const md = (log.metadata as Record<string, any>) || {};
+			return !(md.scheduled_intent_note === true || md.scheduled_intent_ack === true);
+		});
+
 		// File manager: every attachment stored on the contact's email logs (Bunny CDN URLs
 		// from gmail-sync / bridge) collected into one list for the Files dialog.
-		const files = dbLogs
+		const files = conversationLogs
 			.flatMap((log) => {
 				const md = (log.metadata as Record<string, any>) || {};
 				const atts = Array.isArray(md.attachments) ? md.attachments : [];
@@ -241,7 +249,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			})
 			.sort((a, b) => b.created.localeCompare(a.created));
 
-		const comms = dbLogs.map((log) => {
+		const comms = conversationLogs.map((log) => {
 			const dateObj = new Date(log.created);
 			const date = dateObj.toLocaleDateString('en-US', {
 				month: 'short',
