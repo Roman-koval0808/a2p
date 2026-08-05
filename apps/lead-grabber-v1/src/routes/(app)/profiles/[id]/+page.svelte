@@ -14,7 +14,9 @@
 		Facebook,
 		Bot,
 		FileText,
-		Trash2
+		Trash2,
+		Calendar,
+		ArrowUpRight
 	} from 'lucide-svelte';
 	import { goto } from '$app/navigation';
 	import { invalidateAll } from '$app/navigation';
@@ -373,7 +375,7 @@
 
 	// Spec §10: cancel/reschedule OUR plan only — the customer's words (the CRM
 	// note on the comm log) are a fact and are never touched by these.
-	async function cancelIntent(si: { id: string; payload?: { whatHeWants?: string } | null }) {
+	async function cancelIntent(si: { id: string; payload?: any }) {
 		const loadingId = toast.loading('Cancelling scheduled intent...');
 		try {
 			const res = await fetch(`/api/a2p/schedule/${si.id}`, {
@@ -394,7 +396,7 @@
 		}
 	}
 
-	async function rescheduleIntent(si: { id: string; dueAt: Date }) {
+	async function rescheduleIntent(si: { id: string; dueAt: Date | string }) {
 		const current = new Date(si.dueAt);
 		const iso = new Date(current.getTime() - current.getTimezoneOffset() * 60_000)
 			.toISOString()
@@ -432,6 +434,20 @@
 			day: 'numeric',
 			year: 'numeric'
 		});
+	}
+
+	function formatOrdinal(d: Date): string {
+		const date = new Date(d);
+		const day = date.getDate();
+		const suffix =
+			day === 1 || day === 21 || day === 31
+				? 'st'
+				: day === 2 || day === 22
+					? 'nd'
+					: day === 3 || day === 23
+						? 'rd'
+						: 'th';
+		return `${date.toLocaleDateString('en-US', { month: 'short' })} ${day}${suffix}`;
 	}
 
 	async function simulateOutboundCall(profileId: string, clearPhone: string) {
@@ -883,72 +899,87 @@
 			     by date, with the reason. Cancel/reschedule moves OUR plan only — the
 			     customer's words stay in the communications table below, untouched. -->
 			<div class="mb-6 rounded-lg bg-white p-6 shadow-[0px_0px_4px_rgba(0,0,0,0.41)]">
-				<h2 class="mb-4 font-sans text-base font-semibold leading-[21px] text-[#555555]">
-					Scheduled Intents
-				</h2>
+				<div class="mb-4 flex items-center justify-between">
+					<h2 class="font-sans text-base font-semibold leading-[21px] text-[#555555]">
+						Scheduled Intents
+					</h2>
+					<a
+						href="/profiles/{data.profile.id}/scheduled-intents"
+						class="inline-flex items-center font-sans text-xs font-semibold text-[#577AB7] hover:text-[#3d5a8a]"
+					>
+						View all
+						<ArrowUpRight class="ml-1 h-3 w-3" />
+					</a>
+				</div>
+
 				{#if scheduledIntents.length === 0}
 					<p class="font-sans text-sm text-gray-400">Nothing scheduled.</p>
 				{:else}
-					<table class="w-full text-left font-sans text-sm">
-						<thead>
-							<tr class="border-b border-gray-200 text-xs font-semibold text-[#555555]">
-								<th class="py-2 pr-4">Due</th>
-								<th class="py-2 pr-4">Expires</th>
-								<th class="py-2 pr-4">Status</th>
-								<th class="py-2 pr-4">Actor</th>
-								<th class="py-2 pr-4">Reason</th>
-								<th class="py-2"></th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each scheduledIntents as si (si.id)}
-								<tr class="border-b border-gray-100">
-									<td class="py-2 pr-4">{formatSIDate(si.dueAt)}</td>
-									<td class="py-2 pr-4 text-gray-500">
-										{si.expiresAt ? formatSIDate(si.expiresAt) : '—'}
-									</td>
-									<td class="py-2 pr-4">
-										<span
-											class="rounded px-2 py-0.5 text-xs font-semibold {si.status === 'PENDING'
-												? 'bg-blue-100 text-blue-800'
-												: si.status === 'DONE'
-													? 'bg-emerald-100 text-emerald-800'
-													: si.status === 'EXPIRED' || si.status === 'CANCELLED' || si.status === 'SKIPPED'
-														? 'bg-gray-200 text-gray-600'
-														: ''}"
+					<div class="space-y-1">
+						{#each scheduledIntents.slice(0, 5) as si (si.id)}
+							{@const isPast = new Date(si.dueAt) < new Date() && si.status === 'PENDING'}
+							<div class="flex items-start justify-between gap-4 border-b border-gray-100 py-3 last:border-0">
+								<div class="flex items-start gap-4">
+									<div class="mt-0.5 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-[#f0f4fb]">
+										<Calendar class="h-5 w-5 text-[#577AB7]" />
+									</div>
+									<div>
+										<div class="mb-1 flex flex-wrap items-center gap-3">
+											<span
+												class="font-sans text-base font-semibold {isPast ? 'text-red-600' : 'text-[#555555]'}"
+											>
+												{formatOrdinal(si.dueAt)}
+											</span>
+											<span
+												class="rounded px-2 py-0.5 text-xs font-semibold {si.status === 'PENDING'
+													? 'bg-blue-100 text-blue-800'
+													: si.status === 'DONE'
+														? 'bg-emerald-100 text-emerald-800'
+														: 'bg-gray-200 text-gray-600'}"
+											>
+												{si.status}
+											</span>
+											<span class="font-sans text-xs text-gray-500">Out</span>
+											<span class="font-sans text-xs text-gray-400">
+												{si.actor === 'CUSTOMER' ? 'They act' : 'We act'}
+											</span>
+										</div>
+											{@const payload = si.payload as any}
+											<p class="max-w-2xl font-sans text-sm text-[#555555]">
+												{payload?.whatHeWants ?? '—'}
+												{#if payload?.rawTimeframe}
+													<span class="text-gray-400">(said: "{payload.rawTimeframe}")</span>
+												{/if}
+											</p>
+										<p class="mt-1 font-sans text-xs text-gray-400">
+											INT-{si.id.slice(0, 8)}…
+											{#if si.expiresAt}
+												· Expires {formatSIDate(si.expiresAt)}
+											{/if}
+										</p>
+									</div>
+								</div>
+								<div class="flex flex-shrink-0 items-center gap-2">
+									{#if si.status === 'PENDING'}
+										<button
+											type="button"
+											onclick={() => rescheduleIntent(si)}
+											class="font-sans text-xs text-[#577AB7] underline hover:text-[#3d5a8a]"
 										>
-											{si.status}
-										</span>
-									</td>
-									<td class="py-2 pr-4">{si.actor === 'CUSTOMER' ? 'They act' : 'We act'}</td>
-									<td class="py-2 pr-4 text-gray-600">
-										{si.payload?.whatHeWants ?? '—'}
-										{#if si.payload?.rawTimeframe}
-											<span class="text-gray-400">(" {si.payload.rawTimeframe} ")</span>
-										{/if}
-									</td>
-									<td class="py-2 text-right">
-										{#if si.status === 'PENDING'}
-											<button
-												type="button"
-												onclick={() => rescheduleIntent(si)}
-												class="mr-2 font-sans text-xs text-[#577AB7] underline hover:text-[#3d5a8a]"
-											>
-												Reschedule
-											</button>
-											<button
-												type="button"
-												onclick={() => cancelIntent(si)}
-												class="font-sans text-xs text-red-600 underline hover:text-red-800"
-											>
-												Cancel
-											</button>
-										{/if}
-									</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
+											Reschedule
+										</button>
+										<button
+											type="button"
+											onclick={() => cancelIntent(si)}
+											class="font-sans text-xs text-red-600 underline hover:text-red-800"
+										>
+											Cancel
+										</button>
+									{/if}
+								</div>
+							</div>
+						{/each}
+					</div>
 				{/if}
 			</div>
 
