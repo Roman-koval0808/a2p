@@ -251,14 +251,18 @@ He rings on the 16th, nothing fires on the 25th. No watching, nothing running in
 
 ## 9. The Follow-Up Message
 
-**A human approves it, and it can't be sent as part of a batch** — it's written against Ray's own words, so it isn't the same message as anyone else's.
+**A human approves it, and it can't be sent as part of a batch.** The draft is written
+by the same Orlando AI that writes every other follow-up the business sends — from the
+structured facts the customer gave us (what they wanted, when they said they'd get in
+touch, and how). No template, no "just checking in": the AI gets the facts and writes
+a brief, warm message specific to this customer. The human reviews it in the same
+approval queue every other draft lands in.
 
-And it quotes him — **restating only what he actually said. Never why, never "when you're
-back"** (he may not be going anywhere; a manicure or air conditioning, the sentence is the same):
-
-> *"You mentioned you'd give us a call about air conditioning in a couple of weeks — thought I'd save you the job…"*
-
-That's the whole reason we kept his exact phrase. A generic "just checking in" throws away the only thing that makes it land: evidence we listened.
+No assumptions — the AI never invents why the customer hasn't responded or where they
+are. It only works from the parameters: *customer name, topic, timeframe, who said
+they'd act, channel.* A fallback structured cue appears when the AI is unavailable:
+*"[Write a follow-up to Ray — they said they'd give us a call about air conditioning
+in a couple of weeks.]"*
 
 ---
 

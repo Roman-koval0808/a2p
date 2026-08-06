@@ -16,6 +16,14 @@ vi.mock('$lib/utils/communication-log', () => ({
 	logCommunication: vi.fn()
 }));
 
+vi.mock('$env/static/private', () => ({
+	ANTHROPIC_AI_KEY: 'test-key'
+}));
+
+vi.mock('./anthropic', () => ({
+	claudeText: vi.fn()
+}));
+
 /** Ray's row: customer-acting, due 25 Aug, payload carries his exact words. */
 const intent = {
 	id: 'intent_1',
@@ -30,6 +38,8 @@ const intent = {
 		originalTarget: 'ray@example.com'
 	}
 };
+
+const AI_DRAFT = 'Hey Ray, hope everything is going well with the air conditioning project. You mentioned you\'d give us a call in a couple of weeks — just wanted to check in and see if you\'re ready to move forward whenever you are.';
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -54,7 +64,6 @@ describe('handoffDueIntent ordering — queue write comes before the CAS claim',
 
 		expect(out.handedOff).toBe(false);
 		expect(out.reason).toBe('queue_write_failed');
-		// No claim was attempted — the row stays PENDING so the next sweep retries.
 		expect(prisma.scheduledIntent.updateMany).not.toHaveBeenCalled();
 	});
 
@@ -69,16 +78,16 @@ describe('handoffDueIntent ordering — queue write comes before the CAS claim',
 		expect(prisma.communicationLog.delete).toHaveBeenCalledWith({ where: { id: 'queue_1' } });
 	});
 
-	it('happy path: draft queued, then claimed, queueId returned', async () => {
+	it('happy path: AI-generated draft queued, claimed, queueId returned', async () => {
 		vi.mocked(logCommunication).mockResolvedValue({ id: 'queue_1' } as any);
+		const { claudeText } = await import('./anthropic');
+		vi.mocked(claudeText).mockResolvedValue(AI_DRAFT);
 
 		const out = await handoffDueIntent(intent, new Date('2026-08-25T13:00:00Z'));
 
 		expect(out.handedOff).toBe(true);
 		expect(out.queueId).toBe('queue_1');
-		expect(out.draft).toContain('in a couple of weeks');
-		expect(out.draft).toContain('give us a call about air conditioning');
-		expect(out.draft).not.toContain('away');
+		expect(out.draft).toBe(AI_DRAFT);
 		expect(prisma.scheduledIntent.updateMany).toHaveBeenCalledWith(
 			expect.objectContaining({ where: { id: 'intent_1', status: 'PENDING' } })
 		);
@@ -86,18 +95,29 @@ describe('handoffDueIntent ordering — queue write comes before the CAS claim',
 		expect(logged.metadata).toMatchObject({
 			action: 'SCHED-INTENT-FOLLOWUP',
 			intentId: 'intent_1',
-			// He asked to be CALLED → voice outcome on his mobile.
 			channel: 'voice',
-			// Never "No subject" when the draft is confirmed.
 			subject: 'About air conditioning'
 		});
 		expect(logged.status).toBe('pending_approval');
-		// The CommunicationLog type is not 'email' for a phone-targeted row.
 		expect(logged.type).toBe('voice');
+	});
+
+	it('falls back to a structured cue when Claude is unavailable', async () => {
+		vi.mocked(logCommunication).mockResolvedValue({ id: 'queue_1' } as any);
+		const { claudeText } = await import('./anthropic');
+		vi.mocked(claudeText).mockResolvedValue(null);
+
+		const out = await handoffDueIntent(intent, new Date('2026-08-25T13:00:00Z'));
+
+		expect(out.handedOff).toBe(true);
+		expect(out.draft).toContain('[Write a follow-up to Ray Charbonneau');
+		expect(out.draft).toContain('air conditioning');
 	});
 
 	it('"call" with no number at all falls back to his email — never unreachable (§11)', async () => {
 		vi.mocked(logCommunication).mockResolvedValue({ id: 'queue_2' } as any);
+		const { claudeText } = await import('./anthropic');
+		vi.mocked(claudeText).mockResolvedValue(AI_DRAFT);
 		vi.mocked(prisma.contact.findUnique).mockResolvedValue({
 			id: 'contact_1',
 			name: 'Ray Charbonneau',
