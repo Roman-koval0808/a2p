@@ -8,12 +8,14 @@
 // settings gate that queue; nothing skips them. This adds no new door — it
 // changes what wakes the existing one up.
 //
-// The draft is personalised and quotes the customer's own words (spec §9). It
-// can never be a batch message: it is written against what THIS customer said.
+// The draft is written from structured parameters — no template, no assumptions.
+// Claude generates a brief, customer-specific message from the facts the customer
+// gave us: what they wanted, when they said they'd get in touch, and how.
 
 import { prisma } from '$lib/db';
 import { logCommunication } from '$lib/utils/communication-log';
 import { resolveContactChannel, type ResolvedContactChannel } from './contact-channel-resolver';
+import { ANTHROPIC_AI_KEY } from '$env/static/private';
 
 export interface HandoffResult {
 	handedOff: boolean;
@@ -24,38 +26,50 @@ export interface HandoffResult {
 }
 
 /**
- * The personalised follow-up draft (spec §9). Quotes the customer's exact phrase
- * — that's the whole reason we kept it. A generic "just checking in" throws away
- * the only thing that makes it land: evidence we listened.
+ * Generate a follow-up draft from structured parameters via Claude.
+ * No template — the facts the customer gave us drive the draft.
+ * Falls back to a minimal cue when Claude is unavailable.
  */
-export function buildFollowUpDraft(intent: {
+async function generateFollowUpDraft(opts: {
 	actor: 'CUSTOMER' | 'BUSINESS';
-	payload: any;
-}): string {
-	const what = (intent.payload?.whatHeWants || 'it').trim();
-	const timeframe = (intent.payload?.rawTimeframe || '').trim();
-	const method = (intent.payload?.preferredChannel || '').trim();
+	whatHeWants: string;
+	rawTimeframe: string;
+	preferredChannel: string;
+	customerName: string;
+	companyName: string | null;
+}): Promise<string> {
+	const { actor, whatHeWants, rawTimeframe, preferredChannel, customerName, companyName } = opts;
+	const context =
+		actor === 'CUSTOMER' ? 'they said they would contact us' : 'we said we would follow up with them';
 
-	if (intent.actor === 'CUSTOMER') {
-		// He said HE'D act. Restate only what he actually said — never why, never "when
-		// you're back" (he may not be going anywhere). Works for any trade: air
-		// conditioning or a manicure, the sentence is the same.
-		const phrase = timeframe ? ` in ${timeframe}` : '';
-		const how =
-			method === 'call'
-				? 'give us a call'
-				: method === 'email'
-					? 'email us'
-					: method === 'sms'
-						? 'text us'
-						: 'be in touch';
-		return `You mentioned you'd ${how} about ${what}${phrase} — thought I'd save you the job…`;
+	try {
+		const { claudeText } = await import('./anthropic');
+		const prompt =
+			`Write a brief follow-up message to a customer. Use only the facts below — don't invent anything about why they haven't responded or where they are. Keep it warm and professional, under 4 sentences.\n\n` +
+			`Customer name: ${customerName}\n` +
+			`Company: ${companyName || 'the business'}\n` +
+			`Topic they wanted to discuss: ${whatHeWants}\n` +
+			`What they said about timing: "${rawTimeframe}"\n` +
+			`Context: ${context}\n` +
+			`Preferred contact method: ${preferredChannel || 'not specified'}\n\n` +
+			`Write just the message body — no subject line, no signature.`;
+
+		const result = await claudeText({
+			apiKey: ANTHROPIC_AI_KEY,
+			system: `You are a customer-service follow-up writer for ${companyName || 'a local business'}. Be warm, professional, and brief. Never invent details.`,
+			messages: [{ role: 'user', content: prompt }],
+			temperature: 0.3,
+			maxTokens: 300
+		});
+		if (result) return result.trim();
+	} catch (e) {
+		console.error('[schedule-handoff] Claude draft generation failed:', e);
 	}
 
-	// Scenario B — they asked us to act; we're honouring a promise, not marketing.
-	const when = timeframe ? ` ${timeframe}` : '';
-	const channel = method ? ` ${method}` : '';
-	return `You asked us to${channel} about ${what}${when} — getting back to you as promised.`;
+	// Fallback: structured cue for the human to write from.
+	const how = preferredChannel === 'call' ? 'give us a call' : 'be in touch';
+	const when = rawTimeframe ? ` in ${rawTimeframe}` : '';
+	return `[Write a follow-up to ${customerName} — they said they'd ${how} about ${whatHeWants}${when}.]`;
 }
 
 /**
@@ -96,11 +110,23 @@ export async function handoffDueIntent(
 		landline: contact?.landline || null
 	});
 
-	const draft = buildFollowUpDraft(intent);
 	const who = contact?.name?.trim() || 'the customer';
+	const whatHeWants = (intent.payload?.whatHeWants || 'your message').trim();
+	const rawTimeframe = (intent.payload?.rawTimeframe || '').trim();
+	const preferredChannel = (intent.payload?.preferredChannel || '').trim();
+
+	const draft = await generateFollowUpDraft({
+		actor: intent.actor,
+		whatHeWants,
+		rawTimeframe,
+		preferredChannel,
+		customerName: who,
+		companyName: company?.name || null
+	});
+
 	// A real subject for the email — the summary dialog and the confirm flow both read
 	// it, so a confirmed draft never goes out as "No subject" (§9).
-	const subject = `About ${(intent.payload?.whatHeWants || 'your message').trim()}`;
+	const subject = `About ${whatHeWants}`;
 
 	// The agent-facing summary carries the reachability verdict, so the
 	// "unreachable / manual call" rows (§11) are visibly work for a person.
@@ -127,7 +153,7 @@ export async function handoffDueIntent(
 		destination: channel.target ?? undefined,
 		company_id: intent.clientId,
 		customer_id: contact?.id ?? intent.profileId,
-		summary: `[SCHED-INTENT] ${who}: ${draft.substring(0, 60)}…${channelNote}`,
+		summary: `[SCHED-INTENT] ${who}: follow-up about ${whatHeWants} — ${intent.actor === 'CUSTOMER' ? "they said they'd be in touch" : "we said we'd follow up"}${rawTimeframe ? ` (said: "${rawTimeframe}")` : ''}${channelNote}`,
 		content: draft,
 		metadata: {
 			action: 'SCHED-INTENT-FOLLOWUP',
