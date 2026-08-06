@@ -102,13 +102,12 @@ describe('resolvePendingCustomerCommitments (§8) — he did what he said, resol
 		expect(count).toBe(1);
 		expect(prisma.scheduledIntent.updateMany).toHaveBeenCalledWith(
 			expect.objectContaining({
-				where: {
+				where: expect.objectContaining({
 					clientId: 'company_1',
 					profileId: 'contact_1',
 					status: 'PENDING',
-					// Only rows where HE promised to act — our promises (B) survive his call.
 					intentType: 'CUSTOMER_COMMITMENT_A'
-				},
+				}),
 				data: expect.objectContaining({ status: 'SKIPPED' })
 			})
 		);

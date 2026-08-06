@@ -213,7 +213,11 @@ export async function resolvePendingCustomerCommitments(
 			clientId: companyId,
 			profileId,
 			status: 'PENDING',
-			intentType: 'CUSTOMER_COMMITMENT_A'
+			intentType: 'CUSTOMER_COMMITMENT_A',
+			// Only resolve intents that are at least 60 seconds old — a just-created
+			// row is the intake's own work; resolving it would cancel the plan before
+			// it ever appeared.
+			createdAt: { lt: new Date(Date.now() - 60_000) }
 		},
 		data: { status: 'SKIPPED', updatedAt: new Date() }
 	});
