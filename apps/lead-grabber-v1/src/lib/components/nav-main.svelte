@@ -29,7 +29,8 @@
 		Sparkles,
 		Globe,
 		Megaphone,
-		Share2
+		Share2,
+		ListTodo
 	} from 'lucide-svelte';
 	import { page } from '$app/state';
 	import { Button } from '$lib/components/ui/button/index';
@@ -47,6 +48,7 @@
 		},
 		{ title: 'Important Notifications', url: '/notifications', icon: Bell, href: '/notifications' },
 		{ title: 'Inbox', url: '/inbox', icon: Home, href: '/inbox' },
+		{ title: 'Tasks', url: '/tasks', icon: ListTodo, href: '/tasks' },
 		{
 			title: 'Profiles',
 			url: '/profiles',
@@ -105,6 +107,7 @@
 		},
 		{ title: 'Important Notifications', url: '/notifications', icon: Bell, href: '/notifications' },
 		{ title: 'Inbox', url: '/inbox', icon: Home, href: '/inbox' },
+		{ title: 'Tasks', url: '/tasks', icon: ListTodo, href: '/tasks' },
 		{
 			title: 'Profiles',
 			url: '/profiles',
