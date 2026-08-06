@@ -1553,15 +1553,11 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			// he contacted us sooner than he promised, so the plan is done.
 			if (matchedComm?.customerId && matchedComm.customerId !== commLog.customerId) {
 				const { resolvePendingCustomerCommitments } = await import('./open-commitments');
-				for (const profileId of new Set(
-					[commLog.customerId, matchedComm.customerId].filter(Boolean) as string[]
-				)) {
-					const resolved = await resolvePendingCustomerCommitments(commLog.companyId, profileId);
-					if (resolved > 0) {
-						olog(
-							`[Orchestrator] Resolved ${resolved} pending commitment(s) for ${profileId} — same customer reached us on another channel`
-						);
-					}
+				const resolved = await resolvePendingCustomerCommitments(commLog.companyId, matchedComm.customerId);
+				if (resolved > 0) {
+					olog(
+						`[Orchestrator] Resolved ${resolved} pending commitment(s) for ${matchedComm.customerId} — same customer reached us on another channel`
+					);
 				}
 
 				// Contact resolution: fold the caller's auto-created contact into the matched

@@ -208,19 +208,29 @@ export async function resolvePendingCustomerCommitments(
 	companyId: string,
 	profileId: string
 ): Promise<number> {
+	const cutoff = new Date(Date.now() - 60_000);
+	const before = await prisma.scheduledIntent.count({
+		where: { clientId: companyId, profileId, status: 'PENDING', intentType: 'CUSTOMER_COMMITMENT_A' }
+	});
 	const res = await prisma.scheduledIntent.updateMany({
 		where: {
 			clientId: companyId,
 			profileId,
 			status: 'PENDING',
 			intentType: 'CUSTOMER_COMMITMENT_A',
-			// Only resolve intents that are at least 60 seconds old — a just-created
-			// row is the intake's own work; resolving it would cancel the plan before
-			// it ever appeared.
-			createdAt: { lt: new Date(Date.now() - 60_000) }
+			// Never resolve an intent younger than 60s: it was just created by the
+			// intake processing THIS contact, and resolving it would cancel the plan
+			// before it ever appeared on the Pending Actions card.
+			createdAt: { lt: cutoff }
 		},
 		data: { status: 'SKIPPED', updatedAt: new Date() }
 	});
+	if (before > 0) {
+		console.log(
+			`[open-commitments] resolvePendingCustomerCommitments(${profileId.slice(0, 8)}): ` +
+				`${before} PENDING → ${res.count} resolved (${before - res.count} too recent to touch < 60s)`
+		);
+	}
 	if (res.count > 0) {
 		console.log(
 			`[open-commitments] resolved ${res.count} pending customer commitment(s) for ${profileId} — they got in touch`

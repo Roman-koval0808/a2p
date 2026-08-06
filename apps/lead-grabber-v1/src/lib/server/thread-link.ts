@@ -124,13 +124,14 @@ export async function linkThreadAndResolveIdentity(opts: {
 				: null);
 
 		if (bridge?.customerId && bridge.customerId !== customerId) {
-			for (const profileId of new Set([customerId, bridge.customerId].filter(Boolean) as string[])) {
-				const resolved = await resolvePendingCustomerCommitments(companyId, profileId);
-				if (resolved > 0) {
-					console.log(
-						`[thread-link] resolved ${resolved} pending commitment(s) for ${profileId}`
-					);
-				}
+			// The bridge links the caller to an OLDER contact — that older contact's pending
+			// "they said they'd act" commitments are resolved (§8). Never resolve the
+			// caller's own intents: those may have been created THIS intake and the caller's
+			// inbound flow already handled them (the cooldown guards the race, but the
+			// intention is the bridge resolves the historical side, never the trigger).
+			const resolved = await resolvePendingCustomerCommitments(companyId, bridge.customerId);
+			if (resolved > 0) {
+				console.log(`[thread-link] resolved ${resolved} pending commitment(s) for ${bridge.customerId}`);
 			}
 
 			// Fold whichever contact is auto-created into the one with a real name.

@@ -846,6 +846,7 @@ async function syncCompanyEmailsInner(companyId: string) {
 						if (!contact?.id) return; // nobody to file the row under
 						const { resolvePendingCustomerCommitments } = await import('$lib/server/open-commitments');
 						// He just got in touch — any pending "he said he'd act" plan resolves now (§8).
+						console.log(`[Gmail Sync] Scheduled-intent: calling resolvePending for ${contact.id.slice(0, 8)} (email from ${customerEmail})`);
 						await resolvePendingCustomerCommitments(companyId, contact.id);
 						const { extractScheduledIntent } = await import('$lib/server/ai/scheduled-intent-parser');
 						const { writeScheduledIntent } = await import('$lib/server/scheduled-intent-writer');
@@ -878,7 +879,9 @@ async function syncCompanyEmailsInner(companyId: string) {
 							reference,
 							idempotencyKey: `si-email-${msgId}`
 						});
-						if (!written.recorded) {
+						if (written.recorded) {
+							console.log(`[Gmail Sync] Scheduled-intent: row ${written.scheduledIntentId?.slice(0, 8)} created (due ${written.dueAt}, expires ${written.expiresAt || 'never'})`);
+						} else {
 							console.warn(`[Gmail Sync] Scheduled-intent: not recorded for ${msgId} — ${written.reason}`);
 						}
 					} catch (siErr) {
