@@ -57,9 +57,21 @@ export function classifyLine(
 			return 'mobile';
 		case 'landline':
 		case 'fixed line':
+		case 'fixed_line':
 			return 'landline';
 		case 'voip':
+		case 'voice over ip':
 			return 'voip';
+		case 'toll free':
+		case 'toll-free':
+		case 'tollfree':
+			return 'toll_free';
+		// Telnyx returns "other" for numbers with no real carrier behind them — fictitious 555
+		// ranges, unassigned blocks, some test numbers. That is genuinely not knowing, so it is
+		// `unknown`, which is Tier 2. Correct, but worth remembering when a test number never
+		// reaches Tier 1: use a real handset.
+		case 'other':
+			return 'unknown';
 		default:
 			return 'unknown';
 	}

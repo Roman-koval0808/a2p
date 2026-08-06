@@ -73,7 +73,9 @@ describe('classifyLine', () => {
 		['fixed line', 'landline'],
 		['voip', 'voip'],
 		['VoIP', 'voip'],
-		['MOBILE', 'mobile']
+		['MOBILE', 'mobile'],
+		['toll free', 'toll_free'],
+		['toll-free', 'toll_free']
 	])('maps Telnyx carrier.type "%s" to %s', (input, expected) => {
 		expect(classifyLine(input)).toBe(expected);
 	});
@@ -82,6 +84,10 @@ describe('classifyLine', () => {
 		expect(classifyLine(undefined)).toBe('unknown');
 		expect(classifyLine('')).toBe('unknown');
 		expect(classifyLine('something-new')).toBe('unknown');
+	});
+
+	it('treats "other" as unknown — a 555 number has no carrier, so we do not know', () => {
+		expect(classifyLine('other')).toBe('unknown');
 	});
 
 	it('overrides the carrier type for toll-free, which Telnyx reports as a landline', () => {
