@@ -214,7 +214,7 @@ export async function resolvePendingCustomerCommitments(
 	// Collect all possible IDs (the CDP profile ID, and any matching CRM Customer IDs)
 	const targetIds = [profileId];
 	if (identifiers?.phone || identifiers?.email) {
-		const crmCustomers = await prisma.customer.findMany({
+		const crmContacts = await prisma.contact.findMany({
 			where: {
 				companyId,
 				OR: [
@@ -224,7 +224,7 @@ export async function resolvePendingCustomerCommitments(
 			},
 			select: { id: true }
 		});
-		targetIds.push(...crmCustomers.map(c => c.id));
+		targetIds.push(...crmContacts.map(c => c.id));
 	}
 
 	const before = await prisma.scheduledIntent.count({
