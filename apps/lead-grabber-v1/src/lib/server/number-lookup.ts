@@ -106,18 +106,29 @@ async function fetchLineType(e164: string): Promise<NumberLookupResult | null> {
  * mobile caller at Tier 2; the next call re-tries.
  */
 export async function getLineType(phone: string, tx?: any): Promise<LineType> {
+	return (await getLineInfo(phone, tx)).lineType;
+}
+
+/**
+ * As `getLineType`, but also returns the carrier name — for enrichment and display. Shares the one
+ * cache, so asking for the carrier costs nothing beyond the lookup the tier decision already needs.
+ */
+export async function getLineInfo(
+	phone: string,
+	tx?: any
+): Promise<{ lineType: LineType; carrier: string | null }> {
 	const e164 = toE164(phone);
-	if (!e164) return 'unknown';
+	if (!e164) return { lineType: 'unknown', carrier: null };
 
 	// Toll-free is derivable from the NPA, and Telnyx reports it as a landline anyway. Free answer.
-	if (isTollFree(e164)) return 'toll_free';
+	if (isTollFree(e164)) return { lineType: 'toll_free', carrier: null };
 
 	const db = tx || prisma;
 
 	try {
 		const cached = await db.numberLookup.findUnique({ where: { phoneNumber: e164 } });
 		if (cached && !isStale(cached.lookedUpAt)) {
-			return cached.lineType as LineType;
+			return { lineType: cached.lineType as LineType, carrier: cached.carrier ?? null };
 		}
 	} catch (err) {
 		// A cache read failing must not take the call path down with it — fall through to Telnyx.
@@ -125,7 +136,7 @@ export async function getLineType(phone: string, tx?: any): Promise<LineType> {
 	}
 
 	const result = await fetchLineType(e164);
-	if (!result) return 'unknown';
+	if (!result) return { lineType: 'unknown', carrier: null };
 
 	try {
 		await db.numberLookup.upsert({
@@ -148,7 +159,7 @@ export async function getLineType(phone: string, tx?: any): Promise<LineType> {
 		console.warn('[NumberLookup] Cache write failed:', err);
 	}
 
-	return result.lineType;
+	return { lineType: result.lineType, carrier: result.carrier ?? null };
 }
 
 /**

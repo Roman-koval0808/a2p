@@ -32,21 +32,19 @@ export function dayOfWeek(d: Date = new Date()): string {
  * Line type (mobile vs landline) + carrier via Telnyx Number Lookup, using the existing
  * TELNYX_API_KEY. Best-effort — returns nulls if the key is unset or the lookup fails.
  */
-export async function lookupLineType(phone: string | null | undefined): Promise<{ lineType: string | null; carrier: string | null }> {
-	const apiKey = process.env.TELNYX_API_KEY?.trim();
-	const d = (phone || '').replace(/\D/g, '');
-	if (!apiKey || d.length < 10) return { lineType: null, carrier: null };
-	const e164 = d.length === 10 ? `+1${d}` : d.startsWith('1') ? `+${d}` : `+${d}`;
-	try {
-		const res = await fetch(
-			`https://api.telnyx.com/v2/number_lookup/${encodeURIComponent(e164)}?type=carrier`,
-			{ headers: { Authorization: `Bearer ${apiKey}` } }
-		);
-		if (!res.ok) return { lineType: null, carrier: null };
-		const j = await res.json();
-		const carrier = j?.data?.carrier;
-		return { lineType: carrier?.type ?? null, carrier: carrier?.name ?? null };
-	} catch {
-		return { lineType: null, carrier: null };
-	}
+export async function lookupLineType(
+	phone: string | null | undefined
+): Promise<{ lineType: string | null; carrier: string | null }> {
+	if (!phone) return { lineType: null, carrier: null };
+
+	// Delegates to the shared cache rather than calling Telnyx itself. This used to be a second,
+	// uncached lookup on every call — the same number billed twice, once for enrichment and once
+	// for the tier decision, with the two free to disagree.
+	//
+	// Note the vocabulary is now the normalised one ('toll_free', not 'toll free'; 'unknown'
+	// rather than null for a failed lookup), which is what the tier rule reads. This value is
+	// metadata and display only — the tier itself comes from `getLineType`.
+	const { getLineInfo } = await import('$lib/server/number-lookup');
+	const info = await getLineInfo(phone);
+	return { lineType: info.lineType, carrier: info.carrier };
 }
