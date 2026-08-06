@@ -1,7 +1,8 @@
 import { profileDb as prisma } from '$lib/profiledb-db';
 import type { CustomerProfile } from 'profiledb-client';
 import { calculateDecayedScore, getNextBucket } from './scoring.service';
-import { TIER } from './tiers';
+import { TIER, tierForIdentifiers, groupForIdentifiers, type LineType } from './tiers';
+import { toE164 } from '$lib/utils/phone';
 import crypto from 'crypto';
 
 export function isValidName(name: string): boolean {
@@ -22,6 +23,14 @@ interface ResolveIdentityInput {
   name?: string;
   group?: number;
   tier?: string;
+  /**
+   * Telnyx line type for `phone` (§4.3a). Supplied by the caller, because it can only be resolved
+   * from the raw number and we store a hash. Omitted means unclassified, which is Tier 2 — a
+   * phone alone never buys Tier 1.
+   */
+  lineType?: LineType;
+  /** The event arrived as an inbound SMS, so the sender is a mobile and no lookup is needed. */
+  inboundSms?: boolean;
 }
 
 export function sha256(text: string): string {
@@ -33,9 +42,48 @@ export function normalizeEmail(email: string): string {
 }
 
 export function normalizePhone(phone: string): string {
-  // Normalize to E.164 format: keep leading '+' if present and digits.
-  const cleaned = phone.trim().replace(/[^\d+]/g, '');
-  return cleaned;
+  // §4.4: the stored key is canonical E.164, so "705 264 2251" and "+17052642251" are one person.
+  return toE164(phone);
+}
+
+/**
+ * The normalisation this file used before canonical E.164 — it only stripped formatting, so a
+ * number typed without a country code hashed differently from the same number with one.
+ *
+ * Kept solely so profiles hashed under the old rule are still findable. Hashes can't be recomputed
+ * from the stored value, so the only migration available is to look the legacy hash up on the way
+ * past and rewrite it to the canonical one.
+ */
+function legacyNormalizePhone(phone: string): string {
+  return phone.trim().replace(/[^\d+]/g, '');
+}
+
+function legacyPhoneHash(phone: string): string | undefined {
+  const legacy = legacyNormalizePhone(phone);
+  if (!legacy) return undefined;
+  const hash = sha256(legacy);
+  return hash;
+}
+
+/**
+ * Follow `mergedInto` to the record that survived.
+ *
+ * Retired profiles are never deleted, so old IDs in cookies, threads and task records still
+ * resolve — they just resolve to whoever they were merged into. Chains are walked with a hard cap
+ * so a cycle introduced by a bad merge can't hang the request.
+ */
+export async function resolveMergedProfile<T extends { id: string; mergedInto?: string | null }>(
+  profile: T
+): Promise<T> {
+  let current: any = profile;
+  for (let hops = 0; hops < 10; hops++) {
+    if (!current?.mergedInto) return current;
+    const next = await prisma.customerProfile.findUnique({ where: { id: current.mergedInto } });
+    if (!next) return current;
+    current = next;
+  }
+  console.warn(`[Identity Resolution] mergedInto chain too long from ${profile.id} — stopping`);
+  return current;
 }
 
 /**
@@ -61,7 +109,9 @@ export async function resolveCustomerProfile(input: ResolveIdentityInput): Promi
   let currentProfile: CustomerProfile;
 
   if (existingFingerprint) {
-    currentProfile = existingFingerprint.customerProfile;
+    // The fingerprint may still point at a record that has since been retired into another —
+    // follow the trail rather than reviving a tombstone.
+    currentProfile = await resolveMergedProfile(existingFingerprint.customerProfile);
     // Update lastSeenAt for fingerprint
     await prisma.deviceFingerprint.update({
       where: { fingerprintId },
@@ -102,7 +152,7 @@ export async function resolveCustomerProfile(input: ResolveIdentityInput): Promi
           include: { customerProfile: true },
         });
         if (retryFingerprint) {
-          currentProfile = retryFingerprint.customerProfile;
+          currentProfile = await resolveMergedProfile(retryFingerprint.customerProfile);
           await prisma.deviceFingerprint.update({
             where: { fingerprintId },
             data: { lastSeenAt: new Date() },
@@ -139,6 +189,29 @@ export async function resolveCustomerProfile(input: ResolveIdentityInput): Promi
         tenantId_phone: { tenantId, phone: hashedPhone },
       },
     });
+
+    // Nothing under the canonical hash may still mean we know this person — under the pre-E.164
+    // hash. Check before concluding they're new, or the normalisation fix would itself fork the
+    // record it exists to prevent.
+    if (!profileByPhone && phone) {
+      const legacy = legacyPhoneHash(phone);
+      if (legacy && legacy !== hashedPhone) {
+        const legacyMatch = await prisma.customerProfile.findUnique({
+          where: { tenantId_phone: { tenantId, phone: legacy } },
+        });
+        if (legacyMatch) {
+          // Rewrite in place so this profile is canonical from here on and the legacy path is
+          // walked once per person, not on every event.
+          profileByPhone = await prisma.customerProfile.update({
+            where: { id: legacyMatch.id },
+            data: { phone: hashedPhone },
+          });
+          console.log(
+            `[Identity Resolution] Rehashed legacy phone key to canonical E.164 for profile ${legacyMatch.id}`
+          );
+        }
+      }
+    }
   }
 
   // --- Scenario A: New Identity (Identifiers don't match any existing profile) ---
@@ -149,14 +222,18 @@ export async function resolveCustomerProfile(input: ResolveIdentityInput): Promi
     if (hashedPhone) updateData.phone = hashedPhone;
     if (name && isValidName(name)) updateData.name = name;
 
-    // Resolve Q2 Tier & Group Upgrades
-    if (hashedEmail || hashedPhone) {
-      updateData.tier = TIER.IDENTIFIED;
-      updateData.group = input.group || (phone ? 3 : 2);
-    } else if (name && currentProfile.tier === TIER.ANON_ENGAGED) {
-      updateData.tier = TIER.ANON_NAMED;
-      updateData.group = 4;
-    }
+    // Resolve Q2 Tier & Group. A phone only reaches Tier 1 on a mobile line (§4.3a).
+    const tierInput = {
+      hasEmail: !!hashedEmail,
+      hasPhone: !!hashedPhone,
+      lineType: input.lineType,
+      inboundSms: input.inboundSms,
+      hasName: !!(name && isValidName(name)),
+      currentTier: currentProfile.tier
+    };
+    updateData.tier = tierForIdentifiers(tierInput);
+    updateData.group = input.group || groupForIdentifiers(tierInput);
+    if (hashedPhone && input.lineType) updateData.lineType = input.lineType;
 
     currentProfile = await prisma.customerProfile.update({
       where: { id: currentProfile.id },
@@ -191,46 +268,56 @@ export async function resolveCustomerProfile(input: ResolveIdentityInput): Promi
     console.log(`[Identity Resolution] MERGING PROFILES. targetProfileId=${targetProfile.id} (${targetProfile.name || 'Anonymous'}), sourceIds=${sourceIds.join(', ')}`);
     console.log(`[Identity Resolution] Merging Inputs: email=${email}, phone=${phone}, name=${name}`);
 
-    // Merge in transactions
-    await prisma.$transaction(async (tx) => {
-      // 1. Update DeviceFingerprints to point to targetProfile
+    // Point the keys at the survivor and retire the losers — never delete them. Old profile IDs
+    // are sitting in cookies, conversation threads and task records, and looking one up has to
+    // keep working; `mergedInto` is the trail that makes that possible.
+    const { totalScore, latestEventAt } = await prisma.$transaction(async (tx) => {
+      // 1. Fingerprints follow the person — this is what carries the other device across.
       await tx.deviceFingerprint.updateMany({
         where: { customerProfileId: { in: sourceIds } },
         data: { customerProfileId: targetProfile.id },
       });
 
-      // 2. Update TelemetryEvents to point to targetProfile
+      // 2. So does every event. Moving the activity is what makes the score correct below.
       await tx.telemetryEvent.updateMany({
         where: { customerProfileId: { in: sourceIds } },
         data: { customerProfileId: targetProfile.id },
       });
 
-      // 3. Delete merged customer profiles
-      await tx.customerProfile.deleteMany({
+      // 3. Retire the sources. They give up their identifiers first, because (tenantId, email) and
+      //    (tenantId, phone) are unique and the survivor is about to claim them.
+      await tx.customerProfile.updateMany({
         where: { id: { in: sourceIds } },
+        data: {
+          email: null,
+          phone: null,
+          mergedInto: targetProfile.id,
+        },
       });
+
+      // 4. Let the score fall out of the merged activity rather than adding the two totals up.
+      //    Adding double-counts the moment anything overlaps, and every event now hangs off the
+      //    survivor, so summing them is both simpler and right.
+      const agg = await tx.telemetryEvent.aggregate({
+        where: { customerProfileId: targetProfile.id },
+        _sum: { scoreDelta: true },
+        _max: { occurredAt: true },
+      });
+
+      return {
+        totalScore: agg._sum.scoreDelta ?? 0,
+        latestEventAt: agg._max.occurredAt ?? null,
+      };
     });
 
-    // Re-calculate raw score and updates for the targetProfile
-    // Since they're already deleted in transaction above, we calculate from original values in memory
-    // Let's add up raw scores
-    let additionalRawScore = 0;
-    let latestEventDate = targetProfile.lastEventAt;
+    const newScoreRaw = Math.min(Math.max(totalScore, 0), 100);
 
-    if (currentProfile.id !== targetProfile.id) {
-      additionalRawScore += currentProfile.scoreRaw;
-      if (currentProfile.lastEventAt > latestEventDate) {
-        latestEventDate = currentProfile.lastEventAt;
-      }
+    // The merged record belongs to somebody who was active at the most recent of the two, so the
+    // decay clock restarts from there — an old fragment stops ageing out on its own timeline.
+    let latestEventDate = latestEventAt ?? targetProfile.lastEventAt;
+    for (const p of [currentProfile, profileByEmail, profileByPhone]) {
+      if (p && p.lastEventAt > latestEventDate) latestEventDate = p.lastEventAt;
     }
-    if (profileByEmail && profileByPhone && profileByEmail.id !== profileByPhone.id) {
-      additionalRawScore += profileByPhone.scoreRaw;
-      if (profileByPhone.lastEventAt > latestEventDate) {
-        latestEventDate = profileByPhone.lastEventAt;
-      }
-    }
-
-    const newScoreRaw = Math.min(targetProfile.scoreRaw + additionalRawScore, 100);
 
     // Update targetProfile details with merged score/identifiers
     const updateData: any = {
@@ -253,19 +340,36 @@ export async function resolveCustomerProfile(input: ResolveIdentityInput): Promi
     if (mergedPhone) updateData.phone = mergedPhone;
     if (mergedName && mergedName !== '—') updateData.name = mergedName;
 
-    // Resolve Q2 Tier & Group Upgrades
-    if (mergedEmail || mergedPhone) {
-      updateData.tier = TIER.IDENTIFIED;
-      updateData.group = input.group || targetProfile.group || (phone || targetProfile.phone ? 3 : 2);
-    } else if (mergedName && targetProfile.tier === TIER.ANON_ENGAGED) {
-      updateData.tier = TIER.ANON_NAMED;
-      updateData.group = 4;
-    }
+    // Resolve Q2 Tier & Group. The merged record inherits the best line type either side knew —
+    // a mobile learned on one of them makes the survivor Tier 1; neither knowing keeps it Tier 2.
+    const mergedLineType =
+      input.lineType ||
+      (targetProfile as any).lineType ||
+      (currentProfile as any).lineType ||
+      undefined;
+    const tierInput = {
+      hasEmail: !!mergedEmail,
+      hasPhone: !!mergedPhone,
+      lineType: mergedLineType as LineType | undefined,
+      inboundSms: input.inboundSms,
+      hasName: !!mergedName,
+      // Tier 1 already earned on either side survives the merge.
+      currentTier:
+        targetProfile.tier === TIER.IDENTIFIED || currentProfile.tier === TIER.IDENTIFIED
+          ? TIER.IDENTIFIED
+          : targetProfile.tier
+    };
+    updateData.tier = tierForIdentifiers(tierInput);
+    updateData.group = input.group || targetProfile.group || groupForIdentifiers(tierInput);
+    if (mergedLineType) updateData.lineType = mergedLineType;
 
     // Calculate new live score and intent bucket
     const currentLiveScore = calculateDecayedScore(newScoreRaw, latestEventDate, targetProfile.intentBucket);
     updateData.scoreLive = currentLiveScore;
-    updateData.intentBucket = getNextBucket(targetProfile.intentBucket, currentLiveScore, '');
+    // A merge is not an event and carries no bucket signal, so the bucket is whatever the surviving
+    // record already held. (This previously passed the score in the signal argument, which fell
+    // through to the same answer by accident.)
+    updateData.intentBucket = getNextBucket(targetProfile.intentBucket, null);
 
     const updatedTarget = await prisma.customerProfile.update({
       where: { id: targetProfile.id },
@@ -296,13 +400,24 @@ export async function resolveCustomerProfile(input: ResolveIdentityInput): Promi
     if (mergedPhone && mergedPhone !== targetProfile.phone) updateData.phone = mergedPhone;
     if (mergedName && mergedName !== '—' && mergedName !== targetProfile.name) updateData.name = mergedName;
 
-    // Resolve Q2 Tier & Group Upgrades
-    if (mergedEmail || mergedPhone) {
-      updateData.tier = TIER.IDENTIFIED;
-      updateData.group = input.group || targetProfile.group || (phone || targetProfile.phone ? 3 : 2);
-    } else if (mergedName && targetProfile.tier === TIER.ANON_ENGAGED) {
-      updateData.tier = TIER.ANON_NAMED;
-      updateData.group = 4;
+    // Resolve Q2 Tier & Group (§4.3a — a phone is only Tier 1 on a mobile line).
+    const lineType = (input.lineType || (targetProfile as any).lineType || undefined) as
+      | LineType
+      | undefined;
+    const tierInput = {
+      hasEmail: !!mergedEmail,
+      hasPhone: !!mergedPhone,
+      lineType,
+      inboundSms: input.inboundSms,
+      hasName: !!mergedName,
+      currentTier: targetProfile.tier
+    };
+    const nextTier = tierForIdentifiers(tierInput);
+    if (nextTier !== targetProfile.tier) updateData.tier = nextTier;
+    const nextGroup = input.group || targetProfile.group || groupForIdentifiers(tierInput);
+    if (nextGroup !== targetProfile.group) updateData.group = nextGroup;
+    if (input.lineType && input.lineType !== (targetProfile as any).lineType) {
+      updateData.lineType = input.lineType;
     }
 
     if (Object.keys(updateData).length > 0) {

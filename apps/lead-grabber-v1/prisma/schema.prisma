@@ -135,6 +135,7 @@ model Company {
   notifications               Notification[]
   pipelineBusinessConfig      PipelineBusinessConfig?
   pipelineCustomerProfiles    PipelineCustomerProfile[]
+  commIdentifiers             CommIdentifier[]
   pipelineEvents              PipelineEvent[]
   pipelineOrchestratorProfile PipelineOrchestratorProfile?
   profileMergeCandidates      ProfileMergeCandidate[]
@@ -1140,14 +1141,25 @@ model ProfileMergeCandidate {
   @@map("profile_merge_candidates")
 }
 
+/// An identifier that points at a person: an email, a mobile, a landline, a fingerprint, a cookie.
+///
+/// None of these IS the identity — the profile is. They are keys hanging off it, and a person may
+/// have any number of them.
 model CommIdentifier {
   id                String                  @id @default(cuid())
+  companyId         String
   customerProfileId String
   kind              String
   value             String
   createdAt         DateTime                @default(now())
   customerProfile   PipelineCustomerProfile @relation(fields: [customerProfileId], references: [id], onDelete: Cascade)
+  company           Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
+  /// The rule, written where it can't be ignored: within one company an identifier points at
+  /// exactly one person. A second profile carrying the same email is not a duplicate we discover
+  /// weeks later — it is a write that fails.
+  @@unique([companyId, kind, value])
+  /// Retained so existing upserts keyed on (profile, kind, value) keep working.
   @@unique([customerProfileId, kind, value])
   @@index([kind, value])
   @@map("comm_identifiers")
@@ -1559,4 +1571,23 @@ enum ScheduledIntentStatus {
 enum ScheduledIntentActor {
   CUSTOMER
   BUSINESS
+}
+
+/// Telnyx Number Lookup results, cached by number.
+///
+/// The line type gates the identity tier of every inbound call (§4.3a), so it has to be resolved
+/// before a tier is assigned. Caching it here means a repeat caller costs one lookup rather than
+/// one per call, and the cache is shared across profiles instead of living on one of them.
+///
+/// Only successful classifications are stored — a timed-out or failed lookup is never written, so
+/// a Telnyx blip can't pin a mobile caller to Tier 2 permanently. Numbers do get ported, so rows
+/// are re-checked once past NUMBER_LOOKUP_TTL_DAYS.
+model NumberLookup {
+  phoneNumber String   @id
+  lineType    String
+  carrier     String?
+  raw         Json?
+  lookedUpAt  DateTime @default(now())
+
+  @@map("number_lookups")
 }

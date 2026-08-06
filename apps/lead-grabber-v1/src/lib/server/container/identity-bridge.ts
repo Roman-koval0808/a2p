@@ -103,11 +103,18 @@ export async function bridgeIdentitiesForMatchedContainer(input: {
 			`phone profile ${byPhone.id} -> email profile ${byEmail.id}.`
 	);
 
+	// §4.3a: classify the line before the tier is decided. This union carries an email, so the
+	// result is Tier 1 either way — but the line type is still worth recording, because it's what
+	// says whether the number itself may be used to resolve anyone in future.
+	const { getLineType } = await import('$lib/server/number-lookup');
+	const lineType = await getLineType(phone);
+
 	const profile = await resolveCustomerProfile({
 		tenantId: byPhone.tenantId,
 		fingerprintId: fingerprint.fingerprintId,
 		email,
-		phone
+		phone,
+		lineType
 	});
 
 	return { merged: true, reason: 'merged_on_container_match', profileId: profile.id };

@@ -3,6 +3,8 @@ import { redirect, error } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { commCode } from '$lib/utils/comm-id';
 import { assignRepresentative } from '$lib/server/profiledb/profiles';
+import { tierForIdentifiers, type LineType } from '$lib/server/profiledb/tiers';
+import { toE164 } from '$lib/utils/phone';
 
 export const load: PageServerLoad = async ({ params, locals }) => {
 	const user = locals.user;
@@ -79,6 +81,23 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			};
 		});
 
+		// Line type decides whether this contact's number can identify a person at all (§4.3a).
+		// Read from the cache rather than looked up live — a profile page must not wait on Telnyx,
+		// and an unclassified number simply stays Tier 2.
+		let contactLineType: LineType | undefined;
+		try {
+			const e164 = toE164(dbContact.phone);
+			if (e164) {
+				const cached = await prisma.numberLookup.findUnique({
+					where: { phoneNumber: e164 },
+					select: { lineType: true }
+				});
+				contactLineType = (cached?.lineType as LineType) ?? undefined;
+			}
+		} catch (e: any) {
+			console.error('[profile] could not read line type:', e?.message || e);
+		}
+
 		// The engagement score the orchestrator maintains on the Contact is the real score here.
 		const cdpProfile: any = {
 			id: dbContact.id,
@@ -87,7 +106,15 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			email: dbContact.email || '',
 			clearPhone: dbContact.phone || '—',
 			clearEmail: dbContact.email || '—',
-			tier: dbContact.phone || dbContact.email ? 'Tier 1' : 'Tier 2B',
+			// A phone alone is not an exclusive identifier — a landline or VoIP number identifies a
+			// shared handset, not a person, so it stays Tier 2 until a mobile or email turns up
+			// (§4.3a). An unclassified number is treated the same way; never default upward.
+			tier: tierForIdentifiers({
+				hasEmail: !!dbContact.email,
+				hasPhone: !!dbContact.phone,
+				lineType: contactLineType,
+				hasName: !!dbContact.name
+			}),
 			scoreLive: dbContact.engagementScore ?? 0,
 			intentBucket: 'unclassified',
 			isAnonymous: !dbContact.email && !dbContact.phone,

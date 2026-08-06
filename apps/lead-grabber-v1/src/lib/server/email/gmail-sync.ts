@@ -767,6 +767,7 @@ async function syncCompanyEmailsInner(companyId: string) {
 											}
 										},
 										create: {
+											companyId,
 											customerProfileId: profile.id,
 											kind: 'phone',
 											value: normalizedExtractedPhone
