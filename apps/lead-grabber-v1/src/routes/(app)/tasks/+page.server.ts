@@ -23,11 +23,9 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 			take: 100
 		});
 
-		// Map to the wireframe requirements where possible
 		const tasks = dbTasks.map((task) => {
 			return {
 				id: task.id,
-				// Format date like "Aug 7th" for the UI
 				date: task.dueDate
 					? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(
 							task.dueDate
@@ -49,25 +47,92 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 								: task.created.getDate() % 10 === 3 && task.created.getDate() !== 13
 									? 'rd'
 									: 'th'),
-				// Mock origin if missing (CR = Customer Request, OA = Owner Action)
 				origin: task.contactId ? 'CR' : 'OA',
-				// Mock channel based on description/title or default to email out
 				channel: task.title.toLowerCase().includes('call') ? 'Ph out' : 'out',
 				channelIcon: task.title.toLowerCase().includes('call') ? 'phone' : 'email',
 				clientId: task.contactId || '-',
 				clientName: task.contact?.name || 'Unknown',
-				// Mock intent
 				intent: task.title.toLowerCase().includes('support') ? 'supp' : 'opp',
 				commId: task.communicationThreadId || `id-${Math.floor(Math.random() * 9000) + 1000}`,
 				refId: `id ${Math.floor(Math.random() * 900) + 100}`,
 				summary: task.description || task.title,
 				title: task.title,
 				status: task.status,
-				fullDateString: task.dueDate ? task.dueDate.toISOString() : task.created.toISOString()
+				fullDateString: task.dueDate ? task.dueDate.toISOString() : task.created.toISOString(),
+				_kind: 'task' as const
 			};
 		});
 
-		return { tasks };
+		// --- ClearSky Scheduled Intents as Pending Actions ---
+		const intents = await prisma.scheduledIntent.findMany({
+			where: { clientId: companyId },
+			orderBy: { dueAt: 'asc' },
+			take: 100
+		});
+
+		// profileId is a plain String — batch-resolve contact names in one query.
+		const profileIds = [...new Set(intents.map((si) => si.profileId))];
+		const contacts = await prisma.contact.findMany({
+			where: { id: { in: profileIds }, companyId },
+			select: { id: true, name: true }
+		});
+		const contactName = new Map(contacts.map((c) => [c.id, c.name || 'Unknown']));
+
+		const pendingActions = intents.map((si) => {
+			const p = (si.payload as Record<string, any>) || {};
+			const whatHeWants = p?.whatHeWants || '';
+			const rawTimeframe = p?.rawTimeframe || '';
+			const originalChannel = p?.originalChannel || 'email';
+			const isCall = originalChannel === 'voice' || p?.preferredChannel === 'call';
+			const dueObj = new Date(si.dueAt);
+			const ordinal =
+				dueObj.getDate() % 10 === 1 && dueObj.getDate() !== 11
+					? 'st'
+					: dueObj.getDate() % 10 === 2 && dueObj.getDate() !== 12
+						? 'nd'
+						: dueObj.getDate() % 10 === 3 && dueObj.getDate() !== 13
+							? 'rd'
+							: 'th';
+			const dateStr =
+				new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(dueObj) +
+				ordinal;
+			const name = contactName.get(si.profileId) || 'Unknown';
+
+			return {
+				id: si.id,
+				date: dateStr,
+				origin: si.actor === 'CUSTOMER' ? 'CR' : 'OA',
+				channel: isCall ? 'Ph out' : 'out',
+				channelIcon: isCall ? 'phone' : 'email',
+				clientId: si.profileId?.slice(-4) || '-',
+				clientName: name,
+				intent: si.intentType === 'CUSTOMER_COMMITMENT_A' ? 'A-pend' : 'B-pend',
+				commId: si.id.slice(-8),
+				refId: `id ${Math.floor(Math.random() * 900) + 100}`,
+				summary: whatHeWants + (rawTimeframe ? ` (said: "${rawTimeframe}")` : ''),
+				title: `${si.actor === 'CUSTOMER' ? 'Customer' : 'We'} ${whatHeWants}`,
+				status: si.status,
+				fullDateString: si.dueAt.toISOString(),
+				// Scheduled-intent specific fields for the expanded view and editing
+				_kind: 'scheduled_intent' as const,
+				_raw: {
+					dueAt: si.dueAt.toISOString(),
+					expiresAt: si.expiresAt?.toISOString() ?? null,
+					whatHeWants,
+					rawTimeframe,
+					actor: si.actor,
+					intentType: si.intentType,
+					profileId: si.profileId,
+					clientName: name,
+					originalChannel,
+					preferredChannel: p?.preferredChannel || '',
+					createdAt: si.createdAt.toISOString()
+				}
+			};
+		});
+
+		// Merge: tasks first, then pending actions — both are "work that needs attention"
+		return { tasks: [...tasks, ...pendingActions] };
 	} catch (err) {
 		console.error('Error loading tasks:', err);
 		return { tasks: [] };
