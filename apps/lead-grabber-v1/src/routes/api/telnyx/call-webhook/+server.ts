@@ -2475,6 +2475,27 @@ export const POST: RequestHandler = async ({ request }) => {
 								console.log('🎥 Not triggering the orchestrator because transcription was claimed by another webhook leg');
 							}
 
+							// Semantic thread link + identity bridge (§8): the customer says "I told you
+							// I'll call previously" — link this call to the email/thread it continues,
+							// resolve any pending Scenario-A commitment, and fold the auto-created
+							// caller contact into the matched one. Runs regardless of which orchestrator
+							// path (or trigger skip) applies to this call; never throws.
+							if (finalLogId && transcript && !dismissed) {
+								const linkCommid = finalLogId;
+								const linkContent = transcript;
+								const linkPhone = contactNumber && !contactNumber.includes('anonymous') ? contactNumber : null;
+								const linkCustomerId = contact?.id ?? null;
+								import('$lib/server/thread-link').then(({ linkThreadAndResolveIdentity }) => {
+									linkThreadAndResolveIdentity({
+										companyId: numberInfo.companyId,
+										commId: linkCommid,
+										content: linkContent,
+										callerPhone: linkPhone,
+										customerId: linkCustomerId
+									}).catch(e => console.error('❌ thread-link failed:', e));
+								});
+							}
+
 							// Retroactively update the call_summary in the message thread with the AI analysis
 							if (contactNumber) {
 								try {

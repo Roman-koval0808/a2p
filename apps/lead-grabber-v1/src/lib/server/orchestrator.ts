@@ -1495,6 +1495,22 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						// Resolve the matched comm's thread ID (or use its own ID as the thread)
 						matchedComm = recentComms.find((c) => c.id === aiMatchedCommId) ?? null;
 						if (matchedComm) {
+							// The matched comm may never have been put in a CommunicationThread
+							// (its communicationThreadId is null). Using its id AS the thread id
+							// violates the FK (communication_logs.communicationThreadId → communication_threads.id)
+							// and aborts the whole orchestrator run. Create the thread row first.
+							if (!matchedComm.communicationThreadId) {
+								await prisma.communicationThread
+									.create({
+										data: {
+											id: matchedComm.id,
+											companyId: commLog.companyId,
+											contactId: matchedComm.customerId,
+											summary: (matchedComm as any)?.summary || null
+										}
+									})
+									.catch(() => {});
+							}
 							matchedThreadId = matchedComm.communicationThreadId || matchedComm.id;
 							matchReason = 'OpenAI semantic match';
 						}
@@ -1506,6 +1522,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		}
 
 		if (matchedThreadId) {
+			try {
 			olog(`[Orchestrator] Found similar thread (${matchReason}). Linking current comm.`);
 
 			const oldThreadId = commLog.communicationThreadId;
@@ -1532,18 +1549,19 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 			// Identity bridge (§8): the matcher linked this message to a thread owned by
 			// ANOTHER contact — that's the system saying "same customer, different channel".
-			// If that customer had pending plans where THEY promised to act, resolve them
-			// now: he contacted us sooner than he promised, so the plan is done.
+			// If either side had pending plans where THEY promised to act, resolve them now:
+			// he contacted us sooner than he promised, so the plan is done.
 			if (matchedComm?.customerId && matchedComm.customerId !== commLog.customerId) {
 				const { resolvePendingCustomerCommitments } = await import('./open-commitments');
-				const resolved = await resolvePendingCustomerCommitments(
-					commLog.companyId,
-					matchedComm.customerId
-				);
-				if (resolved > 0) {
-					olog(
-						`[Orchestrator] Resolved ${resolved} pending commitment(s) for ${matchedComm.customerId} — same customer reached us on another channel`
-					);
+				for (const profileId of new Set(
+					[commLog.customerId, matchedComm.customerId].filter(Boolean) as string[]
+				)) {
+					const resolved = await resolvePendingCustomerCommitments(commLog.companyId, profileId);
+					if (resolved > 0) {
+						olog(
+							`[Orchestrator] Resolved ${resolved} pending commitment(s) for ${profileId} — same customer reached us on another channel`
+						);
+					}
 				}
 
 				// Contact resolution: fold the caller's auto-created contact into the matched
@@ -1590,6 +1608,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						);
 					}
 				}
+			}
+			} catch (e) {
+				oerr('[Orchestrator] Thread link / identity bridge failed:', e);
 			}
 		}
 	}

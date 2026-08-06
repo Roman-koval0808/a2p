@@ -619,6 +619,28 @@ export const POST: RequestHandler = async ({ request }) => {
 						}
 					});
 
+					// Semantic thread link + identity bridge (§8): an SMS that says "I said I'd
+					// get back in 3 days" continues the EMAIL that promised it — link the threads,
+					// resolve that customer's pending commitment, and merge the contacts.
+					if (effectiveCompanyId && inboundCommLog?.id && smsText.trim()) {
+						Promise.resolve().then(async () => {
+							try {
+								const { linkThreadAndResolveIdentity } = await import(
+									'$lib/server/thread-link'
+								);
+								await linkThreadAndResolveIdentity({
+									companyId: effectiveCompanyId,
+									commId: inboundCommLog!.id!,
+									content: smsText,
+									callerPhone: normalizedPhoneNumber,
+									customerId: contact?.id ?? null
+								});
+							} catch (e) {
+								console.error('[SMS webhook] thread-link error:', e);
+							}
+						});
+					}
+
 					// Log separate outbound draft event if generated
 					if (draftText && effectiveCompanyId) {
 						const compId = effectiveCompanyId as string;
