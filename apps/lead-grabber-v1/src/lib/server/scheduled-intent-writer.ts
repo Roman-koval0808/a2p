@@ -110,28 +110,8 @@ export async function writeScheduledIntent(opts: {
 			}
 		});
 
-		let noteId: string | undefined;
-		if (opts.contactId) {
-			const note = await tx.communicationLog.create({
-				data: {
-					type: opts.channel ?? 'email',
-					direction: 'inbound',
-					status: 'success',
-					customerId: opts.contactId,
-					companyId: opts.companyId,
-					summary: crmNoteText(extraction, dueAt),
-					content: extraction.rawTimeframe
-						? `Said (verbatim): "${extraction.rawTimeframe}"`
-						: null,
-					metadata: { scheduled_intent_note: true, intentId: intent.id }
-				}
-			});
-			noteId = note.id;
-		}
-
 		return {
 			recorded: true,
-			noteId,
 			scheduledIntentId: intent.id,
 			dueAt: dueAt.toISOString(),
 			expiresAt: expiresAt.toISOString()

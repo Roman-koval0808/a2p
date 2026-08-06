@@ -835,59 +835,7 @@ async function syncCompanyEmailsInner(companyId: string) {
 					}
 				});
 
-				// ClearSky Scheduled Intents (spec §4/§10): one more question on top of what's
-				// already happening — pull the customer's stated future plan out of the message
-				// and write the dual record (Total Trades' CRM note + our schedule row).
-				// No instant ack: the Orchestrator drafts the real reply (§ the app showed that
-				// an ack + a draft for the same email is two messages for one question).
-				// Non-blocking and isolated: a failure here must never break the orchestrator flow.
-				Promise.resolve().then(async () => {
-					try {
-						if (!contact?.id) return; // nobody to file the row under
-						const { resolvePendingCustomerCommitments } = await import('$lib/server/open-commitments');
-						// He just got in touch — any pending "he said he'd act" plan resolves now (§8).
-						console.log(`[Gmail Sync] Scheduled-intent: calling resolvePending for ${contact.id.slice(0, 8)} (email from ${customerEmail})`);
-						await resolvePendingCustomerCommitments(companyId, contact.id);
-						const { extractScheduledIntent } = await import('$lib/server/ai/scheduled-intent-parser');
-						const { writeScheduledIntent } = await import('$lib/server/scheduled-intent-writer');
-						const { ANTHROPIC_AI_KEY } = await import('$env/static/private');
 
-						const emailDate = new Date(date);
-						const reference = isNaN(emailDate.getTime()) ? undefined : emailDate;
-
-						const extraction = await extractScheduledIntent(cleanBody, ANTHROPIC_AI_KEY, {
-							reference,
-							timeZone: 'America/Toronto'
-						});
-						if (!extraction) {
-							console.warn(`[Gmail Sync] Scheduled-intent: extraction returned null for ${msgId} (no schedule — check [anthropic.claudeJSON] errors above)`);
-							return;
-						}
-						if (!extraction.schedulable) {
-							console.warn(`[Gmail Sync] Scheduled-intent: not schedulable for ${msgId} — confidence=${extraction.confidence}, timeframe="${extraction.rawTimeframe}", target=${extraction.calculatedTargetDate ?? 'none'}`);
-							return;
-						}
-
-						const written = await writeScheduledIntent({
-							companyId,
-							contactId: contact.id,
-							profileId: contact.id,
-							extraction,
-							channel: 'email',
-							originalTarget: customerEmail,
-							conversationId: threadId,
-							reference,
-							idempotencyKey: `si-email-${msgId}`
-						});
-						if (written.recorded) {
-							console.log(`[Gmail Sync] Scheduled-intent: row ${written.scheduledIntentId?.slice(0, 8)} created (due ${written.dueAt}, expires ${written.expiresAt || 'never'})`);
-						} else {
-							console.warn(`[Gmail Sync] Scheduled-intent: not recorded for ${msgId} — ${written.reason}`);
-						}
-					} catch (siErr) {
-						console.error('[Gmail Sync] Scheduled-intent flow error:', siErr);
-					}
-				});
 			}
 			processed++;
 		}

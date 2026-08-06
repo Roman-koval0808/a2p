@@ -118,25 +118,22 @@ describe('4 Aug — Ray emails "call in a couple of weeks"', () => {
 		expect(extraction!.calculatedTargetDate).toBe('2026-08-18T13:00:00.000Z');
 	});
 
-	it('writes the dual record: CRM note for Total Trades + schedule row for 25 Aug (expires 8 Sep)', async () => {
-		const extraction = (await extractScheduledIntent(
+	it('writes the single record: schedule row for 25 Aug (expires 8 Sep)', async () => {
+		const rayEmailExtraction = (await extractScheduledIntent(
 			'I will call in a couple of weeks about AC. — Ray',
 			'test-key',
 			{ reference: RAY_REFERENCE }
 		))!;
 
 		prismaMock.scheduledIntent.create.mockResolvedValue({ id: 'intent_ray' } as any);
-		prismaMock.communicationLog.create.mockResolvedValue({ id: 'note_1' } as any);
 
 		const out = await writeScheduledIntent({
 			companyId: 'company_1',
 			contactId: 'contact_1',
 			profileId: 'contact_1',
-			extraction,
+			extraction: rayEmailExtraction,
 			channel: 'email',
-			conversationId: 'thread_1',
-			reference: RAY_REFERENCE,
-			idempotencyKey: 'si-email-msg_1'
+			idempotencyKey: 'intent_ray'
 		});
 
 		expect(out.recorded).toBe(true);
@@ -144,11 +141,7 @@ describe('4 Aug — Ray emails "call in a couple of weeks"', () => {
 		expect(out.dueAt).toBe('2026-08-25T13:00:00.000Z');
 		expect(out.expiresAt).toBe('2026-09-08T13:00:00.000Z');
 
-		// Total Trades' record: a factual note with his words, flagged as ours.
-		const note = vi.mocked(prismaMock.communicationLog.create).mock.calls[0][0].data;
-		expect(note.metadata).toMatchObject({ scheduled_intent_note: true, intentId: 'intent_ray' });
-		expect(note.summary).toContain('air conditioning');
-		expect(note.summary).toContain('around Aug 25');
+		// We no longer write the dual-record (CommunicationLog) here per user request.
 
 		// Our record: the plan, quoting him.
 		const row = vi.mocked(prismaMock.scheduledIntent.create).mock.calls[0][0];

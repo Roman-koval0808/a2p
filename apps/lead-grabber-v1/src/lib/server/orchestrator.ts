@@ -2263,9 +2263,11 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				// Write a ScheduledIntent row so the profile's "Pending Actions" card shows
 				// this customer commitment. The container task + timer handle internal ops;
 				// the scheduledIntent drives the profile UI and the resolve-on-return flow.
+				// This runs universally for all channels.
 				if (customer?.id) {
 					try {
 						const { writeScheduledIntent } = await import('$lib/server/scheduled-intent-writer');
+						const channelType = commLog.type === 'sms' ? 'sms' : commLog.type === 'email' ? 'email' : 'voice';
 						const written = await writeScheduledIntent({
 							companyId: company.id,
 							contactId: customer.id,
@@ -2282,7 +2284,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 								confidence: 'HIGH',
 								preferredChannel: aiIntent?.customer_initiate_method || 'phone'
 							},
-							channel: 'voice',
+							channel: channelType,
 							originalTarget: customerPhone || null,
 							conversationId: containerId,
 							idempotencyKey: `orch_suspense_${commId}`
