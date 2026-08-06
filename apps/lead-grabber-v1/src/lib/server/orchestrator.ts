@@ -2259,6 +2259,43 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				olog(
 					`[Orchestrator] Customer promise parked. Suspense check ${nextActionPlan.suspense.dueAt.toISOString()} (${nextActionPlan.suspense.timeframeDays}d + grace).`
 				);
+
+				// Write a ScheduledIntent row so the profile's "Pending Actions" card shows
+				// this customer commitment. The container task + timer handle internal ops;
+				// the scheduledIntent drives the profile UI and the resolve-on-return flow.
+				if (customer?.id) {
+					try {
+						const { writeScheduledIntent } = await import('$lib/server/scheduled-intent-writer');
+						const written = await writeScheduledIntent({
+							companyId: company.id,
+							contactId: customer.id,
+							profileId: customer.id,
+							extraction: {
+								hasFutureIntent: true,
+								schedulable: true,
+								actor: 'CUSTOMER',
+								whatHeWants: aiIntent?.reason || nextActionPlan.suspense.description,
+								rawTimeframe: aiIntent?.customer_initiate_timeframe || `${nextActionPlan.suspense.timeframeDays} days`,
+								timeframeDays: nextActionPlan.suspense.timeframeDays,
+								exactDateIso: aiIntent?.customer_initiate_exact_datetime || null,
+								calculatedTargetDate: nextActionPlan.suspense.dueAt.toISOString(),
+								confidence: 'HIGH',
+								preferredChannel: aiIntent?.customer_initiate_method || 'phone'
+							},
+							channel: 'voice',
+							originalTarget: customerPhone || null,
+							conversationId: containerId,
+							idempotencyKey: `orch_suspense_${commId}`
+						});
+						if (written.recorded) {
+							olog(`[Orchestrator] ScheduledIntent ${written.scheduledIntentId?.slice(0, 8)} created (due ${written.dueAt}).`);
+						} else {
+							olog(`[Orchestrator] ScheduledIntent not recorded: ${written.reason}`);
+						}
+					} catch (siErr) {
+						oerr('[Orchestrator] ScheduledIntent write failed (non-fatal):', siErr);
+					}
+				}
 			}
 		} catch (suspenseErr) {
 			oerr('[Orchestrator] Failed to register the customer-promise suspense:', suspenseErr);

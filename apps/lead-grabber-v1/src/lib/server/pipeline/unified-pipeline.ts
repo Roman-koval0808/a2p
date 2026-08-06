@@ -155,6 +155,7 @@ export class UnifiedPipeline {
 					const recentEventsFromProfile = await prisma.pipelineEvent.findMany({
 						where: {
 							customerProfileId: customerProfile.id,
+							provider: payload.provider,
 							createdAt: { gte: contentWindow },
 							unstructuredText: { not: null }
 						},
@@ -171,7 +172,7 @@ export class UnifiedPipeline {
 						const similarity = UnifiedPipeline.calculateSimilarity(cleanNewContent, cleanPastContent);
 						
 						if (similarity > 0.85) {
-							log(`[Step 4] Suppression: BLOCKED - Duplicate content detected (${Math.round(similarity * 100)}% similarity) with event ${pastEvent.eventId}`);
+							log(`[Step 4] Suppression: BLOCKED - Same-channel duplicate content detected (${Math.round(similarity * 100)}% similarity) with ${payload.provider} event ${pastEvent.eventId}`);
 							isDuplicate = true;
 							similarityScore = similarity;
 							suppressionReason = 'duplicate_content';
@@ -291,6 +292,21 @@ export class UnifiedPipeline {
 				}
 				return evt;
 			});
+
+			// Resolve pending customer commitments — the customer just got in touch,
+			// so any "they said they'd act" scheduled intents should be marked SKIPPED.
+			// This runs for ALL channels (voice, email, SMS) processed by the pipeline.
+			if (!isDuplicate && !isSuppressed && customerProfile?.id && company?.id) {
+				try {
+					const { resolvePendingCustomerCommitments } = await import('$lib/server/open-commitments');
+					const resolved = await resolvePendingCustomerCommitments(company.id, customerProfile.id);
+					if (resolved > 0) {
+						log(`[Step 6] Scheduled Intent Resolution: ${resolved} pending commitment(s) resolved — customer got in touch`);
+					}
+				} catch (resolveErr: any) {
+					log(`[Step 6] Scheduled Intent Resolution ERROR: ${resolveErr.message || resolveErr}`);
+				}
+			}
 
 			// STEP 7-16: Downstream Processing
 			let finalTrace = pipelineSteps.join('\n');
