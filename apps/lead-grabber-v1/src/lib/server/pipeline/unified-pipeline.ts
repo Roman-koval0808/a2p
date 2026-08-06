@@ -299,7 +299,14 @@ export class UnifiedPipeline {
 			if (!isDuplicate && !isSuppressed && customerProfile?.id && company?.id) {
 				try {
 					const { resolvePendingCustomerCommitments } = await import('$lib/server/open-commitments');
-					const resolved = await resolvePendingCustomerCommitments(company.id, customerProfile.id);
+					const resolved = await resolvePendingCustomerCommitments(
+						company.id, 
+						customerProfile.id,
+						{
+							phone: payload.customerPhone,
+							email: payload.customerEmail
+						}
+					);
 					if (resolved > 0) {
 						log(`[Step 6] Scheduled Intent Resolution: ${resolved} pending commitment(s) resolved — customer got in touch`);
 					}

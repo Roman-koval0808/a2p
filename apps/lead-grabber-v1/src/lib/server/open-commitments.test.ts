@@ -105,7 +105,7 @@ describe('resolvePendingCustomerCommitments (§8) — he did what he said, resol
 			expect.objectContaining({
 				where: expect.objectContaining({
 					clientId: 'company_1',
-					profileId: 'contact_1',
+					profileId: expect.objectContaining({ in: ['contact_1'] }),
 					status: 'PENDING',
 					intentType: 'CUSTOMER_COMMITMENT_A'
 				}),

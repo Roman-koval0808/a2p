@@ -206,16 +206,34 @@ export async function shouldSuppressMarketing(
  */
 export async function resolvePendingCustomerCommitments(
 	companyId: string,
-	profileId: string
+	profileId: string,
+	identifiers?: { phone?: string | null; email?: string | null }
 ): Promise<number> {
 	const cutoff = new Date(Date.now() - 60_000);
+	
+	// Collect all possible IDs (the CDP profile ID, and any matching CRM Customer IDs)
+	const targetIds = [profileId];
+	if (identifiers?.phone || identifiers?.email) {
+		const crmCustomers = await prisma.customer.findMany({
+			where: {
+				companyId,
+				OR: [
+					...(identifiers.phone ? [{ phone: identifiers.phone }] : []),
+					...(identifiers.email ? [{ email: identifiers.email }] : [])
+				]
+			},
+			select: { id: true }
+		});
+		targetIds.push(...crmCustomers.map(c => c.id));
+	}
+
 	const before = await prisma.scheduledIntent.count({
-		where: { clientId: companyId, profileId, status: 'PENDING', intentType: 'CUSTOMER_COMMITMENT_A' }
+		where: { clientId: companyId, profileId: { in: targetIds }, status: 'PENDING', intentType: 'CUSTOMER_COMMITMENT_A' }
 	});
 	const res = await prisma.scheduledIntent.updateMany({
 		where: {
 			clientId: companyId,
-			profileId,
+			profileId: { in: targetIds },
 			status: 'PENDING',
 			intentType: 'CUSTOMER_COMMITMENT_A',
 			// Never resolve an intent younger than 60s: it was just created by the
