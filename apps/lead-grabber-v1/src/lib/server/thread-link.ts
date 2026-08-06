@@ -123,8 +123,8 @@ export async function linkThreadAndResolveIdentity(opts: {
 				? { id: primary.id, customerId: primary.customerId }
 				: null);
 
-		if (bridge?.customerId && bridge.customerId !== customerId) {
-			for (const profileId of new Set([customerId, bridge.customerId].filter(Boolean) as string[])) {
+		if (customerId || bridge?.customerId) {
+			for (const profileId of new Set([customerId, bridge?.customerId].filter(Boolean) as string[])) {
 				const resolved = await resolvePendingCustomerCommitments(companyId, profileId);
 				if (resolved > 0) {
 					console.log(
@@ -132,6 +132,10 @@ export async function linkThreadAndResolveIdentity(opts: {
 					);
 				}
 			}
+		}
+
+		if (bridge?.customerId && bridge.customerId !== customerId) {
+
 
 			// Fold whichever contact is auto-created into the one with a real name.
 			// Both real (or both auto) → keep the profiles separate.

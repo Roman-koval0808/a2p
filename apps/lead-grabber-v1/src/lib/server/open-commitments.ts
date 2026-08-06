@@ -208,15 +208,100 @@ export async function resolvePendingCustomerCommitments(
 	companyId: string,
 	profileId: string
 ): Promise<number> {
+	const candidateProfileIds = new Set<string>([profileId]);
+
+	try {
+		const [contact, pipelineProfile] = await Promise.all([
+			prisma.contact
+				.findUnique({
+					where: { id: profileId },
+					select: { id: true, email: true, phone: true }
+				})
+				.catch(() => null),
+			prisma.pipelineCustomerProfile
+				.findUnique({
+					where: { id: profileId },
+					select: { id: true, email: true, phoneNumber: true }
+				})
+				.catch(() => null)
+		]);
+
+		const email = contact?.email || pipelineProfile?.email;
+		const phone = contact?.phone || pipelineProfile?.phoneNumber;
+
+		if (email || phone) {
+			const [matchingProfiles, matchingContacts] = await Promise.all([
+				prisma.pipelineCustomerProfile
+					.findMany({
+						where: {
+							companyId,
+							OR: [
+								...(email ? [{ email }] : []),
+								...(phone ? [{ phoneNumber: phone }] : [])
+							]
+						},
+						select: { id: true }
+					})
+					.catch(() => []),
+				prisma.contact
+					.findMany({
+						where: {
+							companyId,
+							OR: [
+								...(email ? [{ email }] : []),
+								...(phone ? [{ phoneNumber: phone }] : [])
+							]
+						},
+						select: { id: true }
+					})
+					.catch(() => [])
+			]);
+			for (const p of matchingProfiles) candidateProfileIds.add(p.id);
+			for (const c of matchingContacts) candidateProfileIds.add(c.id);
+		}
+	} catch (e) {
+		// Non-blocking fallback
+	}
+
+	const candidateArray = Array.from(candidateProfileIds);
+
 	const res = await prisma.scheduledIntent.updateMany({
 		where: {
 			clientId: companyId,
-			profileId,
+			profileId: candidateArray.length === 1 ? candidateArray[0] : { in: candidateArray },
 			status: 'PENDING',
 			intentType: 'CUSTOMER_COMMITMENT_A'
 		},
 		data: { status: 'SKIPPED', updatedAt: new Date() }
 	});
+
+
+	try {
+		const containers = await prisma.commContainer.findMany({
+			where: {
+				companyId,
+				OR: [
+					{ contactId: { in: candidateArray } },
+					{ customerProfileId: { in: candidateArray } }
+				]
+			},
+			select: { id: true }
+		});
+		if (containers.length > 0) {
+			const containerIds = containers.map((c) => c.id);
+			await prisma.commTask.updateMany({
+				where: {
+					commId: { in: containerIds },
+					category: 'customer_promise',
+					status: 'open'
+				},
+				data: { status: 'completed', updatedAt: new Date() }
+			});
+		}
+	} catch (e) {
+		// Non-blocking
+	}
+
 	if (res.count > 0) {
 		console.log(
 			`[open-commitments] resolved ${res.count} pending customer commitment(s) for ${profileId} — they got in touch`
@@ -224,3 +309,4 @@ export async function resolvePendingCustomerCommitments(
 	}
 	return res.count;
 }
+

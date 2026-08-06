@@ -79,6 +79,24 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		return;
 	}
 
+	if (commLog.direction === 'inbound') {
+		try {
+			const { resolvePendingCustomerCommitments } = await import('./open-commitments');
+			const resolvedCount = await resolvePendingCustomerCommitments(
+				commLog.companyId,
+				commLog.customerId
+			);
+			if (resolvedCount > 0) {
+				olog(
+					`[Orchestrator] Resolved ${resolvedCount} pending customer commitment(s) for contact ${commLog.customerId} — customer got in touch.`
+				);
+			}
+		} catch (resolveErr) {
+			oerr('[Orchestrator] Error resolving customer commitments:', resolveErr);
+		}
+	}
+
+
 	const metadata = (commLog.metadata as Record<string, any>) || {};
 	// Dialer (WebRTC softphone) OUTBOUND calls are the only outbound communications the
 	// orchestrator acts on: their transcript is processed exactly like an inbound message
@@ -1551,18 +1569,22 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			// ANOTHER contact — that's the system saying "same customer, different channel".
 			// If either side had pending plans where THEY promised to act, resolve them now:
 			// he contacted us sooner than he promised, so the plan is done.
-			if (matchedComm?.customerId && matchedComm.customerId !== commLog.customerId) {
+			if (matchedComm?.customerId || commLog.customerId) {
 				const { resolvePendingCustomerCommitments } = await import('./open-commitments');
 				for (const profileId of new Set(
-					[commLog.customerId, matchedComm.customerId].filter(Boolean) as string[]
+					[commLog.customerId, matchedComm?.customerId].filter(Boolean) as string[]
 				)) {
 					const resolved = await resolvePendingCustomerCommitments(commLog.companyId, profileId);
 					if (resolved > 0) {
 						olog(
-							`[Orchestrator] Resolved ${resolved} pending commitment(s) for ${profileId} — same customer reached us on another channel`
+							`[Orchestrator] Resolved ${resolved} pending commitment(s) for ${profileId} — customer reached us`
 						);
 					}
 				}
+			}
+
+			if (matchedComm?.customerId && matchedComm.customerId !== commLog.customerId) {
+
 
 				// Contact resolution: fold the caller's auto-created contact into the matched
 				// one, so the customer has ONE profile. Their comms move, the phone sticks
