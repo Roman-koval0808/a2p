@@ -101,10 +101,8 @@
 						<td class="px-4 py-3">{task.refId}</td>
 						<td class="px-4 py-3 text-center">
 							<DropdownMenu.Root>
-								<DropdownMenu.Trigger asChild let:builder>
-									<Button variant="ghost" size="icon" builders={[builder]} on:click={(e) => e.stopPropagation()}>
-										<MoreHorizontal class="h-5 w-5" />
-									</Button>
+								<DropdownMenu.Trigger class="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-gray-100 text-gray-500" on:click={(e) => e.stopPropagation()}>
+									<MoreHorizontal class="h-5 w-5" />
 								</DropdownMenu.Trigger>
 								<DropdownMenu.Content align="end">
 									<DropdownMenu.Item>
