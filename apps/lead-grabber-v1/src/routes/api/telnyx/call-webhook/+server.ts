@@ -2431,6 +2431,7 @@ export const POST: RequestHandler = async ({ request }) => {
 										'📝 Created CommunicationLog for call (no hangup log found)',
 										callControlId
 									);
+									finalLogId = createdLog.id;
 
 									// Create notification for new call log with recording/voicemail.
 									// Dismissed calls stay silent — no consultant alert for a pocket dial.
