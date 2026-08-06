@@ -167,7 +167,6 @@
 					<th class="px-4 py-3">origin</th>
 					<th class="px-4 py-3">Channel</th>
 					<th class="px-4 py-3">Client ID</th>
-					<th class="px-4 py-3">Client Name</th>
 					<th class="px-4 py-3">Intent</th>
 					<th class="px-4 py-3">comm id</th>
 					<th class="px-4 py-3">Ref-id</th>
@@ -208,11 +207,10 @@
 								{task.channel}
 							</div>
 						</td>
-						<td class="px-4 py-3">{task.clientId}</td>
-						<td class="px-4 py-3 font-medium text-gray-900">{task.clientName}</td>
+						<td class="px-4 py-3 font-mono text-sm">{task.clientId}</td>
 						<td class="px-4 py-3">{task.intent}</td>
-						<td class="px-4 py-3">{task.commId}</td>
-						<td class="px-4 py-3">{task.refId}</td>
+						<td class="px-4 py-3 font-mono text-sm">{task.commId}</td>
+						<td class="px-4 py-3 font-mono text-sm">{task.refId}</td>
 						<td class="px-4 py-3 text-center">
 							<DropdownMenu.Root>
 								<DropdownMenu.Trigger class="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-gray-100 text-gray-500" on:click={(e) => e.stopPropagation()}>
@@ -222,10 +220,10 @@
 									{#if task._kind === 'scheduled_intent' && task.status === 'PENDING'}
 										<DropdownMenu.Item on:click={(e) => { e.stopPropagation(); quickCancel(task.id); }}>
 											<Trash2 class="mr-2 h-4 w-4" />
-											Cancel
+											Delete
 										</DropdownMenu.Item>
 									{/if}
-									<DropdownMenu.Item on:click={(e) => { e.stopPropagation(); }}>
+									<DropdownMenu.Item on:click={(e) => { e.stopPropagation(); startEdit(task); }}>
 										<Edit class="mr-2 h-4 w-4" />
 										Edit
 									</DropdownMenu.Item>
@@ -246,36 +244,34 @@
 						</td>
 					</tr>
 
-					{#if expandedTaskId === task.id}
+	{#if expandedTaskId === task.id}
 						<tr>
-							<td colspan="10" class="p-0 border-b-2 border-gray-800">
+							<td colspan="9" class="p-0 border-b-2 border-gray-800">
 								<div transition:slide class="bg-gray-100 p-6 shadow-inner">
-									<div class="mb-4 flex items-center justify-between">
+									<div class="mb-4 text-center">
 										<h3 class="text-lg font-semibold text-gray-900">
-											{task._kind === 'scheduled_intent' ? `Scheduled Intent SI-${task.id.slice(-4)}` : `Task Summary T-${task.id.slice(-4)}`}
+											Task Summary {task._kind === 'scheduled_intent' ? `SI-${task.id.slice(-4)}` : `T-${task.id.slice(-4)}`}
 										</h3>
-										<div class="flex gap-4 text-sm font-medium text-gray-700">
-											<span>comm {task.commId}</span>
-											<span>Ref-{task.refId}</span>
-											<span>{task.intent}</span>
-										</div>
 									</div>
 
 									{#if task._kind === 'scheduled_intent'}
-										<!-- Scheduled Intent expanded view — real data, no mock text -->
 										{@const raw = task._raw}
-										<div class="mb-4">
-											<p class="font-medium text-gray-900 mb-1">
-												Customer {raw.profileId?.slice(-4)} <span class="ml-4">{raw.clientName}</span>
-											</p>
-											<p class="font-medium text-gray-700 mb-2">
-												Origin: {raw.actor === 'CUSTOMER' ? 'Customer Request (they said they\'d act)' : 'Owner Action (we promised to act)'}
-											</p>
-											<div class="rounded border border-gray-300 bg-white p-3 text-sm text-gray-800 shadow-sm">
-												<div class="font-semibold mb-1">Due: {task.date}{raw.expiresAt ? ` · Expires: ${new Date(raw.expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}</div>
-												<div>
-													{raw.clientName} told us about <strong>{raw.whatHeWants || 'their request'}</strong>{raw.rawTimeframe ? ` — they said "${raw.rawTimeframe}"` : ''}. Created {new Date(raw.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} via {raw.originalChannel || 'email'}.
-												</div>
+										<div class="mb-4 flex flex-wrap gap-4 text-sm font-medium text-gray-700">
+											<span>comm id-{task.commId}</span>
+											<span>Ref-id {task.refId.replace('id ', '')}</span>
+											<span>{raw.intentType === 'CUSTOMER_COMMITMENT_A' ? 'Opportunity' : 'Service'}</span>
+											<span>Tier {raw.actor === 'CUSTOMER' ? '1' : '2'}</span>
+										</div>
+										<p class="font-medium text-gray-900 mb-2">
+											Customer id {raw.profileId} {raw.clientName}
+										</p>
+										<p class="font-medium text-gray-700 mb-2">
+											Origin {raw.originalChannel === 'email' ? 'incoming email' : raw.originalChannel === 'voice' ? 'incoming Call' : `incoming ${raw.originalChannel}`}
+										</p>
+										<div class="rounded border border-gray-400 bg-white p-3 text-sm text-gray-800 shadow-sm mb-4">
+											<div class="font-semibold mb-1">Date: {task.date}</div>
+											<div>
+												{raw.clientName} told us about <strong>{raw.whatHeWants || 'their request'}</strong>{raw.rawTimeframe ? ` — they said "${raw.rawTimeframe}"` : ''}. Created {new Date(raw.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} via {raw.originalChannel || 'email'}.
 											</div>
 										</div>
 
@@ -314,7 +310,7 @@
 										{/if}
 
 										<div>
-											<h4 class="font-semibold text-gray-900 mb-2">Actions:</h4>
+											<h4 class="font-semibold text-gray-900 mb-2">Task Date:</h4>
 											<div class="flex items-start justify-between">
 												<div class="flex-1 pr-4 text-gray-800 font-medium">
 													1. {task.date} {raw.actor === 'CUSTOMER' ? 'check if' : 'follow up with'} {raw.clientName} — {raw.whatHeWants || 'pending'} — comm SI-{task.id.slice(-4)}
@@ -326,6 +322,7 @@
 															<button class="hover:underline text-red-600" on:click={(e) => { e.stopPropagation(); quickCancel(task.id); }}>Cancel</button>
 														{/if}
 														<button class="hover:underline text-gray-700" on:click={(e) => { e.stopPropagation(); startEdit(task); }}>Edit</button>
+														<button class="hover:underline text-gray-700" on:click={(e) => { e.stopPropagation(); }}>Delete</button>
 													</div>
 													<Button class="bg-red-500 hover:bg-red-600 text-white font-semibold rounded text-sm px-6" on:click={(e) => { e.stopPropagation(); startEdit(task); }}>
 														update task
@@ -334,15 +331,23 @@
 											</div>
 										</div>
 									{:else}
-										<!-- Original Task expanded view (unchanged) -->
-										<div class="mb-4">
-											<p class="font-medium text-gray-900 mb-1">Customer id {task.clientId} <span class="ml-4">{task.clientName}</span></p>
-											<p class="font-medium text-gray-700 mb-2">Origin: {task.origin === 'CR' ? (task.channel.includes('Ph') ? 'incoming Call' : 'incoming email') : 'Owner Action'}</p>
-											<div class="rounded border border-gray-300 bg-white p-3 text-sm text-gray-800 shadow-sm">
-												<div class="font-semibold mb-1">Date: {new Date(task.fullDateString).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}</div>
-												<div>
-													{task.summary}
-												</div>
+										<!-- Original Task expanded view -->
+										<div class="mb-4 flex flex-wrap gap-4 text-sm font-medium text-gray-700">
+											<span>comm id-{task.commId}</span>
+											<span>Ref-id {task.refId.replace('id ', '')}</span>
+											<span>{task.intent === 'opp' ? 'Opportunity' : 'Support'}</span>
+											<span>Tier {task.origin === 'CR' ? '1' : '2'}</span>
+										</div>
+										<p class="font-medium text-gray-900 mb-2">
+											Customer id {task.clientId} {task.clientName}
+										</p>
+										<p class="font-medium text-gray-700 mb-2">
+											Origin {task.channel.includes('Ph') ? 'incoming Call' : 'incoming email'}
+										</p>
+										<div class="rounded border border-gray-400 bg-white p-3 text-sm text-gray-800 shadow-sm mb-4">
+											<div class="font-semibold mb-1">Date: {task.date}</div>
+											<div>
+												{task.summary}
 											</div>
 										</div>
 
@@ -350,7 +355,7 @@
 											<h4 class="font-semibold text-gray-900 mb-2">Task Date:</h4>
 											<div class="flex items-start justify-between">
 												<div class="flex-1 pr-4 text-gray-800 font-medium">
-													1. {task.date} {task.channel.includes('Ph') ? 'make outgoing call to' : 'send email refer to'} {task.clientId}, refer to comm {task.commId}, Ref-{task.refId}, customer id {task.clientId}
+													1. {task.date} {task.channel.includes('Ph') ? 'make outgoing call to' : 'send email refer to'} {task.clientId}, refer to comm {task.commId}, Ref-id {task.refId.replace('id ', '')}, customer id {task.clientId}
 												</div>
 												<div class="flex flex-col items-end gap-2">
 													<div class="flex items-center gap-3 text-sm font-semibold">
