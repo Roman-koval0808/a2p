@@ -10,7 +10,7 @@ import { prisma } from '$lib/db';
 
 vi.mock('$lib/db', () => ({
 	prisma: {
-		scheduledIntent: { updateMany: vi.fn() }
+		scheduledIntent: { updateMany: vi.fn(), count: vi.fn() }
 	}
 }));
 
@@ -96,6 +96,7 @@ describe('decay protection (§7) — the score counts interest, and a stated pla
 describe('resolvePendingCustomerCommitments (§8) — he did what he said, resolve now', () => {
 	it('marks pending Scenario-A commitments SKIPPED the moment the customer contacts us', async () => {
 		vi.mocked(prisma.scheduledIntent.updateMany).mockResolvedValue({ count: 1 } as any);
+		vi.mocked(prisma.scheduledIntent.count).mockResolvedValue(1);
 
 		const count = await resolvePendingCustomerCommitments('company_1', 'contact_1');
 
@@ -114,6 +115,7 @@ describe('resolvePendingCustomerCommitments (§8) — he did what he said, resol
 	});
 
 	it('touches nothing when there is no pending commitment', async () => {
+		vi.mocked(prisma.scheduledIntent.count).mockResolvedValue(0);
 		const count = await resolvePendingCustomerCommitments('company_1', 'contact_1');
 		expect(count).toBe(0);
 	});
