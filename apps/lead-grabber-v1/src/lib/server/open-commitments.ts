@@ -209,7 +209,10 @@ export async function resolvePendingCustomerCommitments(
 	profileId: string,
 	identifiers?: { phone?: string | null; email?: string | null }
 ): Promise<number> {
-	const cutoff = new Date(Date.now() - 60_000);
+	// Increase cutoff to 15 minutes to account for clock skew between local dev machines
+	// and the cloud database, and to prevent skipping an intent generated from the SAME
+	// conversation if messages arrive slightly out of order.
+	const cutoff = new Date(Date.now() - 900_000);
 	
 	// Collect all possible IDs (the CDP profile ID, and any matching CRM Customer IDs)
 	const targetIds = [profileId];
@@ -236,7 +239,7 @@ export async function resolvePendingCustomerCommitments(
 			profileId: { in: targetIds },
 			status: 'PENDING',
 			intentType: 'CUSTOMER_COMMITMENT_A',
-			// Never resolve an intent younger than 60s: it was just created by the
+			// Never resolve an intent younger than 15m: it was just created by the
 			// intake processing THIS contact, and resolving it would cancel the plan
 			// before it ever appeared on the Pending Actions card.
 			createdAt: { lt: cutoff }
@@ -246,7 +249,7 @@ export async function resolvePendingCustomerCommitments(
 	if (before > 0) {
 		console.log(
 			`[open-commitments] resolvePendingCustomerCommitments(${profileId.slice(0, 8)}): ` +
-				`${before} PENDING → ${res.count} resolved (${before - res.count} too recent to touch < 60s)`
+				`${before} PENDING → ${res.count} resolved (${before - res.count} too recent to touch < 15m)`
 		);
 	}
 	if (res.count > 0) {
