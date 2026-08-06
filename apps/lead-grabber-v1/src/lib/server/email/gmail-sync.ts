@@ -621,7 +621,7 @@ async function syncCompanyEmailsInner(companyId: string) {
 							customerName: customerName,
 							sessionId: threadId,
 							textContent: cleanBody,
-							metadata: { subject }
+							metadata: { subject, commLogId: inboundEmailLog?.id }
 						});
 					} catch (pipeErr) {
 						console.error('[Gmail Sync] Pipeline Error:', pipeErr);

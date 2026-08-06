@@ -207,13 +207,9 @@ export async function shouldSuppressMarketing(
 export async function resolvePendingCustomerCommitments(
 	companyId: string,
 	profileId: string,
-	identifiers?: { phone?: string | null; email?: string | null }
+	identifiers?: { phone?: string | null; email?: string | null },
+	excludeIdempotencyKey?: string
 ): Promise<number> {
-	// Increase cutoff to 15 minutes to account for clock skew between local dev machines
-	// and the cloud database, and to prevent skipping an intent generated from the SAME
-	// conversation if messages arrive slightly out of order.
-	const cutoff = new Date(Date.now() - 900_000);
-	
 	// Collect all possible IDs (the CDP profile ID, and any matching CRM Customer IDs)
 	const targetIds = [profileId];
 	if (identifiers?.phone || identifiers?.email) {
@@ -230,26 +226,27 @@ export async function resolvePendingCustomerCommitments(
 		targetIds.push(...crmContacts.map(c => c.id));
 	}
 
-	const before = await prisma.scheduledIntent.count({
-		where: { clientId: companyId, profileId: { in: targetIds }, status: 'PENDING', intentType: 'CUSTOMER_COMMITMENT_A' }
-	});
+	const whereClause: any = {
+		clientId: companyId,
+		profileId: { in: targetIds },
+		status: 'PENDING',
+		intentType: 'CUSTOMER_COMMITMENT_A'
+	};
+
+	// Prevent resolving the intent that was JUST created for this exact communication
+	if (excludeIdempotencyKey) {
+		whereClause.idempotencyKey = { not: excludeIdempotencyKey };
+	}
+
+	const before = await prisma.scheduledIntent.count({ where: whereClause });
 	const res = await prisma.scheduledIntent.updateMany({
-		where: {
-			clientId: companyId,
-			profileId: { in: targetIds },
-			status: 'PENDING',
-			intentType: 'CUSTOMER_COMMITMENT_A',
-			// Never resolve an intent younger than 15m: it was just created by the
-			// intake processing THIS contact, and resolving it would cancel the plan
-			// before it ever appeared on the Pending Actions card.
-			createdAt: { lt: cutoff }
-		},
+		where: whereClause,
 		data: { status: 'SKIPPED', updatedAt: new Date() }
 	});
 	if (before > 0) {
 		console.log(
 			`[open-commitments] resolvePendingCustomerCommitments(${profileId.slice(0, 8)}): ` +
-				`${before} PENDING → ${res.count} resolved (${before - res.count} too recent to touch < 15m)`
+				`${before} PENDING → ${res.count} resolved`
 		);
 	}
 	if (res.count > 0) {

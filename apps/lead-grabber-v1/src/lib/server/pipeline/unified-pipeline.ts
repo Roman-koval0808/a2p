@@ -298,6 +298,9 @@ export class UnifiedPipeline {
 			// This runs for ALL channels (voice, email, SMS) processed by the pipeline.
 			if (!isDuplicate && !isSuppressed && customerProfile?.id && company?.id) {
 				try {
+					const commLogId = payload.metadata?.commLogId;
+					const excludeIdempotencyKey = commLogId ? `orch_suspense_${commLogId}` : undefined;
+
 					const { resolvePendingCustomerCommitments } = await import('$lib/server/open-commitments');
 					const resolved = await resolvePendingCustomerCommitments(
 						company.id, 
@@ -305,7 +308,8 @@ export class UnifiedPipeline {
 						{
 							phone: payload.customerPhone,
 							email: payload.customerEmail
-						}
+						},
+						excludeIdempotencyKey
 					);
 					if (resolved > 0) {
 						log(`[Step 6] Scheduled Intent Resolution: ${resolved} pending commitment(s) resolved — customer got in touch`);
