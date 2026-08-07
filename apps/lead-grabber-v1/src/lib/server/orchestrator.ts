@@ -365,6 +365,24 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	metadata.identity_tier = callerTier;
 	metadata.same_channel_only = sameChannelOnly;
 
+	// This customer just got in touch. Close the promises THEY made — strictly their own rows
+	// (profileId equality), and never the one this very communication just created.
+	if (commLog.direction === 'inbound' && customer?.id) {
+		try {
+			const { resolveOwnCommitments } = await import('./intent-resolution');
+			const resolved = await resolveOwnCommitments({
+				companyId: commLog.companyId,
+				profileId: customer.id,
+				excludeIdempotencyKey: `orch_suspense_${commId}`
+			});
+			if (resolved > 0) {
+				olog(`[Orchestrator] ${resolved} open commitment(s) closed — ${customer.id} got in touch.`);
+			}
+		} catch (e: any) {
+			oerr('[Orchestrator] Commitment resolution failed:', e);
+		}
+	}
+
 	metadata.orchestrator_processed = true;
 	try {
 		await prisma.communicationLog.update({

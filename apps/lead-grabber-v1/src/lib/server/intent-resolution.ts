@@ -27,6 +27,17 @@ export interface SkipIntentInput {
 	profileId: string;
 	/** Why — goes in the log so a skipped row can be explained later. */
 	reason: string;
+	/**
+	 * Require the promised date to have arrived.
+	 *
+	 * True for the daily sweep, which is asking "the date came — did he ever get in touch?".
+	 * False when THIS person has just contacted us: someone who said "in two weeks" and rings on
+	 * day one has still done what they said, and the row should close rather than sit pending and
+	 * then nag them.
+	 */
+	requireDue?: boolean;
+	/** An intent whose own trigger this is — never let a promise cancel itself. */
+	excludeIdempotencyKey?: string;
 	now?: Date;
 }
 
@@ -50,9 +61,12 @@ export async function skipIntent(input: SkipIntentInput): Promise<SkipIntentResu
 			// Guard 1 — the row must belong to this person. Equality, never a phone/email lookup
 			// that could widen to somebody else's record.
 			profileId: input.profileId,
-			// Guard 2 — the date they named must have arrived. Contact before it is part of the
-			// conversation that made the promise, not the promise being kept.
-			dueAt: { lte: now }
+			// Guard 2 — for the sweep only: the date they named must have arrived.
+			...(input.requireDue === false ? {} : { dueAt: { lte: now } }),
+			// Guard 3 — a promise can never be resolved by the very communication that created it.
+			...(input.excludeIdempotencyKey
+				? { idempotencyKey: { not: input.excludeIdempotencyKey } }
+				: {})
 		},
 		data: { status: 'SKIPPED', updatedAt: now }
 	});
@@ -72,10 +86,11 @@ export async function skipIntent(input: SkipIntentInput): Promise<SkipIntentResu
 			else if (row.clientId !== input.companyId) why = 'wrong_company';
 			else if (row.profileId !== input.profileId)
 				why = `wrong_profile (row=${row.profileId}, caller=${input.profileId})`;
-			else if (row.dueAt > now) why = `not_due_until_${row.dueAt.toISOString()}`;
+			else if (input.requireDue !== false && row.dueAt > now)
+				why = `not_due_until_${row.dueAt.toISOString()}`;
 		}
 
-		if (why.startsWith('wrong_profile') || why.startsWith('not_due_until')) {
+		if (why.startsWith('wrong_profile')) {
 			console.error(
 				`[intent-resolution] REFUSED to skip ${input.intentId}: ${why}. ` +
 					`Reason given: "${input.reason}". Call site below.`
@@ -90,4 +105,49 @@ export async function skipIntent(input: SkipIntentInput): Promise<SkipIntentResu
 		`[intent-resolution] ${input.intentId} → SKIPPED for ${input.profileId} (${input.reason})`
 	);
 	return { skipped: true, reason: input.reason };
+}
+
+
+/**
+ * This person just got in touch. Close the promises THEY made — and nobody else's.
+ *
+ * Scoped by `profileId` equality, so a different customer asking about the same product can never
+ * reach these rows. That widening (matching any contact by phone or email) is what let one
+ * customer's email cancel another's callback.
+ */
+export async function resolveOwnCommitments(input: {
+	companyId: string;
+	profileId: string;
+	/** The communication that triggered this — excluded, so a promise can't cancel itself. */
+	excludeIdempotencyKey?: string;
+	now?: Date;
+}): Promise<number> {
+	const now = input.now ?? new Date();
+
+	const open = await prisma.scheduledIntent.findMany({
+		where: {
+			clientId: input.companyId,
+			profileId: input.profileId,
+			status: 'PENDING',
+			intentType: 'CUSTOMER_COMMITMENT_A'
+		},
+		select: { id: true },
+		take: 20
+	});
+	if (open.length === 0) return 0;
+
+	let resolved = 0;
+	for (const row of open) {
+		const out = await skipIntent({
+			intentId: row.id,
+			companyId: input.companyId,
+			profileId: input.profileId,
+			reason: 'customer_got_in_touch',
+			requireDue: false,
+			excludeIdempotencyKey: input.excludeIdempotencyKey,
+			now
+		});
+		if (out.skipped) resolved++;
+	}
+	return resolved;
 }

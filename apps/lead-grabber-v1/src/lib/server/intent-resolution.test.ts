@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const scheduledIntent = { updateMany: vi.fn(), findUnique: vi.fn() };
+const scheduledIntent = { updateMany: vi.fn(), findUnique: vi.fn(), findMany: vi.fn() };
 vi.mock('$lib/db', () => ({
 	prisma: {
 		get scheduledIntent() {
@@ -9,7 +9,7 @@ vi.mock('$lib/db', () => ({
 	}
 }));
 
-import { skipIntent } from './intent-resolution';
+import { skipIntent, resolveOwnCommitments } from './intent-resolution';
 
 const NOW = new Date('2026-08-07T20:00:00Z');
 const DUE_LATER = new Date('2026-08-30T20:00:00Z');
@@ -18,6 +18,7 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	scheduledIntent.updateMany.mockResolvedValue({ count: 1 });
 	scheduledIntent.findUnique.mockResolvedValue(null);
+	scheduledIntent.findMany.mockResolvedValue([]);
 });
 
 describe('skipIntent — one person, their own promise, on or after their own date', () => {
@@ -103,5 +104,63 @@ describe('skipIntent — one person, their own promise, on or after their own da
 
 		expect(res.skipped).toBe(false);
 		expect(res.reason).toBe('status_is_DONE');
+	});
+
+	it('lets the same customer close their own promise early — a callback IS keeping it', async () => {
+		// Sam said "in two weeks", then rang back the same evening. That is the promise kept.
+		const res = await skipIntent({
+			intentId: 'si_1',
+			companyId: 'company_1',
+			profileId: 'sam',
+			reason: 'customer_got_in_touch',
+			requireDue: false,
+			now: NOW
+		});
+
+		expect(res.skipped).toBe(true);
+		const where = scheduledIntent.updateMany.mock.calls.at(-1)?.[0]?.where;
+		expect(where).not.toHaveProperty('dueAt');
+		expect(where.profileId).toBe('sam');
+	});
+
+	it('never lets a promise be closed by the communication that created it', async () => {
+		await skipIntent({
+			intentId: 'si_1',
+			companyId: 'company_1',
+			profileId: 'sam',
+			reason: 'x',
+			requireDue: false,
+			excludeIdempotencyKey: 'orch_suspense_comm_1',
+			now: NOW
+		});
+
+		const where = scheduledIntent.updateMany.mock.calls.at(-1)?.[0]?.where;
+		expect(where.idempotencyKey).toEqual({ not: 'orch_suspense_comm_1' });
+	});
+});
+
+describe('resolveOwnCommitments', () => {
+	it('only looks at rows filed under that exact profile', async () => {
+		scheduledIntent.findMany.mockResolvedValue([{ id: 'si_1' }]);
+
+		await resolveOwnCommitments({ companyId: 'company_1', profileId: 'sam', now: NOW });
+
+		expect(scheduledIntent.findMany).toHaveBeenCalledWith(
+			expect.objectContaining({
+				where: expect.objectContaining({
+					clientId: 'company_1',
+					profileId: 'sam',
+					status: 'PENDING',
+					intentType: 'CUSTOMER_COMMITMENT_A'
+				})
+			})
+		);
+	});
+
+	it('does nothing when this person has no open promise', async () => {
+		scheduledIntent.findMany.mockResolvedValue([]);
+		const n = await resolveOwnCommitments({ companyId: 'company_1', profileId: 'bert', now: NOW });
+		expect(n).toBe(0);
+		expect(scheduledIntent.updateMany).not.toHaveBeenCalled();
 	});
 });
