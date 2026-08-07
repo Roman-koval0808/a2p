@@ -3,6 +3,7 @@ import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { tierForIdentifiers, type LineType } from '$lib/server/profiledb/tiers';
 import { toE164, formatPhoneNumber } from '$lib/utils/phone';
+import { commCode } from '$lib/utils/comm-id';
 
 /** "Aug 20th" — the format the table uses throughout. */
 function formatShortDate(d: Date): string {
@@ -125,12 +126,19 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 				intent: task.title.toLowerCase().includes('support') ? 'supp' : 'opp',
 				// The same COM reference the communications log shows for this conversation.
 				// Was `Math.random()` — a different id on every page load, matching nothing.
-				commId:
-					(task.communicationThreadId
-						? commRefByThreadId.get(task.communicationThreadId)
-						: undefined) ??
-					(task.contactId ? commRefByContactId.get(task.contactId) : undefined) ??
-					'—',
+				// The SAME code the communications log renders. `commRef` is the raw container
+				// number (#6352); `commCode` hashes it to the COM-facing form (SHVTB) that every
+				// other screen shows. Displaying the raw ref here is why the two never matched.
+				commId: (() => {
+					const ref =
+						(task.communicationThreadId
+							? commRefByThreadId.get(task.communicationThreadId)
+							: undefined) ??
+						(task.contactId ? commRefByContactId.get(task.contactId) : undefined) ??
+						null;
+					const code = commCode(task.communicationThreadId, ref, task.created);
+					return code ? `COM-${code}` : '—';
+				})(),
 				refId: `id ${task.id.slice(-6)}`,
 				summary: task.description || task.title,
 				title: task.title,
@@ -243,7 +251,11 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 				// The conversation's COM-… reference, so this row can be matched against the
 				// communications log. Falls back to the intent id only when the intent was filed
 				// without a conversation.
-				commId: commRefByContainerId.get(p?.conversationId) || `SI-${si.id.slice(-6)}`,
+				commId: (() => {
+					const ref = commRefByContainerId.get(p?.conversationId) ?? null;
+					const code = commCode(p?.conversationId ?? null, ref, si.createdAt);
+					return code ? `COM-${code}` : '—';
+				})(),
 				// Was `Math.random()`, so the ref id changed on every page load.
 				refId: `id ${si.id.slice(-6)}`,
 				summary: whatHeWants + (rawTimeframe ? ` (said: "${rawTimeframe}")` : ''),
@@ -270,61 +282,8 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 			};
 		});
 
-		// --- Container tasks -------------------------------------------------------------------
-		//
-		// The action items the AI raises from a conversation ("prepare discovery questions for
-		// when Bert calls back") are written as CommTask rows against the container. This page was
-		// reading only `Task` and `ScheduledIntent`, so a conversation that produced two follow-ups
-		// and one commitment showed a single row and looked like work had been dropped.
-		let containerTasks: any[] = [];
-		try {
-			const rows = await prisma.commTask.findMany({
-				where: { container: { companyId }, status: 'open' },
-				include: {
-					container: {
-						select: {
-							commRef: true,
-							threadType: true,
-							contact: { select: { id: true, name: true, phone: true, email: true } }
-						}
-					}
-				},
-				orderBy: { due: 'asc' },
-				take: 100
-			});
-
-			containerTasks = rows.map((t) => {
-				const contact = t.container?.contact ?? null;
-				// A CommTask records what to do, not how. `threadType` is the topic (sales,
-				// support…), not a channel, so the best available signal is how we can actually
-				// reach this person.
-				const isCall = !!contact?.phone;
-				return {
-					id: t.id,
-					date: formatShortDate(t.due),
-					// A customer promise is theirs to keep; anything else is ours to do.
-					origin: t.category === 'customer_promise' ? 'CR' : 'OA',
-					channel: isCall ? 'Ph out' : 'out',
-					channelIcon: isCall ? 'phone' : 'email',
-					clientId: contact?.id ?? '-',
-					clientName: displayName(contact ?? {}),
-					profileHref: contact ? `/profiles/${contact.id}` : null,
-					intent: t.category === 'customer_promise' ? 'A-pend' : 'opp',
-					commId: t.container?.commRef ?? '-',
-					refId: `id ${t.id.slice(-6)}`,
-					summary: t.description,
-					title: t.description,
-					status: t.status,
-					fullDateString: t.due.toISOString(),
-					_kind: 'task' as const
-				};
-			});
-		} catch (e: any) {
-			console.error('[tasks] could not load container tasks:', e?.message || e);
-		}
-
 		// Merge: tasks first, then pending actions — both are "work that needs attention"
-		return { tasks: [...tasks, ...containerTasks, ...pendingActions] };
+		return { tasks: [...tasks, ...pendingActions] };
 	} catch (err) {
 		console.error('Error loading tasks:', err);
 		return { tasks: [] };
