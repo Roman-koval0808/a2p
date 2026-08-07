@@ -328,7 +328,7 @@
 											<h4 class="font-semibold text-gray-900 mb-2">Task Date:</h4>
 											<div class="flex items-start justify-between">
 												<div class="flex-1 pr-4 text-gray-800 font-medium">
-													1. {task.date} {raw.actor === 'CUSTOMER' ? 'check if' : 'follow up with'} {raw.clientName} — {raw.whatHeWants || 'pending'} — comm SI-{task.id.slice(-4)}
+													1. {task.date} {raw.actor === 'CUSTOMER' ? 'check if' : 'follow up with'} {raw.clientName} — {raw.whatHeWants || 'pending'} — comm {task.commId}
 												</div>
 												<div class="flex flex-col items-end gap-2">
 													<div class="flex items-center gap-3 text-sm font-semibold">
