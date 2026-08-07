@@ -27,6 +27,11 @@ export class PipelineSimulator {
     mode: 'review' | 'call' | 'sms' | 'email' | 'faq';
     sessionId: string;
     companyId?: string;
+    /**
+     * The CommunicationLog being processed, when the caller has one. Passed through so the
+     * pipeline does not resolve a commitment the orchestrator parked for this same interaction.
+     */
+    commLogId?: string;
   }) {
     const externalId = payload.sessionId || `evt_${Math.random().toString(36).substring(2, 9)}`;
 
@@ -257,6 +262,7 @@ export class PipelineSimulator {
         sessionId: payload.sessionId,
         textContent: payload.comment,
         rating: payload.rating,
+        commLogId: payload.commLogId,
         metadata: { is_simulation: true } // simulator run
       };
 

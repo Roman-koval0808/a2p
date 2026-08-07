@@ -274,7 +274,11 @@ export const actions: Actions = {
 					comment: transcript,
 					mode: 'call',
 					sessionId: callId,
-					companyId
+					companyId,
+					// The orchestrator ran just above and may have parked a commitment for this
+					// same interaction ("I'll call you in 3 days"). Without this, the pipeline
+					// reads its own trigger as "the customer got in touch" and closes it.
+					commLogId: commLog.id
 				});
 			} catch (e: any) {
 				logs.push(`⚠️ ProfileDB pipeline skipped (service unavailable): ${e?.message}`);
@@ -474,7 +478,10 @@ export const actions: Actions = {
 					comment: body,
 					mode: 'email',
 					sessionId: msgId,
-					companyId
+					companyId,
+					// As in the call path: don't let this run resolve the commitment the
+					// orchestrator just parked for this same message.
+					commLogId: commLog.id
 				});
 			} catch (e: any) {
 				logs.push(`⚠️ ProfileDB pipeline skipped: ${e?.message}`);

@@ -649,7 +649,13 @@ export const POST: RequestHandler = async ({ request }) => {
 								body: {
 									isTest: true,
 									tenantSlug: compId,
-									fingerprintId: `${smsId}_draft`,
+									// SAME fingerprint as the inbound message it replies to. The fingerprint is the
+									// identity anchor, so a `_draft` suffix here minted a second profile for the
+									// same person on every SMS, which then had to be merged back — churn that
+									// the one-person-one-record rule exists to prevent. `externalEventId` below
+									// keeps the `_draft` suffix, which is what event deduplication reads: same
+									// person, different event.
+									fingerprintId: smsId,
 									eventType: hasEmergency ? 'sms_auto_reply' : 'sms_draft',
 									pageUrl: null,
 									scoreDelta: 0,

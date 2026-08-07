@@ -25,6 +25,15 @@ export interface PipelinePayload {
 	rating?: number;
 	occurredAt?: Date;
 	metadata?: any;
+	/**
+	 * The CommunicationLog this run is processing, when there is one.
+	 *
+	 * Used only to protect a commitment the orchestrator parked for THIS same interaction from
+	 * being resolved by this run — see the Scheduled Intent Resolution step. Deliberately a
+	 * top-level field rather than part of `metadata`, because `metadata` is serialised into the
+	 * AI prompt and must not gain fields that change what the model sees.
+	 */
+	commLogId?: string;
 }
 
 export class UnifiedPipeline {
@@ -298,7 +307,12 @@ export class UnifiedPipeline {
 			// This runs for ALL channels (voice, email, SMS) processed by the pipeline.
 			if (!isDuplicate && !isSuppressed && customerProfile?.id && company?.id) {
 				try {
-					const commLogId = payload.metadata?.commLogId;
+					// `metadata.commLogId` is the older spelling and was never populated by any
+					// caller, which left this exclusion inert — a commitment the orchestrator had
+					// just parked was resolved by this very run, seconds after being created.
+					// The top-level field is what callers set now; the metadata read stays as a
+					// fallback so nothing that did supply it changes behaviour.
+					const commLogId = payload.commLogId ?? payload.metadata?.commLogId;
 					const excludeIdempotencyKey = commLogId ? `orch_suspense_${commLogId}` : undefined;
 
 					const { resolvePendingCustomerCommitments } = await import('$lib/server/open-commitments');
