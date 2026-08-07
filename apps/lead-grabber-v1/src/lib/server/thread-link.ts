@@ -20,11 +20,16 @@
 // Never throws: a failure here must never break the flow that called it.
 
 import { prisma } from '$lib/db';
-import { resolvePendingCustomerCommitments } from './open-commitments';
 import { matchThreadOpenAI } from './openai';
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-const GENERIC_NAMES = ['Unknown', 'Unknown Caller', 'Unknown Customer', 'Anonymous', 'Valued Customer'];
+const GENERIC_NAMES = [
+	'Unknown',
+	'Unknown Caller',
+	'Unknown Customer',
+	'Anonymous',
+	'Valued Customer'
+];
 
 export async function linkThreadAndResolveIdentity(opts: {
 	companyId: string;
@@ -41,7 +46,12 @@ export async function linkThreadAndResolveIdentity(opts: {
 		const since = new Date(Date.now() - THIRTY_DAYS_MS);
 
 		// --- Pass 1: the same caller's recent comms (their phone on either leg). ---
-		let primary: { id: string; customerId: string | null; communicationThreadId: string | null; summary: string | null } | null = null;
+		let primary: {
+			id: string;
+			customerId: string | null;
+			communicationThreadId: string | null;
+			summary: string | null;
+		} | null = null;
 		if (callerPhone) {
 			const samePhone = await prisma.communicationLog.findMany({
 				where: {
@@ -58,7 +68,9 @@ export async function linkThreadAndResolveIdentity(opts: {
 			if (samePhone.length) {
 				const id1 = await matchThreadOpenAI(
 					content,
-					samePhone.filter((c) => c.content).map((c) => ({ id: c.id, content: c.content as string }))
+					samePhone
+						.filter((c) => c.content)
+						.map((c) => ({ id: c.id, content: c.content as string }))
 				);
 				primary = samePhone.find((c) => c.id === id1) ?? null;
 			}
@@ -124,29 +136,26 @@ export async function linkThreadAndResolveIdentity(opts: {
 				: null);
 
 		if (bridge?.customerId && bridge.customerId !== customerId) {
-			// The bridge links the caller to an OLDER contact — that older contact's pending
-			// "they said they'd act" commitments are resolved (§8). Never resolve the
-			// caller's own intents: those may have been created THIS intake and the caller's
-			// inbound flow already handled them (the cooldown guards the race, but the
-			// intention is the bridge resolves the historical side, never the trigger).
-			const resolved = await resolvePendingCustomerCommitments(companyId, bridge.customerId);
-			if (resolved > 0) {
-				console.log(`[thread-link] resolved ${resolved} pending commitment(s) for ${bridge.customerId}`);
-			}
-
 			// Fold whichever contact is auto-created into the one with a real name.
 			// Both real (or both auto) → keep the profiles separate.
 			const [newContact, matchedContact] = await Promise.all([
 				customerId
 					? prisma.contact
-							.findUnique({ where: { id: customerId }, select: { id: true, name: true, email: true, phone: true } })
+							.findUnique({
+								where: { id: customerId },
+								select: { id: true, name: true, email: true, phone: true }
+							})
 							.catch(() => null)
 					: Promise.resolve(null),
 				prisma.contact
-					.findUnique({ where: { id: bridge.customerId }, select: { id: true, name: true, email: true, phone: true } })
+					.findUnique({
+						where: { id: bridge.customerId },
+						select: { id: true, name: true, email: true, phone: true }
+					})
 					.catch(() => null)
 			]);
-			const isAuto = (c: { name: string | null } | null) => !c?.name || GENERIC_NAMES.includes(c.name.trim());
+			const isAuto = (c: { name: string | null } | null) =>
+				!c?.name || GENERIC_NAMES.includes(c.name.trim());
 
 			const foldInto = async (survivorId: string, survivor: any, foldId: string, fold: any) => {
 				try {
@@ -159,9 +168,7 @@ export async function linkThreadAndResolveIdentity(opts: {
 					if (fold?.phone && !survivor?.phone) data.phone = fold.phone;
 					if (fold?.email && !survivor?.email) data.email = fold.email;
 					if (Object.keys(data).length) {
-						await prisma.contact
-							.update({ where: { id: survivorId }, data })
-							.catch(() => {});
+						await prisma.contact.update({ where: { id: survivorId }, data }).catch(() => {});
 					}
 					// Then remove the duplicate.
 					await prisma.contact.delete({ where: { id: foldId } }).catch(() => {});
@@ -173,9 +180,21 @@ export async function linkThreadAndResolveIdentity(opts: {
 				}
 			};
 
-			if (customerId && newContact && matchedContact && isAuto(newContact) && !isAuto(matchedContact)) {
+			if (
+				customerId &&
+				newContact &&
+				matchedContact &&
+				isAuto(newContact) &&
+				!isAuto(matchedContact)
+			) {
 				await foldInto(bridge.customerId, matchedContact, customerId, newContact);
-			} else if (customerId && newContact && matchedContact && !isAuto(newContact) && isAuto(matchedContact)) {
+			} else if (
+				customerId &&
+				newContact &&
+				matchedContact &&
+				!isAuto(newContact) &&
+				isAuto(matchedContact)
+			) {
 				await foldInto(customerId, newContact, bridge.customerId, matchedContact);
 			} else {
 				console.log(

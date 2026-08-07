@@ -176,9 +176,12 @@ export const actions: Actions = {
 			}
 			if (!intentName && digit) {
 				intentName =
-					(({ '1': 'Billing', '2': 'Sales', '3': 'Support', '0': 'Operator' }) as Record<string, string>)[
-						digit
-					] || null;
+					(
+						{ '1': 'Billing', '2': 'Sales', '3': 'Support', '0': 'Operator' } as Record<
+							string,
+							string
+						>
+					)[digit] || null;
 			}
 			logs.push(
 				`📞 Inbound call from ${caller} → ${called}${digit ? `, pressed ${digit} (${intentName || '?'})` : ' (no digit)'}`
@@ -263,7 +266,9 @@ export const actions: Actions = {
 			//    is fire-and-forget; here we await it so the drafted reply is ready to show).
 			const { process_orchestrator } = await import('$lib/server/orchestrator');
 			await process_orchestrator(commLog.id, 'ai_ready');
-			logs.push('🤖 Orchestrator ran: AI-classified the message and drafted a reply if applicable.');
+			logs.push(
+				'🤖 Orchestrator ran: AI-classified the message and drafted a reply if applicable.'
+			);
 
 			// 6. Also run the ProfileDB signals pipeline like a real call (non-fatal if it is down).
 			try {
@@ -274,11 +279,7 @@ export const actions: Actions = {
 					comment: transcript,
 					mode: 'call',
 					sessionId: callId,
-					companyId,
-					// The orchestrator ran just above and may have parked a commitment for this
-					// same interaction ("I'll call you in 3 days"). Without this, the pipeline
-					// reads its own trigger as "the customer got in touch" and closes it.
-					commLogId: commLog.id
+					companyId
 				});
 			} catch (e: any) {
 				logs.push(`⚠️ ProfileDB pipeline skipped (service unavailable): ${e?.message}`);
@@ -408,7 +409,9 @@ export const actions: Actions = {
 			// 1. Resolve contact
 			let contact = await prisma.contact.findFirst({ where: { companyId, email: fromEmail } });
 			if (!contact) {
-				contact = await prisma.contact.create({ data: { companyId, email: fromEmail, name: fromEmail.split('@')[0] } });
+				contact = await prisma.contact.create({
+					data: { companyId, email: fromEmail, name: fromEmail.split('@')[0] }
+				});
 				logs.push(`👤 Created new contact profile ${contact.id}`);
 			} else {
 				logs.push(`👤 Matched existing contact ${contact.id}`);
@@ -417,9 +420,14 @@ export const actions: Actions = {
 			// 2. Perform AI analysis on the email body (similar to voice call)
 			const { analyzeCallLog } = await import('$lib/server/openai');
 			const analysis = await analyzeCallLog(body, 'Sales');
-			logs.push(`🧠 analyzeCallLog → intent=${analysis?.intent}, urgency=${analysis?.urgency}, sentiment=${analysis?.sentiment}`);
+			logs.push(
+				`🧠 analyzeCallLog → intent=${analysis?.intent}, urgency=${analysis?.urgency}, sentiment=${analysis?.sentiment}`
+			);
 
-			if (analysis?.callerName && (!contact.name || ['Unknown', 'Anonymous'].includes(contact.name))) {
+			if (
+				analysis?.callerName &&
+				(!contact.name || ['Unknown', 'Anonymous'].includes(contact.name))
+			) {
 				await prisma.contact.update({
 					where: { id: contact.id },
 					data: { name: analysis.callerName }
@@ -478,10 +486,7 @@ export const actions: Actions = {
 					comment: body,
 					mode: 'email',
 					sessionId: msgId,
-					companyId,
-					// As in the call path: don't let this run resolve the commitment the
-					// orchestrator just parked for this same message.
-					commLogId: commLog.id
+					companyId
 				});
 			} catch (e: any) {
 				logs.push(`⚠️ ProfileDB pipeline skipped: ${e?.message}`);

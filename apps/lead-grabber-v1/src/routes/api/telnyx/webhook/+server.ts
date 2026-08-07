@@ -234,7 +234,6 @@ export const POST: RequestHandler = async ({ request }) => {
 							}
 						}
 					}
-
 				}
 
 				// --- SMS Confirmation Loop (Scenario 4) ---
@@ -261,8 +260,11 @@ export const POST: RequestHandler = async ({ request }) => {
 							});
 
 							if (pendingHolds && pendingHolds.length > 0) {
-								console.log(`[SMS Webhook] Found ${pendingHolds.length} tentative hold(s) for ${normalizedPhoneNumber}. Triggering Confirmation Loop...`);
-								const { handleInboundSmsReply } = await import('$lib/server/scenarios/s4-sms-booking');
+								console.log(
+									`[SMS Webhook] Found ${pendingHolds.length} tentative hold(s) for ${normalizedPhoneNumber}. Triggering Confirmation Loop...`
+								);
+								const { handleInboundSmsReply } =
+									await import('$lib/server/scenarios/s4-sms-booking');
 								const result = await handleInboundSmsReply({
 									commId: pendingHolds[0].commId,
 									companyId: cid,
@@ -270,7 +272,7 @@ export const POST: RequestHandler = async ({ request }) => {
 									replyText: smsText,
 									pendingHolds
 								});
-								
+
 								handledByConfirmationLoop = true;
 								if (result.intent === 'confirm') {
 									draftText = 'Thank you! Your appointment is confirmed.';
@@ -329,7 +331,9 @@ export const POST: RequestHandler = async ({ request }) => {
 							.map((l) => {
 								const meta = (l.metadata as any) || {};
 								const isVoice = l.type === 'voice';
-								const body = isVoice ? l.content || l.summary || meta.summary || '' : l.content || '';
+								const body = isVoice
+									? l.content || l.summary || meta.summary || ''
+									: l.content || '';
 								const prefix = isVoice
 									? l.direction === 'inbound'
 										? '[Voicemail] '
@@ -476,15 +480,14 @@ export const POST: RequestHandler = async ({ request }) => {
 							);
 							if (hasEmergency || action) {
 								console.log(
-										`[SMS Webhook Pipeline] Emergency SMS from ${smsSender} — owner alert handled by orchestrator (avoids the duplicate text)`
-									);
+									`[SMS Webhook Pipeline] Emergency SMS from ${smsSender} — owner alert handled by orchestrator (avoids the duplicate text)`
+								);
 							}
 						}
 					} catch (err) {
 						console.error('[SMS Pipeline SMS Alert Error]', err);
 					}
 				}
-
 
 				// Forward to A2P backend when configured (replaces local SMS/messages/comm-log handling)
 				if (isA2pEnabled()) {
@@ -588,20 +591,6 @@ export const POST: RequestHandler = async ({ request }) => {
 							})
 						: undefined;
 
-					// He just got in touch — any pending "he said he'd act" plan resolves now (§8).
-					if (effectiveCompanyId && contact?.id) {
-						Promise.resolve().then(async () => {
-							try {
-								const { resolvePendingCustomerCommitments } = await import(
-									'$lib/server/open-commitments'
-								);
-								await resolvePendingCustomerCommitments(effectiveCompanyId, contact!.id);
-							} catch (e) {
-								console.error('[SMS webhook] resolve pending commitments error:', e);
-							}
-						});
-					}
-
 					const inboundCommLog = await logCommunication({
 						type: 'sms',
 						direction: 'inbound',
@@ -625,9 +614,7 @@ export const POST: RequestHandler = async ({ request }) => {
 					if (effectiveCompanyId && inboundCommLog?.id && smsText.trim()) {
 						Promise.resolve().then(async () => {
 							try {
-								const { linkThreadAndResolveIdentity } = await import(
-									'$lib/server/thread-link'
-								);
+								const { linkThreadAndResolveIdentity } = await import('$lib/server/thread-link');
 								await linkThreadAndResolveIdentity({
 									companyId: effectiveCompanyId,
 									commId: inboundCommLog!.id!,
@@ -689,10 +676,7 @@ export const POST: RequestHandler = async ({ request }) => {
 							if (result.status >= 200 && result.status < 300) {
 								console.log('📡 Outbound draft event logged to ProfileDB successfully');
 							} else {
-								console.error(
-									'❌ Failed to log Outbound draft event to ProfileDB:',
-									result.body
-								);
+								console.error('❌ Failed to log Outbound draft event to ProfileDB:', result.body);
 							}
 						} catch (dbErr) {
 							console.error('❌ ProfileDB draft logging error:', dbErr);
@@ -703,9 +687,8 @@ export const POST: RequestHandler = async ({ request }) => {
 						let draftCategory: string | null = hasEmergency ? 'emergency' : null;
 						let draftSubIntent: string | null = null;
 						try {
-							const { classifyMessageIntent, bucketToCategory } = await import(
-								'$lib/server/message-intent'
-							);
+							const { classifyMessageIntent, bucketToCategory } =
+								await import('$lib/server/message-intent');
 							const intent = await classifyMessageIntent(smsText, ANTHROPIC_AI_KEY);
 							if (intent) {
 								if (!hasEmergency) draftCategory = bucketToCategory(intent);
@@ -719,7 +702,12 @@ export const POST: RequestHandler = async ({ request }) => {
 						// drafter — it owns the billing balance/email + scenario logic, populates the
 						// action items, and records the orchestrator logs. If we also drafted here, this
 						// draft would win the de-dup race and suppress all of that.
-						const orchestratorWillDraft = !!(inboundCommLog?.id && effectiveCompanyId && smsText.trim() && !skipOrchestrator);
+						const orchestratorWillDraft = !!(
+							inboundCommLog?.id &&
+							effectiveCompanyId &&
+							smsText.trim() &&
+							!skipOrchestrator
+						);
 						try {
 							if (!orchestratorWillDraft || skipOrchestrator) {
 								await logCommunication({
@@ -743,7 +731,9 @@ export const POST: RequestHandler = async ({ request }) => {
 										urgency: hasEmergency ? 'high' : null
 									}
 								});
-								console.log('📡 Logged pending_approval draft (fallback) to local CommunicationLog');
+								console.log(
+									'📡 Logged pending_approval draft (fallback) to local CommunicationLog'
+								);
 							}
 						} catch (draftErr) {
 							console.error('Failed to log/send draft:', draftErr);
@@ -755,7 +745,12 @@ export const POST: RequestHandler = async ({ request }) => {
 						try {
 							const { analyzeCallLog } = await import('$lib/server/openai');
 							const analysis = await analyzeCallLog(smsText);
-							console.log('[SMS Orchestrator] AI analysis:', analysis.intent, analysis.sub_intent, analysis.datetime);
+							console.log(
+								'[SMS Orchestrator] AI analysis:',
+								analysis.intent,
+								analysis.sub_intent,
+								analysis.datetime
+							);
 
 							// Update commLog metadata with AI-extracted fields
 							await prisma.communicationLog.update({
@@ -791,12 +786,10 @@ export const POST: RequestHandler = async ({ request }) => {
 					if (effectiveCompanyId && contact?.id && smsText.trim()) {
 						Promise.resolve().then(async () => {
 							try {
-								const { extractScheduledIntent } = await import(
-									'$lib/server/ai/scheduled-intent-parser'
-								);
-								const { writeScheduledIntent } = await import(
-									'$lib/server/scheduled-intent-writer'
-								);
+								const { extractScheduledIntent } =
+									await import('$lib/server/ai/scheduled-intent-parser');
+								const { writeScheduledIntent } =
+									await import('$lib/server/scheduled-intent-writer');
 								const { ANTHROPIC_AI_KEY } = await import('$env/static/private');
 
 								const extraction = await extractScheduledIntent(smsText, ANTHROPIC_AI_KEY, {

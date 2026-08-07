@@ -717,27 +717,28 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					const matched = await prisma.commContainer.findUnique({ where: { id: res.commId } });
 					if (matched) {
 						container = matched;
-						olog(`[Orchestrator] Booking linked to existing conversation ${matched.commRef} (${res.reason}).`);
-
-					// The matcher just concluded this message and that container are the same
-					// conversation — i.e. the same person behind two different identifiers. Feed
-					// that into profile identity so the email profile and phone profile merge.
-					try {
-						const { bridgeIdentitiesForMatchedContainer } = await import(
-							'./container/identity-bridge'
+						olog(
+							`[Orchestrator] Booking linked to existing conversation ${matched.commRef} (${res.reason}).`
 						);
-						const bridged = await bridgeIdentitiesForMatchedContainer({
-							companyId: company.id,
-							containerId: matched.id,
-							confidence: res.confidence,
-							phone: customerPhone || null,
-							email: customer.email || null,
-							log: olog
-						});
-						if (!bridged.merged) olog(`[IdentityBridge] No merge: ${bridged.reason}.`);
-					} catch (e) {
-						oerr('[IdentityBridge] Profile merge failed (link kept):', e);
-					}
+
+						// The matcher just concluded this message and that container are the same
+						// conversation — i.e. the same person behind two different identifiers. Feed
+						// that into profile identity so the email profile and phone profile merge.
+						try {
+							const { bridgeIdentitiesForMatchedContainer } =
+								await import('./container/identity-bridge');
+							const bridged = await bridgeIdentitiesForMatchedContainer({
+								companyId: company.id,
+								containerId: matched.id,
+								confidence: res.confidence,
+								phone: customerPhone || null,
+								email: customer.email || null,
+								log: olog
+							});
+							if (!bridged.merged) olog(`[IdentityBridge] No merge: ${bridged.reason}.`);
+						} catch (e) {
+							oerr('[IdentityBridge] Profile merge failed (link kept):', e);
+						}
 					}
 				} else {
 					// Say WHY on every path — a silent no-match here is indistinguishable from the
@@ -745,9 +746,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					olog(
 						`[Orchestrator] Booking cross-channel: no link (${res.reason || 'no_reason'}); ` +
 							`${res.candidates.length} candidate(s) considered` +
-							(res.candidates.length
-								? `: ${res.candidates.map((c) => c.commRef).join(', ')}`
-								: '')
+							(res.candidates.length ? `: ${res.candidates.map((c) => c.commRef).join(', ')}` : '')
 					);
 				}
 			} catch (e) {
@@ -935,7 +934,10 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 					const aiResponse = await claudeText({
 						apiKey: ANTHROPIC_AI_KEY,
-						system: getOrderTakerSystemPrompt(company.name || 'the business', 'professional_friendly'),
+						system: getOrderTakerSystemPrompt(
+							company.name || 'the business',
+							'professional_friendly'
+						),
 						messages: [{ role: 'user', content: prompt }],
 						temperature: 0.3,
 						maxTokens: 400
@@ -971,12 +973,17 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 				const aiResponse = await claudeText({
 					apiKey: ANTHROPIC_AI_KEY,
-					system: getOrderTakerSystemPrompt(company.name || 'the business', 'professional_friendly'),
+					system: getOrderTakerSystemPrompt(
+						company.name || 'the business',
+						'professional_friendly'
+					),
 					messages: [{ role: 'user', content: supportPrompt }],
 					temperature: 0.3,
 					maxTokens: 400
 				});
-				draftedResponse = aiResponse ? aiResponse.trim() : `Hi ${customer.name || 'there'}, thanks for reaching out to ${company.name || 'us'}. We got your message and someone from our team will follow up with you shortly.`;
+				draftedResponse = aiResponse
+					? aiResponse.trim()
+					: `Hi ${customer.name || 'there'}, thanks for reaching out to ${company.name || 'us'}. We got your message and someone from our team will follow up with you shortly.`;
 			} catch (err) {
 				oerr('[Orchestrator] Support Claude draft failed:', err);
 				draftedResponse = `Hi ${customer.name || 'there'}, thanks for reaching out to ${company.name || 'us'}. We got your message and someone from our team will follow up with you shortly.`;
@@ -1067,7 +1074,8 @@ export async function process_orchestrator(commId: string, trigger: string) {
 							customerProfileId: pipelineCustomerProfileId || null,
 							phone: customerPhone || null,
 							email: customer.email || targetEmail || null,
-							channel: commLog.type === 'sms' ? 'sms' : commLog.type === 'email' ? 'email' : 'voice',
+							channel:
+								commLog.type === 'sms' ? 'sms' : commLog.type === 'email' ? 'email' : 'voice',
 							direction: 'inbound',
 							subject: commLog.summary || ((commLog.metadata as any)?.subject ?? null),
 							content: rawMessage,
@@ -1078,27 +1086,28 @@ export async function process_orchestrator(commId: string, trigger: string) {
 							const matched = await prisma.commContainer.findUnique({ where: { id: res.commId } });
 							if (matched) {
 								supportContainer = matched;
-								olog(`[Orchestrator] Support linked to existing conversation ${matched.commRef} (${res.reason}).`);
-
-							// The matcher just concluded this message and that container are the same
-							// conversation — i.e. the same person behind two different identifiers. Feed
-							// that into profile identity so the email profile and phone profile merge.
-							try {
-								const { bridgeIdentitiesForMatchedContainer } = await import(
-									'./container/identity-bridge'
+								olog(
+									`[Orchestrator] Support linked to existing conversation ${matched.commRef} (${res.reason}).`
 								);
-								const bridged = await bridgeIdentitiesForMatchedContainer({
-									companyId: company.id,
-									containerId: matched.id,
-									confidence: res.confidence,
-									phone: customerPhone || null,
-									email: customer.email || null,
-									log: olog
-								});
-								if (!bridged.merged) olog(`[IdentityBridge] No merge: ${bridged.reason}.`);
-							} catch (e) {
-								oerr('[IdentityBridge] Profile merge failed (link kept):', e);
-							}
+
+								// The matcher just concluded this message and that container are the same
+								// conversation — i.e. the same person behind two different identifiers. Feed
+								// that into profile identity so the email profile and phone profile merge.
+								try {
+									const { bridgeIdentitiesForMatchedContainer } =
+										await import('./container/identity-bridge');
+									const bridged = await bridgeIdentitiesForMatchedContainer({
+										companyId: company.id,
+										containerId: matched.id,
+										confidence: res.confidence,
+										phone: customerPhone || null,
+										email: customer.email || null,
+										log: olog
+									});
+									if (!bridged.merged) olog(`[IdentityBridge] No merge: ${bridged.reason}.`);
+								} catch (e) {
+									oerr('[IdentityBridge] Profile merge failed (link kept):', e);
+								}
 							}
 						} else {
 							olog(
@@ -1238,8 +1247,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		// that could only ever fail ("No callback number available to dial") and
 		// left the drafted reply unsent. Only switch Confirm to a call when we have
 		// something actually dialable; otherwise Confirm keeps sending the draft.
-		const candidate =
-			extractCallbackNumber(rawMessage) || customerPhone || commLog.source || null;
+		const candidate = extractCallbackNumber(rawMessage) || customerPhone || commLog.source || null;
 		const normalized = candidate ? normalizePhoneNumber(candidate) : '';
 		// normalizePhoneNumber only strips non-digits, so "sam123@x.com" would come
 		// back as "123". Require a real subscriber-length number.
@@ -1448,12 +1456,16 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			try {
 				const { getOrderTakerSystemPrompt } = await import('./pipeline/ai-review-reply');
 				const { claudeText } = await import('./anthropic');
-				const safetyPrompt = commLog.type === 'email'
-					? `Write a brief reply to this customer email. Acknowledge what they said and confirm the business will follow up. Start the reply with a plain "Subject: ..." line — no markdown, no asterisks, no bold — then a blank line, then the message. Sign off with the business name.\n\nCustomer name: ${customer.name || 'there'}\nEmail subject: ${commLog.summary || ''}\nOriginal email:\n${rawMessage}`
-					: `Write a brief SMS reply to this customer message. Acknowledge what they said and confirm the business will follow up.\n\nCustomer name: ${customer.name || 'there'}\nOriginal message:\n${rawMessage}`;
+				const safetyPrompt =
+					commLog.type === 'email'
+						? `Write a brief reply to this customer email. Acknowledge what they said and confirm the business will follow up. Start the reply with a plain "Subject: ..." line — no markdown, no asterisks, no bold — then a blank line, then the message. Sign off with the business name.\n\nCustomer name: ${customer.name || 'there'}\nEmail subject: ${commLog.summary || ''}\nOriginal email:\n${rawMessage}`
+						: `Write a brief SMS reply to this customer message. Acknowledge what they said and confirm the business will follow up.\n\nCustomer name: ${customer.name || 'there'}\nOriginal message:\n${rawMessage}`;
 				const aiResponse = await claudeText({
 					apiKey: ANTHROPIC_AI_KEY,
-					system: getOrderTakerSystemPrompt(company.name || 'the business', 'professional_friendly'),
+					system: getOrderTakerSystemPrompt(
+						company.name || 'the business',
+						'professional_friendly'
+					),
 					messages: [{ role: 'user', content: safetyPrompt }],
 					temperature: 0.3,
 					maxTokens: 400
@@ -1565,88 +1577,80 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 		if (matchedThreadId) {
 			try {
-			olog(`[Orchestrator] Found similar thread (${matchReason}). Linking current comm.`);
+				olog(`[Orchestrator] Found similar thread (${matchReason}). Linking current comm.`);
 
-			const oldThreadId = commLog.communicationThreadId;
+				const oldThreadId = commLog.communicationThreadId;
 
-			// Only update the current comm — don't bulk-reassign old threads
-			await prisma.communicationLog.update({
-				where: { id: commId },
-				data: {
-					communicationThreadId: matchedThreadId,
-					metadata: {
-						...metadata,
-						thread_merge: {
-							previousThreadId: oldThreadId || null,
-							mergedInto: matchedThreadId,
-							reason: matchReason,
-							mergedAt: new Date().toISOString()
+				// Only update the current comm — don't bulk-reassign old threads
+				await prisma.communicationLog.update({
+					where: { id: commId },
+					data: {
+						communicationThreadId: matchedThreadId,
+						metadata: {
+							...metadata,
+							thread_merge: {
+								previousThreadId: oldThreadId || null,
+								mergedInto: matchedThreadId,
+								reason: matchReason,
+								mergedAt: new Date().toISOString()
+							}
+						}
+					}
+				});
+
+				// Update in-memory so draft SMS gets the new thread ID
+				commLog.communicationThreadId = matchedThreadId;
+
+				if (matchedComm?.customerId && matchedComm.customerId !== commLog.customerId) {
+					// Contact resolution: fold the caller's auto-created contact into the matched
+					// one, so the customer has ONE profile. Their comms move, the phone sticks
+					// (so the next call resolves directly), and the duplicate contact is removed.
+					const callerContactId = commLog.customerId;
+					if (callerContactId) {
+						// Only fold contacts that LOOK auto-created (no real name on file) — a
+						// named contact with its own history stays untouched. The matcher may be
+						// wrong, and destroying a real customer profile on a guess is not worth it.
+						const callerContact = await prisma.contact
+							.findUnique({ where: { id: callerContactId }, select: { id: true, name: true } })
+							.catch(() => null);
+						const looksAutoCreated =
+							!callerContact?.name ||
+							[
+								'Unknown',
+								'Unknown Caller',
+								'Unknown Customer',
+								'Anonymous',
+								'Valued Customer'
+							].includes(callerContact.name.trim());
+						if (!looksAutoCreated) {
+							olog(
+								`[Orchestrator] Skipped contact merge: ${callerContactId} has a real name ("${callerContact?.name}") — thread linked, profiles kept separate`
+							);
+						} else {
+							await prisma.communicationLog.update({
+								where: { id: commId },
+								data: { customerId: matchedComm.customerId }
+							});
+							await prisma.communicationLog.updateMany({
+								where: { customerId: callerContactId, id: { not: commId } },
+								data: { customerId: matchedComm.customerId }
+							});
+							if (callerPhone) {
+								await prisma.contact
+									.update({
+										where: { id: matchedComm.customerId },
+										data: { phone: callerPhone }
+									})
+									.catch(() => {});
+							}
+							await prisma.contact.delete({ where: { id: callerContactId } }).catch(() => {});
+							commLog.customerId = matchedComm.customerId;
+							olog(
+								`[Orchestrator] Contacts merged: ${callerContactId} → ${matchedComm.customerId} (${callerPhone || 'no phone'})`
+							);
 						}
 					}
 				}
-			});
-
-			// Update in-memory so draft SMS gets the new thread ID
-			commLog.communicationThreadId = matchedThreadId;
-
-			// Identity bridge (§8): the matcher linked this message to a thread owned by
-			// ANOTHER contact — that's the system saying "same customer, different channel".
-			// If either side had pending plans where THEY promised to act, resolve them now:
-			// he contacted us sooner than he promised, so the plan is done.
-			if (matchedComm?.customerId && matchedComm.customerId !== commLog.customerId) {
-				const { resolvePendingCustomerCommitments } = await import('./open-commitments');
-				const resolved = await resolvePendingCustomerCommitments(commLog.companyId, matchedComm.customerId);
-				if (resolved > 0) {
-					olog(
-						`[Orchestrator] Resolved ${resolved} pending commitment(s) for ${matchedComm.customerId} — same customer reached us on another channel`
-					);
-				}
-
-				// Contact resolution: fold the caller's auto-created contact into the matched
-				// one, so the customer has ONE profile. Their comms move, the phone sticks
-				// (so the next call resolves directly), and the duplicate contact is removed.
-				const callerContactId = commLog.customerId;
-				if (callerContactId) {
-					// Only fold contacts that LOOK auto-created (no real name on file) — a
-					// named contact with its own history stays untouched. The matcher may be
-					// wrong, and destroying a real customer profile on a guess is not worth it.
-					const callerContact = await prisma.contact
-						.findUnique({ where: { id: callerContactId }, select: { id: true, name: true } })
-						.catch(() => null);
-					const looksAutoCreated =
-						!callerContact?.name ||
-						['Unknown', 'Unknown Caller', 'Unknown Customer', 'Anonymous', 'Valued Customer'].includes(
-							callerContact.name.trim()
-						);
-					if (!looksAutoCreated) {
-						olog(
-							`[Orchestrator] Skipped contact merge: ${callerContactId} has a real name ("${callerContact?.name}") — thread linked, profiles kept separate`
-						);
-					} else {
-						await prisma.communicationLog.update({
-							where: { id: commId },
-							data: { customerId: matchedComm.customerId }
-						});
-						await prisma.communicationLog.updateMany({
-							where: { customerId: callerContactId, id: { not: commId } },
-							data: { customerId: matchedComm.customerId }
-						});
-						if (callerPhone) {
-							await prisma.contact
-								.update({
-									where: { id: matchedComm.customerId },
-									data: { phone: callerPhone }
-								})
-								.catch(() => {});
-						}
-						await prisma.contact.delete({ where: { id: callerContactId } }).catch(() => {});
-						commLog.customerId = matchedComm.customerId;
-						olog(
-							`[Orchestrator] Contacts merged: ${callerContactId} → ${matchedComm.customerId} (${callerPhone || 'no phone'})`
-						);
-					}
-				}
-			}
 			} catch (e) {
 				oerr('[Orchestrator] Thread link / identity bridge failed:', e);
 			}
@@ -1684,70 +1688,109 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				const cand = resolution.candidate;
 				const mergeReason = resolution.reason || 'context_continuation';
 
-				await appendEntryToContainer(prisma, {
-					commId: resolution.commId,
-					direction: commLog.direction === 'outbound' ? 'outbound' : 'inbound',
-					channel: commLog.type === 'sms' ? 'sms' : commLog.type === 'email' ? 'email' : 'voice',
-					fromParty:
-						commLog.direction === 'outbound'
-							? companyNumber || commLog.source || 'unknown'
-							: customerPhone || commLog.source || 'unknown',
-					toParty:
-						commLog.direction === 'outbound'
-							? customerPhone || commLog.destination || 'unknown'
-							: companyNumber || commLog.destination || 'unknown',
-					fromPartyType: commLog.direction === 'outbound' ? 'rep' : 'customer',
-					toPartyType: commLog.direction === 'outbound' ? 'customer' : 'system',
-					transcript: commLog.content || commLog.summary || null,
-					analysisJson: {
-						intent: metadata.intent || null,
-						sub_intent: metadata.sub_intent || null,
-						summary: commLog.summary || null
-					}
+				// --- Never share a COM id across people we have not actually linked ------------
+				//
+				// The matcher falls back to EVERY open container in the company when the incoming
+				// identity has none of its own, and an AI judges continuation at 0.6 confidence on
+				// topic similarity. That is a guess about *subject matter*, not evidence about
+				// *identity* — and two customers asking about air conditioners in the same
+				// fortnight is not rare.
+				//
+				// Sharing a COM id asserts "same person". We only get to assert that on the
+				// evidence an identity merge would need. If the container belongs to a different
+				// contact that has not been merged with this one, record the possibility and leave
+				// the conversations separate.
+				const matchedContainer = await prisma.commContainer.findUnique({
+					where: { id: resolution.commId },
+					select: { contactId: true, customerProfileId: true }
 				});
+				const belongsToSomeoneElse =
+					!!matchedContainer?.contactId && matchedContainer.contactId !== customer.id;
 
-				await linkCommunicationLogToContainer(
-					commId,
-					{ id: cand.id, commRef: cand.commRef },
-					mergeReason,
-					{ companyId: commLog.companyId, contactId: customer.id }
-				);
-
-				// Keep the in-memory metadata in sync so the final persist keeps the link fields
-				// and any draft logged below shares the container's COM id.
-				metadata.commContainerId = cand.id;
-				metadata.commRef = cand.commRef;
-				metadata.thread_merge = {
-					previousThreadId: commLog.communicationThreadId || null,
-					mergedInto: cand.id,
-					mergedIntoRef: cand.commRef,
-					reason: mergeReason,
-					mergedAt: new Date().toISOString()
-				};
-				commLog.communicationThreadId = cand.id;
-				mergedContainerId = cand.id;
-
-				olog(
-					`[Orchestrator] Cross-channel: linked ${commLog.type} (${commLog.direction}) to container ${cand.commRef} (${mergeReason})`
-				);
-
-				// Same conversation across channels means one person behind two identifiers —
-				// merge their profiles too.
-				try {
-					const { bridgeIdentitiesForMatchedContainer } = await import(
-						'./container/identity-bridge'
+				if (belongsToSomeoneElse) {
+					olog(
+						`[Orchestrator] Cross-channel: NOT linking to ${cand.commRef} — it belongs to ` +
+							`contact ${matchedContainer!.contactId}, which has not been merged with ` +
+							`${customer.id}. A topic match is not proof of identity; raising a merge ` +
+							`candidate instead.`
 					);
-					const bridged = await bridgeIdentitiesForMatchedContainer({
-						companyId: commLog.companyId,
-						containerId: cand.id,
-						confidence: resolution.confidence,
-						phone: customerPhone || null,
-						email: customer.email || null,
-						log: olog
+					try {
+						const { recordMergeCandidate } = await import('./identity/merge-service');
+						await recordMergeCandidate({
+							companyId: commLog.companyId,
+							primaryProfileId: matchedContainer!.contactId!,
+							duplicateProfileId: customer.id,
+							reason: `context_match (${mergeReason})`.slice(0, 500),
+							detectedFromCommId: resolution.commId
+						});
+					} catch (e: any) {
+						oerr('[Orchestrator] Failed to record merge candidate:', e);
+					}
+				} else {
+					await appendEntryToContainer(prisma, {
+						commId: resolution.commId,
+						direction: commLog.direction === 'outbound' ? 'outbound' : 'inbound',
+						channel: commLog.type === 'sms' ? 'sms' : commLog.type === 'email' ? 'email' : 'voice',
+						fromParty:
+							commLog.direction === 'outbound'
+								? companyNumber || commLog.source || 'unknown'
+								: customerPhone || commLog.source || 'unknown',
+						toParty:
+							commLog.direction === 'outbound'
+								? customerPhone || commLog.destination || 'unknown'
+								: companyNumber || commLog.destination || 'unknown',
+						fromPartyType: commLog.direction === 'outbound' ? 'rep' : 'customer',
+						toPartyType: commLog.direction === 'outbound' ? 'customer' : 'system',
+						transcript: commLog.content || commLog.summary || null,
+						analysisJson: {
+							intent: metadata.intent || null,
+							sub_intent: metadata.sub_intent || null,
+							summary: commLog.summary || null
+						}
 					});
-					if (!bridged.merged) olog(`[IdentityBridge] No merge: ${bridged.reason}.`);
-				} catch (e) {
-					oerr('[IdentityBridge] Profile merge failed (link kept):', e);
+
+					await linkCommunicationLogToContainer(
+						commId,
+						{ id: cand.id, commRef: cand.commRef },
+						mergeReason,
+						{ companyId: commLog.companyId, contactId: customer.id }
+					);
+
+					// Keep the in-memory metadata in sync so the final persist keeps the link fields
+					// and any draft logged below shares the container's COM id.
+					metadata.commContainerId = cand.id;
+					metadata.commRef = cand.commRef;
+					metadata.thread_merge = {
+						previousThreadId: commLog.communicationThreadId || null,
+						mergedInto: cand.id,
+						mergedIntoRef: cand.commRef,
+						reason: mergeReason,
+						mergedAt: new Date().toISOString()
+					};
+					commLog.communicationThreadId = cand.id;
+					mergedContainerId = cand.id;
+
+					olog(
+						`[Orchestrator] Cross-channel: linked ${commLog.type} (${commLog.direction}) to container ${cand.commRef} (${mergeReason})`
+					);
+
+					// Same conversation across channels means one person behind two identifiers —
+					// merge their profiles too.
+					try {
+						const { bridgeIdentitiesForMatchedContainer } =
+							await import('./container/identity-bridge');
+						const bridged = await bridgeIdentitiesForMatchedContainer({
+							companyId: commLog.companyId,
+							containerId: cand.id,
+							confidence: resolution.confidence,
+							phone: customerPhone || null,
+							email: customer.email || null,
+							log: olog
+						});
+						if (!bridged.merged) olog(`[IdentityBridge] No merge: ${bridged.reason}.`);
+					} catch (e) {
+						oerr('[IdentityBridge] Profile merge failed (link kept):', e);
+					}
 				}
 			} else if (resolution.reason) {
 				olog(`[Orchestrator] Cross-channel: no container match (${resolution.reason})`);
@@ -2321,7 +2364,8 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				if (customer?.id) {
 					try {
 						const { writeScheduledIntent } = await import('$lib/server/scheduled-intent-writer');
-						const channelType = commLog.type === 'sms' ? 'sms' : commLog.type === 'email' ? 'email' : 'voice';
+						const channelType =
+							commLog.type === 'sms' ? 'sms' : commLog.type === 'email' ? 'email' : 'voice';
 						const written = await writeScheduledIntent({
 							companyId: company.id,
 							contactId: customer.id,
@@ -2331,7 +2375,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 								schedulable: true,
 								actor: 'CUSTOMER',
 								whatHeWants: aiIntent?.reason || nextActionPlan.suspense.description,
-								rawTimeframe: aiIntent?.customer_initiate_timeframe || `${nextActionPlan.suspense.timeframeDays} days`,
+								rawTimeframe:
+									aiIntent?.customer_initiate_timeframe ||
+									`${nextActionPlan.suspense.timeframeDays} days`,
 								timeframeDays: nextActionPlan.suspense.timeframeDays,
 								exactDateIso: aiIntent?.customer_initiate_exact_datetime || null,
 								calculatedTargetDate: nextActionPlan.suspense.dueAt.toISOString(),
@@ -2344,7 +2390,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 							idempotencyKey: `orch_suspense_${commId}`
 						});
 						if (written.recorded) {
-							olog(`[Orchestrator] ScheduledIntent ${written.scheduledIntentId?.slice(0, 8)} created (due ${written.dueAt}).`);
+							olog(
+								`[Orchestrator] ScheduledIntent ${written.scheduledIntentId?.slice(0, 8)} created (due ${written.dueAt}).`
+							);
 						} else {
 							olog(`[Orchestrator] ScheduledIntent not recorded: ${written.reason}`);
 						}

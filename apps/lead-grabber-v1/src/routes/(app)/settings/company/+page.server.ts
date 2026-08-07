@@ -44,15 +44,27 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 				role: { not: 'support' }
 			},
 			include: {
-				user: true
+				// Never `user: true` here. That pulls the whole row — including the bcrypt
+				// `password` hash and `tokenKey` — into a payload that is serialised to the client
+				// and was also being written to the pm2 log on every page load. Select the fields
+				// the members list actually shows.
+				user: {
+					select: {
+						id: true,
+						email: true,
+						name: true,
+						avatar: true,
+						platformRole: true,
+						verified: true,
+						created: true
+					}
+				}
 			},
 			orderBy: {
 				created: 'desc'
 			},
 			take: 50
 		});
-
-		console.log('members', members);
 
 		if (!members.length) {
 			console.warn('No members found for company:', company.id);

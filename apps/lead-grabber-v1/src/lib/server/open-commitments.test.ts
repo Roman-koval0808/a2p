@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
 	committedWindowDays,
 	effectiveInactiveDays,
-	resolvePendingCustomerCommitments,
 	type CommitmentWindow
 } from './open-commitments';
 import { calculateDecayedScore, evaluateDemotion } from './profiledb/scoring.service';
@@ -90,68 +89,5 @@ describe('decay protection (§7) — the score counts interest, and a stated pla
 
 	it('committedDays defaults to 0 — existing callers are unchanged', () => {
 		expect(calculateDecayedScore(60, AUG_4, 'active', AUG_10)).toBe(calculateDecayedScore(60, AUG_4, 'active', AUG_10, 0));
-	});
-});
-
-describe('resolvePendingCustomerCommitments (§8) — he did what he said, resolve now', () => {
-	it('marks pending Scenario-A commitments SKIPPED the moment the customer contacts us', async () => {
-		vi.mocked(prisma.scheduledIntent.updateMany).mockResolvedValue({ count: 1 } as any);
-		vi.mocked(prisma.scheduledIntent.count).mockResolvedValue(1);
-
-		const count = await resolvePendingCustomerCommitments('company_1', 'contact_1');
-
-		expect(count).toBe(1);
-		expect(prisma.scheduledIntent.updateMany).toHaveBeenCalledWith(
-			expect.objectContaining({
-				where: expect.objectContaining({
-					clientId: 'company_1',
-					profileId: expect.objectContaining({ in: ['contact_1'] }),
-					status: 'PENDING',
-					intentType: 'CUSTOMER_COMMITMENT_A'
-				}),
-				data: expect.objectContaining({ status: 'SKIPPED' })
-			})
-		);
-	});
-
-	it('touches nothing when there is no pending commitment', async () => {
-		vi.mocked(prisma.scheduledIntent.count).mockResolvedValue(0);
-		const count = await resolvePendingCustomerCommitments('company_1', 'contact_1');
-		expect(count).toBe(0);
-	});
-
-	// A commitment must survive the interaction that created it. The orchestrator parks
-	// "I'll call you in 3 days", then the pipeline runs on that same communication moments
-	// later — without the exclusion it reads its own trigger as the customer getting in touch
-	// and closes the commitment seconds after it was made.
-	it('excludes the commitment parked for THIS communication', async () => {
-		vi.mocked(prisma.scheduledIntent.updateMany).mockResolvedValue({ count: 0 } as any);
-		vi.mocked(prisma.scheduledIntent.count).mockResolvedValue(0);
-
-		await resolvePendingCustomerCommitments(
-			'company_1',
-			'contact_1',
-			undefined,
-			'orch_suspense_comm_123'
-		);
-
-		expect(prisma.scheduledIntent.updateMany).toHaveBeenCalledWith(
-			expect.objectContaining({
-				where: expect.objectContaining({
-					idempotencyKey: { not: 'orch_suspense_comm_123' }
-				})
-			})
-		);
-	});
-
-	it('still resolves everything when no exclusion key is supplied', async () => {
-		vi.mocked(prisma.scheduledIntent.updateMany).mockResolvedValue({ count: 1 } as any);
-		vi.mocked(prisma.scheduledIntent.count).mockResolvedValue(1);
-
-		await resolvePendingCustomerCommitments('company_1', 'contact_1');
-
-		const where = vi.mocked(prisma.scheduledIntent.updateMany).mock.calls.at(-1)?.[0]
-			?.where as Record<string, unknown>;
-		expect(where).not.toHaveProperty('idempotencyKey');
 	});
 });

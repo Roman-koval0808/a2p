@@ -25,6 +25,7 @@ const mockPrisma = vi.hoisted(() => ({
 		update: vi.fn().mockResolvedValue({})
 	},
 	commContainer: {
+		findUnique: vi.fn().mockResolvedValue(null),
 		findFirst: vi.fn().mockResolvedValue(null),
 		findMany: vi.fn().mockResolvedValue([]),
 		create: vi.fn().mockResolvedValue({ id: 'container_1', commRef: '#1001' }),
@@ -143,6 +144,16 @@ vi.mock('./scenarios/s1-meeting-confirm', () => ({
 vi.mock('./scenarios/s3-escalation', () => ({
 	processSecondEmergencyVoicemail: vi.fn().mockResolvedValue({ updatedWorkOrder: { currentRung: 2 } })
 }));
+vi.mock('./container/thread-resolver', () => ({
+	resolveContextContainer: vi.fn().mockResolvedValue({ matched: false, reason: 'no_open_candidates' }),
+	appendEntryToContainer: vi.fn().mockResolvedValue({}),
+	linkCommunicationLogToContainer: vi.fn().mockResolvedValue({})
+}));
+vi.mock('./container/identity-bridge', () => ({
+	bridgeIdentitiesForMatchedContainer: vi
+		.fn()
+		.mockResolvedValue({ merged: false, reason: 'test_stub' })
+}));
 vi.mock('$lib/server/container/container-service', () => ({
 	createContainerAtIntake: vi.fn().mockResolvedValue({ container: { id: 'container_new', commRef: '#2001' } }),
 	reviewMerge: vi.fn()
@@ -242,10 +253,61 @@ function resetMocks() {
 	// arrived on. Reset it per test: `clearAllMocks` keeps implementations, so a case that sets
 	// 'landline' would otherwise silently suppress SMS for every test after it.
 	(getLineType as any).mockResolvedValue('mobile');
+	mockPrisma.commContainer.findUnique.mockResolvedValue(null);
 }
 
 describe('process_orchestrator', () => {
 	beforeEach(resetMocks);
+
+	// ============================================================
+	// COMM ID IS NOT SHARED ACROSS UNLINKED PEOPLE
+	// ============================================================
+
+	describe('cross-channel container linking', () => {
+		it('refuses to share a COM id with a container belonging to another contact', async () => {
+			const { resolveContextContainer } = await import('./container/thread-resolver');
+			(resolveContextContainer as any).mockResolvedValue({
+				matched: true,
+				commId: 'container_other',
+				candidate: { id: 'container_other', commRef: '#6200' },
+				reason: 'same topic',
+				confidence: 0.7
+			});
+			// The matched conversation belongs to somebody else, and nothing has merged them.
+			mockPrisma.commContainer.findUnique.mockResolvedValue({
+				contactId: 'someone_else',
+				customerProfileId: null
+			});
+			(prisma.communicationLog.findUnique as any).mockResolvedValue(makeComm({ metadata: {} }));
+
+			await process_orchestrator('comm_1', 'ai_ready');
+
+			// A topic match is not proof of identity — leave the conversations separate.
+			const { linkCommunicationLogToContainer } = await import('./container/thread-resolver');
+			expect(linkCommunicationLogToContainer).not.toHaveBeenCalled();
+		});
+
+		it('links normally when the container is the same contact', async () => {
+			const { resolveContextContainer } = await import('./container/thread-resolver');
+			(resolveContextContainer as any).mockResolvedValue({
+				matched: true,
+				commId: 'container_mine',
+				candidate: { id: 'container_mine', commRef: '#6201' },
+				reason: 'continuation',
+				confidence: 0.9
+			});
+			mockPrisma.commContainer.findUnique.mockResolvedValue({
+				contactId: 'customer_id',
+				customerProfileId: null
+			});
+			(prisma.communicationLog.findUnique as any).mockResolvedValue(makeComm({ metadata: {} }));
+
+			await process_orchestrator('comm_1', 'ai_ready');
+
+			const { linkCommunicationLogToContainer } = await import('./container/thread-resolver');
+			expect(linkCommunicationLogToContainer).toHaveBeenCalled();
+		});
+	});
 
 	// ============================================================
 	// SAME-CHANNEL RESPONSE RULE (§4.3 / §4.3a)

@@ -8,8 +8,15 @@ import { runExecution } from './execution-engine';
 import { runOutcome } from './outcome-engine';
 import { runFeedback } from './feedback-engine';
 import { resolveAndMergeLocalProfile } from './profile-service';
-import { resolveIdentityAtIntake, enrichProfilePostTranscription } from '$lib/server/identity/identity-service';
-import { createContainerAtIntake, classifyThreadType, createEntry } from '$lib/server/container/container-service';
+import {
+	resolveIdentityAtIntake,
+	enrichProfilePostTranscription
+} from '$lib/server/identity/identity-service';
+import {
+	createContainerAtIntake,
+	classifyThreadType,
+	createEntry
+} from '$lib/server/container/container-service';
 import { ingestTelemetryEvent } from '$lib/server/profiledb/telemetry';
 
 export interface PipelinePayload {
@@ -25,15 +32,6 @@ export interface PipelinePayload {
 	rating?: number;
 	occurredAt?: Date;
 	metadata?: any;
-	/**
-	 * The CommunicationLog this run is processing, when there is one.
-	 *
-	 * Used only to protect a commitment the orchestrator parked for THIS same interaction from
-	 * being resolved by this run — see the Scheduled Intent Resolution step. Deliberately a
-	 * top-level field rather than part of `metadata`, because `metadata` is serialised into the
-	 * AI prompt and must not gain fields that change what the model sees.
-	 */
-	commLogId?: string;
 }
 
 export class UnifiedPipeline {
@@ -44,14 +42,18 @@ export class UnifiedPipeline {
 
 		const log = (msg: string, data?: any) => {
 			const timestamp = new Date().toISOString().replace('T', ' ').replace('Z', '');
-			const statusIcon = msg.includes('ERROR') ? '🔴' : (msg.includes('BLOCKED') || msg.includes('SUPPRESSED')) ? '🟡' : '🔵';
-			
+			const statusIcon = msg.includes('ERROR')
+				? '🔴'
+				: msg.includes('BLOCKED') || msg.includes('SUPPRESSED')
+					? '🟡'
+					: '🔵';
+
 			let entry = `${statusIcon} [${timestamp}] ${msg}`;
 			if (data) {
 				const dataStr = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
 				entry += `\n   ╰─ Context: ${dataStr.replace(/\n/g, '\n   ')}`;
 			}
-			
+
 			console.log(entry);
 			pipelineSteps.push(entry);
 		};
@@ -60,14 +62,16 @@ export class UnifiedPipeline {
 
 		try {
 			// STEP 1: Identification & Mapping
-			log(`[Step 1] Data received from ${payload.provider} for "${payload.customerName || 'Anonymous'}"`);
-			
+			log(
+				`[Step 1] Data received from ${payload.provider} for "${payload.customerName || 'Anonymous'}"`
+			);
+
 			// STEP 2: Business Resolution
 			let company = null;
 			if (payload.companyId) {
 				company = await prisma.company.findUnique({ where: { id: payload.companyId } });
 			}
-			
+
 			if (!company) {
 				log(`[Step 2] Company resolution ERROR: Could not find any company`);
 				return { success: false, error: 'company_not_found', trace: pipelineSteps.join('\n') };
@@ -80,7 +84,12 @@ export class UnifiedPipeline {
 			let commContainer: any = null;
 			let actionsSuppressed = false;
 
-			const hasIdentity = !!(payload.customerPhone || payload.customerEmail || payload.customerName || payload.sessionId);
+			const hasIdentity = !!(
+				payload.customerPhone ||
+				payload.customerEmail ||
+				payload.customerName ||
+				payload.sessionId
+			);
 
 			if (hasIdentity && company) {
 				log(`[Step 3] Identity Resolution: Resolving profile...`);
@@ -89,7 +98,9 @@ export class UnifiedPipeline {
 					phoneNumber: payload.customerPhone
 				});
 				customerProfile = identityRes.customerProfile;
-				log(`[Step 3] Identity Resolution Complete: profile ID ${customerProfile.id} (method: ${identityRes.method})`);
+				log(
+					`[Step 3] Identity Resolution Complete: profile ID ${customerProfile.id} (method: ${identityRes.method})`
+				);
 
 				// Two profiles answered to the same ANI. Never merged here — queued for a human.
 				if (identityRes.isMergeCandidate && identityRes.mergeCandidateProfileId) {
@@ -124,14 +135,20 @@ export class UnifiedPipeline {
 			commContainer = containerResult.container;
 			actionsSuppressed = containerResult.actionsSuppressed;
 
-			log(`[Step 3b] Container Created: ${commContainer.commRef} (ID: ${commContainer.id}, type: ${threadType}, actionsSuppressed: ${actionsSuppressed})`);
+			log(
+				`[Step 3b] Container Created: ${commContainer.commRef} (ID: ${commContainer.id}, type: ${threadType}, actionsSuppressed: ${actionsSuppressed})`
+			);
 
 			// Create CommEntry immediately (§1.1.2)
 			await createEntry(prisma, {
 				commId: commContainer.id,
 				customerProfileId: customerProfile?.id || null,
 				direction: payload.provider.includes('inbound') ? 'inbound' : 'outbound',
-				channel: payload.provider.includes('sms') ? 'sms' : payload.provider.includes('email') ? 'email' : 'voice',
+				channel: payload.provider.includes('sms')
+					? 'sms'
+					: payload.provider.includes('email')
+						? 'email'
+						: 'voice',
 				fromParty: payload.customerPhone || payload.customerEmail || 'unknown',
 				toParty: company.name || 'system',
 				fromPartyType: 'customer',
@@ -149,8 +166,10 @@ export class UnifiedPipeline {
 
 			const isSimulation = payload.metadata?.is_simulation === true;
 			const providerEventId = payload.externalId;
-			const existingEvent = !isSimulation ? await prisma.pipelineEvent.findUnique({ where: { providerEventId } }) : null;
-			
+			const existingEvent = !isSimulation
+				? await prisma.pipelineEvent.findUnique({ where: { providerEventId } })
+				: null;
+
 			if (existingEvent) {
 				log(`[Step 4] Suppression: BLOCKED - Duplicate Provider Event ID ${providerEventId}`);
 				isDuplicate = true;
@@ -177,11 +196,16 @@ export class UnifiedPipeline {
 					for (const pastEvent of recentEventsFromProfile) {
 						const pastText = pastEvent.unstructuredText || '';
 						const cleanPastContent = UnifiedPipeline.extractCoreContent(pastText);
-						
-						const similarity = UnifiedPipeline.calculateSimilarity(cleanNewContent, cleanPastContent);
-						
+
+						const similarity = UnifiedPipeline.calculateSimilarity(
+							cleanNewContent,
+							cleanPastContent
+						);
+
 						if (similarity > 0.85) {
-							log(`[Step 4] Suppression: BLOCKED - Same-channel duplicate content detected (${Math.round(similarity * 100)}% similarity) with ${payload.provider} event ${pastEvent.eventId}`);
+							log(
+								`[Step 4] Suppression: BLOCKED - Same-channel duplicate content detected (${Math.round(similarity * 100)}% similarity) with ${payload.provider} event ${pastEvent.eventId}`
+							);
 							isDuplicate = true;
 							similarityScore = similarity;
 							suppressionReason = 'duplicate_content';
@@ -201,10 +225,10 @@ export class UnifiedPipeline {
 				if (payload.textContent && payload.textContent.length > 0) {
 					log(`[Step 5] AI Extraction: Identifying sentiment, topics, and intent...`);
 					try {
-						const extractionInput = payload.rating 
+						const extractionInput = payload.rating
 							? `Rating: ${payload.rating} Stars\nContent: ${payload.textContent}`
 							: payload.textContent;
-						
+
 						log(`[Step 5] AI Extraction: Sending text to AI for analysis...`, extractionInput);
 						aiResult = await performAiExtraction(extractionInput);
 						log(`[Step 5] AI Extraction Success:`, {
@@ -232,7 +256,7 @@ export class UnifiedPipeline {
 			// STEP 6: Persistence
 			log(`[Step 6] Storage: Saving event and marking as "Handoff Eligible"`);
 			const eventInternalId = crypto.randomUUID();
-			
+
 			const event = await prisma.$transaction(async (tx: any) => {
 				const evt = await tx.pipelineEvent.create({
 					data: {
@@ -241,7 +265,10 @@ export class UnifiedPipeline {
 						traceId: traceId,
 						provider: payload.provider,
 						providerEventName: payload.eventType,
-						providerEventId: suppressionReason === 'duplicate_provider_id' ? `${payload.externalId}_dup_${Date.now()}` : payload.externalId,
+						providerEventId:
+							suppressionReason === 'duplicate_provider_id'
+								? `${payload.externalId}_dup_${Date.now()}`
+								: payload.externalId,
 						eventType: payload.eventType,
 						networkCategory: payload.provider.includes('telnyx') ? 'Communication' : 'Trust',
 						companyId: company?.id,
@@ -251,11 +278,17 @@ export class UnifiedPipeline {
 						reviewText: payload.textContent,
 						occurredAt: payload.occurredAt || receivedAt,
 						receivedAt: receivedAt,
-						unstructuredText: payload.metadata ? JSON.stringify(payload.metadata) : payload.textContent,
+						unstructuredText: payload.metadata
+							? JSON.stringify(payload.metadata)
+							: payload.textContent,
 						requiresAiExtraction: !!aiResult,
 						aiExtractionCompleted: !!aiResult,
 						isDuplicate: isDuplicate,
-						processingStatus: isDuplicate ? 'duplicate_blocked' : (isSuppressed ? 'identity_suppressed' : 'handoff_eligible'),
+						processingStatus: isDuplicate
+							? 'duplicate_blocked'
+							: isSuppressed
+								? 'identity_suppressed'
+								: 'handoff_eligible',
 						handoffEligible: !isDuplicate && !isSuppressed
 					}
 				});
@@ -302,37 +335,6 @@ export class UnifiedPipeline {
 				return evt;
 			});
 
-			// Resolve pending customer commitments — the customer just got in touch,
-			// so any "they said they'd act" scheduled intents should be marked SKIPPED.
-			// This runs for ALL channels (voice, email, SMS) processed by the pipeline.
-			if (!isDuplicate && !isSuppressed && customerProfile?.id && company?.id) {
-				try {
-					// `metadata.commLogId` is the older spelling and was never populated by any
-					// caller, which left this exclusion inert — a commitment the orchestrator had
-					// just parked was resolved by this very run, seconds after being created.
-					// The top-level field is what callers set now; the metadata read stays as a
-					// fallback so nothing that did supply it changes behaviour.
-					const commLogId = payload.commLogId ?? payload.metadata?.commLogId;
-					const excludeIdempotencyKey = commLogId ? `orch_suspense_${commLogId}` : undefined;
-
-					const { resolvePendingCustomerCommitments } = await import('$lib/server/open-commitments');
-					const resolved = await resolvePendingCustomerCommitments(
-						company.id, 
-						customerProfile.id,
-						{
-							phone: payload.customerPhone,
-							email: payload.customerEmail
-						},
-						excludeIdempotencyKey
-					);
-					if (resolved > 0) {
-						log(`[Step 6] Scheduled Intent Resolution: ${resolved} pending commitment(s) resolved — customer got in touch`);
-					}
-				} catch (resolveErr: any) {
-					log(`[Step 6] Scheduled Intent Resolution ERROR: ${resolveErr.message || resolveErr}`);
-				}
-			}
-
 			// STEP 7-16: Downstream Processing
 			let finalTrace = pipelineSteps.join('\n');
 			let evalResult: any = null;
@@ -351,14 +353,24 @@ export class UnifiedPipeline {
 				signalCandidates = await prisma.pipelineSignal.findMany({
 					where: { eventId: event.id, status: 'candidate' }
 				});
-				
-				decisionResult = await OrchestratorEngine.makeDecision(event.id, signalCandidates, evalResult.trace);
-				
+
+				decisionResult = await OrchestratorEngine.makeDecision(
+					event.id,
+					signalCandidates,
+					evalResult.trace
+				);
+
 				if (decisionResult?.log?.steps?.length) {
 					decisionResult.log.steps.forEach((s: any) => {
 						const timestamp = s.timestamp;
-						const statusIcon = s.status.includes('error') ? '🔴' : (s.status.includes('blocked') || s.status.includes('warning')) ? '🟡' : '🔵';
-						fullTrace.push(`${statusIcon} [${timestamp}] Section 3 - ${s.status.toUpperCase()} : ${s.message}`);
+						const statusIcon = s.status.includes('error')
+							? '🔴'
+							: s.status.includes('blocked') || s.status.includes('warning')
+								? '🟡'
+								: '🔵';
+						fullTrace.push(
+							`${statusIcon} [${timestamp}] Section 3 - ${s.status.toUpperCase()} : ${s.message}`
+						);
 					});
 				}
 
@@ -366,11 +378,17 @@ export class UnifiedPipeline {
 				if (decisionResult.decided && decisionResult.decision_id) {
 					log(`[Step 13] Action Queue: Parameterizing work orders...`);
 					const queueResult = await ActionQueueEngine.processToQueue(decisionResult.decision_id);
-					
+
 					queueResult.log.steps.forEach((s: any) => {
 						const timestamp = s.timestamp;
-						const statusIcon = s.status.includes('error') ? '🔴' : (s.status.includes('blocked') || s.status.includes('warning')) ? '🟡' : '🔵';
-						fullTrace.push(`${statusIcon} [${timestamp}] Section 4 - ${s.status.toUpperCase()} : ${s.message}`);
+						const statusIcon = s.status.includes('error')
+							? '🔴'
+							: s.status.includes('blocked') || s.status.includes('warning')
+								? '🟡'
+								: '🔵';
+						fullTrace.push(
+							`${statusIcon} [${timestamp}] Section 4 - ${s.status.toUpperCase()} : ${s.message}`
+						);
 					});
 
 					log(`[Step 14] Execution: Running execution module...`);
@@ -385,13 +403,22 @@ export class UnifiedPipeline {
 					if (executionResult?.log?.steps?.length) {
 						executionResult.log.steps.forEach((s: any) => {
 							const timestamp = s.timestamp;
-							const statusIcon = s.status.includes('error') ? '🔴' : (s.status.includes('blocked') || s.status.includes('warning')) ? '🟡' : '🔵';
-							fullTrace.push(`${statusIcon} [${timestamp}] Section 5 - ${s.status.toUpperCase()} : ${s.message}`);
+							const statusIcon = s.status.includes('error')
+								? '🔴'
+								: s.status.includes('blocked') || s.status.includes('warning')
+									? '🟡'
+									: '🔵';
+							fullTrace.push(
+								`${statusIcon} [${timestamp}] Section 5 - ${s.status.toUpperCase()} : ${s.message}`
+							);
 						});
 					}
 
 					// Handoff to Outcome
-					if (executionResult?.executed && executionResult?.handoff_status === 'ready_for_outcome') {
+					if (
+						executionResult?.executed &&
+						executionResult?.handoff_status === 'ready_for_outcome'
+					) {
 						outcomeResult = await runOutcome(
 							executionResult.execution_output_package,
 							event.id,
@@ -402,8 +429,14 @@ export class UnifiedPipeline {
 						if (outcomeResult?.log?.steps?.length) {
 							outcomeResult.log.steps.forEach((s: any) => {
 								const timestamp = s.timestamp;
-								const statusIcon = s.status.includes('fail') ? '🔴' : s.status.includes('warn') ? '🟡' : '🔵';
-								fullTrace.push(`${statusIcon} [${timestamp}] Section 6 - ${s.status.toUpperCase()} : ${s.message}`);
+								const statusIcon = s.status.includes('fail')
+									? '🔴'
+									: s.status.includes('warn')
+										? '🟡'
+										: '🔵';
+								fullTrace.push(
+									`${statusIcon} [${timestamp}] Section 6 - ${s.status.toUpperCase()} : ${s.message}`
+								);
 							});
 						}
 
@@ -418,8 +451,14 @@ export class UnifiedPipeline {
 							if (feedbackResult?.log?.steps?.length) {
 								feedbackResult.log.steps.forEach((s: any) => {
 									const timestamp = s.timestamp;
-									const statusIcon = s.status.includes('fail') ? '🔴' : s.status.includes('warn') ? '🟡' : '🔵';
-									fullTrace.push(`${statusIcon} [${timestamp}] Section 7 - ${s.status.toUpperCase()} : ${s.message}`);
+									const statusIcon = s.status.includes('fail')
+										? '🔴'
+										: s.status.includes('warn')
+											? '🟡'
+											: '🔵';
+									fullTrace.push(
+										`${statusIcon} [${timestamp}] Section 7 - ${s.status.toUpperCase()} : ${s.message}`
+									);
 								});
 							}
 						}
@@ -439,7 +478,10 @@ export class UnifiedPipeline {
 				await prisma.pipelineEvent.update({
 					where: { id: eventInternalId },
 					data: {
-						unstructuredText: (payload.metadata ? JSON.stringify(payload.metadata) : payload.textContent) + '\n\n--- PIPELINE LOGS ---\n' + finalTrace
+						unstructuredText:
+							(payload.metadata ? JSON.stringify(payload.metadata) : payload.textContent) +
+							'\n\n--- PIPELINE LOGS ---\n' +
+							finalTrace
 					}
 				});
 			} catch (e) {
@@ -451,9 +493,15 @@ export class UnifiedPipeline {
 				try {
 					let fingerprintId = payload.sessionId || `unified_${payload.externalId}`;
 					let scoreDelta = 5;
-					if (aiResult?.urgency_level === 'high' || aiResult?.contains_emergency_keywords === true) {
+					if (
+						aiResult?.urgency_level === 'high' ||
+						aiResult?.contains_emergency_keywords === true
+					) {
 						scoreDelta = 15;
-					} else if (payload.eventType.includes('voicemail') || payload.eventType.includes('call')) {
+					} else if (
+						payload.eventType.includes('voicemail') ||
+						payload.eventType.includes('call')
+					) {
 						scoreDelta = 15;
 					} else if (payload.eventType.includes('sms')) {
 						scoreDelta = 10;
@@ -469,7 +517,7 @@ export class UnifiedPipeline {
 							pageUrl: null,
 							scoreDelta: scoreDelta,
 							phone: payload.customerPhone || null,
-							name: payload.customerName || (customerProfile?.displayName) || null,
+							name: payload.customerName || customerProfile?.displayName || null,
 							payload: {
 								externalId: payload.externalId,
 								provider: payload.provider,
@@ -501,13 +549,13 @@ export class UnifiedPipeline {
 			}
 
 			if (isDuplicate || isSuppressed) {
-				return { 
-					success: true, 
-					event_id: event.eventId, 
+				return {
+					success: true,
+					event_id: event.eventId,
 					is_duplicate: isDuplicate,
 					is_suppressed: isSuppressed,
 					processing_status: isDuplicate ? 'duplicate_blocked' : 'identity_suppressed',
-					trace: finalTrace 
+					trace: finalTrace
 				};
 			}
 
@@ -520,9 +568,9 @@ export class UnifiedPipeline {
 				trace: finalTrace
 			};
 
-			return { 
-				success: true, 
-				event_id: event.eventId, 
+			return {
+				success: true,
+				event_id: event.eventId,
 				decision_id: decisionResult?.decision_id || null,
 				ai_protocol: aiResult?._protocol || null,
 				execution: executionResult,
@@ -530,11 +578,15 @@ export class UnifiedPipeline {
 				feedback: feedbackResult,
 				decision: mockDecisionOutput,
 				evaluation: evalResult,
-				trace: finalTrace 
+				trace: finalTrace
 			};
 		} catch (err: any) {
 			log(`[Unified Pipeline Error] ${err.message || err}`);
-			return { success: false, error: 'Internal processing error', trace: pipelineSteps.join('\n') };
+			return {
+				success: false,
+				error: 'Internal processing error',
+				trace: pipelineSteps.join('\n')
+			};
 		}
 	}
 

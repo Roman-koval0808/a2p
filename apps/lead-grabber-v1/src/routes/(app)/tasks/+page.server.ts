@@ -4,6 +4,20 @@ import type { PageServerLoad } from './$types';
 import { tierForIdentifiers, type LineType } from '$lib/server/profiledb/tiers';
 import { toE164, formatPhoneNumber } from '$lib/utils/phone';
 
+/** "Aug 20th" — the format the table uses throughout. */
+function formatShortDate(d: Date): string {
+	const day = d.getDate();
+	const ordinal =
+		day % 10 === 1 && day !== 11
+			? 'st'
+			: day % 10 === 2 && day !== 12
+				? 'nd'
+				: day % 10 === 3 && day !== 13
+					? 'rd'
+					: 'th';
+	return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(d) + ordinal;
+}
+
 /**
  * What to call someone we have no name for.
  *
@@ -52,27 +66,7 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 		const tasks = dbTasks.map((task) => {
 			return {
 				id: task.id,
-				date: task.dueDate
-					? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(
-							task.dueDate
-						) +
-						(task.dueDate.getDate() % 10 === 1 && task.dueDate.getDate() !== 11
-							? 'st'
-							: task.dueDate.getDate() % 10 === 2 && task.dueDate.getDate() !== 12
-								? 'nd'
-								: task.dueDate.getDate() % 10 === 3 && task.dueDate.getDate() !== 13
-									? 'rd'
-									: 'th')
-					: new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(
-							task.created
-						) +
-						(task.created.getDate() % 10 === 1 && task.created.getDate() !== 11
-							? 'st'
-							: task.created.getDate() % 10 === 2 && task.created.getDate() !== 12
-								? 'nd'
-								: task.created.getDate() % 10 === 3 && task.created.getDate() !== 13
-									? 'rd'
-									: 'th'),
+				date: formatShortDate(task.dueDate ?? task.created),
 				origin: task.contactId ? 'CR' : 'OA',
 				channel: task.title.toLowerCase().includes('call') ? 'Ph out' : 'out',
 				channelIcon: task.title.toLowerCase().includes('call') ? 'phone' : 'email',
@@ -109,6 +103,30 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 		});
 		const contactById = new Map(contacts.map((c) => [c.id, c]));
 
+		// The conversation each intent belongs to. `payload.conversationId` is a CommContainer id;
+		// the human-facing reference is that container's `commRef` (COM-…), which is what appears
+		// everywhere else in the app. Showing a slice of the intent's own id instead made the
+		// column impossible to match against the communications log.
+		const commRefByContainerId = new Map<string, string>();
+		try {
+			const containerIds = Array.from(
+				new Set(
+					intents
+						.map((si) => (si.payload as Record<string, any>)?.conversationId)
+						.filter((id): id is string => typeof id === 'string' && !!id)
+				)
+			);
+			if (containerIds.length) {
+				const containers = await prisma.commContainer.findMany({
+					where: { id: { in: containerIds }, companyId },
+					select: { id: true, commRef: true }
+				});
+				for (const c of containers) commRefByContainerId.set(c.id, c.commRef);
+			}
+		} catch (e: any) {
+			console.error('[tasks] could not resolve comm refs:', e?.message || e);
+		}
+
 		// Line types for the tier badge, read from the shared cache in one query. A number that was
 		// never classified is simply absent and comes through as undefined — which is Tier 2.
 		const lineTypeByPhone = new Map<string, LineType>();
@@ -133,18 +151,14 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 			const rawTimeframe = p?.rawTimeframe || '';
 			const originalChannel = p?.originalChannel || 'email';
 			const isCall = originalChannel === 'voice' || p?.preferredChannel === 'call';
-			const dueObj = new Date(si.dueAt);
-			const ordinal =
-				dueObj.getDate() % 10 === 1 && dueObj.getDate() !== 11
-					? 'st'
-					: dueObj.getDate() % 10 === 2 && dueObj.getDate() !== 12
-						? 'nd'
-						: dueObj.getDate() % 10 === 3 && dueObj.getDate() !== 13
-							? 'rd'
-							: 'th';
-			const dateStr =
-				new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(dueObj) +
-				ordinal;
+
+			// Show the date the CUSTOMER gave. `dueAt` now equals it (the 7-day grace was removed),
+			// but prefer the stated target explicitly so rows written under the old grace still
+			// display what the customer actually said rather than a week later.
+			const targetObj = p?.calculatedTargetDate ? new Date(p.calculatedTargetDate) : null;
+			const dueObj =
+				targetObj && !Number.isNaN(targetObj.getTime()) ? targetObj : new Date(si.dueAt);
+			const dateStr = formatShortDate(dueObj);
 			const contact = contactById.get(si.profileId);
 			const name = displayName(contact ?? {});
 			const profileHref = contact ? `/profiles/${contact.id}` : null;
@@ -174,7 +188,10 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 				profileHref,
 				tier,
 				intent: si.intentType === 'CUSTOMER_COMMITMENT_A' ? 'A-pend' : 'B-pend',
-				commId: si.id.slice(-8),
+				// The conversation's COM-… reference, so this row can be matched against the
+				// communications log. Falls back to the intent id only when the intent was filed
+				// without a conversation.
+				commId: commRefByContainerId.get(p?.conversationId) || `SI-${si.id.slice(-6)}`,
 				// Was `Math.random()`, so the ref id changed on every page load.
 				refId: `id ${si.id.slice(-6)}`,
 				summary: whatHeWants + (rawTimeframe ? ` (said: "${rawTimeframe}")` : ''),
@@ -201,8 +218,61 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 			};
 		});
 
+		// --- Container tasks -------------------------------------------------------------------
+		//
+		// The action items the AI raises from a conversation ("prepare discovery questions for
+		// when Bert calls back") are written as CommTask rows against the container. This page was
+		// reading only `Task` and `ScheduledIntent`, so a conversation that produced two follow-ups
+		// and one commitment showed a single row and looked like work had been dropped.
+		let containerTasks: any[] = [];
+		try {
+			const rows = await prisma.commTask.findMany({
+				where: { container: { companyId }, status: 'open' },
+				include: {
+					container: {
+						select: {
+							commRef: true,
+							threadType: true,
+							contact: { select: { id: true, name: true, phone: true, email: true } }
+						}
+					}
+				},
+				orderBy: { due: 'asc' },
+				take: 100
+			});
+
+			containerTasks = rows.map((t) => {
+				const contact = t.container?.contact ?? null;
+				// A CommTask records what to do, not how. `threadType` is the topic (sales,
+				// support…), not a channel, so the best available signal is how we can actually
+				// reach this person.
+				const isCall = !!contact?.phone;
+				return {
+					id: t.id,
+					date: formatShortDate(t.due),
+					// A customer promise is theirs to keep; anything else is ours to do.
+					origin: t.category === 'customer_promise' ? 'CR' : 'OA',
+					channel: isCall ? 'Ph out' : 'out',
+					channelIcon: isCall ? 'phone' : 'email',
+					clientId: contact?.id ?? '-',
+					clientName: displayName(contact ?? {}),
+					profileHref: contact ? `/profiles/${contact.id}` : null,
+					intent: t.category === 'customer_promise' ? 'A-pend' : 'opp',
+					commId: t.container?.commRef ?? '-',
+					refId: `id ${t.id.slice(-6)}`,
+					summary: t.description,
+					title: t.description,
+					status: t.status,
+					fullDateString: t.due.toISOString(),
+					_kind: 'task' as const
+				};
+			});
+		} catch (e: any) {
+			console.error('[tasks] could not load container tasks:', e?.message || e);
+		}
+
 		// Merge: tasks first, then pending actions — both are "work that needs attention"
-		return { tasks: [...tasks, ...pendingActions] };
+		return { tasks: [...tasks, ...containerTasks, ...pendingActions] };
 	} catch (err) {
 		console.error('Error loading tasks:', err);
 		return { tasks: [] };
