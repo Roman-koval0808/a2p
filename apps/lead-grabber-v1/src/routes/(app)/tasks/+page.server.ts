@@ -1,6 +1,32 @@
 import { prisma } from '$lib/db';
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
+import { tierForIdentifiers, type LineType } from '$lib/server/profiledb/tiers';
+import { toE164, formatPhoneNumber } from '$lib/utils/phone';
+
+/**
+ * What to call someone we have no name for.
+ *
+ * "Unknown" tells the user nothing and reads like a failure. We almost always hold *something* —
+ * the number they rang from, or an email — so lead with "Customer" and qualify it with whatever
+ * identifies them. Bare "Customer" only when we genuinely have nothing.
+ */
+function displayName(person: {
+	name?: string | null;
+	phone?: string | null;
+	email?: string | null;
+}): string {
+	const name = person.name?.trim();
+	if (name) return name;
+
+	const phone = person.phone?.trim();
+	if (phone) return `Customer ${formatPhoneNumber(phone) || phone}`;
+
+	const email = person.email?.trim();
+	if (email) return `Customer ${email}`;
+
+	return 'Customer';
+}
 
 export const load: PageServerLoad = async ({ locals, depends }) => {
 	depends('app:tasks');
@@ -51,10 +77,15 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 				channel: task.title.toLowerCase().includes('call') ? 'Ph out' : 'out',
 				channelIcon: task.title.toLowerCase().includes('call') ? 'phone' : 'email',
 				clientId: task.contactId || '-',
-				clientName: task.contact?.name || 'Unknown',
+				clientName: displayName(task.contact ?? {}),
+				// Where to send someone who clicks the name. Null when there's no contact to open.
+				profileHref: task.contactId ? `/profiles/${task.contactId}` : null,
 				intent: task.title.toLowerCase().includes('support') ? 'supp' : 'opp',
-				commId: task.communicationThreadId || `id-${Math.floor(Math.random() * 9000) + 1000}`,
-				refId: `id ${Math.floor(Math.random() * 900) + 100}`,
+				// These were `Math.random()` — a different "ID" on every page load, so the same task
+				// showed a new comm id and ref id each time it was viewed and nothing could be
+				// matched against a record. Derived from the real IDs instead, so they're stable.
+				commId: task.communicationThreadId || `id-${task.id.slice(-8)}`,
+				refId: `id ${task.id.slice(-6)}`,
 				summary: task.description || task.title,
 				title: task.title,
 				status: task.status,
@@ -74,9 +105,27 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 		const profileIds = [...new Set(intents.map((si) => si.profileId))];
 		const contacts = await prisma.contact.findMany({
 			where: { id: { in: profileIds }, companyId },
-			select: { id: true, name: true }
+			select: { id: true, name: true, phone: true, email: true }
 		});
-		const contactName = new Map(contacts.map((c) => [c.id, c.name || 'Unknown']));
+		const contactById = new Map(contacts.map((c) => [c.id, c]));
+
+		// Line types for the tier badge, read from the shared cache in one query. A number that was
+		// never classified is simply absent and comes through as undefined — which is Tier 2.
+		const lineTypeByPhone = new Map<string, LineType>();
+		try {
+			const phones = Array.from(
+				new Set(contacts.map((c) => toE164(c.phone)).filter((p): p is string => !!p))
+			);
+			if (phones.length) {
+				const cached = await prisma.numberLookup.findMany({
+					where: { phoneNumber: { in: phones } },
+					select: { phoneNumber: true, lineType: true }
+				});
+				for (const row of cached) lineTypeByPhone.set(row.phoneNumber, row.lineType as LineType);
+			}
+		} catch (e: any) {
+			console.error('[tasks] could not read line types:', e?.message || e);
+		}
 
 		const pendingActions = intents.map((si) => {
 			const p = (si.payload as Record<string, any>) || {};
@@ -96,19 +145,38 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 			const dateStr =
 				new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(dueObj) +
 				ordinal;
-			const name = contactName.get(si.profileId) || 'Unknown';
+			const contact = contactById.get(si.profileId);
+			const name = displayName(contact ?? {});
+			const profileHref = contact ? `/profiles/${contact.id}` : null;
+
+			// Tier is an ATTRIBUTION judgement — do we hold an identifier that resolves one person?
+			// It was being derived from `actor`, i.e. "the customer promised something, so Tier 1",
+			// which is engagement, not attribution, and the two must never be combined (§4.1).
+			// A phone only reaches Tier 1 on a mobile line (§4.3a).
+			const tier = tierForIdentifiers({
+				hasEmail: !!contact?.email,
+				hasPhone: !!contact?.phone,
+				lineType: lineTypeByPhone.get(toE164(contact?.phone)),
+				hasName: !!contact?.name
+			});
 
 			return {
 				id: si.id,
 				date: dateStr,
 				origin: si.actor === 'CUSTOMER' ? 'CR' : 'OA',
-				channel: isCall ? 'Ph out' : 'out',
+				// Direction follows who owes the next move. On a CUSTOMER commitment they said
+				// they'd come back to us, so nothing outbound is due — labelling it "Ph out"
+				// contradicted the "incoming Call" origin shown right beside it.
+				channel: isCall ? (si.actor === 'CUSTOMER' ? 'Ph in' : 'Ph out') : si.actor === 'CUSTOMER' ? 'in' : 'out',
 				channelIcon: isCall ? 'phone' : 'email',
 				clientId: si.profileId?.slice(-4) || '-',
 				clientName: name,
+				profileHref,
+				tier,
 				intent: si.intentType === 'CUSTOMER_COMMITMENT_A' ? 'A-pend' : 'B-pend',
 				commId: si.id.slice(-8),
-				refId: `id ${Math.floor(Math.random() * 900) + 100}`,
+				// Was `Math.random()`, so the ref id changed on every page load.
+				refId: `id ${si.id.slice(-6)}`,
 				summary: whatHeWants + (rawTimeframe ? ` (said: "${rawTimeframe}")` : ''),
 				title: `${si.actor === 'CUSTOMER' ? 'Customer' : 'We'} ${whatHeWants}`,
 				status: si.status,
@@ -124,6 +192,8 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 					intentType: si.intentType,
 					profileId: si.profileId,
 					clientName: name,
+					profileHref,
+					tier,
 					originalChannel,
 					preferredChannel: p?.preferredChannel || '',
 					createdAt: si.createdAt.toISOString()

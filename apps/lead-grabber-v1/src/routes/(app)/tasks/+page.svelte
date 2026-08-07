@@ -207,7 +207,17 @@
 								{task.channel}
 							</div>
 						</td>
-						<td class="px-4 py-3 font-mono text-sm">{task.clientId}</td>
+						<td class="px-4 py-3 font-mono text-sm">
+							{#if task.profileHref}
+								<a
+									href={task.profileHref}
+									class="text-blue-600 hover:underline"
+									title={task.clientName}>{task.clientId}</a
+								>
+							{:else}
+								{task.clientId}
+							{/if}
+						</td>
 						<td class="px-4 py-3">{task.intent}</td>
 						<td class="px-4 py-3 font-mono text-sm">{task.commId}</td>
 						<td class="px-4 py-3 font-mono text-sm">{task.refId}</td>
@@ -260,10 +270,15 @@
 											<span>comm id-{task.commId}</span>
 											<span>Ref-id {task.refId.replace('id ', '')}</span>
 											<span>{raw.intentType === 'CUSTOMER_COMMITMENT_A' ? 'Opportunity' : 'Service'}</span>
-											<span>Tier {raw.actor === 'CUSTOMER' ? '1' : '2'}</span>
+											<span>{raw.tier ?? 'Tier 2B'}</span>
 										</div>
 										<p class="font-medium text-gray-900 mb-2">
-											Customer id {raw.profileId} {raw.clientName}
+											Customer id {raw.profileId}
+											{#if raw.profileHref}
+												<a href={raw.profileHref} class="text-blue-600 hover:underline">{raw.clientName}</a>
+											{:else}
+												{raw.clientName}
+											{/if}
 										</p>
 										<p class="font-medium text-gray-700 mb-2">
 											Origin {raw.originalChannel === 'email' ? 'incoming email' : raw.originalChannel === 'voice' ? 'incoming Call' : `incoming ${raw.originalChannel}`}
@@ -336,10 +351,14 @@
 											<span>comm id-{task.commId}</span>
 											<span>Ref-id {task.refId.replace('id ', '')}</span>
 											<span>{task.intent === 'opp' ? 'Opportunity' : 'Support'}</span>
-											<span>Tier {task.origin === 'CR' ? '1' : '2'}</span>
 										</div>
 										<p class="font-medium text-gray-900 mb-2">
-											Customer id {task.clientId} {task.clientName}
+											Customer id {task.clientId}
+											{#if task.profileHref}
+												<a href={task.profileHref} class="text-blue-600 hover:underline">{task.clientName}</a>
+											{:else}
+												{task.clientName}
+											{/if}
 										</p>
 										<p class="font-medium text-gray-700 mb-2">
 											Origin {task.channel.includes('Ph') ? 'incoming Call' : 'incoming email'}
