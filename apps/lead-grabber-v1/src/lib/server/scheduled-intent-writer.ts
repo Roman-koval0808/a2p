@@ -49,6 +49,8 @@ export async function writeScheduledIntent(opts: {
 	/** Where the customer reached us on that channel — kept so the §11 fallback can reach them later. */
 	originalTarget?: string | null;
 	conversationId?: string | null;
+	/** The CommunicationLog this promise was extracted from. */
+	commLogId?: string | null;
 	reference?: Date;
 	idempotencyKey: string;
 }): Promise<DualRecordResult> {
@@ -105,6 +107,10 @@ export async function writeScheduledIntent(opts: {
 					originalChannel: opts.channel ?? null,
 					originalTarget: opts.originalTarget ?? null,
 					conversationId: opts.conversationId ?? null,
+					// The CommunicationLog that triggered this promise. The tasks board renders its
+					// COM id from THIS row so the task and the message that created it always show
+					// the same code — deriving one from the container id produced a different hash.
+					commLogId: opts.commLogId ?? null,
 					referenceIso: reference.toISOString()
 				}
 			}

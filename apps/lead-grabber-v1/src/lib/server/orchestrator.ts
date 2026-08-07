@@ -2366,6 +2366,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 							channel: channelType,
 							originalTarget: customerPhone || null,
 							conversationId: containerId,
+							commLogId: commId,
 							idempotencyKey: `orch_suspense_${commId}`
 						});
 						if (written.recorded) {

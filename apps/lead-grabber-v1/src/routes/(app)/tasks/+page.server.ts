@@ -168,28 +168,43 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 		});
 		const contactById = new Map(contacts.map((c) => [c.id, c]));
 
-		// The conversation each intent belongs to. `payload.conversationId` is a CommContainer id;
-		// the human-facing reference is that container's `commRef` (COM-…), which is what appears
-		// everywhere else in the app. Showing a slice of the intent's own id instead made the
-		// column impossible to match against the communications log.
-		const commRefByContainerId = new Map<string, string>();
+		// The COM id for each intent, taken from the COMMUNICATION LOG THAT CREATED IT.
+		//
+		// Not derived, not guessed from the container: the promise records the exact log row it was
+		// extracted from (`payload.commLogId`, and `idempotencyKey` = `orch_suspense_<logId>` for
+		// rows written before that field existed). We load that row and run the SAME `commCode`
+		// call the communications log runs, with its own threadId, commRef, created and id — so
+		// the two screens cannot disagree.
+		const codeByIntentId = new Map<string, string>();
 		try {
-			const containerIds = Array.from(
-				new Set(
-					intents
-						.map((si) => (si.payload as Record<string, any>)?.conversationId)
-						.filter((id): id is string => typeof id === 'string' && !!id)
-				)
-			);
-			if (containerIds.length) {
-				const containers = await prisma.commContainer.findMany({
-					where: { id: { in: containerIds }, companyId },
-					select: { id: true, commRef: true }
+			const logIdByIntent = new Map<string, string>();
+			for (const si of intents) {
+				const fromPayload = (si.payload as Record<string, any>)?.commLogId;
+				const fromKey = si.idempotencyKey?.startsWith('orch_suspense_')
+					? si.idempotencyKey.slice('orch_suspense_'.length)
+					: null;
+				const logId = (typeof fromPayload === 'string' && fromPayload) || fromKey;
+				if (logId) logIdByIntent.set(si.id, logId);
+			}
+
+			const logIds = Array.from(new Set(logIdByIntent.values()));
+			if (logIds.length) {
+				const logs = await prisma.communicationLog.findMany({
+					where: { id: { in: logIds }, companyId },
+					select: { id: true, communicationThreadId: true, metadata: true, created: true }
 				});
-				for (const c of containers) commRefByContainerId.set(c.id, c.commRef);
+				const logById = new Map(logs.map((l) => [l.id, l]));
+				const now = Date.now();
+				for (const [intentId, logId] of logIdByIntent) {
+					const l = logById.get(logId);
+					if (!l) continue;
+					const ref = (l.metadata as Record<string, any> | null)?.commRef ?? null;
+					const code = commCode(l.communicationThreadId, ref, l.created, now, l.id);
+					if (code) codeByIntentId.set(intentId, code);
+				}
 			}
 		} catch (e: any) {
-			console.error('[tasks] could not resolve comm refs:', e?.message || e);
+			console.error('[tasks] could not resolve intent comm codes:', e?.message || e);
 		}
 
 		// Line types for the tier badge, read from the shared cache in one query. A number that was
@@ -257,8 +272,7 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 				// communications log. Falls back to the intent id only when the intent was filed
 				// without a conversation.
 				commId: (() => {
-					const ref = commRefByContainerId.get(p?.conversationId) ?? null;
-					const code = commCode(p?.conversationId ?? null, ref, si.createdAt);
+					const code = codeByIntentId.get(si.id);
 					return code ? `COM-${code}` : '—';
 				})(),
 				// Was `Math.random()`, so the ref id changed on every page load.
