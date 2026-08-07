@@ -71,7 +71,7 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 		// so the route is thread → the comm logs on it → the container reference the orchestrator
 		// stamped into their metadata. Contact is the fallback: the newest container that contact
 		// has. Anything still unresolved shows "—" rather than an invented id.
-		const commRefByThreadId = new Map<string, string>();
+		const codeByThreadId = new Map<string, string>();
 		const commRefByContactId = new Map<string, string>();
 		try {
 			const threadIds = Array.from(
@@ -80,16 +80,18 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 			if (threadIds.length) {
 				const logs = await prisma.communicationLog.findMany({
 					where: { companyId, communicationThreadId: { in: threadIds } },
-					select: { communicationThreadId: true, metadata: true },
+					select: { id: true, communicationThreadId: true, metadata: true, created: true },
 					orderBy: { created: 'desc' }
 				});
+				// Store the COM code computed from the LOG ROW ITSELF, with exactly the arguments
+				// the communications log passes. Recomputing it from the task's own fields produced
+				// a different hash whenever the container ref was absent — which is why the two
+				// screens showed different codes for one conversation.
 				for (const l of logs) {
-					const ref = (l.metadata as Record<string, any> | null)?.commRef;
-					if (l.communicationThreadId && typeof ref === 'string' && ref) {
-						if (!commRefByThreadId.has(l.communicationThreadId)) {
-							commRefByThreadId.set(l.communicationThreadId, ref);
-						}
-					}
+					if (!l.communicationThreadId || codeByThreadId.has(l.communicationThreadId)) continue;
+					const ref = (l.metadata as Record<string, any> | null)?.commRef ?? null;
+					const code = commCode(l.communicationThreadId, ref, l.created, Date.now(), l.id);
+					if (code) codeByThreadId.set(l.communicationThreadId, code);
 				}
 			}
 
@@ -130,13 +132,16 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 				// number (#6352); `commCode` hashes it to the COM-facing form (SHVTB) that every
 				// other screen shows. Displaying the raw ref here is why the two never matched.
 				commId: (() => {
-					const ref =
+					const code =
 						(task.communicationThreadId
-							? commRefByThreadId.get(task.communicationThreadId)
+							? codeByThreadId.get(task.communicationThreadId)
 							: undefined) ??
-						(task.contactId ? commRefByContactId.get(task.contactId) : undefined) ??
-						null;
-					const code = commCode(task.communicationThreadId, ref, task.created);
+						(task.contactId
+							? (() => {
+									const ref = commRefByContactId.get(task.contactId);
+									return ref ? commCode(null, ref, task.created) : undefined;
+								})()
+							: undefined);
 					return code ? `COM-${code}` : '—';
 				})(),
 				refId: `id ${task.id.slice(-6)}`,

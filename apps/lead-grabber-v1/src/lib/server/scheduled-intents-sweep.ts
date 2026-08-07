@@ -64,11 +64,18 @@ export async function checkDueScheduledIntents(
 			// §8: the four checks on the trigger date.
 			const verdict = await verifyDueIntent(intent);
 			if (!verdict.pass) {
-				const skipped = await prisma.scheduledIntent.updateMany({
-					where: { id: intent.id, status: 'PENDING' },
-					data: { status: 'SKIPPED', updatedAt: now }
+				// Through the single guarded door: it re-checks that the row belongs to this
+				// profile and that its date has arrived, so no caller can resolve one customer's
+				// promise with another customer's activity.
+				const { skipIntent } = await import('./intent-resolution');
+				const outcome = await skipIntent({
+					intentId: intent.id,
+					companyId: intent.clientId,
+					profileId: intent.profileId,
+					reason: verdict.reason ?? 'guard_failed',
+					now
 				});
-				if (skipped.count === 0) continue;
+				if (!outcome.skipped) continue;
 				result.skipped++;
 				console.log(`[schedule-sweep] skipped ${intent.id}: ${verdict.reason}`);
 				continue;
