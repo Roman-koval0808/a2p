@@ -23,13 +23,6 @@ import { prisma } from '$lib/db';
 import { matchThreadOpenAI } from './openai';
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-const GENERIC_NAMES = [
-	'Unknown',
-	'Unknown Caller',
-	'Unknown Customer',
-	'Anonymous',
-	'Valued Customer'
-];
 
 export async function linkThreadAndResolveIdentity(opts: {
 	companyId: string;
@@ -136,70 +129,31 @@ export async function linkThreadAndResolveIdentity(opts: {
 				: null);
 
 		if (bridge?.customerId && bridge.customerId !== customerId) {
-			// Fold whichever contact is auto-created into the one with a real name.
-			// Both real (or both auto) → keep the profiles separate.
-			const [newContact, matchedContact] = await Promise.all([
-				customerId
-					? prisma.contact
-							.findUnique({
-								where: { id: customerId },
-								select: { id: true, name: true, email: true, phone: true }
-							})
-							.catch(() => null)
-					: Promise.resolve(null),
-				prisma.contact
-					.findUnique({
-						where: { id: bridge.customerId },
-						select: { id: true, name: true, email: true, phone: true }
-					})
-					.catch(() => null)
-			]);
-			const isAuto = (c: { name: string | null } | null) =>
-				!c?.name || GENERIC_NAMES.includes(c.name.trim());
-
-			const foldInto = async (survivorId: string, survivor: any, foldId: string, fold: any) => {
-				try {
-					// Move the folded contact's comms onto the survivor.
-					await prisma.communicationLog
-						.updateMany({ where: { customerId: foldId }, data: { customerId: survivorId } })
-						.catch(() => {});
-					// Carry its phone/email over when the survivor lacks one.
-					const data: any = {};
-					if (fold?.phone && !survivor?.phone) data.phone = fold.phone;
-					if (fold?.email && !survivor?.email) data.email = fold.email;
-					if (Object.keys(data).length) {
-						await prisma.contact.update({ where: { id: survivorId }, data }).catch(() => {});
-					}
-					// Then remove the duplicate.
-					await prisma.contact.delete({ where: { id: foldId } }).catch(() => {});
-					console.log(
-						`[thread-link] contacts merged: ${foldId} → ${survivorId} (${fold?.phone || fold?.email || 'no contact info'})`
-					);
-				} catch (e) {
-					console.error(`[thread-link] contact merge failed (${foldId} → ${survivorId}):`, e);
-				}
-			};
-
-			if (
-				customerId &&
-				newContact &&
-				matchedContact &&
-				isAuto(newContact) &&
-				!isAuto(matchedContact)
-			) {
-				await foldInto(bridge.customerId, matchedContact, customerId, newContact);
-			} else if (
-				customerId &&
-				newContact &&
-				matchedContact &&
-				!isAuto(newContact) &&
-				isAuto(matchedContact)
-			) {
-				await foldInto(customerId, newContact, bridge.customerId, matchedContact);
-			} else {
+			// Two contacts, matched only by what their messages SAY. That is a resemblance, not an
+			// identifier — and this used to resolve it by deleting one of them.
+			//
+			// A guess never merges (clearsky-one-person-one-record). Two customers asking the same
+			// question in the same fortnight is ordinary, and folding them destroyed a real profile
+			// on the strength of a topic. It also left comm logs and containers pointing at a row
+			// that no longer existed, which is where the foreign-key failures came from.
+			//
+			// Record the possibility and leave both records alone. An exact match on something the
+			// customer typed still merges automatically, elsewhere — that path has evidence.
+			try {
+				const { recordMergeCandidate } = await import('./identity/merge-service');
+				await recordMergeCandidate({
+					companyId,
+					primaryProfileId: bridge.customerId,
+					duplicateProfileId: customerId!,
+					reason: 'thread_text_match',
+					detectedFromCommId: bridge.id
+				});
 				console.log(
-					`[thread-link] skipped contact merge (${customerId?.slice(0, 8)} ${newContact?.name ? `"${newContact.name}"` : 'auto'} ↔ ${bridge.customerId.slice(0, 8)} ${matchedContact?.name ? `"${matchedContact.name}"` : 'auto'}) — profiles kept separate`
+					`[thread-link] contacts NOT merged (${customerId?.slice(0, 8)} ↔ ${bridge.customerId.slice(0, 8)}) — ` +
+						`text similarity is not identity; raised as a merge candidate`
 				);
+			} catch (e) {
+				console.error('[thread-link] failed to record merge candidate:', e);
 			}
 		}
 	} catch (e) {

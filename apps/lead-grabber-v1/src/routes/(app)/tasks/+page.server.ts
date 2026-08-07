@@ -63,6 +63,54 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 			take: 100
 		});
 
+		// The COM reference for each task's conversation.
+		//
+		// This column has to match what the communications log shows (COM-SHVTB), or the two
+		// screens can't be reconciled. A task carries a `communicationThreadId`, not a container,
+		// so the route is thread → the comm logs on it → the container reference the orchestrator
+		// stamped into their metadata. Contact is the fallback: the newest container that contact
+		// has. Anything still unresolved shows "—" rather than an invented id.
+		const commRefByThreadId = new Map<string, string>();
+		const commRefByContactId = new Map<string, string>();
+		try {
+			const threadIds = Array.from(
+				new Set(dbTasks.map((t) => t.communicationThreadId).filter((id): id is string => !!id))
+			);
+			if (threadIds.length) {
+				const logs = await prisma.communicationLog.findMany({
+					where: { companyId, communicationThreadId: { in: threadIds } },
+					select: { communicationThreadId: true, metadata: true },
+					orderBy: { created: 'desc' }
+				});
+				for (const l of logs) {
+					const ref = (l.metadata as Record<string, any> | null)?.commRef;
+					if (l.communicationThreadId && typeof ref === 'string' && ref) {
+						if (!commRefByThreadId.has(l.communicationThreadId)) {
+							commRefByThreadId.set(l.communicationThreadId, ref);
+						}
+					}
+				}
+			}
+
+			const contactIds = Array.from(
+				new Set(dbTasks.map((t) => t.contactId).filter((id): id is string => !!id))
+			);
+			if (contactIds.length) {
+				const containers = await prisma.commContainer.findMany({
+					where: { companyId, contactId: { in: contactIds } },
+					select: { contactId: true, commRef: true },
+					orderBy: { lastActivityAt: 'desc' }
+				});
+				for (const c of containers) {
+					if (c.contactId && !commRefByContactId.has(c.contactId)) {
+						commRefByContactId.set(c.contactId, c.commRef);
+					}
+				}
+			}
+		} catch (e: any) {
+			console.error('[tasks] could not resolve task comm refs:', e?.message || e);
+		}
+
 		const tasks = dbTasks.map((task) => {
 			return {
 				id: task.id,
@@ -75,10 +123,14 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 				// Where to send someone who clicks the name. Null when there's no contact to open.
 				profileHref: task.contactId ? `/profiles/${task.contactId}` : null,
 				intent: task.title.toLowerCase().includes('support') ? 'supp' : 'opp',
-				// These were `Math.random()` — a different "ID" on every page load, so the same task
-				// showed a new comm id and ref id each time it was viewed and nothing could be
-				// matched against a record. Derived from the real IDs instead, so they're stable.
-				commId: task.communicationThreadId || `id-${task.id.slice(-8)}`,
+				// The same COM reference the communications log shows for this conversation.
+				// Was `Math.random()` — a different id on every page load, matching nothing.
+				commId:
+					(task.communicationThreadId
+						? commRefByThreadId.get(task.communicationThreadId)
+						: undefined) ??
+					(task.contactId ? commRefByContactId.get(task.contactId) : undefined) ??
+					'—',
 				refId: `id ${task.id.slice(-6)}`,
 				summary: task.description || task.title,
 				title: task.title,

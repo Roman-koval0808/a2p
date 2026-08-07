@@ -1548,6 +1548,36 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					if (aiMatchedCommId) {
 						// Resolve the matched comm's thread ID (or use its own ID as the thread)
 						matchedComm = recentComms.find((c) => c.id === aiMatchedCommId) ?? null;
+
+						// A thread is one person's conversation, and the COM id on it says so. This
+						// matcher works on message TEXT across the whole company, so it will happily
+						// pair two different customers who asked the same question — "Sam" and
+						// "Bert" both enquiring about air conditioners a fortnight apart.
+						//
+						// Linking those shares one COM id between people we never merged. Identity
+						// decides who shares a thread; wording does not. If the match belongs to a
+						// different contact, keep the threads apart and flag the pair instead.
+						if (matchedComm?.customerId && matchedComm.customerId !== commLog.customerId) {
+							olog(
+								`[Orchestrator] Thread match rejected — comm ${matchedComm.id} belongs to ` +
+									`contact ${matchedComm.customerId}, not ${commLog.customerId}. Same topic is ` +
+									`not the same person; threads kept separate.`
+							);
+							try {
+								const { recordMergeCandidate } = await import('./identity/merge-service');
+								await recordMergeCandidate({
+									companyId: commLog.companyId,
+									primaryProfileId: matchedComm.customerId,
+									duplicateProfileId: commLog.customerId!,
+									reason: 'thread_text_match',
+									detectedFromCommId: matchedComm.id
+								});
+							} catch (e: any) {
+								oerr('[Orchestrator] Failed to record merge candidate:', e);
+							}
+							matchedComm = null;
+						}
+
 						if (matchedComm) {
 							// The matched comm may never have been put in a CommunicationThread
 							// (its communicationThreadId is null). Using its id AS the thread id
@@ -1600,57 +1630,6 @@ export async function process_orchestrator(commId: string, trigger: string) {
 
 				// Update in-memory so draft SMS gets the new thread ID
 				commLog.communicationThreadId = matchedThreadId;
-
-				if (matchedComm?.customerId && matchedComm.customerId !== commLog.customerId) {
-					// Contact resolution: fold the caller's auto-created contact into the matched
-					// one, so the customer has ONE profile. Their comms move, the phone sticks
-					// (so the next call resolves directly), and the duplicate contact is removed.
-					const callerContactId = commLog.customerId;
-					if (callerContactId) {
-						// Only fold contacts that LOOK auto-created (no real name on file) — a
-						// named contact with its own history stays untouched. The matcher may be
-						// wrong, and destroying a real customer profile on a guess is not worth it.
-						const callerContact = await prisma.contact
-							.findUnique({ where: { id: callerContactId }, select: { id: true, name: true } })
-							.catch(() => null);
-						const looksAutoCreated =
-							!callerContact?.name ||
-							[
-								'Unknown',
-								'Unknown Caller',
-								'Unknown Customer',
-								'Anonymous',
-								'Valued Customer'
-							].includes(callerContact.name.trim());
-						if (!looksAutoCreated) {
-							olog(
-								`[Orchestrator] Skipped contact merge: ${callerContactId} has a real name ("${callerContact?.name}") — thread linked, profiles kept separate`
-							);
-						} else {
-							await prisma.communicationLog.update({
-								where: { id: commId },
-								data: { customerId: matchedComm.customerId }
-							});
-							await prisma.communicationLog.updateMany({
-								where: { customerId: callerContactId, id: { not: commId } },
-								data: { customerId: matchedComm.customerId }
-							});
-							if (callerPhone) {
-								await prisma.contact
-									.update({
-										where: { id: matchedComm.customerId },
-										data: { phone: callerPhone }
-									})
-									.catch(() => {});
-							}
-							await prisma.contact.delete({ where: { id: callerContactId } }).catch(() => {});
-							commLog.customerId = matchedComm.customerId;
-							olog(
-								`[Orchestrator] Contacts merged: ${callerContactId} → ${matchedComm.customerId} (${callerPhone || 'no phone'})`
-							);
-						}
-					}
-				}
 			} catch (e) {
 				oerr('[Orchestrator] Thread link / identity bridge failed:', e);
 			}
