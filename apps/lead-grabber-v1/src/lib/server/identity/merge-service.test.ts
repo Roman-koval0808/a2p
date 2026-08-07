@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const tx = {
 	pipelineCustomerProfile: { findFirst: vi.fn(), update: vi.fn() },
 	commIdentifier: { findMany: vi.fn(), update: vi.fn(), delete: vi.fn() },
+	scheduledIntent: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
 	commContainer: { findMany: vi.fn(), updateMany: vi.fn() },
 	pipelineEvent: { findMany: vi.fn(), updateMany: vi.fn() },
 	profileMergeCandidate: { update: vi.fn(), updateMany: vi.fn() }
@@ -77,6 +78,7 @@ function primeTx(overrides: Partial<Record<string, unknown>> = {}) {
 	tx.pipelineEvent.updateMany.mockResolvedValue({ count: 5 });
 	tx.pipelineCustomerProfile.update.mockResolvedValue({ id: 'prof_keep' });
 	tx.profileMergeCandidate.updateMany.mockResolvedValue({ count: 0 });
+	tx.scheduledIntent.updateMany.mockResolvedValue({ count: 0 });
 }
 
 describe('recordMergeCandidate', () => {
@@ -202,6 +204,20 @@ describe('mergeProfiles', () => {
 			data: { customerProfileId: 'prof_keep' }
 		});
 		expect(result.moved).toEqual({ identifiers: 1, containers: 2, events: 5 });
+	});
+
+	it('moves open commitments onto the survivor', async () => {
+		primeTx();
+		tx.scheduledIntent.updateMany.mockResolvedValue({ count: 1 });
+
+		await mergeProfiles({ companyId: 'comp_1', survivorId: 'prof_keep', duplicateId: 'prof_dupe' });
+
+		// `profileId` has no foreign key, so a stranded promise fails silently: the resolver never
+		// finds it, and we chase a customer who already got in touch.
+		expect(tx.scheduledIntent.updateMany).toHaveBeenCalledWith({
+			where: { clientId: 'comp_1', profileId: 'prof_dupe' },
+			data: { profileId: 'prof_keep' }
+		});
 	});
 
 	it('stores a reversal snapshot on the resolved candidate', async () => {

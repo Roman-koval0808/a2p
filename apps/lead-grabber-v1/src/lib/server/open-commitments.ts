@@ -18,6 +18,7 @@
 // air conditioning. Marketing goes quiet; obligations don't.
 
 import { prisma } from '$lib/db';
+import { toE164 } from '$lib/utils/phone';
 
 export interface CommitmentWindow {
 	kind: 'appointment' | 'scheduled_intent' | 'transaction';
@@ -210,15 +211,25 @@ export async function resolvePendingCustomerCommitments(
 	identifiers?: { phone?: string | null; email?: string | null },
 	excludeIdempotencyKey?: string
 ): Promise<number> {
-	// Collect all possible IDs (the CDP profile ID, and any matching CRM Customer IDs)
+	// Collect all possible IDs (the CDP profile ID, and any matching CRM Customer IDs).
+	//
+	// The identifiers arrive in whatever shape the channel handed us, while contacts are stored
+	// canonically (§4.4). Matching raw against canonical silently finds nobody — and a commitment
+	// that can't be found is a customer we chase after they already got in touch. Both forms are
+	// tried so rows written before normalisation still resolve.
 	const targetIds = [profileId];
-	if (identifiers?.phone || identifiers?.email) {
+	const phoneVariants = Array.from(
+		new Set([identifiers?.phone, toE164(identifiers?.phone)].filter((p): p is string => !!p))
+	);
+	const emailKey = identifiers?.email?.trim().toLowerCase() || null;
+
+	if (phoneVariants.length || emailKey) {
 		const crmContacts = await prisma.contact.findMany({
 			where: {
 				companyId,
 				OR: [
-					...(identifiers.phone ? [{ phone: identifiers.phone }] : []),
-					...(identifiers.email ? [{ email: identifiers.email }] : [])
+					...(phoneVariants.length ? [{ phone: { in: phoneVariants } }] : []),
+					...(emailKey ? [{ email: { equals: emailKey, mode: 'insensitive' as const } }] : [])
 				]
 			},
 			select: { id: true }

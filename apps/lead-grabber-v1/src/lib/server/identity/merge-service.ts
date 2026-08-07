@@ -146,6 +146,20 @@ export async function mergeProfiles(input: {
 			data: { customerProfileId: survivorId }
 		});
 
+		// Open commitments follow the person too. `ScheduledIntent.profileId` is a plain string with
+		// no foreign key, so nothing would have complained — the promises would simply have stayed
+		// on the retired record, invisible to the resolver, and we would have chased a customer who
+		// had already been in touch (or missed the suspense date entirely).
+		const intents = await tx.scheduledIntent.updateMany({
+			where: { clientId: companyId, profileId: duplicateId },
+			data: { profileId: survivorId }
+		});
+		if (intents.count > 0) {
+			console.log(
+				`[merge-service] Moved ${intents.count} scheduled intent(s) ${duplicateId} → ${survivorId}`
+			);
+		}
+
 		// Union the field data. Survivor wins; duplicate fills gaps.
 		const survivorAttrs = (survivor.attributes as Record<string, unknown>) || {};
 		const duplicateAttrs = (duplicate.attributes as Record<string, unknown>) || {};

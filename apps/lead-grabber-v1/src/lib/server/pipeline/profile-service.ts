@@ -82,6 +82,12 @@ export async function resolveAndMergeLocalProfile(tx: any, args: ResolveLocalPro
 				where: { customerProfileId: profileByPhone.id },
 				data: { customerProfileId: profileByEmail.id }
 			});
+			// Open commitments follow the person, or a promise made before the merge is stranded on
+			// the retired record and the resolver never sees it again.
+			await tx.scheduledIntent.updateMany({
+				where: { clientId: companyId, profileId: profileByPhone.id },
+				data: { profileId: profileByEmail.id }
+			});
 			// (companyId, kind, value) is unique on identifiers, so anything the survivor already
 			// holds would collide — move only what's genuinely new.
 			const survivorKeys = await tx.commIdentifier.findMany({
