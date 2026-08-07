@@ -78,6 +78,14 @@ vi.mock('$lib/server/phone-geo', () => ({
 	dayOfWeek: vi.fn().mockReturnValue('Monday'),
 	lookupLineType: vi.fn().mockResolvedValue({ lineType: 'mobile', carrier: 'TestMobile' })
 }));
+// The orchestrator asks for the caller's line type before choosing a channel (§4.3a). These
+// fixtures are ordinary mobile customers, so replying by SMS is permitted — without this the
+// lookup returns 'unknown', which is Tier 2, and every SMS draft is correctly suppressed.
+vi.mock('$lib/server/number-lookup', () => ({
+	getLineType: vi.fn().mockResolvedValue('mobile'),
+	getLineInfo: vi.fn().mockResolvedValue({ lineType: 'mobile', carrier: 'TestMobile' }),
+	lookupNumberCached: vi.fn().mockResolvedValue({ lineType: 'mobile', carrier: 'TestMobile' })
+}));
 vi.mock('$lib/server/weather', () => ({
 	weatherForLocation: vi.fn().mockResolvedValue({ tempF: 72, description: 'Sunny', icon: 'sun' })
 }));
@@ -159,6 +167,7 @@ vi.mock('./message-intent', async (importActual) => {
 	return { ...actual, classifyMessageIntent: vi.fn() };
 });
 
+import { getLineType } from '$lib/server/number-lookup';
 import { classifyMessageIntent } from './message-intent';
 import { executeInstructions } from './orchestrator/command-registry';
 import { isAffirmative, findPendingProposal } from './appointment-flow';
@@ -229,10 +238,81 @@ function resetMocks() {
 	(isAffirmative as any).mockReturnValue(false);
 	(findPendingProposal as any).mockResolvedValue(null);
 	(decideRouting as any).mockReturnValue({ dispatchToTech: false, reason: 'non-emergency' });
+	// Line type decides the tier, and the tier decides whether a reply may leave the channel it
+	// arrived on. Reset it per test: `clearAllMocks` keeps implementations, so a case that sets
+	// 'landline' would otherwise silently suppress SMS for every test after it.
+	(getLineType as any).mockResolvedValue('mobile');
 }
 
 describe('process_orchestrator', () => {
 	beforeEach(resetMocks);
+
+	// ============================================================
+	// SAME-CHANNEL RESPONSE RULE (§4.3 / §4.3a)
+	// ============================================================
+
+	describe('same-channel response rule', () => {
+		/** The decision is recorded on the comm log, so assert it there rather than on a draft
+		 *  that this fixture may not produce for unrelated reasons. */
+		function tierDecision() {
+			const call = (prisma.communicationLog.update as any).mock.calls.find(
+				(c: any[]) => (c[0]?.data?.metadata as any)?.identity_tier
+			);
+			return (call?.[0]?.data?.metadata ?? {}) as Record<string, unknown>;
+		}
+
+		// Fresh `metadata` per fixture: `baseCommLog.metadata` is one shared object and the
+		// orchestrator mutates it, so a second test would see `orchestrator_processed` from the
+		// first and abort as an already-handled retry.
+		const noEmail = () =>
+			makeComm({ metadata: {}, customer: { ...baseCommLog.customer, email: null } });
+
+		it('a landline caller is Tier 2 and restricted to the line they rang from', async () => {
+			const { getLineType } = await import('$lib/server/number-lookup');
+			(getLineType as any).mockResolvedValue('landline');
+			(prisma.communicationLog.findUnique as any).mockResolvedValue(noEmail());
+
+			await process_orchestrator('comm_1', 'ai_ready');
+
+			expect(tierDecision().identity_tier).toBe('Tier 2');
+			expect(tierDecision().same_channel_only).toBe(true);
+		});
+
+		it('a mobile caller is Tier 1 and unrestricted — a mobile is one person', async () => {
+			const { getLineType } = await import('$lib/server/number-lookup');
+			(getLineType as any).mockResolvedValue('mobile');
+			(prisma.communicationLog.findUnique as any).mockResolvedValue(noEmail());
+
+			await process_orchestrator('comm_1', 'ai_ready');
+
+			expect(tierDecision().identity_tier).toBe('Tier 1');
+			expect(tierDecision().same_channel_only).toBe(false);
+		});
+
+		it('a failed lookup is treated as a shared line — never default upward', async () => {
+			const { getLineType } = await import('$lib/server/number-lookup');
+			(getLineType as any).mockResolvedValue('unknown');
+			(prisma.communicationLog.findUnique as any).mockResolvedValue(noEmail());
+
+			await process_orchestrator('comm_1', 'ai_ready');
+
+			expect(tierDecision().identity_tier).toBe('Tier 2');
+			expect(tierDecision().same_channel_only).toBe(true);
+		});
+
+		it('an email on file lifts the restriction even on a landline', async () => {
+			const { getLineType } = await import('$lib/server/number-lookup');
+			(getLineType as any).mockResolvedValue('landline');
+			(prisma.communicationLog.findUnique as any).mockResolvedValue(
+				makeComm({ metadata: {}, customer: { ...baseCommLog.customer, email: 'bert@x.com' } })
+			);
+
+			await process_orchestrator('comm_1', 'ai_ready');
+
+			expect(tierDecision().identity_tier).toBe('Tier 1');
+			expect(tierDecision().same_channel_only).toBe(false);
+		});
+	});
 
 	// ============================================================
 	// GUARD CLAUSES

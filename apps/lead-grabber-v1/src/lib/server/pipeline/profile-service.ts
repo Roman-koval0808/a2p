@@ -1,4 +1,5 @@
 import { prisma } from '$lib/db';
+import { toE164 } from '$lib/utils/phone';
 
 interface ResolveLocalProfileArgs {
 	companyId: string;
@@ -13,7 +14,13 @@ interface ResolveLocalProfileArgs {
  * If conflicts occur (different profiles matching email vs phone), merges them.
  */
 export async function resolveAndMergeLocalProfile(tx: any, args: ResolveLocalProfileArgs) {
-	const { companyId, email, phone, name, sessionId } = args;
+	const { companyId, name, sessionId } = args;
+
+	// Identity keys are canonical before they are looked up or stored (§4.4). Raw values meant
+	// "Bert@X.com" missed "bert@x.com" and "7052642251" missed "+17052642251", so the same person
+	// was looked up, not found, and created again.
+	const email = args.email?.trim().toLowerCase() || null;
+	const phone = toE164(args.phone) || null;
 
 	// 1. Try to find existing profiles by email and phone
 	let profileByEmail = null;
@@ -21,7 +28,9 @@ export async function resolveAndMergeLocalProfile(tx: any, args: ResolveLocalPro
 
 	if (email) {
 		profileByEmail = await tx.pipelineCustomerProfile.findFirst({
-			where: { companyId, email }
+			// Case-insensitive so rows written before normalisation still resolve here rather than
+			// forking a second record.
+			where: { companyId, email: { equals: email, mode: 'insensitive' } }
 		});
 	}
 
@@ -62,11 +71,35 @@ export async function resolveAndMergeLocalProfile(tx: any, args: ResolveLocalPro
 			// Conflict: Two different profiles exist. Merge profileByPhone into profileByEmail.
 			customerProfile = profileByEmail;
 			
-			// Update all related records pointing to profileByPhone to point to profileByEmail
+			// Point everything hanging off the phone profile at the survivor. Containers and
+			// identifiers move too — moving only the events left the rest orphaned on a record
+			// that was about to disappear.
 			await tx.pipelineEvent.updateMany({
 				where: { customerProfileId: profileByPhone.id },
 				data: { customerProfileId: profileByEmail.id }
 			});
+			await tx.commContainer.updateMany({
+				where: { customerProfileId: profileByPhone.id },
+				data: { customerProfileId: profileByEmail.id }
+			});
+			// (companyId, kind, value) is unique on identifiers, so anything the survivor already
+			// holds would collide — move only what's genuinely new.
+			const survivorKeys = await tx.commIdentifier.findMany({
+				where: { customerProfileId: profileByEmail.id },
+				select: { kind: true, value: true }
+			});
+			const held = new Set(survivorKeys.map((k: any) => `${k.kind}:${k.value}`));
+			const moving = await tx.commIdentifier.findMany({
+				where: { customerProfileId: profileByPhone.id },
+				select: { id: true, kind: true, value: true }
+			});
+			for (const k of moving) {
+				if (held.has(`${k.kind}:${k.value}`)) continue;
+				await tx.commIdentifier.update({
+					where: { id: k.id },
+					data: { customerProfileId: profileByEmail.id }
+				});
+			}
 
 			// Merge tags
 			let mergedTags = [];
@@ -77,6 +110,23 @@ export async function resolveAndMergeLocalProfile(tx: any, args: ResolveLocalPro
 			} catch (e) {
 				mergedTags = profileByEmail.tags || [];
 			}
+
+			// Retire the phone profile FIRST — never delete it. Its ID is sitting in cookies,
+			// conversation threads and task records, and looking one up has to keep working by
+			// following `mergedInto` to the survivor.
+			//
+			// It has to give up its identifiers before the survivor can take them:
+			// (companyId, phoneNumber) is unique, so claiming the number while the loser still
+			// holds it is a constraint violation.
+			await tx.pipelineCustomerProfile.update({
+				where: { id: profileByPhone.id },
+				data: {
+					email: null,
+					phoneNumber: null,
+					mergedInto: profileByEmail.id,
+					status: 'merged'
+				}
+			});
 
 			// Update primary profile fields
 			const updates: any = {
@@ -93,11 +143,6 @@ export async function resolveAndMergeLocalProfile(tx: any, args: ResolveLocalPro
 			await tx.pipelineCustomerProfile.update({
 				where: { id: profileByEmail.id },
 				data: updates
-			});
-
-			// Delete the phone profile
-			await tx.pipelineCustomerProfile.delete({
-				where: { id: profileByPhone.id }
 			});
 		}
 	} else if (profileByEmail) {
@@ -136,7 +181,11 @@ export async function resolveAndMergeLocalProfile(tx: any, args: ResolveLocalPro
 		}
 	}
 
-	// 4. Fallback: Name match if displayName matches name exactly and we didn't find by email/phone
+	// 4. Fallback: Name match if displayName matches name exactly and we didn't find by email/phone.
+	//
+	// NB this is the one weak match here — two people share a name routinely. It attaches to an
+	// existing record rather than merging two, so it can't fuse two histories, but it is why a name
+	// alone never earns Tier 1.
 	if (!customerProfile && name) {
 		customerProfile = await tx.pipelineCustomerProfile.findFirst({
 			where: { companyId, displayName: name }
@@ -159,24 +208,48 @@ export async function resolveAndMergeLocalProfile(tx: any, args: ResolveLocalPro
 		// Try to pull name/details from existing Svelte Contact model if we have a match
 		let contactName = name || null;
 		if (phone) {
-			const existingContact = await tx.contact.findFirst({
-				where: { companyId, phone }
+			// Contacts may hold the number in any legacy format, so compare canonical-to-canonical
+			// rather than exact-matching a string that was never normalised on the way in.
+			const candidates = await tx.contact.findFirst({
+				where: { companyId, OR: [{ phone }, { phone: args.phone ?? undefined }] }
 			});
+			const existingContact = candidates;
 			if (existingContact && existingContact.name && !contactName) {
 				contactName = existingContact.name;
 			}
 		}
 
-		customerProfile = await tx.pipelineCustomerProfile.create({
-			data: {
-				companyId,
-				email: email || null,
-				phoneNumber: phone || null,
-				displayName: contactName || null,
-				firstName: contactName ? contactName.split(' ')[0] : null,
-				tags: ["Resolved Profile"]
-			}
-		});
+		// A person is only created when the lookup above found nobody. If a concurrent request
+		// created them a moment ago, the unique constraint on (companyId, email) / (companyId,
+		// phoneNumber) rejects this write — and the answer is to go back to the lookup and use
+		// what they created, never to retry with a second record.
+		try {
+			customerProfile = await tx.pipelineCustomerProfile.create({
+				data: {
+					companyId,
+					email: email || null,
+					phoneNumber: phone || null,
+					displayName: contactName || null,
+					firstName: contactName ? contactName.split(' ')[0] : null,
+					tags: ['Resolved Profile']
+				}
+			});
+		} catch (err: any) {
+			if (err?.code !== 'P2002') throw err;
+			customerProfile = await tx.pipelineCustomerProfile.findFirst({
+				where: {
+					companyId,
+					OR: [
+						...(email ? [{ email }] : []),
+						...(phone ? [{ phoneNumber: phone }] : [])
+					]
+				}
+			});
+			if (!customerProfile) throw err;
+			console.log(
+				`[profile-service] Lost a create race for ${email || phone} — using the existing profile ${customerProfile.id}`
+			);
+		}
 	} else {
 		// If name is provided and current name is empty/short, update it
 		if (name && (!customerProfile.displayName || customerProfile.displayName.length < name.length)) {

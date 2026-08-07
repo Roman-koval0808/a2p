@@ -38,6 +38,8 @@ import {
 } from '$lib/server/appointment-flow';
 import { buildBalanceEmail, wantsEmailedBalance } from '$lib/server/billing-email';
 import { phoneGeo, dayOfWeek, lookupLineType } from '$lib/server/phone-geo';
+import { getLineType } from '$lib/server/number-lookup';
+import { TIER, tierForIdentifiers } from '$lib/server/profiledb/tiers';
 import { weatherForLocation } from '$lib/server/weather';
 
 export async function process_orchestrator(commId: string, trigger: string) {
@@ -332,6 +334,37 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// Marking before the work — not after — means a failed run won't auto-retry, which is
 	// the right trade-off here: better to under-process than to double-charge engagement.
 	// Mutating the local metadata too keeps later `{ ...metadata }` writes consistent.
+	// --- §4.3 The Same-Channel Response Rule -------------------------------------------------
+	//
+	// A Tier 2 event is answered only on the channel it arrived on. We know which LINE rang, not
+	// which person — so the one safe reply is back to the place the contact came from. Crossing to
+	// SMS or email would be writing to whoever else shares that handset.
+	//
+	// Only an identifier exclusive to one person lifts the restriction: an email address, or a
+	// phone on a mobile line (§4.3a). A landline or VoIP caller becomes Tier 1 the moment they
+	// give us one — which is why capturing a mobile or an email on such a call is the whole job.
+	const arrivalChannel: 'sms' | 'email' | 'voice' =
+		commLog.type === 'sms' ? 'sms' : commLog.type === 'email' ? 'email' : 'voice';
+
+	const callerLineType = customerPhone ? await getLineType(customerPhone) : undefined;
+	const callerTier = tierForIdentifiers({
+		hasEmail: !!customer.email,
+		hasPhone: !!customerPhone,
+		lineType: callerLineType,
+		inboundSms: arrivalChannel === 'sms' && commLog.direction === 'inbound',
+		hasName: !!customer.name
+	});
+	const sameChannelOnly = callerTier !== TIER.IDENTIFIED;
+
+	if (sameChannelOnly) {
+		olog(
+			`[Orchestrator] ${callerTier} (line=${callerLineType ?? 'n/a'}) — same-channel only (§4.3): ` +
+				`reply on ${arrivalChannel} and nothing else until they give a mobile or an email.`
+		);
+	}
+	metadata.identity_tier = callerTier;
+	metadata.same_channel_only = sameChannelOnly;
+
 	metadata.orchestrator_processed = true;
 	try {
 		await prisma.communicationLog.update({
@@ -398,6 +431,15 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	let draftedResponse = '';
 	let draftChannel: 'sms' | 'email' =
 		metadata.requested_contact_method === 'email' || commLog.type === 'email' ? 'email' : 'sms';
+
+	// A shared-line caller cannot be moved onto another channel, however they asked. Their stated
+	// preference is not evidence of who they are.
+	if (sameChannelOnly && arrivalChannel !== 'voice' && draftChannel !== arrivalChannel) {
+		olog(
+			`[Orchestrator] Reply channel forced ${draftChannel} → ${arrivalChannel} (${callerTier}, §4.3).`
+		);
+		draftChannel = arrivalChannel;
+	}
 	let emailSubject = '';
 	let proposedAppointment: any = null;
 	let skipSafetyNet = false;
@@ -1794,6 +1836,18 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		} catch (err) {
 			oerr('[Orchestrator] Failed to log pending email:', err);
 		}
+	}
+	// §4.3: a shared-line caller who reached us by VOICE gets answered on that line — a call back,
+	// nothing else. Texting the number would be writing to whichever colleague or family member
+	// picks the handset up next, about a matter that isn't theirs. The reply is dropped rather
+	// than re-routed, and the call still surfaces to a human through the normal queue.
+	else if (draftedResponse && sameChannelOnly && arrivalChannel === 'voice') {
+		olog(
+			`[Orchestrator] SMS draft suppressed — ${callerTier} caller reached us by voice, so the ` +
+				`only permitted reply is a call back to that line (§4.3). Capture a mobile or an ` +
+				`email on the callback to lift this.`
+		);
+		metadata.suppressed_cross_channel_draft = 'voice_shared_line';
 	}
 	// If we drafted an SMS response, save it as pending_approval
 	else if (draftedResponse && companyNumber && customerPhone) {

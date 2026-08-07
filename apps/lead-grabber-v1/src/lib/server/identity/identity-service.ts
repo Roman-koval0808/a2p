@@ -158,9 +158,22 @@ export async function enrichProfilePostTranscription(
 		customerProfileId: string;
 		extractedName?: string | null;
 		extractedEmail?: string | null;
+		/**
+		 * How we came by `extractedEmail`, which decides whether an exact match may merge on its own.
+		 *
+		 * `typed`    — the customer supplied it themselves: the From: address of a mail they sent,
+		 *              a form field. Exclusive and exact, so an exact match IS the same person.
+		 * `inferred` — a machine's reading of what they said: an address parsed out of a voicemail
+		 *              transcript. Emails spelled aloud are misheard routinely, so this is a guess
+		 *              about the identifier, and a guess never merges. Flagged for a human instead.
+		 *
+		 * Defaults to `inferred`: a caller that hasn't thought about it gets the safe behaviour.
+		 */
+		emailSource?: 'typed' | 'inferred';
 	}
 ): Promise<{
 	updatedProfile: any;
+	merged?: { survivorId: string; mergedId: string };
 	mergeCandidate?: {
 		profileId: string;
 		reason: string;
@@ -179,6 +192,7 @@ export async function enrichProfilePostTranscription(
 	const name = input.extractedName?.trim();
 
 	let mergeCandidate: { profileId: string; reason: string } | undefined;
+	let merged: { survivorId: string; mergedId: string } | undefined;
 
 	// Check if extracted email matches an existing profile with a different phone number
 	if (email && email !== current.email) {
@@ -191,12 +205,54 @@ export async function enrichProfilePostTranscription(
 		});
 
 		if (existingByEmail) {
-			// Spec I-3: Raised as merge candidate, NOT auto-merged!
-			mergeCandidate = {
-				profileId: existingByEmail.id,
-				reason: `email_match (${email})`
-			};
+			// An email address belongs to exactly one person. If the customer themselves supplied
+			// it, an exact match is not a resemblance — it IS the same person, and holding it in a
+			// queue just leaves two records accruing separate history until someone notices.
+			//
+			// The old objection to auto-merging ("data loss and incorrect task attribution") was an
+			// objection to DESTRUCTIVE merges. `mergeProfiles` points the keys at the survivor and
+			// tombstones the loser, so nothing is lost and old IDs still resolve.
+			//
+			// Only for `typed`. An address a machine heard in a voicemail is a guess, and guesses
+			// get flagged. Also skipped inside a caller's transaction, since the merge opens its own.
+			const canAutoMerge = input.emailSource === 'typed' && !tx;
+
+			if (canAutoMerge) {
+				try {
+					const { mergeProfiles } = await import('./merge-service');
+					// The record already keyed by the exclusive identifier survives; the one we were
+					// enriching (usually a thin profile from a phone call) folds into it.
+					const result = await mergeProfiles({
+						companyId: input.companyId,
+						survivorId: existingByEmail.id,
+						duplicateId: current.id
+					});
+					merged = { survivorId: result.survivorId, mergedId: result.mergedId };
+					console.log(
+						`[identity] Auto-merged on exact typed email match (${email}): ` +
+							`${result.mergedId} → ${result.survivorId}`
+					);
+				} catch (err: any) {
+					// Never let a merge failure lose the enrichment — fall back to flagging it.
+					console.error('[identity] Auto-merge failed, raising as candidate:', err?.message || err);
+					mergeCandidate = { profileId: existingByEmail.id, reason: `email_match (${email})` };
+				}
+			} else {
+				mergeCandidate = {
+					profileId: existingByEmail.id,
+					reason: `email_match (${email})${input.emailSource === 'typed' ? '' : ' — inferred, not typed'}`
+				};
+			}
 		}
+	}
+
+	// A merge already moved this profile's history onto the survivor. Updating the tombstone now
+	// would write to a retired record, so hand the survivor back and stop here.
+	if (merged) {
+		const survivor = await db.pipelineCustomerProfile.findUnique({
+			where: { id: merged.survivorId }
+		});
+		return { updatedProfile: survivor, merged };
 	}
 
 	// Check if name matches existing profile

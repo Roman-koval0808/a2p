@@ -3,7 +3,7 @@ import { getConnectionAccessToken } from '../google-calendar';
 import { processInboundEmail, type InboundEmailPayload } from './bridge';
 import { logCommunication } from '$lib/utils/communication-log';
 import { createOrUpdateContact } from '$lib/utils/contacts';
-import { extractCallbackNumber, normalizePhoneNumber } from '$lib/utils/phone';
+import { extractCallbackNumber, normalizePhoneNumber, toE164 } from '$lib/utils/phone';
 import { sanitizeEmailBody, isMarketingBlast } from './sanitize';
 import { UnifiedPipeline } from '$lib/server/pipeline/unified-pipeline';
 import { enrichProfilePostTranscription } from '$lib/server/identity/identity-service';
@@ -682,11 +682,19 @@ async function syncCompanyEmailsInner(companyId: string) {
 							}
 						}
 
-						const senderEmail = (analysis.ai_extracted_email || customerEmail).toLowerCase();
+						const senderEmail = (analysis.ai_extracted_email || customerEmail)
+							.trim()
+							.toLowerCase();
+						// Provenance matters more than the value: the From: header is what the sender's
+						// own mail client put there, while `ai_extracted_email` is a model's reading of
+						// the body. Only the former may merge two records on its own.
+						const senderEmailSource: 'typed' | 'inferred' = analysis.ai_extracted_email
+							? 'inferred'
+							: 'typed';
 						const extractedPhone = (analysis.ai_extracted_phone || callbackPhone || '').trim();
-						const normalizedExtractedPhone = extractedPhone
-							? normalizePhoneNumber(extractedPhone)
-							: null;
+						// Identity key, so canonical E.164 — `normalizePhoneNumber` only strips
+						// formatting and left "7052642251" as a different person from "+17052642251".
+						const normalizedExtractedPhone = extractedPhone ? toE164(extractedPhone) : null;
 						// This object REPLACES the metadata written when the log row was
 						// created — anything not repeated here is lost. That is what kept
 						// erasing the Subject: header (and the sanitisation flag) seconds
@@ -732,27 +740,43 @@ async function syncCompanyEmailsInner(companyId: string) {
 									phoneCandidates.find(
 										(p: any) =>
 											(p.phoneNumber &&
-												normalizePhoneNumber(p.phoneNumber) === normalizedExtractedPhone) ||
+												toE164(p.phoneNumber) === normalizedExtractedPhone) ||
 											p.identifiers.some(
 												(i: any) =>
 													i.kind === 'phone' &&
-													normalizePhoneNumber(i.value) === normalizedExtractedPhone
+													toE164(i.value) === normalizedExtractedPhone
 											)
 									) ?? null;
 							}
 							if (!profile) {
+								// Case-insensitive: a row stored as "Bert@X.com" is the same person as
+								// "bert@x.com", and exact-matching the raw string created a second one.
 								profile = await prisma.pipelineCustomerProfile.findFirst({
-									where: { companyId, email: senderEmail }
+									where: {
+										companyId,
+										email: { equals: senderEmail, mode: 'insensitive' }
+									}
 								});
 							}
 							if (!profile) {
-								profile = await prisma.pipelineCustomerProfile.create({
-									data: {
-										companyId,
-										email: senderEmail,
-										displayName: customerName || senderEmail
-									}
-								});
+								// Only reached when the lookup found nobody. A concurrent create wins
+								// on the unique constraint and we adopt their record rather than
+								// making a second one for the same address.
+								try {
+									profile = await prisma.pipelineCustomerProfile.create({
+										data: {
+											companyId,
+											email: senderEmail,
+											displayName: customerName || senderEmail
+										}
+									});
+								} catch (err: any) {
+									if (err?.code !== 'P2002') throw err;
+									profile = await prisma.pipelineCustomerProfile.findFirst({
+										where: { companyId, email: { equals: senderEmail, mode: 'insensitive' } }
+									});
+									if (!profile) throw err;
+								}
 							}
 							if (normalizedExtractedPhone) {
 								// Link the phone to the profile it resolved to so future calls, SMS, or
@@ -788,7 +812,10 @@ async function syncCompanyEmailsInner(companyId: string) {
 								companyId,
 								customerProfileId: profile.id,
 								extractedName: analysis.callerName || customerName,
-								extractedEmail: senderEmail
+								extractedEmail: senderEmail,
+								// Only the From: header counts as supplied by them; an address the model
+								// read out of the body is a guess and gets flagged, not merged.
+								emailSource: senderEmailSource
 							});
 							if (enrichResult.mergeCandidate) {
 								metadata.merge_candidate = {
