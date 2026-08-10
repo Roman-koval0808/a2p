@@ -95,6 +95,19 @@ export async function linkThreadAndResolveIdentity(opts: {
 		}
 
 		// --- Thread link from the primary match (the conversation continuation). ---
+		//
+		// Only ever within one person. A thread carries a COM id, and sharing that id asserts
+		// "same customer" — an assertion a semantic text match is not entitled to make. Bert's
+		// email and Sam's voicemail are the same topic and different people; linking them put one
+		// COM id across two customers.
+		if (primary && primary.customerId && customerId && primary.customerId !== customerId) {
+			console.log(
+				`[thread-link] NOT linking ${commId} to ${primary.id} — that thread belongs to ` +
+					`contact ${primary.customerId}, not ${customerId}. Same topic is not the same person.`
+			);
+			primary = null;
+		}
+
 		if (primary) {
 			let threadId = primary.communicationThreadId;
 			if (!threadId) {
