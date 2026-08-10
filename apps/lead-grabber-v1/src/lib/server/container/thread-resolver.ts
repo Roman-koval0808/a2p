@@ -33,6 +33,16 @@ export interface ThreadResolverInput {
 	excludeCommIds?: string[];
 	/** How far back to look for company-wide open containers (default 14 days). */
 	windowDays?: number;
+	/**
+	 * The caller's contact id. When set, the resolver will reject matches to containers
+	 * that belong to a DIFFERENT contact (cross-customer guard).
+	 */
+	callerContactId?: string | null;
+	/**
+	 * The caller's customer profile id. Checked as a fallback when the container has no
+	 * contactId but does have a customerProfileId.
+	 */
+	callerCustomerProfileId?: string | null;
 }
 
 export interface ContainerCandidate {
@@ -389,6 +399,40 @@ export async function resolveContextContainer(
 		return { matched: false, candidates, reason: match.reason };
 	}
 
+	// --- Cross-customer guard ---------------------------------------------------
+	// The company-wide fallback offers EVERY open container to the AI, regardless of
+	// owner. The AI judges topic similarity, not identity — two customers asking
+	// about HVAC in the same fortnight will look like continuations. Sharing a COM id
+	// asserts "same person", so reject matches where the container demonstrably
+	// belongs to a different customer.
+	const callerContact = input.callerContactId || input.contactId;
+	const callerProfile = input.callerCustomerProfileId || input.customerProfileId;
+	if (callerContact || callerProfile) {
+		const matchedContainer = await prisma.commContainer.findUnique({
+			where: { id: match.commId },
+			select: { contactId: true, customerProfileId: true }
+		});
+		if (matchedContainer) {
+			const contactMismatch =
+				!!matchedContainer.contactId &&
+				!!callerContact &&
+				matchedContainer.contactId !== callerContact;
+			const profileMismatch =
+				!matchedContainer.contactId &&
+				!!matchedContainer.customerProfileId &&
+				!!callerProfile &&
+				matchedContainer.customerProfileId !== callerProfile;
+
+			if (contactMismatch || profileMismatch) {
+				return {
+					matched: false,
+					candidates,
+					reason: 'cross_customer_blocked'
+				};
+			}
+		}
+	}
+
 	return {
 		matched: true,
 		commId: match.commId,
@@ -561,7 +605,11 @@ export async function resolveAndLinkContext(
 					...(meta.commId ? [meta.commId] : []),
 					...(meta.commContainerId ? [meta.commContainerId] : [])
 				],
-				windowDays: opts?.windowDays
+				windowDays: opts?.windowDays,
+				// Cross-customer guard: pass the caller's identity so the resolver can
+				// reject matches to containers owned by a different customer.
+				callerContactId: log.customerId || null,
+				callerCustomerProfileId: meta.customerProfileId || null
 			},
 			opts?.ai ? { ai: opts.ai } : {}
 		);

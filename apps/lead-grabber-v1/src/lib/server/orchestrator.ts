@@ -485,7 +485,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				// The message's own arrival time: containers opened AFTER it (the pipeline pre-creates
 				// one per message) cannot be conversations it continues.
 				occurredAt: commLog.created,
-				excludeCommIds: [metadata.commContainerId, metadata.commId].filter(Boolean) as string[]
+				excludeCommIds: [metadata.commContainerId, metadata.commId].filter(Boolean) as string[],
+				callerContactId: customer.id,
+				callerCustomerProfileId: pipelineCustomerProfileId || null
 			});
 			if (resolution.matched && resolution.commId) {
 				const viaContainer = await findPendingProposal(commLog.companyId, customerPhone || '', {
@@ -729,7 +731,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					subject: commLog.summary || ((commLog.metadata as any)?.subject ?? null),
 					content: rawMessage,
 					occurredAt: commLog.created,
-					excludeCommIds: container ? [container.id] : []
+					excludeCommIds: container ? [container.id] : [],
+					callerContactId: customer.id,
+					callerCustomerProfileId: pipelineCustomerProfileId || null
 				});
 				if (res.matched && res.commId && res.commId !== container?.id) {
 					const matched = await prisma.commContainer.findUnique({ where: { id: res.commId } });
@@ -1098,7 +1102,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 							subject: commLog.summary || ((commLog.metadata as any)?.subject ?? null),
 							content: rawMessage,
 							occurredAt: commLog.created,
-							excludeCommIds: supportContainer ? [supportContainer.id] : []
+							excludeCommIds: supportContainer ? [supportContainer.id] : [],
+							callerContactId: customer.id,
+							callerCustomerProfileId: pipelineCustomerProfileId || null
 						});
 						if (res.matched && res.commId && res.commId !== supportContainer?.id) {
 							const matched = await prisma.commContainer.findUnique({ where: { id: res.commId } });
@@ -1678,7 +1684,9 @@ export async function process_orchestrator(commId: string, trigger: string) {
 				occurredAt: commLog.created,
 				// The booking/support flows create a container for THIS comm earlier in this
 				// function — never let the matcher pick the comm's own container.
-				excludeCommIds: [metadata.commContainerId, metadata.commId].filter(Boolean) as string[]
+				excludeCommIds: [metadata.commContainerId, metadata.commId].filter(Boolean) as string[],
+				callerContactId: customer.id,
+				callerCustomerProfileId: pipelineCustomerProfileId || null
 			});
 
 			if (resolution.matched && resolution.commId && resolution.candidate) {
@@ -1702,7 +1710,13 @@ export async function process_orchestrator(commId: string, trigger: string) {
 					select: { contactId: true, customerProfileId: true }
 				});
 				const belongsToSomeoneElse =
-					!!matchedContainer?.contactId && matchedContainer.contactId !== customer.id;
+					(!!matchedContainer?.contactId && matchedContainer.contactId !== customer.id) ||
+					// Fallback: if the container has no contactId (pipeline-created) but has a
+					// different customerProfileId, it still belongs to someone else.
+					(!matchedContainer?.contactId &&
+						!!matchedContainer?.customerProfileId &&
+						!!pipelineCustomerProfileId &&
+						matchedContainer.customerProfileId !== pipelineCustomerProfileId);
 
 				if (belongsToSomeoneElse) {
 					olog(

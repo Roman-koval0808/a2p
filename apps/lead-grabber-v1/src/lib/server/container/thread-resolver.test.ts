@@ -591,3 +591,126 @@ describe('resolveContextContainer — self-match guard', () => {
 		expect(result.commId).toBe('cnt_email');
 	});
 });
+
+describe('resolveContextContainer — cross-customer identity guard', () => {
+	it('rejects match when the container belongs to a different contactId', async () => {
+		// Bert's container is the only open candidate in the company.
+		const bertContainer = candidate({
+			id: 'cnt_bert',
+			commRef: '#2001',
+			subject: 'Sales Opportunity',
+			threadType: 'sales',
+			snippet: 'Sales Opportunity — interested in furnace maintenance'
+		});
+		mockPrisma.pipelineCustomerProfile.findMany.mockResolvedValue([]);
+		mockPrisma.commContainer.findMany.mockResolvedValue([bertContainer]);
+		// The container belongs to Bert (contact_bert), not Sam (contact_sam).
+		mockPrisma.commContainer.findUnique.mockResolvedValue({
+			contactId: 'contact_bert',
+			customerProfileId: 'profile_bert'
+		});
+
+		const ai = vi.fn().mockResolvedValue({
+			linked: true,
+			commRef: '#2001',
+			confidence: 0.85,
+			reason: 'same topic — sales opportunity'
+		});
+
+		const result = await resolveContextContainer(
+			{
+				companyId: 'comp_1',
+				contactId: 'contact_sam',
+				channel: 'voice',
+				direction: 'inbound',
+				content: 'Hi, calling about your services',
+				callerContactId: 'contact_sam'
+			},
+			{ ai }
+		);
+
+		expect(result.matched).toBe(false);
+		expect(result.reason).toBe('cross_customer_blocked');
+	});
+
+	it('rejects match via customerProfileId when container has no contactId', async () => {
+		// Pipeline-created container: has customerProfileId but no contactId.
+		const pipelineContainer = candidate({
+			id: 'cnt_pipeline',
+			commRef: '#2002',
+			subject: 'Sales Opportunity',
+			threadType: 'sales',
+			snippet: 'Sales Opportunity — HVAC inquiry from email'
+		});
+		mockPrisma.pipelineCustomerProfile.findMany.mockResolvedValue([]);
+		mockPrisma.commContainer.findMany.mockResolvedValue([pipelineContainer]);
+		// No contactId, but customerProfileId belongs to a different person.
+		mockPrisma.commContainer.findUnique.mockResolvedValue({
+			contactId: null,
+			customerProfileId: 'profile_bert'
+		});
+
+		const ai = vi.fn().mockResolvedValue({
+			linked: true,
+			commRef: '#2002',
+			confidence: 0.8,
+			reason: 'both about sales'
+		});
+
+		const result = await resolveContextContainer(
+			{
+				companyId: 'comp_1',
+				contactId: 'contact_sam',
+				customerProfileId: 'profile_sam',
+				channel: 'voice',
+				direction: 'inbound',
+				content: 'Calling about your services',
+				callerContactId: 'contact_sam',
+				callerCustomerProfileId: 'profile_sam'
+			},
+			{ ai }
+		);
+
+		expect(result.matched).toBe(false);
+		expect(result.reason).toBe('cross_customer_blocked');
+	});
+
+	it('allows match when the container belongs to the same customer', async () => {
+		const samContainer = candidate({
+			id: 'cnt_sam',
+			commRef: '#2003',
+			subject: 'Sales Opportunity',
+			threadType: 'sales',
+			snippet: 'Sales Opportunity — furnace check question'
+		});
+		mockPrisma.pipelineCustomerProfile.findMany.mockResolvedValue([]);
+		mockPrisma.commContainer.findMany.mockResolvedValue([samContainer]);
+		mockPrisma.commContainer.findUnique.mockResolvedValue({
+			contactId: 'contact_sam',
+			customerProfileId: 'profile_sam'
+		});
+
+		const ai = vi.fn().mockResolvedValue({
+			linked: true,
+			commRef: '#2003',
+			confidence: 0.9,
+			reason: 'continuation of furnace discussion'
+		});
+
+		const result = await resolveContextContainer(
+			{
+				companyId: 'comp_1',
+				contactId: 'contact_sam',
+				channel: 'voice',
+				direction: 'inbound',
+				content: 'Following up on the furnace check',
+				callerContactId: 'contact_sam',
+				callerCustomerProfileId: 'profile_sam'
+			},
+			{ ai }
+		);
+
+		expect(result.matched).toBe(true);
+		expect(result.commId).toBe('cnt_sam');
+	});
+});
