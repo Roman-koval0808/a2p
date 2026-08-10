@@ -49,6 +49,30 @@ export async function logCommunication(entry: CommunicationLogEntry) {
 		// Use a transaction to ensure log and thread are created together
 		const record = await prisma.$transaction(async (tx) => {
 			let threadId = entry.thread_id || (entry.metadata as { commId?: string })?.commId || (entry.metadata as { communicationThreadId?: string })?.communicationThreadId;
+
+			// A thread is one customer's conversation, and the COM id shown in the UI is derived
+			// from it. Callers hand us a thread id from all sorts of places — a semantic match, a
+			// Gmail thread, a prior message — and until now we attached the log to whatever was
+			// passed. That let one customer's message land on another's thread and inherit their
+			// COM id, which is what put Sam's call and Bert's email under one code.
+			//
+			// If the thread already exists and belongs to somebody else, we don't join it. A fresh
+			// thread is created below instead. Threads owned by nobody yet (contactId null) are
+			// fine to join and get claimed.
+			if (threadId && entry.company_id && entry.customer_id) {
+				const existingThread = await tx.communicationThread.findUnique({
+					where: { id: threadId },
+					select: { contactId: true }
+				});
+				if (existingThread?.contactId && existingThread.contactId !== entry.customer_id) {
+					console.warn(
+						`[communication-log] Thread ${threadId} belongs to contact ${existingThread.contactId}, ` +
+							`not ${entry.customer_id} — starting a separate thread rather than sharing a COM id.`
+					);
+					threadId = undefined;
+				}
+			}
+
 			if (threadId && entry.company_id) {
 				// Ensure thread exists if an ID was passed in
 				await tx.communicationThread.upsert({
@@ -62,7 +86,9 @@ export async function logCommunication(entry: CommunicationLogEntry) {
 					},
 					update: {}
 				});
-			} else if (!threadId && entry.company_id) {
+			}
+
+			if (!threadId && entry.company_id) {
 				const newThread = await tx.communicationThread.create({
 					data: {
 						companyId: entry.company_id,

@@ -100,7 +100,10 @@ export async function linkThreadAndResolveIdentity(opts: {
 		// "same customer" — an assertion a semantic text match is not entitled to make. Bert's
 		// email and Sam's voicemail are the same topic and different people; linking them put one
 		// COM id across two customers.
-		if (primary && primary.customerId && customerId && primary.customerId !== customerId) {
+		// `customerId &&` was part of this test, which meant a message whose contact hadn't been
+		// resolved yet skipped the check entirely and inherited whoever's thread the text matched.
+		// An unidentified message is exactly the one we must NOT attach to a named customer.
+		if (primary && primary.customerId && primary.customerId !== customerId) {
 			console.log(
 				`[thread-link] NOT linking ${commId} to ${primary.id} — that thread belongs to ` +
 					`contact ${primary.customerId}, not ${customerId}. Same topic is not the same person.`
