@@ -38,7 +38,7 @@ export default defineConfig(({ mode }) => {
 	},
 	build: {
 		minify: true,
-		sourcemap: true,
+		sourcemap: false,
 		rollupOptions: {
 			external: (id) =>
 				id.includes('clearsky-db-client') ||
