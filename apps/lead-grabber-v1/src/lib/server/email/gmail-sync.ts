@@ -778,6 +778,11 @@ async function syncCompanyEmailsInner(companyId: string) {
 									if (!profile) throw err;
 								}
 							}
+							
+							if (profile) {
+								metadata.customer_profile_id = profile.id;
+							}
+
 							if (normalizedExtractedPhone) {
 								// Link the phone to the profile it resolved to so future calls, SMS, or
 								// emails carrying this number land on the SAME customer.

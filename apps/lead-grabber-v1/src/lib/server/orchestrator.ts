@@ -116,8 +116,8 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		/* best-effort */
 	}
 
-	let pipelineCustomerProfileId: string | undefined = undefined;
-	if (customerPhone) {
+	let pipelineCustomerProfileId: string | undefined = metadata.customer_profile_id;
+	if (!pipelineCustomerProfileId && customerPhone) {
 		const profile = await prisma.pipelineCustomerProfile?.findFirst({
 			where: { companyId: company.id, phoneNumber: customerPhone }
 		});

@@ -413,22 +413,22 @@ export async function resolveContextContainer(
 			select: { contactId: true, customerProfileId: true }
 		});
 		if (matchedContainer) {
-			const contactMismatch =
-				!!matchedContainer.contactId &&
-				!!callerContact &&
-				matchedContainer.contactId !== callerContact;
-			const profileMismatch =
-				!matchedContainer.contactId &&
-				!!matchedContainer.customerProfileId &&
-				!!callerProfile &&
-				matchedContainer.customerProfileId !== callerProfile;
+			const containerContact = matchedContainer.contactId;
+			const containerProfile = matchedContainer.customerProfileId;
 
-			if (contactMismatch || profileMismatch) {
-				return {
-					matched: false,
-					candidates,
-					reason: 'cross_customer_blocked'
-				};
+			// If the container has an owner, the caller MUST explicitly match one of its identities.
+			if (containerContact || containerProfile) {
+				const explicitlyMatches =
+					(containerContact && callerContact && containerContact === callerContact) ||
+					(containerProfile && callerProfile && containerProfile === callerProfile);
+
+				if (!explicitlyMatches) {
+					return {
+						matched: false,
+						candidates,
+						reason: 'cross_customer_blocked'
+					};
+				}
 			}
 		}
 	}
