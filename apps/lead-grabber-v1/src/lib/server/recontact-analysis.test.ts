@@ -67,6 +67,17 @@ describe('outcomeFor — one task per closure, and never a silent drop', () => {
 		expect(out.rescheduleTo).toBeNull();
 	});
 
+	it('an unrelated call never claims he wants the original thing', () => {
+		// Joe promised to ring about a furnace, then rang about a leaking tap. Labelling that
+		// "wants to book" sends a rep to talk about the wrong job.
+		const out = outcomeFor(
+			{ ...base, relatedToOriginal: false, wants: 'appointment' },
+			'Joe'
+		);
+		expect(out.title).toMatch(/something else/i);
+		expect(out.title).not.toMatch(/wants to book/i);
+	});
+
 	it('no reading at all still surfaces it to a human', () => {
 		// The AI being down must never look like "nothing to do".
 		const out = outcomeFor(null, 'Joe');

@@ -152,6 +152,45 @@ export interface ClosedCommitment {
 }
 
 /**
+ * The promises this person currently has open — read only, nothing is closed.
+ *
+ * Separate from closing them because the decision now depends on WHAT they said: a customer who
+ * rang about a leaking tap has not withdrawn his furnace enquiry, so that promise must survive.
+ * The caller reads the message against these, then closes only what the message actually resolves.
+ */
+export async function findOpenCommitments(input: {
+	companyId: string;
+	profileId: string;
+	/** The communication that triggered this — excluded, so a promise can't resolve itself. */
+	excludeIdempotencyKey?: string;
+}): Promise<ClosedCommitment[]> {
+	const rows = await prisma.scheduledIntent.findMany({
+		where: {
+			clientId: input.companyId,
+			profileId: input.profileId,
+			status: 'PENDING',
+			intentType: 'CUSTOMER_COMMITMENT_A',
+			...(input.excludeIdempotencyKey
+				? { idempotencyKey: { not: input.excludeIdempotencyKey } }
+				: {})
+		},
+		select: { id: true, payload: true, createdAt: true },
+		take: 20
+	});
+
+	return rows.map((row) => {
+		const p = (row.payload as Record<string, any>) || {};
+		return {
+			intentId: row.id,
+			promisedAt: row.createdAt,
+			promise: p.rawTimeframe || p.whatHeWants || '',
+			topic: p.whatHeWants || '',
+			conversationId: p.conversationId ?? null
+		};
+	});
+}
+
+/**
  * This person just got in touch. Close the promises THEY made — and nobody else's.
  *
  * Scoped by `profileId` equality, so a different customer asking about the same product can never

@@ -9,7 +9,7 @@ vi.mock('$lib/db', () => ({
 	}
 }));
 
-import { skipIntent, resolveOwnCommitments } from './intent-resolution';
+import { skipIntent, resolveOwnCommitments, findOpenCommitments } from './intent-resolution';
 
 const NOW = new Date('2026-08-07T20:00:00Z');
 const DUE_LATER = new Date('2026-08-30T20:00:00Z');
@@ -194,5 +194,36 @@ describe('resolveOwnCommitments', () => {
 			topic: 'price on a new furnace',
 			conversationId: 'container_1'
 		});
+	});
+
+	it('findOpenCommitments reads without closing anything', async () => {
+		scheduledIntent.findMany.mockResolvedValue([
+			{
+				id: 'si_1',
+				createdAt: new Date('2026-08-01T10:00:00Z'),
+				payload: { rawTimeframe: 'two weeks', whatHeWants: 'furnace price' }
+			}
+		]);
+
+		const open = await findOpenCommitments({ companyId: 'company_1', profileId: 'joe' });
+
+		expect(open).toHaveLength(1);
+		expect(open[0].topic).toBe('furnace price');
+		// The caller decides whether the new message actually resolves it.
+		expect(scheduledIntent.updateMany).not.toHaveBeenCalled();
+	});
+
+	it('findOpenCommitments never returns the promise this message created', async () => {
+		scheduledIntent.findMany.mockResolvedValue([]);
+
+		await findOpenCommitments({
+			companyId: 'company_1',
+			profileId: 'joe',
+			excludeIdempotencyKey: 'orch_suspense_comm_1'
+		});
+
+		const where = scheduledIntent.findMany.mock.calls.at(-1)?.[0]?.where;
+		expect(where.idempotencyKey).toEqual({ not: 'orch_suspense_comm_1' });
+		expect(where.profileId).toBe('joe');
 	});
 });

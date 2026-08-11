@@ -369,24 +369,23 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// (profileId equality), and never the one this very communication just created.
 	if (commLog.direction === 'inbound' && customer?.id) {
 		try {
-			const { resolveOwnCommitments } = await import('./intent-resolution');
-			const closed = await resolveOwnCommitments({
+			// Read the promises first, decide second. A customer who rings about a leaking tap has
+			// not withdrawn his furnace enquiry — closing on any contact at all loses a live
+			// opportunity because he happened to phone about something unrelated.
+			const { findOpenCommitments, skipIntent } = await import('./intent-resolution');
+			const open = await findOpenCommitments({
 				companyId: commLog.companyId,
 				profileId: customer.id,
 				excludeIdempotencyKey: `orch_suspense_${commId}`
 			});
 
-			if (closed.length > 0) {
-				olog(
-					`[Orchestrator] ${closed.length} open commitment(s) closed — ${customer.id} got in touch.`
-				);
-
-				// Closing the chase is the easy half. The rep still needs to know WHAT he said —
-				// otherwise all they see is a row going quiet and a recording nobody has heard
-				// (clearsky-recontact-and-callback.md §2.1–2.3).
+			const closed: typeof open = [];
+			if (open.length > 0) {
+				// The rep needs to know WHAT he said — otherwise all they see is a row going quiet
+				// and a recording nobody has heard (clearsky-recontact-and-callback.md §2.1–2.3).
 				try {
 					const { analyseRecontact, outcomeFor } = await import('./recontact-analysis');
-					const original = closed[0];
+					const original = open[0];
 					const analysis = await analyseRecontact({
 						apiKey: ANTHROPIC_AI_KEY,
 						originalPromise: original.promise,
@@ -404,15 +403,40 @@ export async function process_orchestrator(commId: string, trigger: string) {
 								: ' (no reading — surfaced for review)')
 					);
 
-					// Record the reason ON the promise that just closed, rather than spawning a
-					// separate task. The board shows "skipped because …" under the original, so one
-					// row carries the whole story instead of a grey row plus an orphan task.
-					const { recordResolution } = await import('./intent-resolution');
-					for (const c of closed) {
-						await recordResolution(
-							c.intentId,
-							outcome.title,
-							analysis?.summary || commLog.summary || commLog.content || null
+					// Only a message about THIS promise resolves it. An unrelated call leaves it
+					// PENDING so the follow-up still happens on the date he named (§6.1).
+					// A message we could not read is treated as related — better to close and
+					// surface it than to chase somebody who has already been in touch.
+					const resolvesIt = !analysis || analysis.relatedToOriginal;
+
+					if (!resolvesIt) {
+						olog(
+							`[Orchestrator] ${open.length} commitment(s) left open — ${customer.id} got in ` +
+								`touch about something else. "${outcome.title}"`
+						);
+					} else {
+						const { recordResolution } = await import('./intent-resolution');
+						for (const c of open) {
+							const done = await skipIntent({
+								intentId: c.intentId,
+								companyId: commLog.companyId,
+								profileId: customer.id,
+								reason: 'customer_got_in_touch',
+								requireDue: false,
+								excludeIdempotencyKey: `orch_suspense_${commId}`
+							});
+							if (!done.skipped) continue;
+							closed.push(c);
+							// The reason goes ON the promise, not into a separate task — one row
+							// carries the whole story rather than a grey row plus an orphan.
+							await recordResolution(
+								c.intentId,
+								outcome.title,
+								analysis?.summary || commLog.summary || commLog.content || null
+							);
+						}
+						olog(
+							`[Orchestrator] ${closed.length} open commitment(s) closed — ${customer.id} got in touch.`
 						);
 					}
 

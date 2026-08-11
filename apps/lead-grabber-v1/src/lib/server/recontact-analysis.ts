@@ -179,6 +179,22 @@ export function outcomeFor(
 		};
 	}
 
+	// He got in touch, but about something else. Saying "wants to book" here would send a rep to
+	// ring him about the furnace when he actually wants a tap fixed. Whether an unrelated contact
+	// should close the promise at all is §6.1 — open with Rory — but the label must never imply
+	// the original subject was what he called about.
+	if (!analysis.relatedToOriginal) {
+		const asks =
+			analysis.wants === 'nothing'
+				? 'got in touch about something else'
+				: `got in touch about something else and wants ${analysis.wants === 'information' ? 'information' : `a ${analysis.wants}`}`;
+		return {
+			title: `${who} ${asks} — the original request is unresolved`,
+			continueAutomation: true,
+			rescheduleTo: null
+		};
+	}
+
 	if (analysis.lostInterest) {
 		return {
 			title: `${who} is no longer interested — close the opportunity`,
