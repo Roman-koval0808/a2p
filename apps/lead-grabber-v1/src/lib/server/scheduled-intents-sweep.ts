@@ -81,6 +81,94 @@ export async function checkDueScheduledIntents(
 				continue;
 			}
 
+			// Scenario B — "call me when I'm back". Ringing once and giving up is not keeping the
+			// promise, so after the attempt is queued we decide whether to try again tomorrow
+			// (clearsky-recontact-and-callback.md §3.1–3.3).
+			if (intent.actor === 'BUSINESS') {
+				const { haveWeReachedThem, decideNextAttempt, attemptsSoFar, canAutoDial } =
+					await import('./callback-attempts');
+
+				// §3.5 — we cannot ring a shared line and ask for a person we never identified.
+				// That is a task for a human, and it is a different kind of work from a send.
+				const dialable = await canAutoDial({
+					companyId: intent.clientId,
+					contactId: intent.profileId
+				});
+				if (!dialable.allowed) {
+					await handoffDueIntent(intent, now);
+					await prisma.scheduledIntent.updateMany({
+						where: { id: intent.id, status: 'PENDING' },
+						data: { status: 'DONE', updatedAt: now }
+					});
+					result.handedOff++;
+					console.log(
+						`[schedule-sweep] ${intent.id} not auto-dialable (${dialable.reason}) — ` +
+							`handed to a human, no automated attempts`
+					);
+					continue;
+				}
+
+				const reached = await haveWeReachedThem({
+					companyId: intent.clientId,
+					contactId: intent.profileId,
+					since: intent.createdAt
+				});
+				const decision = decideNextAttempt({
+					reached,
+					attemptsSoFar: attemptsSoFar(intent.payload),
+					now
+				});
+
+				if (decision.action === 'stop_reached') {
+					// We spoke to him. The obligation is discharged; nothing further is scheduled.
+					await prisma.scheduledIntent.updateMany({
+						where: { id: intent.id, status: 'PENDING' },
+						data: { status: 'DONE', updatedAt: now }
+					});
+					result.skipped++;
+					console.log(`[schedule-sweep] ${intent.id} reached (${decision.reason}) — no more attempts`);
+					continue;
+				}
+
+				// Not reached: queue today's attempt for the agent, then decide about tomorrow.
+				const handoffB = await handoffDueIntent(intent, now);
+				if (handoffB.handedOff) result.handedOff++;
+
+				if (decision.action === 'try_again' && decision.nextAt) {
+					const payload = ((intent.payload as Record<string, unknown>) || {}) as Record<
+						string,
+						unknown
+					>;
+					await prisma.scheduledIntent.create({
+						data: {
+							clientId: intent.clientId,
+							profileId: intent.profileId,
+							intentType: intent.intentType,
+							actor: 'BUSINESS',
+							status: 'PENDING',
+							dueAt: decision.nextAt,
+							expiresAt: intent.expiresAt,
+							idempotencyKey: `${intent.idempotencyKey}_attempt_${decision.attempt + 1}`,
+							payload: { ...payload, callbackAttempts: decision.attempt } as any
+						}
+					});
+					console.log(
+						`[schedule-sweep] ${intent.id} attempt ${decision.attempt} — no answer, retrying ${decision.nextAt.toISOString()}`
+					);
+				} else {
+					// §3.3: it stops being automation and becomes somebody's judgement.
+					console.log(
+						`[schedule-sweep] ${intent.id} ${decision.reason} — handed to a human, no further attempts`
+					);
+				}
+
+				await prisma.scheduledIntent.updateMany({
+					where: { id: intent.id, status: 'PENDING' },
+					data: { status: 'DONE', updatedAt: now }
+				});
+				continue;
+			}
+
 			const handoff = await handoffDueIntent(intent, now);
 			if (handoff.handedOff) result.handedOff++;
 			else if (handoff.reason === 'queue_write_failed') {

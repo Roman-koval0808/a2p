@@ -403,6 +403,43 @@ export async function process_orchestrator(commId: string, trigger: string) {
 								: ' (no reading — surfaced for review)')
 					);
 
+					// One conversation, one COM id (§2.2). His callback belongs to the call that
+					// created the promise — same customer, so the identity guards permit it, and
+					// the rep can quote one reference for the whole thread instead of two.
+					if (original.conversationId && !metadata.commContainerId) {
+						try {
+							const container = await prisma.commContainer.findFirst({
+								where: {
+									id: original.conversationId,
+									companyId: commLog.companyId,
+									contactId: customer.id
+								},
+								select: { id: true, commRef: true }
+							});
+							if (container) {
+								const { linkCommunicationLogToContainer } = await import(
+									'./container/thread-resolver'
+								);
+								await linkCommunicationLogToContainer(
+									commId,
+									{ id: container.id, commRef: container.commRef },
+									'recontact_same_promise',
+									{ companyId: commLog.companyId, contactId: customer.id }
+								);
+								metadata.commContainerId = container.id;
+								metadata.commRef = container.commRef;
+								// The original call's own reference, quotable by the rep.
+								metadata.originalCommRef = container.commRef;
+								commLog.communicationThreadId = commLog.communicationThreadId || container.id;
+								olog(
+									`[Recontact] Linked to the original conversation ${container.commRef} — one COM id for both.`
+								);
+							}
+						} catch (e: any) {
+							oerr('[Recontact] Could not link to the original conversation:', e);
+						}
+					}
+
 					// Only a message about THIS promise resolves it. An unrelated call leaves it
 					// PENDING so the follow-up still happens on the date he named (§6.1).
 					// A message we could not read is treated as related — better to close and
