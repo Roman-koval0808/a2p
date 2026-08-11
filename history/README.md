@@ -42,8 +42,4 @@ Keep it honest and short. A wrong entry is worse than none.
 - **Record spec conflicts.** If the code and a doc in `specs/` disagree, say so and say which won.
 - **Link to specs by section** (`clearsky-identity-tiers-canonical.md §4.3a`), not by description.
 - Do not paste large diffs or logs. Reference file and line.
-
-## Entries
-
-- [2026-08-10](2026-08-10-identity-tiers-comm-ids.md) — identity tiers, one-person-one-record, COM id sharing
-- [2026-08-11](2026-08-11-stated-intent-recontact-and-callback.md) — stated intent part 2: recontact and callback
+- [2026-08-11](2026-08-11-revert-scenario-2.md) — reverting the scenario 2 callback loop

@@ -403,43 +403,6 @@ export async function process_orchestrator(commId: string, trigger: string) {
 								: ' (no reading — surfaced for review)')
 					);
 
-					// One conversation, one COM id (§2.2). His callback belongs to the call that
-					// created the promise — same customer, so the identity guards permit it, and
-					// the rep can quote one reference for the whole thread instead of two.
-					if (original.conversationId && !metadata.commContainerId) {
-						try {
-							const container = await prisma.commContainer.findFirst({
-								where: {
-									id: original.conversationId,
-									companyId: commLog.companyId,
-									contactId: customer.id
-								},
-								select: { id: true, commRef: true }
-							});
-							if (container) {
-								const { linkCommunicationLogToContainer } = await import(
-									'./container/thread-resolver'
-								);
-								await linkCommunicationLogToContainer(
-									commId,
-									{ id: container.id, commRef: container.commRef },
-									'recontact_same_promise',
-									{ companyId: commLog.companyId, contactId: customer.id }
-								);
-								metadata.commContainerId = container.id;
-								metadata.commRef = container.commRef;
-								// The original call's own reference, quotable by the rep.
-								metadata.originalCommRef = container.commRef;
-								commLog.communicationThreadId = commLog.communicationThreadId || container.id;
-								olog(
-									`[Recontact] Linked to the original conversation ${container.commRef} — one COM id for both.`
-								);
-							}
-						} catch (e: any) {
-							oerr('[Recontact] Could not link to the original conversation:', e);
-						}
-					}
-
 					// Only a message about THIS promise resolves it. An unrelated call leaves it
 					// PENDING so the follow-up still happens on the date he named (§6.1).
 					// A message we could not read is treated as related — better to close and
@@ -2515,14 +2478,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 							extraction: {
 								hasFutureIntent: true,
 								schedulable: true,
-								// Who makes the next move, and it is not always the customer.
-								//
-								// "I'll get in touch" is CUSTOMER — we wait, then chase after the grace
-								// week. "Give me a call when I'm back" is BUSINESS — we owe him the
-								// call, on his date, with no grace (§3a). This was hardcoded to
-								// CUSTOMER, so scenario B could never be created: a customer who asked
-								// us to ring got a row that waited for HIM to ring instead.
-								actor: aiIntent?.wants_callback ? 'BUSINESS' : 'CUSTOMER',
+								actor: 'CUSTOMER',
 								whatHeWants: aiIntent?.reason || nextActionPlan.suspense.description,
 								rawTimeframe:
 									aiIntent?.customer_initiate_timeframe ||
@@ -2553,84 +2509,6 @@ export async function process_orchestrator(commId: string, trigger: string) {
 			}
 		} catch (suspenseErr) {
 			oerr('[Orchestrator] Failed to register the customer-promise suspense:', suspenseErr);
-		}
-	} else if (aiIntent?.wants_callback && customer?.id && company?.id) {
-		// Scenario B — HE asked US to ring (clearsky-recontact-and-callback.md §3a).
-		//
-		// The suspense block above only fires when the next move belongs to the CUSTOMER, so a
-		// customer who asks to be called back fell through it entirely and no dated obligation was
-		// recorded at all. A callback task was drafted, but the promise itself — the thing the
-		// daily callback loop works from — never existed.
-		//
-		// Mode B gets no grace (writeScheduledIntent adds the week only for actor CUSTOMER): he
-		// named the day and asked us to act on it, so waiting an extra week is not patience, it is
-		// being late.
-		try {
-			const { writeScheduledIntent } = await import('$lib/server/scheduled-intent-writer');
-			const { resolveCalculatedTargetDate } = await import('$lib/server/ai/scheduled-intent-parser');
-
-			// His words about when to ring. `callback_when` is the mode-B field ("tomorrow
-			// morning"); the customer_initiate_* fields belong to mode A and are normally null
-			// here, but a message can carry both ("I'll ring you — actually, call me Tuesday").
-			const whenPhrase = aiIntent.callback_when || aiIntent.customer_initiate_timeframe || null;
-			const targetIso = resolveCalculatedTargetDate({
-				reference: commLog.created ?? new Date(),
-				rawTimeframe: whenPhrase,
-				timeframeDays: aiIntent.customer_initiate_timeframe_days ?? null,
-				exactDateIso: aiIntent.customer_initiate_exact_datetime ?? null
-			});
-
-			if (!targetIso) {
-				// We could not turn his words into a day. Inventing one would have us ringing on a
-				// date he never gave, so the drafted callback task stands on its own and a person
-				// picks the day. Not a silent drop — that task is already on the board.
-				olog(
-					`[Orchestrator] Customer asked for a callback but "${whenPhrase ?? 'no timing given'}" ` +
-						`could not be dated — leaving it to the drafted task.`
-				);
-			} else {
-				const written = await writeScheduledIntent({
-					companyId: company.id,
-					contactId: customer.id,
-					profileId: customer.id,
-					extraction: {
-						hasFutureIntent: true,
-						schedulable: true,
-						// BUSINESS — we owe the call. This is what makes it a CUSTOMER_COMMITMENT_B
-						// row and what the daily callback loop in the sweep looks for.
-						actor: 'BUSINESS',
-						whatHeWants: aiIntent.reason || 'asked us to call them back',
-						rawTimeframe: whenPhrase,
-						timeframeDays: aiIntent.customer_initiate_timeframe_days ?? null,
-						exactDateIso: aiIntent.customer_initiate_exact_datetime ?? null,
-						calculatedTargetDate: targetIso,
-						confidence: 'HIGH',
-						// 'none' means they never stated one — they asked for a call, so phone.
-						preferredChannel:
-							aiIntent.preferred_contact_method && aiIntent.preferred_contact_method !== 'none'
-								? aiIntent.preferred_contact_method
-								: 'phone'
-					},
-					channel: commLog.type === 'sms' ? 'sms' : commLog.type === 'email' ? 'email' : 'voice',
-					originalTarget: customerPhone || null,
-					conversationId: (metadata.commContainerId as string) || null,
-					commLogId: commId,
-					// Distinct from orch_suspense_ so the two modes can never collide on a message
-					// the model reads as both.
-					idempotencyKey: `orch_callback_${commId}`
-				});
-
-				if (written.recorded) {
-					olog(
-						`[Orchestrator] WE owe the call — ScheduledIntent ${written.scheduledIntentId?.slice(0, 8)} ` +
-							`created (actor=BUSINESS, due ${written.dueAt}, no grace).`
-					);
-				} else {
-					olog(`[Orchestrator] Callback obligation not recorded: ${written.reason}`);
-				}
-			}
-		} catch (cbErr) {
-			oerr('[Orchestrator] Failed to record the callback obligation:', cbErr);
 		}
 	}
 

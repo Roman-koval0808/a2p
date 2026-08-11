@@ -260,25 +260,14 @@ export function daysFromRawTimeframe(raw: string | null | undefined): number | n
 	}
 	if (best !== null) return best;
 
-	// A number and a unit — spelled either way. People say "two weeks" far more often than
-	// "2 weeks", and a digits-only match read "when I'm back (in two weeks)" as undatable, which
-	// dropped a real callback obligation on the floor.
-	const explicit = phrase.match(
-		/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s*(day|week|month)s?\b/i
-	);
+	const explicit = phrase.match(/\b(\d+)\s*(day|week|month)s?\b/i);
 	if (explicit) {
-		const n = WORD_NUMBERS[explicit[1].toLowerCase()] ?? Number(explicit[1]);
-		if (!Number.isFinite(n) || n <= 0) return null;
+		const n = Number(explicit[1]);
 		const unit = explicit[2].toLowerCase();
 		return unit === 'day' ? n : unit === 'week' ? n * 7 : n * 30;
 	}
 	return null;
 }
-
-const WORD_NUMBERS: Record<string, number> = {
-	one: 1, two: 2, three: 3, four: 4, five: 5, six: 6,
-	seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12
-};
 
 /** Windows the spec refuses to invent a date for (§4 — the Marcus path). */
 const VAGUE_TIMEFRAME = /\b(sometime|eventually|one of these days|whenever|in the (spring|summer|fall|autumn|winter))\b/i;
