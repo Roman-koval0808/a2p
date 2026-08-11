@@ -258,13 +258,78 @@ export function daysFromRawTimeframe(raw: string | null | undefined): number | n
 			bestLength = match[0].length;
 		}
 	}
-	if (best !== null) return best;
 
-	const explicit = phrase.match(/\b(\d+)\s*(day|week|month)s?\b/i);
-	if (explicit) {
-		const n = Number(explicit[1]);
+	// A number and a unit — spelled either way. People say "two weeks" far more often than
+	// "2 weeks", and a digits-only match read "away for two weeks" as undatable, which dropped a
+	// real callback obligation on the floor.
+	//
+	// This competes on length with the phrase table rather than running only as its fallback.
+	// "two weeks" matches `\b(a )?week\b` from the table, so the table answered 7 and returned
+	// before this branch was ever reached — restoring the spelled-out numbers on their own left
+	// "away for two weeks" resolving to one week, which is a worse failure than not dating it:
+	// we would have rung Joe on 8 Aug, while he was still away.
+	const explicit = phrase.match(
+		/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s*(day|week|month)s?\b/i
+	);
+	if (explicit && explicit[0].length > bestLength) {
+		const n = WORD_NUMBERS[explicit[1].toLowerCase()] ?? Number(explicit[1]);
 		const unit = explicit[2].toLowerCase();
-		return unit === 'day' ? n : unit === 'week' ? n * 7 : n * 30;
+		if (Number.isFinite(n) && n > 0) {
+			return unit === 'day' ? n : unit === 'week' ? n * 7 : n * 30;
+		}
+	}
+
+	// Not in the shared table, and common in the way customers actually talk about being away.
+	if (best === null && /\bfortnight\b/i.test(phrase)) return 14;
+
+	return best;
+}
+
+const WORD_NUMBERS: Record<string, number> = {
+	one: 1, two: 2, three: 3, four: 4, five: 5, six: 6,
+	seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12
+};
+
+/**
+ * When does he come back?
+ *
+ * Joe's sentence carries two clauses and the extraction schema has a field for only one of them:
+ *
+ *   "call me when I get back"   → `callback_when`, and it is NOT datable
+ *   "I'll be away for two weeks" → the window, and it lands in no field at all
+ *
+ * Mode B read `callback_when` first, failed to date "when I get back", and dropped the obligation.
+ * The datable fact was in the message the whole time, in the clause nobody was reading.
+ *
+ * So: pull the away-window straight out of the customer's own text. Returns the phrase verbatim
+ * (§4 — his words have to survive, the follow-up quotes them) plus the days it resolves to.
+ *
+ * Deliberately narrow. It matches an explicit stated absence — "away/gone/out of town/on holiday
+ * for N weeks", "back in N weeks" — and nothing else. A duration mentioned anywhere in a message
+ * is not a return date, and inventing one is the failure the spec cares most about.
+ */
+export interface ReturnWindow {
+	/** The customer's exact words, for the quote-back. */
+	phrase: string;
+	days: number;
+}
+
+const AWAY_PATTERNS: RegExp[] = [
+	// "away for two weeks", "gone for a fortnight", "out of town for 10 days"
+	/\b(?:away|gone|out of town|out of the country|on holiday|on vacation|travel(?:l)?ing)\s+(?:for\s+)?((?:a|an|another|\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|couple of|few)\s*(?:day|week|month)s?|fortnight)\b/i,
+	// "back in two weeks", "back in about a fortnight"
+	/\bback\s+in\s+(?:about\s+|around\s+|roughly\s+)?((?:a|an|\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|couple of|few)\s*(?:day|week|month)s?|fortnight)\b/i
+];
+
+export function resolveReturnWindow(text: string | null | undefined): ReturnWindow | null {
+	const t = (text || '').trim();
+	if (!t) return null;
+	for (const pattern of AWAY_PATTERNS) {
+		const match = t.match(pattern);
+		if (!match) continue;
+		const phrase = match[1].trim();
+		const days = daysFromRawTimeframe(phrase);
+		if (typeof days === 'number' && days > 0) return { phrase, days };
 	}
 	return null;
 }

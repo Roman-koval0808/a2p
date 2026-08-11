@@ -187,6 +187,47 @@ export async function handoffDueIntent(
 		return { handedOff: false, reason: 'already_handled' };
 	}
 
+	// One conversation, one COM id (§2.2, and the reason this is a task set "asking for a form of
+	// communication").
+	//
+	// The draft was landing as a free-standing log with its own id, so Joe's 1 Aug call and each
+	// daily callback attempt showed the rep a different code for the same exchange — and a chain of
+	// attempts produced a fresh one every morning. The promise knows which conversation it came
+	// from; carry it onto the draft.
+	//
+	// Same customer, so the identity guards permit the link — the 2026-08-10 guards only block
+	// linking ACROSS customers, and the container is re-read under both companyId and contactId
+	// here so a payload that pointed at somebody else's thread cannot be honoured.
+	const conversationId = intent.payload?.conversationId as string | undefined;
+	if (conversationId) {
+		try {
+			const container = await prisma.commContainer.findFirst({
+				where: { id: conversationId, companyId: intent.clientId, contactId: contact?.id ?? intent.profileId },
+				select: { id: true, commRef: true }
+			});
+			if (container) {
+				const { linkCommunicationLogToContainer } = await import('./container/thread-resolver');
+				await linkCommunicationLogToContainer(
+					queue.id,
+					{ id: container.id, commRef: container.commRef },
+					'scheduled_intent_followup',
+					{ companyId: intent.clientId, contactId: contact?.id ?? intent.profileId }
+				);
+				console.log(
+					`[schedule-handoff] draft ${queue.id} tagged with ${container.commRef} — one COM id for the whole thread`
+				);
+			} else {
+				console.log(
+					`[schedule-handoff] intent ${intent.id} names conversation ${conversationId}, but it is not this customer's — draft left untagged`
+				);
+			}
+		} catch (e: any) {
+			// A missing COM id makes the draft harder to trace; it does not make it wrong. The
+			// follow-up still goes to the approval queue.
+			console.error(`[schedule-handoff] could not tag draft ${queue.id} with a COM id:`, e?.message || e);
+		}
+	}
+
 	console.log(
 		`[schedule-handoff] queued follow-up for intent ${intent.id} (${channel.outcome}) as pending_approval ${queue.id}`
 	);

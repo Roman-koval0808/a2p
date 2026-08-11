@@ -43,3 +43,4 @@ Keep it honest and short. A wrong entry is worse than none.
 - **Link to specs by section** (`clearsky-identity-tiers-canonical.md §4.3a`), not by description.
 - Do not paste large diffs or logs. Reference file and line.
 - [2026-08-11](2026-08-11-revert-scenario-2.md) — reverting the scenario 2 callback loop
+- [2026-08-11 (2)](2026-08-11-scenario-2-callback-loop-2.md) — scenario 2 rebuilt: Joe's two clauses, the daily call, the comm id

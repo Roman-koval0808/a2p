@@ -2510,6 +2510,115 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		} catch (suspenseErr) {
 			oerr('[Orchestrator] Failed to register the customer-promise suspense:', suspenseErr);
 		}
+	} else if (aiIntent?.wants_callback && customer?.id && company?.id) {
+		// ── Scenario B — HE asked US to ring (clearsky-recontact-and-callback.md §3) ──
+		//
+		// Joe, 1 Aug: "price on a new furnace — I'm away two weeks, call me when I'm back."
+		//
+		// The suspense block above cannot reach him. `resolveNextActionOwner` returns 'customer'
+		// only when `customer_will_initiate && !wants_callback`, so asking to be rung makes the
+		// owner 'business', `nextActionPlan.suspense` is never set, and the whole block is skipped.
+		// A callback task got drafted, but the dated obligation — the thing the daily sweep works
+		// from — was never written at all. This branch is the only path that creates one.
+		//
+		// No grace: the writer adds the week only for actor CUSTOMER. He named the day and asked
+		// us to act on it, so waiting an extra week is not patience, it is being late.
+		try {
+			const { writeScheduledIntent } = await import('$lib/server/scheduled-intent-writer');
+			const { resolveCalculatedTargetDate, resolveReturnWindow } = await import(
+				'$lib/server/ai/scheduled-intent-parser'
+			);
+
+			// When to ring, from his own words. Three readings, in order of how directly they
+			// answer the question — the first that resolves to a date wins.
+			//
+			//   1. `callback_when` — the mode-B field. "tomorrow morning", "next Tuesday".
+			//   2. The away-window in the message body. This is the one Joe needs and the one
+			//      that was missing: his `callback_when` is "when I get back", which is not a
+			//      date, so mode B logged `could not be dated` and dropped the obligation —
+			//      while "away for two weeks" sat unread in the same sentence.
+			//   3. The mode-A timeframe fields. Normally null here, but a message can carry both
+			//      ("I'll ring you — actually, no, call me Tuesday").
+			const returnWindow = resolveReturnWindow(rawMessage);
+			const whenPhrase =
+				aiIntent.callback_when || returnWindow?.phrase || aiIntent.customer_initiate_timeframe || null;
+			const reference = commLog.created ?? new Date();
+
+			let targetIso = resolveCalculatedTargetDate({
+				reference,
+				rawTimeframe: whenPhrase,
+				timeframeDays: aiIntent.customer_initiate_timeframe_days ?? null,
+				exactDateIso: aiIntent.customer_initiate_exact_datetime ?? null
+			});
+			// "call me when I get back" is not datable on its own; the return window is what
+			// makes it one. Quote HIS phrasing, date it from the away clause.
+			if (!targetIso && returnWindow) {
+				targetIso = resolveCalculatedTargetDate({
+					reference,
+					rawTimeframe: returnWindow.phrase,
+					timeframeDays: returnWindow.days,
+					exactDateIso: null
+				});
+			}
+
+			if (!targetIso) {
+				// We could not turn his words into a day. Inventing one would have us ringing on a
+				// date he never gave — the failure the spec cares most about — so the drafted
+				// callback task stands on its own and a person picks the day. Not a silent drop:
+				// that task is already on the board.
+				olog(
+					`[Orchestrator] Customer asked for a callback but "${whenPhrase ?? 'no timing given'}" ` +
+						`could not be dated — leaving it to the drafted task.`
+				);
+			} else {
+				const written = await writeScheduledIntent({
+					companyId: company.id,
+					contactId: customer.id,
+					profileId: customer.id,
+					extraction: {
+						hasFutureIntent: true,
+						schedulable: true,
+						// BUSINESS is what makes this a CUSTOMER_COMMITMENT_B row, and it is what
+						// the daily callback loop in the sweep looks for.
+						actor: 'BUSINESS',
+						whatHeWants: aiIntent.reason || 'asked us to call them back',
+						// His exact words survive (§4) — the follow-up quotes them back.
+						rawTimeframe: whenPhrase,
+						timeframeDays:
+							aiIntent.customer_initiate_timeframe_days ?? returnWindow?.days ?? null,
+						exactDateIso: aiIntent.customer_initiate_exact_datetime ?? null,
+						calculatedTargetDate: targetIso,
+						confidence: 'HIGH',
+						// 'none' means they never named one — they asked for a call, so phone.
+						preferredChannel:
+							aiIntent.preferred_contact_method && aiIntent.preferred_contact_method !== 'none'
+								? aiIntent.preferred_contact_method
+								: 'phone'
+					},
+					channel: commLog.type === 'sms' ? 'sms' : commLog.type === 'email' ? 'email' : 'voice',
+					originalTarget: customerPhone || null,
+					// The conversation this promise belongs to. Every daily attempt is tagged with
+					// this container's COM id, so the whole callback thread reads as one exchange.
+					conversationId: (metadata.commContainerId as string) || null,
+					commLogId: commId,
+					// Distinct from orch_suspense_ so the two modes can never collide on a message
+					// the model reads as both.
+					idempotencyKey: `orch_callback_${commId}`
+				});
+
+				if (written.recorded) {
+					olog(
+						`[Orchestrator] WE owe the call — ScheduledIntent ${written.scheduledIntentId?.slice(0, 8)} ` +
+							`created (actor=BUSINESS, due ${written.dueAt}, no grace)` +
+							(returnWindow ? ` from his return window "${returnWindow.phrase}".` : '.')
+					);
+				} else {
+					olog(`[Orchestrator] Callback obligation not recorded: ${written.reason}`);
+				}
+			}
+		} catch (cbErr) {
+			oerr('[Orchestrator] Failed to record the callback obligation:', cbErr);
+		}
 	}
 
 	// Always mark as processed
