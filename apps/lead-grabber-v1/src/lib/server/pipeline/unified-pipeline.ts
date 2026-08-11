@@ -268,7 +268,9 @@ export class UnifiedPipeline {
 						providerEventId:
 							suppressionReason === 'duplicate_provider_id'
 								? `${payload.externalId}_dup_${Date.now()}`
-								: payload.externalId,
+								: isSimulation
+									? `${payload.externalId}_sim_${crypto.randomUUID()}`
+									: payload.externalId,
 						eventType: payload.eventType,
 						networkCategory: payload.provider.includes('telnyx') ? 'Communication' : 'Trust',
 						companyId: company?.id,
