@@ -212,10 +212,10 @@
 								<a
 									href={task.profileHref}
 									class="text-blue-600 hover:underline"
-									title={task.clientName}>{task.clientId}</a
+									title={task.clientId}>{task.clientName}</a
 								>
 							{:else}
-								{task.clientId}
+								{task.clientName}
 							{/if}
 						</td>
 						<td class="px-4 py-3">{task.intent}</td>
@@ -374,7 +374,7 @@
 											<h4 class="font-semibold text-gray-900 mb-2">Task Date:</h4>
 											<div class="flex items-start justify-between">
 												<div class="flex-1 pr-4 text-gray-800 font-medium">
-													1. {task.date} {task.channel.includes('Ph') ? 'make outgoing call to' : 'send email refer to'} {task.clientId}, refer to comm {task.commId}, Ref-id {task.refId.replace('id ', '')}, customer id {task.clientId}
+													1. {task.date} {task.channel.includes('Ph') ? 'make outgoing call to' : 'send email refer to'} {task.clientName}, refer to comm {task.commId}, Ref-id {task.refId.replace('id ', '')}, customer id {task.clientId}
 												</div>
 												<div class="flex flex-col items-end gap-2">
 													<div class="flex items-center gap-3 text-sm font-semibold">
