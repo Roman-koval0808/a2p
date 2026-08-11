@@ -49,6 +49,10 @@ export default defineConfig(({ mode, command }) => {
 		build: {
 			minify: true,
 			sourcemap: false,
+			// After every chunk is written, Vite gzips it again purely to print a size column in
+			// the build summary. Nothing consumes that number, and on a small VPS the compression
+			// pass is pure cost on top of an already CPU-bound build.
+			reportCompressedSize: false,
 			rollupOptions: {
 				external: (id) =>
 					id.includes('clearsky-db-client') ||
