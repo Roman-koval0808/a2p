@@ -329,6 +329,15 @@
 											<div class="flex items-start justify-between">
 												<div class="flex-1 pr-4 text-gray-800 font-medium">
 													1. {task.date} {raw.actor === 'CUSTOMER' ? 'check if' : 'follow up with'} {raw.clientName} — {raw.whatHeWants || 'pending'} — comm {task.commId}
+													{#if raw.resolutionLabel}
+														<div class="mt-2 rounded border-l-4 border-gray-400 bg-gray-100 px-3 py-2">
+															<span class="font-semibold">Skipped because:</span>
+															{raw.resolutionLabel}
+															{#if raw.resolutionDetail}
+																<div class="mt-1 text-gray-700">{raw.resolutionDetail}</div>
+															{/if}
+														</div>
+													{/if}
 												</div>
 												<div class="flex flex-col items-end gap-2">
 													<div class="flex items-center gap-3 text-sm font-semibold">

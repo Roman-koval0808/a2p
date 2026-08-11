@@ -404,15 +404,17 @@ export async function process_orchestrator(commId: string, trigger: string) {
 								: ' (no reading — surfaced for review)')
 					);
 
-					await prisma.task.create({
-						data: {
-							companyId: commLog.companyId,
-							contactId: customer.id,
-							communicationThreadId: commLog.communicationThreadId || null,
-							title: outcome.title,
-							description: analysis?.summary || commLog.summary || commLog.content || ''
-						}
-					});
+					// Record the reason ON the promise that just closed, rather than spawning a
+					// separate task. The board shows "skipped because …" under the original, so one
+					// row carries the whole story instead of a grey row plus an orphan task.
+					const { recordResolution } = await import('./intent-resolution');
+					for (const c of closed) {
+						await recordResolution(
+							c.intentId,
+							outcome.title,
+							analysis?.summary || commLog.summary || commLog.content || null
+						);
+					}
 
 					// He didn't cancel, he moved the date. Without a fresh row the only thing
 					// holding him in the pipeline disappears the moment the old one closes.

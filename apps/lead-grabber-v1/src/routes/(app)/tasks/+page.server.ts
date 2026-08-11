@@ -228,6 +228,10 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 		const pendingActions = intents.map((si) => {
 			const p = (si.payload as Record<string, any>) || {};
 			const whatHeWants = p?.whatHeWants || '';
+			// Why this promise closed, recorded when the customer got back in touch. Shown under
+			// the original promise so a grey row explains itself.
+			const resolutionLabel = p?.resolutionLabel || null;
+			const resolutionDetail = p?.resolutionDetail || null;
 			const rawTimeframe = p?.rawTimeframe || '';
 			const originalChannel = p?.originalChannel || 'email';
 			const isCall = originalChannel === 'voice' || p?.preferredChannel === 'call';
@@ -267,6 +271,8 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 				clientName: name,
 				profileHref,
 				tier,
+				resolutionLabel,
+				resolutionDetail,
 				intent: si.intentType === 'CUSTOMER_COMMITMENT_A' ? 'A-pend' : 'B-pend',
 				// The conversation's COM-… reference, so this row can be matched against the
 				// communications log. Falls back to the intent id only when the intent was filed
@@ -284,6 +290,9 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 				// Scheduled-intent specific fields for the expanded view and editing
 				_kind: 'scheduled_intent' as const,
 				_raw: {
+					// Why this promise closed — rendered as "Skipped because …" under the original.
+					resolutionLabel,
+					resolutionDetail,
 					dueAt: si.dueAt.toISOString(),
 					expiresAt: si.expiresAt?.toISOString() ?? null,
 					whatHeWants,

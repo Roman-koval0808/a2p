@@ -11,6 +11,7 @@ const base: RecontactAnalysis = {
 	conditions: [],
 	lostInterest: false,
 	postponedTo: null,
+	postponedPhrase: null,
 	summary: 'Joe got back in touch about the furnace.'
 };
 
@@ -35,6 +36,18 @@ describe('outcomeFor — one task per closure, and never a silent drop', () => {
 		expect(out.title).toMatch(/no longer interested/i);
 		expect(out.continueAutomation).toBe(false);
 		expect(out.rescheduleTo).toBeNull();
+	});
+
+	it('an undatable postponement still surfaces, it just cannot be scheduled', () => {
+		// The model returned "middle of September" once; new Date() made that Invalid Date and
+		// Prisma rejected the row, losing the commitment entirely.
+		const out = outcomeFor(
+			{ ...base, postponedTo: null, postponedPhrase: 'middle of September' },
+			'Joe'
+		);
+		expect(out.title).toContain('middle of September');
+		expect(out.rescheduleTo).toBeNull();
+		expect(out.continueAutomation).toBe(true);
 	});
 
 	it('a postponement schedules the new date — otherwise he falls out of the pipeline', () => {

@@ -38,6 +38,11 @@ export interface SkipIntentInput {
 	requireDue?: boolean;
 	/** An intent whose own trigger this is — never let a promise cancel itself. */
 	excludeIdempotencyKey?: string;
+	/**
+	 * Why it closed, in the customer's terms — merged into the row's payload so the board can show
+	 * "skipped because …" against the original promise instead of spawning a separate task.
+	 */
+	resolution?: { label: string; detail?: string | null };
 	now?: Date;
 }
 
@@ -70,6 +75,31 @@ export async function skipIntent(input: SkipIntentInput): Promise<SkipIntentResu
 		},
 		data: { status: 'SKIPPED', updatedAt: now }
 	});
+
+	// Record WHY on the row itself. A promise that simply goes grey tells a rep nothing; the point
+	// of closing it is the reason it closed.
+	if (res.count > 0 && input.resolution) {
+		try {
+			const row = await prisma.scheduledIntent.findUnique({
+				where: { id: input.intentId },
+				select: { payload: true }
+			});
+			const payload = ((row?.payload as Record<string, unknown>) || {}) as Record<string, unknown>;
+			await prisma.scheduledIntent.update({
+				where: { id: input.intentId },
+				data: {
+					payload: {
+						...payload,
+						resolutionLabel: input.resolution.label,
+						resolutionDetail: input.resolution.detail ?? null,
+						resolvedAt: now.toISOString()
+					} as any
+				}
+			});
+		} catch (e) {
+			console.warn('[intent-resolution] Could not record the resolution reason:', e);
+		}
+	}
 
 	if (res.count === 0) {
 		// Not an error — the row may simply have been claimed by a concurrent run. But if a caller
@@ -133,6 +163,8 @@ export async function resolveOwnCommitments(input: {
 	profileId: string;
 	/** The communication that triggered this — excluded, so a promise can't cancel itself. */
 	excludeIdempotencyKey?: string;
+	/** Why they closed — recorded on each row. */
+	resolution?: { label: string; detail?: string | null };
 	now?: Date;
 }): Promise<ClosedCommitment[]> {
 	const now = input.now ?? new Date();
@@ -160,6 +192,7 @@ export async function resolveOwnCommitments(input: {
 			reason: 'customer_got_in_touch',
 			requireDue: false,
 			excludeIdempotencyKey: input.excludeIdempotencyKey,
+			resolution: input.resolution,
 			now
 		});
 		if (!out.skipped) continue;
@@ -173,4 +206,39 @@ export async function resolveOwnCommitments(input: {
 		});
 	}
 	return closed;
+}
+
+
+/**
+ * Attach the reason to a promise that has already closed.
+ *
+ * The reading of the customer's new message only exists AFTER the row is closed, so the label is
+ * written in a second step. The board renders it as "skipped because …" beneath the original
+ * promise — one row telling the whole story, rather than a closed row plus a separate task.
+ */
+export async function recordResolution(
+	intentId: string,
+	label: string,
+	detail?: string | null
+): Promise<void> {
+	try {
+		const row = await prisma.scheduledIntent.findUnique({
+			where: { id: intentId },
+			select: { payload: true }
+		});
+		const payload = ((row?.payload as Record<string, unknown>) || {}) as Record<string, unknown>;
+		await prisma.scheduledIntent.update({
+			where: { id: intentId },
+			data: {
+				payload: {
+					...payload,
+					resolutionLabel: label,
+					resolutionDetail: detail ?? null,
+					resolvedAt: new Date().toISOString()
+				} as any
+			}
+		});
+	} catch (e) {
+		console.warn(`[intent-resolution] Could not record the reason on ${intentId}:`, e);
+	}
 }

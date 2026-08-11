@@ -27,6 +27,8 @@ export interface RecontactAnalysis {
 	lostInterest: boolean;
 	/** ISO date he pushed to, when he postponed rather than cancelled. */
 	postponedTo: string | null;
+	/** What he said about the delay, even when it could not be turned into a date. */
+	postponedPhrase: string | null;
 	summary: string;
 }
 
@@ -68,7 +70,9 @@ a wrong phone call.
 - when / raw_timing_phrase: raw_timing_phrase is their exact words ("early next week"). 'when' is
   your resolved date, or null when the phrase is too vague to date.
 - postponed_to: set only when they are delaying the SAME intention. Losing interest is not a
-  postponement.
+  postponement. MUST be a full ISO date (YYYY-MM-DD) — resolve "middle of September" to a concrete
+  day yourself. If you cannot resolve it to a date, return null and leave the phrase in
+  raw_timing_phrase.
 - lost_interest: true only on a clear signal — bought elsewhere, changed their mind, cancelled.
   Silence, vagueness or a short message are not signals.
 - conditions: anything they attached to going ahead ("if you can beat the other quote").`;
@@ -115,6 +119,17 @@ export async function analyseRecontact(
 	});
 	if (!raw) return null;
 
+	// The model is asked for ISO dates and mostly obliges, but it returned "middle of September"
+	// once and `new Date()` turned that into Invalid Date, which Prisma rejected — losing the
+	// re-scheduled commitment entirely and dropping the customer out of the pipeline. Anything
+	// that is not a real date becomes null, and the phrase survives in rawTimingPhrase.
+	const asIsoDate = (v: unknown): string | null => {
+		if (typeof v !== 'string' || !v.trim()) return null;
+		const t = Date.parse(v);
+		if (Number.isNaN(t)) return null;
+		return new Date(t).toISOString();
+	};
+
 	return {
 		relatedToOriginal: raw.related_to_original === true,
 		relatednessConfidence:
@@ -123,11 +138,13 @@ export async function analyseRecontact(
 			? raw.wants
 			: 'nothing',
 		informationRequested: raw.information_requested || null,
-		when: raw.when || null,
+		when: asIsoDate(raw.when),
 		rawTimingPhrase: raw.raw_timing_phrase || null,
 		conditions: Array.isArray(raw.conditions) ? raw.conditions.filter(Boolean) : [],
 		lostInterest: raw.lost_interest === true,
-		postponedTo: raw.postponed_to || null,
+		postponedTo: asIsoDate(raw.postponed_to),
+		// Kept even when undatable, so a human can still see he pushed it.
+		postponedPhrase: typeof raw.postponed_to === 'string' ? raw.postponed_to : null,
 		summary: raw.summary || message.slice(0, 200)
 	};
 }
@@ -166,6 +183,16 @@ export function outcomeFor(
 		return {
 			title: `${who} is no longer interested — close the opportunity`,
 			continueAutomation: false,
+			rescheduleTo: null
+		};
+	}
+
+	// Pushed the date, but we could not resolve it. Still a postponement, still needs a human —
+	// we just cannot schedule it ourselves.
+	if (!analysis.postponedTo && analysis.postponedPhrase) {
+		return {
+			title: `${who} postponed ("${analysis.postponedPhrase}") — set a date with them`,
+			continueAutomation: true,
 			rescheduleTo: null
 		};
 	}
