@@ -2515,7 +2515,14 @@ export async function process_orchestrator(commId: string, trigger: string) {
 							extraction: {
 								hasFutureIntent: true,
 								schedulable: true,
-								actor: 'CUSTOMER',
+								// Who makes the next move, and it is not always the customer.
+								//
+								// "I'll get in touch" is CUSTOMER — we wait, then chase after the grace
+								// week. "Give me a call when I'm back" is BUSINESS — we owe him the
+								// call, on his date, with no grace (§3a). This was hardcoded to
+								// CUSTOMER, so scenario B could never be created: a customer who asked
+								// us to ring got a row that waited for HIM to ring instead.
+								actor: aiIntent?.wants_callback ? 'BUSINESS' : 'CUSTOMER',
 								whatHeWants: aiIntent?.reason || nextActionPlan.suspense.description,
 								rawTimeframe:
 									aiIntent?.customer_initiate_timeframe ||
