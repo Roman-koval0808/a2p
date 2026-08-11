@@ -2,12 +2,12 @@ module.exports = {
 	apps: [
 		{
 			name: 'lead-grabber-v1',
-			script: './build/index.js',
-			node_args: '--env-file=.env',
+			script: 'pnpm',
+			args: 'run dev',
 			instances: 1,
 			exec_mode: 'fork',
 			env: {
-				NODE_ENV: 'production',
+				NODE_ENV: 'development',
 				PORT: 3005,
 				HOST: '0.0.0.0'
 			},
