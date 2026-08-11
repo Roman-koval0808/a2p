@@ -64,6 +64,9 @@ export default defineConfig(({ mode, command }) => {
 		},
 		optimizeDeps: {
 			include: ['lucide-svelte', 'svelte-sonner', 'bits-ui', '@telnyx/webrtc']
+		},
+		server: {
+			allowedHosts: ['a2p.viewroom.ca']
 		}
 	};
 });
