@@ -370,13 +370,81 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	if (commLog.direction === 'inbound' && customer?.id) {
 		try {
 			const { resolveOwnCommitments } = await import('./intent-resolution');
-			const resolved = await resolveOwnCommitments({
+			const closed = await resolveOwnCommitments({
 				companyId: commLog.companyId,
 				profileId: customer.id,
 				excludeIdempotencyKey: `orch_suspense_${commId}`
 			});
-			if (resolved > 0) {
-				olog(`[Orchestrator] ${resolved} open commitment(s) closed — ${customer.id} got in touch.`);
+
+			if (closed.length > 0) {
+				olog(
+					`[Orchestrator] ${closed.length} open commitment(s) closed — ${customer.id} got in touch.`
+				);
+
+				// Closing the chase is the easy half. The rep still needs to know WHAT he said —
+				// otherwise all they see is a row going quiet and a recording nobody has heard
+				// (clearsky-recontact-and-callback.md §2.1–2.3).
+				try {
+					const { analyseRecontact, outcomeFor } = await import('./recontact-analysis');
+					const original = closed[0];
+					const analysis = await analyseRecontact({
+						apiKey: ANTHROPIC_AI_KEY,
+						originalPromise: original.promise,
+						originalTopic: original.topic,
+						originalDate: original.promisedAt,
+						newMessage: commLog.content || commLog.summary || '',
+						receivedAt: commLog.created
+					});
+					const outcome = outcomeFor(analysis, customer.name || customerPhone || '');
+
+					olog(
+						`[Recontact] ${outcome.title}` +
+							(analysis
+								? ` (related=${analysis.relatedToOriginal}, wants=${analysis.wants})`
+								: ' (no reading — surfaced for review)')
+					);
+
+					await prisma.task.create({
+						data: {
+							companyId: commLog.companyId,
+							contactId: customer.id,
+							communicationThreadId: commLog.communicationThreadId || null,
+							title: outcome.title,
+							description: analysis?.summary || commLog.summary || commLog.content || ''
+						}
+					});
+
+					// He didn't cancel, he moved the date. Without a fresh row the only thing
+					// holding him in the pipeline disappears the moment the old one closes.
+					if (outcome.rescheduleTo) {
+						const { writeScheduledIntent } = await import('./scheduled-intent-writer');
+						await writeScheduledIntent({
+							companyId: commLog.companyId,
+							contactId: customer.id,
+							profileId: customer.id,
+							extraction: {
+								hasFutureIntent: true,
+								schedulable: true,
+								actor: 'CUSTOMER',
+								whatHeWants: original.topic || analysis?.summary || '',
+								rawTimeframe: analysis?.rawTimingPhrase || 'postponed',
+								timeframeDays: 0,
+								exactDateIso: outcome.rescheduleTo,
+								calculatedTargetDate: outcome.rescheduleTo,
+								confidence: 'HIGH',
+								preferredChannel: 'phone'
+							},
+							channel: commLog.type === 'sms' ? 'sms' : commLog.type === 'email' ? 'email' : 'voice',
+							originalTarget: customerPhone || null,
+							conversationId: original.conversationId,
+							commLogId: commId,
+							idempotencyKey: `recontact_postpone_${commId}`
+						});
+						olog(`[Recontact] Re-scheduled to ${outcome.rescheduleTo} — he postponed, not cancelled.`);
+					}
+				} catch (e: any) {
+					oerr('[Recontact] Analysis failed (commitment still closed):', e);
+				}
 			}
 		} catch (e: any) {
 			oerr('[Orchestrator] Commitment resolution failed:', e);

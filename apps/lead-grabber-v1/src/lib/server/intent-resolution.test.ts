@@ -159,8 +159,40 @@ describe('resolveOwnCommitments', () => {
 
 	it('does nothing when this person has no open promise', async () => {
 		scheduledIntent.findMany.mockResolvedValue([]);
-		const n = await resolveOwnCommitments({ companyId: 'company_1', profileId: 'bert', now: NOW });
-		expect(n).toBe(0);
+		const closed = await resolveOwnCommitments({
+			companyId: 'company_1',
+			profileId: 'bert',
+			now: NOW
+		});
+		expect(closed).toEqual([]);
 		expect(scheduledIntent.updateMany).not.toHaveBeenCalled();
+	});
+
+	it('returns what it closed, so the caller can read the new message against the promise', async () => {
+		scheduledIntent.findMany.mockResolvedValue([
+			{
+				id: 'si_1',
+				createdAt: new Date('2026-08-01T10:00:00Z'),
+				payload: {
+					rawTimeframe: 'a couple of weeks',
+					whatHeWants: 'price on a new furnace',
+					conversationId: 'container_1'
+				}
+			}
+		]);
+
+		const closed = await resolveOwnCommitments({
+			companyId: 'company_1',
+			profileId: 'joe',
+			now: NOW
+		});
+
+		expect(closed).toHaveLength(1);
+		expect(closed[0]).toMatchObject({
+			intentId: 'si_1',
+			promise: 'a couple of weeks',
+			topic: 'price on a new furnace',
+			conversationId: 'container_1'
+		});
 	});
 });

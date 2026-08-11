@@ -108,6 +108,19 @@ export async function skipIntent(input: SkipIntentInput): Promise<SkipIntentResu
 }
 
 
+/** A promise that was just closed, with the context needed to interpret the new message. */
+export interface ClosedCommitment {
+	intentId: string;
+	/** When the promise was made — the original call. */
+	promisedAt: Date;
+	/** His words about timing ("a couple of weeks"). */
+	promise: string;
+	/** What the original call was about. */
+	topic: string;
+	/** The container the original conversation lives in, when known. */
+	conversationId: string | null;
+}
+
 /**
  * This person just got in touch. Close the promises THEY made — and nobody else's.
  *
@@ -121,7 +134,7 @@ export async function resolveOwnCommitments(input: {
 	/** The communication that triggered this — excluded, so a promise can't cancel itself. */
 	excludeIdempotencyKey?: string;
 	now?: Date;
-}): Promise<number> {
+}): Promise<ClosedCommitment[]> {
 	const now = input.now ?? new Date();
 
 	const open = await prisma.scheduledIntent.findMany({
@@ -131,12 +144,14 @@ export async function resolveOwnCommitments(input: {
 			status: 'PENDING',
 			intentType: 'CUSTOMER_COMMITMENT_A'
 		},
-		select: { id: true },
+		// The payload carries what he promised and what it was about — the caller needs both to
+		// ask "is this new message about that?" (§2.1).
+		select: { id: true, payload: true, createdAt: true },
 		take: 20
 	});
-	if (open.length === 0) return 0;
+	if (open.length === 0) return [];
 
-	let resolved = 0;
+	const closed: ClosedCommitment[] = [];
 	for (const row of open) {
 		const out = await skipIntent({
 			intentId: row.id,
@@ -147,7 +162,15 @@ export async function resolveOwnCommitments(input: {
 			excludeIdempotencyKey: input.excludeIdempotencyKey,
 			now
 		});
-		if (out.skipped) resolved++;
+		if (!out.skipped) continue;
+		const p = (row.payload as Record<string, any>) || {};
+		closed.push({
+			intentId: row.id,
+			promisedAt: row.createdAt,
+			promise: p.rawTimeframe || p.whatHeWants || '',
+			topic: p.whatHeWants || '',
+			conversationId: p.conversationId ?? null
+		});
 	}
-	return resolved;
+	return closed;
 }
