@@ -258,3 +258,27 @@ describe('isSchedulable', () => {
 		expect(isSchedulable({ ...ray, calculatedTargetDate: null })).toBe(false);
 	});
 });
+
+describe('daysFromRawTimeframe — spelled-out numbers', () => {
+	// Joe's live call: the AI returned callback_when "when I'm back (in two weeks)". The
+	// digits-only fallback read that as undatable, so no callback obligation was written at all.
+	it('reads "two weeks" the same as "2 weeks"', () => {
+		expect(daysFromRawTimeframe('when I\'m back (in two weeks)')).toBe(14);
+		expect(daysFromRawTimeframe('in 2 weeks')).toBe(14);
+	});
+
+	it('handles days and months too', () => {
+		expect(daysFromRawTimeframe('three days')).toBe(3);
+		expect(daysFromRawTimeframe('six months')).toBe(180);
+	});
+
+	it('still prefers the phrase table over the numeric fallback', () => {
+		// "a couple of weeks" must not be read as "a week".
+		expect(daysFromRawTimeframe('a couple of weeks')).toBe(14);
+	});
+
+	it('does not invent a window from a phrase with no number', () => {
+		expect(daysFromRawTimeframe('when I get back')).toBeNull();
+		expect(daysFromRawTimeframe('sometime')).toBeNull();
+	});
+});
