@@ -60,6 +60,16 @@ and B. Five open questions are recorded as **Rory's**, not guessed.
    worse than leaving the already-drafted callback task for a person. Scenario A's suspense branch
    is untouched.
 
+### "two weeks" is not a date, apparently
+
+Joe's live call at 19:10 produced `callback_when: "when I'm back (in two weeks)"` and then
+`could not be dated — leaving it to the drafted task`. `daysFromRawTimeframe`'s phrase table has
+*"a couple of weeks"* but not *"two weeks"*, and its numeric fallback regex only matched **digits**.
+People say "two weeks" far more often than "2 weeks", so a real callback obligation was silently
+not written. The fallback now accepts one–twelve spelled out. It runs after the phrase table, so
+longest-match precedence ("a couple of weeks" ≠ "a week") is unchanged, and mode A's phrases already
+resolved — this only turns nulls into dates. Four tests added.
+
 ### Also
 
 - COM id: the callback is linked into the original conversation's container (§2.2), so one thread
@@ -111,5 +121,10 @@ and B. Five open questions are recorded as **Rory's**, not guessed.
 
 ## Baseline at end of session
 
-`28 failed / 498 passed`, `330 typecheck errors` — unchanged from the start of the session and from
-2026-08-10. Both predate this work.
+`28 failed / 502 passed` (530 total — 4 new), `330 typecheck errors`. Unchanged from the start of
+the session and from 2026-08-10; both predate this work.
+
+**The failure count is not stable.** Consecutive runs of the same tree gave 28, 29 and 33. The set
+of failing *files* is constant (8), and the variation is inside suites that call the live Anthropic
+API with an invalid key. I chased a "29" as a regression before noticing. Compare the failing file
+list, not the number.
