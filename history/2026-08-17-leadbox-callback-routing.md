@@ -182,6 +182,86 @@ explicit revocation. So a first-time leadbox submitter is not blocked. The remai
 `pipelineBusinessConfig.smsAutoReplyAllowed`, which is the repo's deliberate fail-safe (a missing
 config means no unattended customer SMS) and is left in place, matching `sendCallbackAck`.
 
+## Third pass: representatives were unusable as a rota
+
+Live testing produced `Rota: nobody on duty — unassigned` even after adding a representative. Two
+defects in the existing screen, both of which made the callback rota impossible to populate.
+
+### Adding a rep created a pending invite, not a member
+
+`representatives/add` wrote an `Invite` row with `status: 'pending'` and emailed a link. The person
+only became a `CompanyMember` when they clicked it (`invite/accept/[id]`). So a rep showed as
+"Pending" on the page and — because `loadReps` (and the list, and the edit page) read **active
+CompanyMember rows** — was never in the dial ladder. A business adding its own staff had no way to
+get them into the rota without that person accepting an email.
+
+A representative is a record the business keeps about its own staff: a name, a number, a shift. It
+is not an account somebody has to claim. Add now creates the `CompanyMember` **active, immediately**.
+
+- Reuses an existing `User` when the email is already known, and **never touches their password**.
+- Creates one otherwise. `User.password` is required, so a bcrypt hash of a random UUID is stored —
+  unguessable, so the account is not left open. `bcrypt` was already imported in this file and
+  unused, which suggests this was the original intent.
+- `companyMember.upsert` on the `[userId, companyId]` unique key, so re-adding somebody previously
+  removed re-activates them instead of throwing.
+- No `Invite` row and no email. **A rep added this way cannot log in until they set a password via
+  the reset flow.** That is fine for a rota entry, but it is a real behaviour change — if reps are
+  supposed to get logins, the invite email needs adding back as a separate step.
+
+### Delete was a stub
+
+```js
+function handleDelete(id: string) {
+	// TODO: Implement delete
+	console.log('Delete:', id);
+}
+```
+
+Now a real `?/deleteRepresentative` form action, with a confirm, a pending state, a toast, and
+`invalidateAll()`.
+
+**It sets `status: 'inactive'` rather than deleting the row.** A rep's user id is referenced by
+comm logs, assigned messages and tasks; deleting would either fail on a foreign key or strip the
+author off historical records — the same reasoning the identity rules apply to contacts. `inactive`
+drops them from the page and from the rota, which is what "delete" means to the person clicking it.
+Legacy pending invites are still hard-deleted: nothing points at them.
+
+Both branches are scoped by `companyId` so an id from another tenant cannot be touched.
+
+Legacy pending rows also 404'd on Edit (the edit page keys off `CompanyMember.id`, the list handed
+it an `Invite.id`). Edit is now disabled for them with a tooltip saying to remove and re-add.
+
+### Diagnosability
+
+Live testing also showed the `[Callback]` log line did not say whether anyone was on duty or whether
+the customer's after-hours SMS actually went out. It now reads:
+
+```
+[Callback] ASAP → schedule (asap_after_hours) for 2026-08-18T07:00:00.000Z | rota: NOBODY ON DUTY | ack sms: not sent
+[Callback] after-hours ack NOT sent: pipelineBusinessConfig.smsAutoReplyAllowed is off (no config row for this company)
+```
+
+`sendAfterHoursAck` previously returned a bare `false` for both of its gates, which is
+indistinguishable from "never ran" when watching a console.
+
+### Confirmed working end to end, locally
+
+A real widget submission at 21:08 local against Mon–Fri 8–6 produced
+`ASAP → schedule (asap_after_hours) for 2026-08-18T07:00:00.000Z` (08:00 BST, the next opening), a
+rep task reading `When: Tue, Aug 18, 8:00 AM`, and a `callback-router` comm log row. Decision,
+window arithmetic, task and log are correct on real data.
+
+### Pre-existing bug found, NOT fixed
+
+`api/messages/+server.ts` throws `ReferenceError: pipelineResult is not defined` on every leadbox
+and leadform submission. `pipelineResult` is `const`-declared inside the
+`if (source === 'leadform' || source === 'leadbox')` block (:144) and read outside it (:206). From
+commit `025c62d`; present in `HEAD` at the same lines and part of the 320-error svelte-check
+baseline. **Effect: AI summary, urgency and `actionItems` are never attached to the comm log for any
+leadbox/leadform submission.** The callback dispatch is unaffected — it sits after that catch — so
+this was left alone rather than folded into an unrelated change. One-line scope fix when someone
+wants it.
+
 ## Verified
 
 - `npx vitest run src/lib/server/callback-routing.test.ts` — 30/30 pass.
@@ -228,8 +308,15 @@ config means no unattended customer SMS) and is left in place, matching `sendCal
   the type checker. It has no unit test — writing one needs the sweep's prisma mocks extended, which
   I did not do.
 - **The rep-schedule day-key casing.** The load path defaults to capitalised names (`Monday`) and
-  the edit form saves what it loaded, but I did not confirm what an older row written by the add
-  form contains. `isRepOnDuty` accepts either casing to cover it.
+  the edit form saves what it loaded. `isRepOnDuty` accepts either casing to cover it.
+- **The rewritten add path has not been run.** Creating a `User` + active `CompanyMember` is checked
+  by the type checker only; no representative has been added through the new code. The most likely
+  snag is `prisma.user.create` rejecting on some field this schema requires that the invite-accept
+  path sets and this one does not.
+- **Delete has not been clicked.** The action, the company scoping and the `inactive` transition are
+  unexercised.
+- **No callback has yet been bridged with a real rep on the rota**, which is the one path these two
+  fixes were meant to unblock.
 - Timezone: everything compares in the server's local clock, matching `isBusinessHours` and
   `isOffHours`. A company in another timezone is scheduled against the server's day boundary. This
   is pre-existing on this path, not introduced here, and not fixed.
