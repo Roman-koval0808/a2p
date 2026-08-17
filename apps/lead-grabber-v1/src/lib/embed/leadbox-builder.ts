@@ -53,7 +53,11 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
     const iconHtml = channel.showIcon ? createChannelIcon(channel.icon) : '';
     const buttonColor = (channel.buttonColor || '#3B5BDB').replace(/"/g, '&quot;');
     const channelValue = (channel.value || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    return '<button class="clearsky-button" type="button" style="background-color: ' + buttonColor + ';" onclick="handleChannelClick(' + JSON.stringify(channel.url) + ', ' + JSON.stringify(channel.target || '_blank') + ', ' + JSON.stringify(channelData) + ')">' + iconHtml + channelValue + '</button>';
+    
+    const onClickScript = 'handleChannelClick(' + JSON.stringify(channel.url) + ', ' + JSON.stringify(channel.target || '_blank') + ', ' + JSON.stringify(channelData) + ')';
+    const escapedOnClick = onClickScript.replace(/"/g, '&quot;');
+    
+    return '<button class="clearsky-button" type="button" style="background-color: ' + buttonColor + ';" onclick="' + escapedOnClick + '">' + iconHtml + channelValue + '</button>';
   }
 
   async function handleFormSubmit(event) {
@@ -185,7 +189,15 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
     }
   }
 
-  async function handleChannelClick(url, target, channelData) {
+  function handleChannelClick(url, target, channelData) {
+    // Handle navigation immediately to avoid popup blockers
+    const isSpecialProtocol = url.startsWith('tel:') || url.startsWith('sms:') || url.startsWith('mailto:');
+    if (isSpecialProtocol) {
+      window.location.href = url;
+    } else {
+      window.open(url, target);
+    }
+
     try {
       const messageData = {
         customer_name: "",
@@ -200,35 +212,21 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
       };
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      setTimeout(() => controller.abort(), 5000);
 
-      try {
-        const response = await fetch(baseUrl + '/api/messages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(messageData),
-          mode: 'cors',
-          signal: controller.signal
-        });
-
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => null);
-          console.error('Server error:', errorData?.error || response.status);
+      fetch(baseUrl + '/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(messageData),
+        mode: 'cors',
+        signal: controller.signal
+      }).catch(err => {
+        if (err.name !== 'AbortError') {
+          console.error('Network error tracking click:', err);
         }
-      } catch (fetchError) {
-        if (fetchError.name === 'AbortError') {
-          console.error('Request timed out');
-        } else {
-          console.error('Network error:', fetchError);
-        }
-      }
-
-      window.open(url, target);
+      });
     } catch (error) {
       console.error('Error in handleChannelClick:', error);
-      window.open(url, target);
     }
   }
 
