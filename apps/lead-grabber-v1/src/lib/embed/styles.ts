@@ -85,18 +85,29 @@ export const leadboxStyles = `
   opacity: 0.5;
 }
 .clearsky-secondary-button {
-  height: 2.5rem;
-  padding: 0.5rem 1.5rem;
-  background: #3B5BDB;
+  height: 3.5rem;
+  padding: 0 1.75rem 0 2rem;
+  background: #FF6B00;
   color: white;
-  border-radius: 0.375rem;
+  border-radius: 9999px;
   border: none;
   cursor: pointer;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  font-size: 0.875rem;
-  font-weight: 500;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 1.125rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.12);
+  transition: opacity 0.2s, transform 0.1s;
+}
+.clearsky-secondary-button:hover {
+  opacity: 0.95;
+}
+.clearsky-secondary-button:active {
+  transform: scale(0.98);
 }
 .clearsky-toggle-button {
   height: 3.5rem;

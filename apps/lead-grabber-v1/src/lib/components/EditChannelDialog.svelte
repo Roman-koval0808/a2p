@@ -5,6 +5,7 @@
 	import { Label } from '$lib/components/ui/label';
 	import { Switch } from '$lib/components/ui/switch';
 	import { getSvgIcon } from '$lib/utils/getSvgIcon';
+	import { iconOptions } from '$lib/utils/iconOptions';
 	import { onMount } from 'svelte';
 
 	let { children, channel, onSave } = $props<{
@@ -24,20 +25,9 @@
 	let editedChannel = $state({ ...channel, showIcon: channel.showIcon ?? true });
 	let showIcon = $state(editedChannel.showIcon);
 
-	const icons = [
-		{ icon: 'Phone', name: 'Phone' },
-		{ icon: 'MessageSquare', name: 'Message' },
-		{ icon: 'Play', name: 'Play' },
-		{ icon: 'Mail', name: 'Mail' },
-		{ icon: 'Map', name: 'Map' },
-		{ icon: 'Target', name: 'Target' },
-		{ icon: 'Clock', name: 'Clock' },
-		{ icon: 'Calendar', name: 'Calendar' },
-		{ icon: 'CreditCard', name: 'Card' },
-		{ icon: 'Search', name: 'Search' }
-	];
+	const icons = iconOptions;
 
-	let iconSvgs = $state({});
+	let iconSvgs: Record<string, string> = $state({});
 
 	onMount(async () => {
 		for (const { icon } of icons) {

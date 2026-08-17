@@ -13,6 +13,7 @@
 	import { getFileUrl } from '$lib/utils/file-url';
 	import { Copy, Check } from 'lucide-svelte';
 	import { getSvgIcon } from '$lib/utils/getSvgIcon';
+	import { iconOptions, iconNames } from '$lib/utils/iconOptions';
 	import { onMount } from 'svelte';
 
 	let { data } = $props();
@@ -77,16 +78,19 @@
 
 	let secondaryButton = $state(
 		data.leadbox?.leadbox_data?.secondaryButton ?? {
-			text: 'Call us now!',
-			icon: 'MessageSquare',
-			showIcon: true
+			text: 'WATCH A DEMO NOW',
+			icon: 'Play',
+			showIcon: true,
+			buttonColor: '#FF6B00',
+			fontColor: '#ffffff',
+			url: ''
 		}
 	);
 
 	let primaryButton = $state(
 		data.leadbox?.leadbox_data?.primaryButton ?? {
 			text: 'TEXT US',
-			icon: 'MessageSquare'
+			icon: 'Phone'
 		}
 	);
 
@@ -96,6 +100,19 @@
 			backgroundColor: '#3B5BDB',
 			fontColor: '#ffffff',
 			fontFamily: 'sans-serif'
+		}
+	);
+
+	let closedState = $state(
+		data.leadbox?.leadbox_data?.closedState ?? {
+			bannerText: 'QUESTIONS? JUST ASK!',
+			bannerBgColor: '#FF6B00',
+			bannerFontColor: '#ffffff',
+			buttonText: 'TEXT US',
+			buttonBgColor: '#ffffff',
+			buttonFontColor: '#222222',
+			iconColor: '#FF6B00',
+			icon: 'Phone'
 		}
 	);
 
@@ -109,12 +126,19 @@
 		channels = channels; // trigger reactivity
 	}
 
-	function handleSecondaryButtonUpdate(data: { text: string; icon: any; showIcon: boolean }) {
-		secondaryButton = data;
+	function handleSecondaryButtonUpdate(data: { text: string; icon: any; showIcon: boolean; buttonColor?: string; fontColor?: string; url?: string }) {
+		secondaryButton = {
+			...secondaryButton,
+			...data
+		};
 	}
 
 	function handlePrimaryButtonUpdate(data: { text: string; icon: string }) {
 		primaryButton = data;
+		if (closedState) {
+			closedState.buttonText = data.text;
+			closedState.icon = data.icon;
+		}
 	}
 
 	// Add image upload handler
@@ -166,21 +190,10 @@
 		}, 2000);
 	}
 
-	let iconSvgs = $state({});
+	let iconSvgs: Record<string, string> = $state({});
 
 	onMount(async () => {
-		// Load all needed SVG icons
-		const iconNames = [
-			'MessageSquare',
-			'Phone',
-			'Play',
-			'Mail',
-			'Map',
-			'Target',
-			'Clock',
-			'CreditCard',
-			'Search'
-		];
+		// Load every icon the builder offers (see $lib/utils/iconOptions).
 		for (const name of iconNames) {
 			iconSvgs[name] = await getSvgIcon(name);
 		}
@@ -225,7 +238,8 @@
 							channels,
 							secondaryButton,
 							logoImage,
-							topBanner
+							topBanner,
+							closedState
 						})}
 					/>
 
@@ -315,6 +329,9 @@
 								buttonText={secondaryButton.text}
 								showIcon={secondaryButton.showIcon}
 								selectedIcon={secondaryButton.icon}
+								buttonColor={secondaryButton.buttonColor || '#FF6B00'}
+								fontColor={secondaryButton.fontColor || '#ffffff'}
+								url={secondaryButton.url || ''}
 								onSave={handleSecondaryButtonUpdate}
 							>
 								<Button variant="ghost" class="p-0 hover:bg-transparent">
@@ -423,6 +440,94 @@
 							</div>
 						</div>
 					</div>
+
+					<div class="mb-8 w-full">
+						<h2 class="mb-2 text-xl font-semibold text-primary">Floating Widget (Closed)</h2>
+						<p class="mb-4 text-sm text-gray-500">Customize the closed state floating button</p>
+						<div class="flex flex-col gap-4">
+							<div class="flex flex-col gap-2">
+								<label class="text-sm font-medium text-gray-700" for="closed-banner-text">Top Banner Text</label>
+								<input
+									id="closed-banner-text"
+									type="text"
+									bind:value={closedState.bannerText}
+									class="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+								/>
+							</div>
+							<div class="flex gap-4">
+								<div class="flex flex-1 flex-col gap-2">
+									<label class="text-sm font-medium text-gray-700" for="closed-banner-bg">Banner Background</label>
+									<div class="flex items-center gap-2">
+										<input id="closed-banner-bg" type="color" bind:value={closedState.bannerBgColor} class="h-10 w-10 cursor-pointer rounded border border-gray-300 p-1" />
+										<input type="text" bind:value={closedState.bannerBgColor} class="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm uppercase focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary" />
+									</div>
+								</div>
+								<div class="flex flex-1 flex-col gap-2">
+									<label class="text-sm font-medium text-gray-700" for="closed-banner-font">Banner Font Color</label>
+									<div class="flex items-center gap-2">
+										<input id="closed-banner-font" type="color" bind:value={closedState.bannerFontColor} class="h-10 w-10 cursor-pointer rounded border border-gray-300 p-1" />
+										<input type="text" bind:value={closedState.bannerFontColor} class="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm uppercase focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary" />
+									</div>
+								</div>
+							</div>
+
+							<div class="my-2 h-px w-full bg-gray-200"></div>
+
+							<div class="flex flex-col gap-2">
+								<label class="text-sm font-medium text-gray-700" for="closed-button-text">Button Text</label>
+								<input
+									id="closed-button-text"
+									type="text"
+									bind:value={closedState.buttonText}
+									oninput={() => {
+										primaryButton.text = closedState.buttonText;
+									}}
+									class="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+								/>
+							</div>
+							<div class="flex gap-4">
+								<div class="flex flex-1 flex-col gap-2">
+									<label class="text-sm font-medium text-gray-700" for="closed-button-bg">Button Background</label>
+									<div class="flex items-center gap-2">
+										<input id="closed-button-bg" type="color" bind:value={closedState.buttonBgColor} class="h-10 w-10 cursor-pointer rounded border border-gray-300 p-1" />
+										<input type="text" bind:value={closedState.buttonBgColor} class="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm uppercase focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary" />
+									</div>
+								</div>
+								<div class="flex flex-1 flex-col gap-2">
+									<label class="text-sm font-medium text-gray-700" for="closed-button-font">Button Font Color</label>
+									<div class="flex items-center gap-2">
+										<input id="closed-button-font" type="color" bind:value={closedState.buttonFontColor} class="h-10 w-10 cursor-pointer rounded border border-gray-300 p-1" />
+										<input type="text" bind:value={closedState.buttonFontColor} class="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm uppercase focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary" />
+									</div>
+								</div>
+							</div>
+
+							<div class="flex gap-4">
+								<div class="flex flex-1 flex-col gap-2">
+									<label class="text-sm font-medium text-gray-700" for="closed-icon-color">Icon Color</label>
+									<div class="flex items-center gap-2">
+										<input id="closed-icon-color" type="color" bind:value={closedState.iconColor} class="h-10 w-10 cursor-pointer rounded border border-gray-300 p-1" />
+										<input type="text" bind:value={closedState.iconColor} class="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm uppercase focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary" />
+									</div>
+								</div>
+								<div class="flex flex-1 flex-col gap-2">
+									<label class="text-sm font-medium text-gray-700" for="closed-icon-type">Icon Style</label>
+									<select
+										id="closed-icon-type"
+										bind:value={closedState.icon}
+										onchange={() => {
+											primaryButton.icon = closedState.icon;
+										}}
+										class="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary h-10"
+									>
+										{#each iconOptions as { icon, name }}
+											<option value={icon}>{name}</option>
+										{/each}
+									</select>
+								</div>
+							</div>
+						</div>
+					</div>
 				</div>
 			</div>
 
@@ -502,41 +607,85 @@
 						</div>
 
 						<!-- secondary button -->
-						<div class="mt-4 flex justify-end gap-2">
+						<div class="mt-4 flex justify-end">
 							<Button
 								variant="custom"
-								class="flex items-center gap-2 rounded-md bg-[#3B5BDB] px-6 text-white"
+								class="flex h-14 items-center justify-between gap-4 rounded-full border-none px-8 text-lg font-extrabold uppercase tracking-wide text-white shadow-lg hover:opacity-95"
+								style="background-color: {secondaryButton.buttonColor || '#FF6B00'}; color: {secondaryButton.fontColor || '#ffffff'}; border: none;"
 							>
-								{secondaryButton.text}
+								<span>{secondaryButton.text}</span>
 								{#if secondaryButton.showIcon}
-									{@html iconSvgs[secondaryButton.icon] || ''}
+									<div class="flex h-9 w-9 flex-shrink-0 items-center justify-center">
+										<div class="flex translate-x-[1px] items-center justify-center [&>svg]:!h-7 [&>svg]:!w-7 [&>svg:not([stroke='none'])]:!stroke-current">
+											{@html iconSvgs[secondaryButton.icon] || iconSvgs['Play'] || ''}
+										</div>
+									</div>
 								{/if}
 							</Button>
 						</div>
 					{/if}
 
-					<div class="mt-7 flex justify-end gap-2">
+					<div class="mt-4 flex flex-col items-end gap-4">
+						{#if !leadBoxOpen && secondaryButton && secondaryButton.text}
+							<!-- Secondary Button when Closed -->
+							<Button
+								variant="custom"
+								class="flex h-14 items-center justify-between gap-4 rounded-full border-none px-8 text-lg font-extrabold uppercase tracking-wide text-white shadow-lg hover:opacity-95"
+								style="background-color: {secondaryButton.buttonColor || '#FF6B00'}; color: {secondaryButton.fontColor || '#ffffff'}; border: none;"
+							>
+								<span>{secondaryButton.text}</span>
+								{#if secondaryButton.showIcon}
+									<div class="flex h-9 w-9 flex-shrink-0 items-center justify-center">
+										<div class="flex translate-x-[1px] items-center justify-center [&>svg]:!h-7 [&>svg]:!w-7 [&>svg:not([stroke='none'])]:!stroke-current">
+											{@html iconSvgs[secondaryButton.icon] || iconSvgs['Play'] || ''}
+										</div>
+									</div>
+								{/if}
+							</Button>
+						{/if}
+
 						{#if primaryIconOnly}
 							<Button
 								variant="custom"
-								class="flex h-14 w-14 items-center gap-2 rounded-full bg-[#3B5BDB] p-2 text-white"
+								class="flex h-14 w-14 items-center justify-center rounded-full p-2 [&>svg]:!h-6 [&>svg]:!w-6 [&>svg:not([stroke='none'])]:!stroke-current"
+								style="background-color: {closedState.buttonBgColor}; color: {closedState.iconColor}; border: 2px solid {closedState.iconColor};"
 								onclick={() => (leadBoxOpen = !leadBoxOpen)}
 							>
-								{@html iconSvgs[primaryButton.icon] || iconSvgs['MessageSquare'] || ''}
+								{@html iconSvgs[closedState.icon] || iconSvgs['Phone'] || ''}
 							</Button>
 						{:else}
-							<div class="relative flex flex-col items-center">
-								<div
-									class="absolute top-[-22px] z-10 flex h-14 w-full justify-center rounded-3xl bg-primary"
-								>
-									<p class="px-4 text-sm text-white">Questions?, just ask</p>
-								</div>
+							<!-- The orange is ONE continuous shape: this wrapper carries the banner
+							     colour, and the pill is a child sitting flush in its bottom. Its
+							     rounded-b radius equals the pill's (38px = half of h-76), so the pill
+							     covers the wrapper's bottom exactly and the only orange left showing is
+							     the top band plus the pill's corner notches. Drawing the banner as a
+							     separate strip above the pill cannot work - any width mismatch leaves its
+							     square bottom corners stranded on white. min-w-max keeps long labels from
+							     clipping, since neither child has an intrinsic width. -->
+							<div
+								class="flex w-fit min-w-max flex-col items-center overflow-hidden rounded-t-[36px] rounded-b-[38px]"
+								style="background-color: {closedState.bannerBgColor || '#FF6B00'}; filter: drop-shadow(0 10px 20px rgba(0,0,0,0.12));"
+							>
+								<p class="m-0 w-full whitespace-nowrap px-8 pb-4 pt-3 text-center text-[14px] font-extrabold uppercase tracking-wide" style="color: {closedState.bannerFontColor || '#ffffff'};">
+									{closedState.bannerText || 'QUESTIONS? JUST ASK!'}
+								</p>
+
+								<!-- Pill Button -->
 								<Button
 									variant="custom"
-									class="z-20 flex h-14 items-center justify-center gap-2 rounded-full bg-white px-20 text-lg font-medium text-primary shadow-md"
+									class="flex h-[76px] w-full items-center justify-between gap-6 rounded-full pl-8 pr-1 hover:opacity-95"
+									style="border: none; background-color: {closedState.buttonBgColor || '#ffffff'};"
 									onclick={() => (leadBoxOpen = !leadBoxOpen)}
 								>
-									{primaryButton.text}
+									<span class="whitespace-nowrap text-[24px] font-extrabold tracking-[0.18em]" style="color: {closedState.buttonFontColor || '#222222'};">
+										{closedState.buttonText || 'TEXT US'}
+									</span>
+									<div
+										class="flex h-[68px] w-[68px] flex-shrink-0 items-center justify-center rounded-full [&>svg]:!h-8 [&>svg]:!w-8 [&>svg:not([stroke='none'])]:!stroke-current"
+										style="background-color: {closedState.buttonBgColor || '#ffffff'}; border: 2.5px solid {closedState.iconColor || '#FF6B00'}; color: {closedState.iconColor || '#FF6B00'};"
+									>
+										{@html iconSvgs[closedState.icon] || iconSvgs['Phone'] || ''}
+									</div>
 								</Button>
 							</div>
 						{/if}

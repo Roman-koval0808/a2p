@@ -7,12 +7,25 @@ export interface LeadboxData {
 		text: string;
 		icon?: string;
 		showIcon?: boolean;
+		buttonColor?: string;
+		fontColor?: string;
+		url?: string;
 	};
 	topBanner?: {
 		text: string;
 		backgroundColor: string;
 		fontColor: string;
 		fontFamily: string;
+	};
+	closedState?: {
+		bannerText?: string;
+		bannerBgColor?: string;
+		bannerFontColor?: string;
+		buttonText?: string;
+		buttonBgColor?: string;
+		buttonFontColor?: string;
+		iconColor?: string;
+		icon?: string;
 	};
 }
 

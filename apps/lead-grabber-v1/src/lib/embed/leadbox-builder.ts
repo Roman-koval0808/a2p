@@ -40,10 +40,6 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
     document.head.appendChild(style);
   }
 
-  function createMessageSquareIcon() {
-    return icons.MessageSquare || '';
-  }
-
   function createChannelIcon(iconName) {
     return getIcon(iconName);
   }
@@ -147,10 +143,18 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
       textOnlyHtml = '<div class="clearsky-buttons">' + buttonsHtml + '</div>';
     }
 
-    let secondaryButtonHtml = '';
-    if (leadboxData.secondaryButton) {
-      const secondaryText = (leadboxData.secondaryButton.text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      secondaryButtonHtml = '<div style="margin-top: 1rem; display: flex; justify-content: flex-end; gap: 0.5rem;"><button class="clearsky-secondary-button">' + secondaryText + (leadboxData.secondaryButton.showIcon ? createChannelIcon(leadboxData.secondaryButton.icon) : '') + '</button></div>';
+    function createSecondaryButton() {
+      if (!leadboxData.secondaryButton || !leadboxData.secondaryButton.text) return '';
+      const sb = leadboxData.secondaryButton;
+      const secondaryText = (sb.text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const btnColor = (sb.buttonColor || '#FF6B00').replace(/"/g, '&quot;');
+      const fontColor = (sb.fontColor || '#ffffff').replace(/"/g, '&quot;');
+      const iconSvg = getIcon(sb.icon) || icons.Play;
+      const iconHtml = sb.showIcon ? '<div style="display: flex; align-items: center; justify-content: center; width: 2.25rem; height: 2.25rem; flex-shrink: 0; color: ' + fontColor + ';"><div style="display: flex; align-items: center; justify-content: center; transform: translateX(1px);">' + iconSvg + '</div></div>' : '';
+      
+      const clickHandler = sb.url ? 'onclick="window.open(' + JSON.stringify(sb.url) + ', \'_blank\')"' : '';
+
+      return '<div style="display: flex; justify-content: flex-end; margin-bottom: 0.75rem;"><button class="clearsky-secondary-button" style="background-color: ' + btnColor + '; color: ' + fontColor + ';" ' + clickHandler + '><span>' + secondaryText + '</span>' + iconHtml + '</button></div>';
     }
 
     let logoUrl = leadboxData.logoImage || '';
@@ -166,14 +170,59 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
     const bannerFontFamily = (leadboxData.topBanner?.fontFamily || 'sans-serif').replace(/"/g, '&quot;');
     const bannerText = (leadboxData.topBanner?.text || 'Text with us.').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     
-    return '<div class="clearsky-box clearsky-animate-in"><div class="clearsky-header" style="background-color: ' + bannerBgColor + '; color: ' + bannerFontColor + '; font-family: ' + bannerFontFamily + ';"><p style="font-size: 1.125rem;">' + bannerText + '</p></div><div class="clearsky-content"><div class="clearsky-logo"><img src="' + logoImg + '" alt="Company Logo" class="w-[164px] h-[82px] object-contain absolute top-[-40px] z-10" /></div>' + textOnlyHtml + '<div class="clearsky-terms">Use subject to terms • Lead&Terms</div></div></div>' + secondaryButtonHtml + createClosedLeadbox();
+    return '<div class="clearsky-box clearsky-animate-in"><div class="clearsky-header" style="background-color: ' + bannerBgColor + '; color: ' + bannerFontColor + '; font-family: ' + bannerFontFamily + ';"><p style="font-size: 1.125rem;">' + bannerText + '</p></div><div class="clearsky-content"><div class="clearsky-logo"><img src="' + logoImg + '" alt="Company Logo" class="w-[164px] h-[82px] object-contain absolute top-[-40px] z-10" /></div>' + textOnlyHtml + '<div class="clearsky-terms">Use subject to terms • Lead&Terms</div></div></div>' + createSecondaryButton() + createClosedLeadbox();
   }
 
   function createClosedLeadbox() {
+    const cs = leadboxData.closedState || {};
+    const primaryBtn = leadboxData.primaryButton || {};
+
+    const bannerText = (cs.bannerText || 'QUESTIONS? JUST ASK!').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const bannerBgColor = (cs.bannerBgColor || '#FF6B00').replace(/"/g, '&quot;');
+    const bannerFontColor = (cs.bannerFontColor || '#ffffff').replace(/"/g, '&quot;');
+    
+    const buttonText = (cs.buttonText || primaryBtn.text || 'TEXT US').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const buttonBgColor = (cs.buttonBgColor || '#ffffff').replace(/"/g, '&quot;');
+    const buttonFontColor = (cs.buttonFontColor || '#222222').replace(/"/g, '&quot;');
+    
+    const iconColor = (cs.iconColor || '#FF6B00').replace(/"/g, '&quot;');
+    const iconName = cs.icon || primaryBtn.icon || 'Phone';
+    const iconSvg = getIcon(iconName) || icons[iconName] || icons.Phone;
+
+    const sb = leadboxData.secondaryButton;
+    let secondaryHtml = '';
+    if (sb && sb.text) {
+      const secondaryText = (sb.text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const btnColor = (sb.buttonColor || '#FF6B00').replace(/"/g, '&quot;');
+      const fontColor = (sb.fontColor || '#ffffff').replace(/"/g, '&quot;');
+      const sbIconSvg = getIcon(sb.icon) || icons.Play;
+      const iconHtml = sb.showIcon ? '<div style="display: flex; align-items: center; justify-content: center; width: 2.25rem; height: 2.25rem; flex-shrink: 0; color: ' + fontColor + ';"><div style="display: flex; align-items: center; justify-content: center; transform: translateX(1px);">' + sbIconSvg + '</div></div>' : '';
+      const clickHandler = sb.url ? 'onclick="window.open(' + JSON.stringify(sb.url) + ', \'_blank\')"' : '';
+
+      secondaryHtml = '<div style="display: flex; justify-content: flex-end; margin-bottom: 0.75rem;"><button class="clearsky-secondary-button" style="background-color: ' + btnColor + '; color: ' + fontColor + ';" ' + clickHandler + '><span>' + secondaryText + '</span>' + iconHtml + '</button></div>';
+    }
+
     if (leadboxData.primaryIconOnly) {
-      return '<div style="margin-top: 1.75rem; display: flex; justify-content: flex-end; gap: 0.5rem;"><button class="clearsky-toggle-button" onclick="toggleLeadbox()">' + createMessageSquareIcon() + '</button></div>';
+      return '<div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.75rem;">' +
+        secondaryHtml +
+        '<button class="clearsky-toggle-button" style="background-color: ' + (buttonBgColor || '#FF6B00') + '; color: ' + (iconColor || '#ffffff') + '; border: 2px solid ' + (iconColor || '#ffffff') + ';" onclick="toggleLeadbox()">' + iconSvg + '</button>' +
+        '</div>';
     } else {
-      return '<div style="display: flex; flex-direction: column; align-items: center; position: relative; width:fit-content; float:right; margin-top:3rem"><div style="height: 3.5rem; position: absolute; top: -22px; width: 100%; border-radius: 1.5rem; z-index: 10; background-color: #3B5BDB; display: flex; justify-content: center;"><p style="color: white; font-size: 0.875rem; padding-left: 1rem; padding-right: 1rem; bottom:23px; position: absolute;">Questions?, just ask</p></div><button style="background-color: white; height: 3.5rem; padding-left: 5rem; padding-right: 5rem; z-index: 20; border-radius: 9999px; color: #3B5BDB; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); display: flex; align-items: center; justify-content: center; gap: 0.5rem; font-size: 1.125rem; font-weight: 500; border: none; cursor: pointer;" onclick="toggleLeadbox()">TEXT US</button></div>';
+      return '<div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.75rem; margin-top: 1.5rem;">' +
+        secondaryHtml +
+        // The orange is one continuous shape: this wrapper carries the banner colour and
+        // the pill sits flush in its bottom, with a matching 38px radius, so no seam can
+        // open up between them. See the same construction in the builder preview.
+        '<div style="display: flex; flex-direction: column; align-items: center; width: fit-content; min-width: max-content; overflow: hidden; background-color: ' + bannerBgColor + '; border-top-left-radius: 36px; border-top-right-radius: 36px; border-bottom-left-radius: 38px; border-bottom-right-radius: 38px; filter: drop-shadow(0 10px 20px rgba(0,0,0,0.12));">' +
+        '<p style="color: ' + bannerFontColor + '; font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; margin: 0; padding: 12px 32px 16px 32px; width: 100%; box-sizing: border-box; text-align: center; white-space: nowrap;">' + bannerText + '</p>' +
+        '<button style="background-color: ' + buttonBgColor + '; height: 76px; width: 100%; border-radius: 9999px; border: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; padding-left: 2rem; padding-right: 0.25rem;" onclick="toggleLeadbox()">' +
+        '<span style="font-size: 24px; font-weight: 800; letter-spacing: 0.18em; color: ' + buttonFontColor + '; white-space: nowrap; margin-right: 1.5rem;">' + buttonText + '</span>' +
+        '<div style="width: 68px; height: 68px; border-radius: 9999px; background-color: ' + buttonBgColor + '; border: 2.5px solid ' + iconColor + '; color: ' + iconColor + '; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">' +
+        '<div style="display: flex; align-items: center; justify-content: center;">' + iconSvg + '</div>' +
+        '</div>' +
+        '</button>' +
+        '</div>' +
+        '</div>';
     }
   }
 
