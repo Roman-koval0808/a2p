@@ -65,9 +65,9 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
     
     let onClickScript = '';
     if (channelData.type === 'text_us') {
-      onClickScript = 'switchLeadboxView(\'text_us\')';
+      onClickScript = 'switchLeadboxView(\\\'text_us\\\')';
     } else if (channelData.type === 'request_call') {
-      onClickScript = 'switchLeadboxView(\'request_call\')';
+      onClickScript = 'switchLeadboxView(\\\'request_call\\\')';
     } else {
       onClickScript = 'handleChannelClick(' + JSON.stringify(channel.url || 'https://') + ', ' + JSON.stringify(channel.target || '_blank') + ', ' + JSON.stringify(channelData) + ')';
     }
@@ -82,14 +82,16 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
       '<button type="button" class="clearsky-subform-back" onclick="switchLeadboxView(\\\'main\\\')">← Back</button>' +
       '<span class="clearsky-subform-title">Text Us</span>' +
       '</div>' +
-      '<form id="clearsky-textus-form" onsubmit="handleSubformSubmit(event, \'text_us\')" style="display: flex; flex-direction: column; gap: 0.875rem;">' +
+      '<div class="clearsky-subform-card">' +
+      '<form id="clearsky-textus-form" onsubmit="handleSubformSubmit(event, \\\'text_us\\\')" style="display: flex; flex-direction: column; gap: 0.875rem;">' +
       '<div class="clearsky-field-group"><label class="clearsky-field-label">Full Name</label><input type="text" name="name" class="clearsky-field-input" placeholder="Your Name" required /></div>' +
       '<div class="clearsky-field-group"><label class="clearsky-field-label">Mobile Number</label><input type="tel" name="mobile" class="clearsky-field-input" placeholder="Your Mobile Number" required /></div>' +
-      '<div class="clearsky-field-group"><label class="clearsky-field-label">Message</label><textarea name="message" class="clearsky-field-textarea" placeholder="How can we help?" required></textarea></div>' +
+      '<div class="clearsky-field-group vertical"><label class="clearsky-field-label">Message</label><textarea name="message" class="clearsky-field-textarea" placeholder="How can we help?" required></textarea></div>' +
       '<p class="clearsky-subform-disclaimer">By submitting, you agree to receive informational text messages. Consent is optional & content may be automated. Msg/data rates apply.</p>' +
       '<button type="submit" class="clearsky-subform-submit">SEND</button>' +
-      '<a class="clearsky-privacy-link">Privacy policy</a>' +
       '</form>' +
+      '</div>' +
+      '<a class="clearsky-privacy-link">Privacy policy</a>' +
       '</div>';
   }
 
@@ -99,22 +101,24 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
       '<button type="button" class="clearsky-subform-back" onclick="switchLeadboxView(\\\'main\\\')">← Back</button>' +
       '<span class="clearsky-subform-title">Request a Call</span>' +
       '</div>' +
-      '<form id="clearsky-requestcall-form" onsubmit="handleSubformSubmit(event, \'request_call\')" style="display: flex; flex-direction: column; gap: 0.875rem;">' +
+      '<div class="clearsky-subform-card">' +
+      '<form id="clearsky-requestcall-form" onsubmit="handleSubformSubmit(event, \\\'request_call\\\')" style="display: flex; flex-direction: column; gap: 0.875rem;">' +
       '<div class="clearsky-field-group"><label class="clearsky-field-label">Full Name</label><input type="text" name="name" class="clearsky-field-input" placeholder="Your Name" required /></div>' +
       '<div class="clearsky-field-group"><label class="clearsky-field-label">Mobile Number</label><input type="tel" name="mobile" class="clearsky-field-input" placeholder="Your Mobile Number" required /></div>' +
-      '<div style="display: flex; flex-direction: column; gap: 0.25rem;">' +
+      '<div class="clearsky-field-group vertical">' +
       '<label class="clearsky-field-label">Select preferred times</label>' +
       '<div class="clearsky-time-pills">' +
       '<input type="hidden" name="preferred_time" id="clearsky-preferred-time" value="ASAP" />' +
-      '<button type="button" class="clearsky-time-pill active" onclick="selectTimePill(this, \'ASAP\')">ASAP</button>' +
-      '<button type="button" class="clearsky-time-pill" onclick="selectTimePill(this, \'Morning\')">Morning</button>' +
-      '<button type="button" class="clearsky-time-pill" onclick="selectTimePill(this, \'Afternoon\')">Afternoon</button>' +
+      '<button type="button" class="clearsky-time-pill active" onclick="selectTimePill(this, \\\'ASAP\\\')">ASAP</button>' +
+      '<button type="button" class="clearsky-time-pill" onclick="selectTimePill(this, \\\'Morning\\\')">Morning</button>' +
+      '<button type="button" class="clearsky-time-pill" onclick="selectTimePill(this, \\\'Afternoon\\\')">Afternoon</button>' +
       '</div>' +
       '</div>' +
       '<p class="clearsky-subform-disclaimer">By submitting, you agree to receive informational text messages. Consent is optional & content may be automated. Msg/data rates apply.</p>' +
       '<button type="submit" class="clearsky-subform-submit">SEND</button>' +
-      '<a class="clearsky-privacy-link">Privacy policy</a>' +
       '</form>' +
+      '</div>' +
+      '<a class="clearsky-privacy-link">Privacy policy</a>' +
       '</div>';
   }
 
@@ -300,7 +304,7 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
       bodyHtml = '<form id="clearsky-form" onsubmit="handleFormSubmit(event)" class="clearsky-form-fields"><input type="text" name="name" placeholder="Name" class="clearsky-input" required /><input type="tel" name="mobile" placeholder="Mobile Number" class="clearsky-input" required /><textarea name="message" placeholder="Message" class="clearsky-input" style="min-height: 100px;" required></textarea><div class="text-sm text-gray-500 mb-4 text-center">By submitting, you agree to receive text messages at this mobile number. Message & data rates apply.</div><button type="submit" class="clearsky-button" style="background-color: #3B5BDB;">Send Message</button></form>';
     } else {
       const buttonsHtml = (leadboxData.channels || []).map(channel => createChannelButton(channel)).join('');
-      bodyHtml = '<div class="clearsky-buttons">' + buttonsHtml + '</div>';
+      bodyHtml = '<div class="clearsky-buttons">' + buttonsHtml + '<a class="clearsky-privacy-link" style="margin-top: 0.25rem;">Privacy policy</a></div>';
     }
 
     function createSecondaryButton() {
@@ -312,7 +316,7 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
       const iconSvg = getIcon(sb.icon) || icons.Play;
       const iconHtml = sb.showIcon ? '<div style="display: flex; align-items: center; justify-content: center; width: 2.25rem; height: 2.25rem; flex-shrink: 0; color: ' + fontColor + ';"><div style="display: flex; align-items: center; justify-content: center; transform: translateX(1px);">' + iconSvg + '</div></div>' : '';
       
-      const clickHandler = sb.url ? 'onclick="window.open(' + JSON.stringify(sb.url) + ', \'_blank\')"' : '';
+      const clickHandler = sb.url ? 'onclick="window.open(' + JSON.stringify(sb.url) + ', \\\'_blank\\\')"' : '';
 
       return '<div style="display: flex; justify-content: flex-end; margin-bottom: 0.75rem;"><button class="clearsky-secondary-button" style="background-color: ' + btnColor + '; color: ' + fontColor + ';" ' + clickHandler + '><span>' + secondaryText + '</span>' + iconHtml + '</button></div>';
     }
@@ -329,8 +333,7 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
     const bannerFontColor = (leadboxData.topBanner?.fontColor || '#ffffff').replace(/"/g, '&quot;');
     const bannerFontFamily = (leadboxData.topBanner?.fontFamily || 'sans-serif').replace(/"/g, '&quot;');
     const bannerText = (leadboxData.topBanner?.text || 'Text with us.').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    
-    return '<div class="clearsky-box clearsky-animate-in"><div class="clearsky-header" style="background-color: ' + bannerBgColor + '; color: ' + bannerFontColor + '; font-family: ' + bannerFontFamily + ';"><p style="font-size: 1.125rem;">' + bannerText + '</p></div><div class="clearsky-content"><div class="clearsky-logo"><img src="' + logoImg + '" alt="Company Logo" class="w-[164px] h-[82px] object-contain absolute top-[-40px] z-10" /></div>' + bodyHtml + '<div class="clearsky-terms">Use subject to terms • Lead&Terms</div></div></div>' + createSecondaryButton() + createClosedLeadbox();
+    return '<div class="clearsky-box clearsky-animate-in"><div class="clearsky-header" style="background-color: ' + bannerBgColor + '; color: ' + bannerFontColor + '; font-family: ' + bannerFontFamily + ';"><button type="button" class="clearsky-close-btn" onclick="toggleLeadbox()">✕</button><p style="font-size: 0.875rem; font-weight: 800; line-height: 1.35; margin: 0; padding: 0 0.5rem;">' + bannerText + '</p><div class="clearsky-logo"><img src="' + logoImg + '" alt="Company Logo" /></div></div><div class="clearsky-content">' + bodyHtml + '</div></div>' + createClosedLeadbox();
   }
 
   function createClosedLeadbox() {
@@ -357,7 +360,7 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
       const fontColor = (sb.fontColor || '#ffffff').replace(/"/g, '&quot;');
       const sbIconSvg = getIcon(sb.icon) || icons.Play;
       const iconHtml = sb.showIcon ? '<div style="display: flex; align-items: center; justify-content: center; width: 2.25rem; height: 2.25rem; flex-shrink: 0; color: ' + fontColor + ';"><div style="display: flex; align-items: center; justify-content: center; transform: translateX(1px);">' + sbIconSvg + '</div></div>' : '';
-      const clickHandler = sb.url ? 'onclick="window.open(' + JSON.stringify(sb.url) + ', \'_blank\')"' : '';
+      const clickHandler = sb.url ? 'onclick="window.open(' + JSON.stringify(sb.url) + ', \\\'_blank\\\')"' : '';
 
       secondaryHtml = '<div style="display: flex; justify-content: flex-end; margin-bottom: 0.75rem;"><button class="clearsky-secondary-button" style="background-color: ' + btnColor + '; color: ' + fontColor + ';" ' + clickHandler + '><span>' + secondaryText + '</span>' + iconHtml + '</button></div>';
     }

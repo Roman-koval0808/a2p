@@ -68,8 +68,18 @@
 			{
 				name: 'Watch',
 				type: 'link',
-				icon: 'Play',
+				icon: 'PlayCircle',
 				value: 'WATCH A DEMO NOW',
+				url: 'https://',
+				target: '_blank',
+				buttonColor: '#FF6B00',
+				showIcon: true
+			},
+			{
+				name: 'Book',
+				type: 'link',
+				icon: 'Calendar',
+				value: 'BOOK APPOINTMENT',
 				url: 'https://',
 				target: '_blank',
 				buttonColor: '#FF6B00',
@@ -382,12 +392,12 @@
 						<div class="flex flex-col gap-4">
 							<div class="flex flex-col gap-2">
 								<label class="text-sm font-medium text-gray-700" for="banner-text">Text</label>
-								<input
+								<textarea
 									id="banner-text"
-									type="text"
 									bind:value={topBanner.text}
-									class="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-								/>
+									rows="3"
+									class="resize-none rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+								></textarea>
 							</div>
 							<div class="flex gap-4">
 								<div class="flex flex-1 flex-col gap-2">
@@ -540,32 +550,41 @@
 				<div class="absolute bottom-4 right-4 origin-bottom-right" style="transform: scale(0.65);">
 					{#if leadBoxOpen}
 						<div
-							class="relative mx-auto w-[517px] overflow-hidden border border-gray-200 bg-dialog"
+							class="relative mx-auto w-[380px] overflow-hidden rounded-[16px] border border-gray-100 bg-[#f0f2f5] shadow-2xl"
 						>
 							<div
-								class="h-28 items-center p-4"
+								class="relative px-6 pb-12 pt-6 text-center"
 								style="background-color: {topBanner.backgroundColor}; color: {topBanner.fontColor}; font-family: {topBanner.fontFamily};"
 							>
-								<p class="text-lg">{topBanner.text}</p>
-							</div>
-
-							<div class="relative flex flex-col gap-6 p-6">
-								<div class="relative mb-4 flex justify-center">
+								<button
+									type="button"
+									class="absolute right-4 top-4 text-lg font-bold text-white/80 transition-colors hover:text-white"
+									onclick={() => (leadBoxOpen = false)}
+									aria-label="Close leadbox"
+								>
+									✕
+								</button>
+								<p class="px-2 text-sm font-extrabold leading-snug">{topBanner.text}</p>
+								<div
+									class="absolute bottom-[-36px] left-1/2 z-10 flex h-20 w-20 -translate-x-1/2 items-center justify-center rounded-full border-[3px] border-white bg-white p-2 shadow-lg"
+								>
 									<img
 										src={logoImage}
 										alt="Company Logo"
-										class="absolute top-[-40px] z-10 h-[82px] w-[164px] object-contain"
+										class="h-full w-full object-contain"
 									/>
 								</div>
+							</div>
 
-								<div class="mt-12">
+							<div class="relative flex flex-col gap-4 bg-[#f0f2f5] px-4 pb-4 pt-12">
+								<div>
 									{#if !textOnly}
 										{#if previewView === 'main'}
-											<div class="space-y-3 bg-white px-5 pb-20 pt-4">
+											<div class="space-y-3 rounded-2xl bg-white p-4 shadow-sm">
 												{#each channels as channel}
 													<Button
 														variant="custom"
-														class="w-full rounded-full py-4 text-white hover:opacity-90 shadow-sm transition-all"
+														class="flex h-12 w-full items-center justify-center gap-3 rounded-full px-4 text-xs font-extrabold uppercase tracking-wider text-white shadow-sm transition-all hover:opacity-95"
 														style={`background-color: ${channel.buttonColor || '#3B5BDB'};`}
 														onclick={() => {
 															if (channel.type === 'text_us') {
@@ -587,87 +606,96 @@
 														{/if}
 													</Button>
 												{/each}
+												<p class="cursor-pointer pt-1 text-center text-[11px] text-gray-400 hover:underline">Privacy policy</p>
 											</div>
 										{:else if previewView === 'text_us'}
-											<div class="space-y-4 bg-white px-6 pb-12 pt-4 rounded-xl shadow-sm">
-												<div class="flex items-center justify-between border-b pb-2">
+											<div class="space-y-3.5">
+												<div class="flex items-center justify-between px-1">
 													<button
 														type="button"
-														class="text-gray-500 hover:text-gray-800 text-xs font-bold flex items-center gap-1"
+														class="flex items-center gap-1 text-xs font-bold text-gray-500 hover:text-gray-800"
 														onclick={() => (previewView = 'main')}
 													>
-														← Back to Channels
+														← Back
 													</button>
-													<span class="text-xs text-primary font-bold uppercase tracking-wider">Text Us</span>
+													<span class="text-xs font-bold uppercase tracking-wider text-primary">Text Us</span>
 												</div>
-												<div class="flex flex-col gap-1 border-b border-gray-200 pb-1">
-													<label class="text-xs font-semibold text-gray-500" for="preview-name">Full Name</label>
-													<input id="preview-name" type="text" placeholder="Robert Betts" class="bg-transparent text-sm font-medium text-gray-900 focus:outline-none" />
-												</div>
-												<div class="flex flex-col gap-1 border-b border-gray-200 pb-1">
-													<label class="text-xs font-semibold text-gray-500" for="preview-phone">Mobile Number</label>
-													<input id="preview-phone" type="tel" placeholder="708-246-3456" class="bg-transparent text-sm font-medium text-gray-900 focus:outline-none" />
-												</div>
-												<div class="flex flex-col gap-1 border-b border-gray-200 pb-1">
-													<label class="text-xs font-semibold text-gray-500" for="preview-msg">Message</label>
-													<textarea id="preview-msg" rows="2" placeholder="Can I get a salesman to call me" class="bg-transparent text-sm font-medium text-gray-900 focus:outline-none resize-none"></textarea>
-												</div>
-												<p class="text-[11px] leading-tight text-gray-400 text-center">
-													By submitting, you agree to receive informational text messages. Consent is optional & content may be automated. Msg/data rates apply.
-												</p>
-												<Button variant="custom" class="w-full rounded-lg bg-[#E84C22] py-3 text-white font-extrabold uppercase tracking-wider hover:opacity-90 shadow-md">
-													SEND
-												</Button>
-												<p class="text-center text-[11px] text-gray-400 underline cursor-pointer">Privacy policy</p>
-											</div>
-										{:else if previewView === 'request_call'}
-											<div class="space-y-4 bg-white px-6 pb-12 pt-4 rounded-xl shadow-sm">
-												<div class="flex items-center justify-between border-b pb-2">
-													<button
-														type="button"
-														class="text-gray-500 hover:text-gray-800 text-xs font-bold flex items-center gap-1"
-														onclick={() => (previewView = 'main')}
-													>
-														← Back to Channels
-													</button>
-													<span class="text-xs text-primary font-bold uppercase tracking-wider">Request a Call</span>
-												</div>
-												<div class="flex flex-col gap-1 border-b border-gray-200 pb-1">
-													<label class="text-xs font-semibold text-gray-500" for="preview-rc-name">Full Name</label>
-													<input id="preview-rc-name" type="text" placeholder="Robert Betts" class="bg-transparent text-sm font-medium text-gray-900 focus:outline-none" />
-												</div>
-												<div class="flex flex-col gap-1 border-b border-gray-200 pb-1">
-													<label class="text-xs font-semibold text-gray-500" for="preview-rc-phone">Mobile Number</label>
-													<input id="preview-rc-phone" type="tel" placeholder="708-246-3456" class="bg-transparent text-sm font-medium text-gray-900 focus:outline-none" />
-												</div>
-												<div class="flex flex-col gap-2 pt-1">
-													<label class="text-xs font-semibold text-gray-500">Select preferred times</label>
-													<div class="flex gap-2">
-														{#each ['ASAP', 'Morning', 'Afternoon'] as timeOpt}
-															<button
-																type="button"
-																class="flex-1 py-1.5 px-3 rounded-full text-xs font-bold transition-all border {requestCallTime === timeOpt ? 'border-[#FF6B00] text-[#FF6B00] bg-orange-50' : 'border-gray-300 text-gray-600 hover:border-gray-400'}"
-																onclick={() => (requestCallTime = timeOpt as any)}
-															>
-																{timeOpt}
-															</button>
-														{/each}
+												<div class="rounded-2xl bg-white p-5 shadow-sm">
+													<div class="flex flex-col gap-3">
+														<div class="flex items-center border-b border-gray-100 pb-2">
+															<label class="w-1/3 text-[11px] font-medium text-gray-500" for="preview-name">Full Name</label>
+															<input id="preview-name" type="text" placeholder="Robert Betts" class="w-2/3 bg-transparent text-sm font-bold text-gray-900 focus:outline-none" />
+														</div>
+														<div class="flex items-center border-b border-gray-100 pb-2">
+															<label class="w-1/3 text-[11px] font-medium text-gray-500" for="preview-phone">Mobile Number</label>
+															<input id="preview-phone" type="tel" placeholder="708-246-3456" class="w-2/3 bg-transparent text-sm font-bold text-gray-900 focus:outline-none" />
+														</div>
+														<div class="flex flex-col gap-1 border-b border-gray-100 pb-2">
+															<label class="text-[11px] font-medium text-gray-500" for="preview-msg">Message</label>
+															<textarea id="preview-msg" rows="2" placeholder="Can I get a salesman to call me" class="resize-none bg-transparent text-sm font-bold text-gray-900 focus:outline-none"></textarea>
+														</div>
+														<p class="text-center text-[10px] leading-tight text-gray-400 mt-2">
+															By submitting, you agree to receive informational text messages. Consent is optional & content may be automated. Msg/data rates apply.
+														</p>
+														<Button variant="custom" class="w-full rounded-xl bg-[#E84C22] py-3.5 text-xs font-black uppercase tracking-wider text-white shadow-md hover:opacity-90">
+															SEND
+														</Button>
 													</div>
 												</div>
-												<p class="text-[11px] leading-tight text-gray-400 text-center">
-													By submitting, you agree to receive informational text messages. Consent is optional & content may be automated. Msg/data rates apply.
-												</p>
-												<Button variant="custom" class="w-full rounded-lg bg-[#E84C22] py-3 text-white font-extrabold uppercase tracking-wider hover:opacity-90 shadow-md">
-													SEND
-												</Button>
-												<p class="text-center text-[11px] text-gray-400 underline cursor-pointer">Privacy policy</p>
+												<p class="cursor-pointer text-center text-[11px] text-gray-400 hover:underline">Privacy policy</p>
+											</div>
+										{:else if previewView === 'request_call'}
+											<div class="space-y-3.5">
+												<div class="flex items-center justify-between px-1">
+													<button
+														type="button"
+														class="flex items-center gap-1 text-xs font-bold text-gray-500 hover:text-gray-800"
+														onclick={() => (previewView = 'main')}
+													>
+														← Back
+													</button>
+													<span class="text-xs font-bold uppercase tracking-wider text-primary">Request a Call</span>
+												</div>
+												<div class="rounded-2xl bg-white p-5 shadow-sm">
+													<div class="flex flex-col gap-3">
+														<div class="flex items-center border-b border-gray-100 pb-2">
+															<label class="w-1/3 text-[11px] font-medium text-gray-500" for="preview-rc-name">Full Name</label>
+															<input id="preview-rc-name" type="text" placeholder="Robert Betts" class="w-2/3 bg-transparent text-sm font-bold text-gray-900 focus:outline-none" />
+														</div>
+														<div class="flex items-center border-b border-gray-100 pb-2">
+															<label class="w-1/3 text-[11px] font-medium text-gray-500" for="preview-rc-phone">Mobile Number</label>
+															<input id="preview-rc-phone" type="tel" placeholder="708-246-3456" class="w-2/3 bg-transparent text-sm font-bold text-gray-900 focus:outline-none" />
+														</div>
+														<div class="flex flex-col gap-1.5 pb-2 border-b border-gray-100">
+															<label class="text-[11px] font-medium text-gray-500">Select preferred times</label>
+															<div class="flex gap-2">
+																{#each ['ASAP', 'Morning', 'Afternoon'] as timeOpt}
+																	<button
+																		type="button"
+																		class="flex-1 rounded-full border px-3 py-1.5 text-[10px] font-bold transition-all {requestCallTime === timeOpt ? 'border-[#FF6B00] bg-orange-50 text-[#FF6B00]' : 'border-gray-300 text-gray-600 hover:border-gray-400'}"
+																		onclick={() => (requestCallTime = timeOpt as any)}
+																	>
+																		{timeOpt}
+																	</button>
+																{/each}
+															</div>
+														</div>
+														<p class="text-center text-[10px] leading-tight text-gray-400 mt-2">
+															By submitting, you agree to receive informational text messages. Consent is optional & content may be automated. Msg/data rates apply.
+														</p>
+														<Button variant="custom" class="w-full rounded-xl bg-[#E84C22] py-3.5 text-xs font-black uppercase tracking-wider text-white shadow-md hover:opacity-90">
+															SEND
+														</Button>
+													</div>
+												</div>
+												<p class="cursor-pointer text-center text-[11px] text-gray-400 hover:underline">Privacy policy</p>
 											</div>
 										{/if}
 									{/if}
 									{#if textOnly}
-										<div class="space-y-3 bg-white px-5 pb-20 pt-4">
+										<div class="space-y-3 rounded-2xl bg-white p-5 shadow-sm">
 											<div class="flex flex-col gap-2">
-												<label class="text-gray-700 text-sm font-medium" for="name">Name</label>
+												<label class="text-sm font-medium text-gray-700" for="name">Name</label>
 												<input
 													type="text"
 													class="rounded-none border-b border-gray-300 bg-transparent p-2 text-sm focus:border-primary focus:outline-none"
@@ -675,7 +703,7 @@
 												/>
 											</div>
 											<div class="flex flex-col gap-2">
-												<label class="text-gray-700 text-sm font-medium" for="mobile">Mobile Number</label>
+												<label class="text-sm font-medium text-gray-700" for="mobile">Mobile Number</label>
 												<input
 													type="text"
 													class="rounded-none border-b border-gray-300 bg-transparent p-2 text-sm focus:border-primary focus:outline-none"
@@ -683,7 +711,7 @@
 												/>
 											</div>
 											<div class="flex flex-col gap-2">
-												<label class="text-gray-700 text-sm font-medium" for="message">Message</label>
+												<label class="text-sm font-medium text-gray-700" for="message">Message</label>
 												<textarea
 													class="rounded-none border-b border-gray-300 bg-transparent p-2 text-sm focus:border-primary focus:outline-none"
 													name="message"
@@ -691,10 +719,6 @@
 											</div>
 										</div>
 									{/if}
-								</div>
-
-								<div class="text-center text-xs text-gray-500">
-									Use subject to terms • Lead&Terms
 								</div>
 							</div>
 						</div>

@@ -8,53 +8,91 @@ export const leadboxStyles = `
   bottom: 1rem;
   right: 1rem;
   z-index: 9999;
+  transform: scale(0.85);
+  transform-origin: bottom right;
 }
 .clearsky-box {
-  border: 1px solid #e5e7eb;
+  border: 1px solid rgba(0,0,0,0.06);
   overflow: hidden;
   position: relative;
-  width: 517px;
+  width: 380px;
+  max-width: calc(100vw - 2rem);
   margin: 0 auto;
-  background: #ffffff;
+  background: #f0f2f5;
+  border-radius: 16px;
+  box-shadow: 0 12px 35px rgba(0,0,0,0.18);
 }
 .clearsky-header {
   background: #3B5BDB;
   color: white;
-  padding: 1rem;
-  height: 7rem;
-  display: flex;
-  align-items: center;
-}
-.clearsky-content {
-  padding: 1.5rem;
+  padding: 1.5rem 1.5rem 3rem 1.5rem;
+  min-height: 100px;
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
   position: relative;
+  box-sizing: border-box;
+}
+.clearsky-close-btn {
+  position: absolute;
+  right: 1rem;
+  top: 1rem;
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.85);
+  font-size: 1.25rem;
+  font-weight: bold;
+  cursor: pointer;
+  padding: 0.25rem;
+  line-height: 1;
+  transition: color 0.15s;
+}
+.clearsky-close-btn:hover {
+  color: #ffffff;
+}
+.clearsky-content {
+  padding: 2.75rem 1rem 1rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  position: relative;
+  background: #f0f2f5;
+  box-sizing: border-box;
 }
 .clearsky-logo {
   display: flex;
   justify-content: center;
-  margin-bottom: 1rem;
-  position: relative;
+  align-items: center;
+  position: absolute;
+  bottom: -36px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  width: 76px;
+  height: 76px;
+  border-radius: 9999px;
+  background: white;
+  border: 3px solid white;
+  box-shadow: 0 6px 16px rgba(0,0,0,0.12);
+  padding: 6px;
+  box-sizing: border-box;
 }
 .clearsky-logo img {
-  width: 164px;
-  height: 82px;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
-  position: absolute;
-  top: -40px;
-  z-index: 10;
+  position: static;
 }
 .clearsky-buttons {
-  margin-top: 3rem;
-  padding: 0 1.25rem;
   background: white;
-  padding-top: 1rem;
-  padding-bottom: 5rem;
+  border-radius: 1rem;
+  padding: 1rem;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
 .clearsky-button {
   display: inline-flex;
@@ -176,16 +214,12 @@ export const leadboxStyles = `
   display: flex;
   flex-direction: column;
   gap: 0.875rem;
-  padding: 0 1.25rem 2rem 1.25rem;
-  background: white;
 }
 .clearsky-subform-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid #E5E7EB;
-  padding-bottom: 0.5rem;
-  margin-bottom: 0.25rem;
+  padding: 0 0.25rem;
 }
 .clearsky-subform-back {
   background: none;
@@ -210,25 +244,40 @@ export const leadboxStyles = `
   color: #3B5BDB;
   letter-spacing: 0.05em;
 }
+.clearsky-subform-card {
+  background: white;
+  border-radius: 16px;
+  padding: 1.25rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
 .clearsky-field-group {
   display: flex;
+  align-items: center;
+  border-bottom: 1px solid #F3F4F6;
+  padding: 0.5rem 0;
+}
+.clearsky-field-group.vertical {
   flex-direction: column;
+  align-items: flex-start;
   gap: 0.25rem;
-  border-bottom: 1px solid #E5E7EB;
-  padding-bottom: 0.25rem;
 }
 .clearsky-field-label {
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: 0.6875rem;
+  font-weight: 500;
   color: #6B7280;
+  width: 33.333%;
+  flex-shrink: 0;
+}
+.clearsky-field-group.vertical .clearsky-field-label {
+  width: 100%;
 }
 .clearsky-field-input {
-  width: 100%;
+  width: 66.666%;
   border: none;
   background: transparent;
-  padding: 0.25rem 0;
+  padding: 0;
   font-size: 0.875rem;
-  font-weight: 500;
+  font-weight: 700;
   color: #111827;
   outline: none;
   font-family: inherit;
@@ -238,15 +287,16 @@ export const leadboxStyles = `
   width: 100%;
   border: none;
   background: transparent;
-  padding: 0.25rem 0;
+  padding: 0;
   font-size: 0.875rem;
-  font-weight: 500;
+  font-weight: 700;
   color: #111827;
   outline: none;
   font-family: inherit;
   resize: none;
   min-height: 48px;
   box-sizing: border-box;
+  margin-top: 0.25rem;
 }
 .clearsky-time-pills {
   display: flex;

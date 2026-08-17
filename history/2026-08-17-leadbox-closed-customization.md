@@ -196,5 +196,27 @@ User requested: "create widget that that be added in and out, not just links. Bu
 - `svelte-check`: 320 errors (matching baseline, zero errors in leadbox / embed).
 - `vitest`: 29 failed / 508 passed (matching baseline).
 
+---
+
+## Follow-up session: 4 default channels and slim card Figma layout
+
+User requested: "4 channels, also make the box thinner, follow the layou (not the colors)"
+
+### Changed
+- `src/routes/(app)/leadbox/+page.svelte`:
+  - Updated default channels to 4 (`TEXT US`, `REQUEST A CALL`, `WATCH A DEMO NOW`, `BOOK APPOINTMENT`).
+  - Thinned the preview leadbox from 517px to 380px (`w-[380px] rounded-[28px] shadow-2xl`).
+  - Added close '✕' button in top-right of header.
+  - Implemented the centered overlapping circular logo badge (`rounded-full w-20 h-20 bg-white border-[3px] border-white shadow-lg`).
+  - Placed channels and sub-forms inside a clean white card with rounded corners (`rounded-2xl bg-white p-4 shadow-sm`).
+- `src/lib/embed/styles.ts`:
+  - Adjusted `.clearsky-box` to `width: 380px; max-width: calc(100vw - 2rem); border-radius: 28px; box-shadow: 0 12px 35px rgba(0,0,0,0.18); background: #f0f2f5;`.
+  - Added `.clearsky-close-btn` and updated `.clearsky-logo` to overlapping circular badge.
+- `src/lib/embed/leadbox-builder.ts`:
+  - Updated `createOpenLeadbox` with close button and centered circular logo badge markup.
+- `src/lib/embed/icons.ts`:
+  - Standardized all icon dimensions to 24x24 viewBox for crisp rendering.
+
+
 
 
