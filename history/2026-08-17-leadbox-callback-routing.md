@@ -397,3 +397,128 @@ disagreed with each other, which is the property that was missing.
   clients, wrong for anyone else, and invisible until someone notices calls at odd hours. A
   timezone selector on the company settings screen is the missing piece.
 - `/representatives` renders in the sidebar — the nav entry was added but the page was not loaded.
+
+---
+
+## Fifth pass: rebuilding the widget to the Leadferno reference
+
+Three reference screenshots supplied (main menu, Text Us, Request a Call) with the instruction
+"build the leadbox to be exactly like this".
+
+The markup was already close — a previous commit had introduced the header / back button / logo /
+subform-card / footer structure. The gap was composition and CSS, not architecture.
+
+### What changed
+
+- **Header text is one paragraph in two weights.** "**Text with us.** Message us now, …" —
+  `renderHeaderText` splits on the first full stop and bolds the lead, so the bold half tracks
+  whatever the admin types instead of being a second configurable field. A header whose only full
+  stop is its last character ("Select times to get a call, & complete fields below.") has no lead
+  and stays regular, matching screen 3. Three tests pin that rule.
+- **Two header layouts.** Screens 1–2 hang a 116px logo across the header/body seam (a spacer
+  reserves the top half, the body reserves clearance below). Screen 3 — Request a Call, which has
+  an extra field — puts a 62px logo inline to the left of the text and removes the body clearance.
+  Driven by `currentView === 'request_call'`, not by a new setting.
+- **The footer is a white bar across the panel**, emitted once by `createOpenLeadbox` rather than
+  pasted into each view's body HTML (it was previously inside the grey content area, duplicated in
+  three places). Brand between the policy links now comes from the company name.
+- **Disclaimer and submit moved OUT of the white card** onto the grey beneath it, per screens 2–3.
+- **Submit is a centred, content-width pill that starts disabled** and enables on
+  `form.checkValidity()`, which is how the reference renders it against an empty form. Reuses the
+  existing `required` attributes rather than adding a second validation rule set.
+- **Time pills are outlined and content-width**, filling only when chosen.
+
+### Verified
+
+- **The generated script is parsed, not just diffed.** `leadbox-builder.test.ts` builds the embed
+  exactly as the endpoint does and runs `new Function(script)`. This file assembles JavaScript by
+  string concatenation inside a template literal with three levels of quote escaping — a broken
+  escape is the most likely failure mode and would otherwise surface as a blank widget on a
+  customer's site. Six tests: syntax, the new structural classes, the removal of the old inline
+  footer, and the header-lead rule.
+- Full suite failing-set unchanged (`diff` against the previous snapshot); svelte-check 320.
+
+### Not verified — and this is the important part
+
+**Nothing was rendered.** No browser tooling in this session, so every dimension, colour and
+spacing value is measured off the supplied screenshots and converted arithmetically (the panels
+render ~736px wide at 2x, so ~368 CSS px), then written as CSS that has never been displayed.
+"Exactly like this" is therefore a claim about intent, not about observed output. Specific things
+most likely to be off by a few pixels or plainly wrong:
+
+- The 116px logo and its `bottom: -58px` overhang: the seam alignment is arithmetic, and if the
+  header's intrinsic height differs from the reference the circle will not sit centred on it.
+- `padding-top: 4.25rem` on the body is hand-tuned clearance for that overhang. If the logo size
+  changes, this must change with it — they are coupled and nothing enforces it.
+- Font sizes were inferred from cap heights in a screenshot, which is imprecise.
+- The reference's exact greys (`#f1f2f4` body, `#8b8f96` footer text, `#dcdfe4` field underline)
+  were eyeballed, not sampled.
+
+**The builder preview in `(app)/leadbox/+page.svelte` was NOT updated** and now diverges from the
+widget it is supposed to preview. It is a separate hand-maintained copy of this layout — the same
+duplication noted earlier in this entry. Anyone configuring a leadbox will see something that no
+longer matches what their visitors get. This needs doing before the change is shippable.
+
+## Sixth pass: the Figma, and two bugs the new test caught
+
+The previous pass was built from Leadferno screenshots. The actual Figma differs, and a screenshot
+of the shipped result showed the alignment problems it caused.
+
+### Corrected against the Figma
+
+- **Header text is centred**, not left-aligned. The Leadferno reference left-aligns it; ours does
+  not. The inline-logo (Request a Call) header keeps left alignment.
+- **Fields are label-left / value-right rows** — "Full Name" in grey on the left, the typed value
+  in semibold on the right, sharing one underlined row. The previous build used placeholder-only
+  inputs, so the labels vanished as soon as the customer typed. Message keeps its label above the
+  box, since it is multi-line.
+- **The footer carries the privacy link alone.** "Use policy" and the company name came from the
+  earlier reference and are not in the Figma; at 368px the three of them wrapped onto three ragged
+  lines, which is what the screenshot showed.
+- **The time pills fit on one row.** They were `flex-wrap: wrap` at 15px/18px padding, which
+  overflowed the card and pushed "Afternoon" onto a second line. Now 14px/12px and `nowrap`.
+- **Both submit buttons read SEND.** One said SUBMIT.
+- **A missing logo no longer renders the browser's torn-image glyph** inside the white circle —
+  `onerror` removes the element, leaving a clean disc.
+
+### Closed state scaled down
+
+Roughly 30% off, as requested: pill 76→54px, its label 24→17px, the icon disc 68→48px, banner type
+14→11px, and the corner radii moved with the pill height so the single-shape construction from the
+earlier pass still holds (the wrapper's bottom radius must equal half the pill height or the seam
+reopens). The secondary "CALL US NOW!" pill and both floating buttons scale with it.
+
+### Two bugs the generated-script test caught
+
+Both were introduced by me in this session and both would have shipped:
+
+1. **A duplicated `<div class="clearsky-time-pills">`.** The line-based rebuild in the previous
+   pass filtered for lines matching `clearsky-time-pill`, which also matched the container's own
+   opening tag, so it was emitted twice — leaving an unclosed div in the Request a Call view.
+2. **`onerror="this.style.display='none'"` broke the whole widget.** Those quotes terminate the
+   surrounding string literal in the GENERATED script. The embed would have failed to parse and
+   rendered nothing at all. `this.remove()` needs no quotes.
+
+Neither is visible in a diff, and (1) is valid JavaScript, so the syntax check alone would have
+missed it. Added a **div-balance test** that executes the generated script against stub
+`document`/`window` globals and asserts opens == closes for all four views. That is what caught (1);
+the syntax check caught (2).
+
+This is the argument for the probe test earning its place: this file builds JavaScript by string
+concatenation through three levels of quote escaping, and both failure modes produce a silently
+blank widget rather than an error.
+
+### Verified
+
+- `leadbox-builder.test.ts` — 8 tests: syntax, structure, footer contents, div balance across
+  main/closed/text-us/request-call, and the header-lead rule.
+- Failing-set `diff` against the session baseline: unchanged. svelte-check 320.
+
+### Still not verified
+
+- **Nothing rendered, again.** Every value is measured off the Figma screenshots and converted
+  arithmetically. The label-left/value-right rows are the biggest guess: the label column has no
+  fixed width, so a long label ("Mobile Number") and a long value may collide differently than the
+  Figma shows. A fixed label width may be needed.
+- The builder preview at `(app)/leadbox/+page.svelte` **still diverges** and was not touched in this
+  pass either. It is now two design revisions behind the widget.

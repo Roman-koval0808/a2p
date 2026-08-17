@@ -550,42 +550,64 @@
 				<div class="absolute bottom-4 right-4 origin-bottom-right" style="transform: scale(0.65);">
 					{#if leadBoxOpen}
 						<div
-							class="relative mx-auto w-[380px] overflow-hidden rounded-[16px] border border-gray-100 bg-[#f0f2f5] shadow-2xl"
+							class="relative mx-auto w-[380px] overflow-hidden rounded-[18px] border border-gray-100 bg-[#f0f2f5] shadow-2xl"
 						>
 							<div
-								class="relative px-6 pb-12 pt-6 text-center"
+								class="relative px-6 pb-14 pt-6 text-center"
 								style="background-color: {topBanner.backgroundColor}; color: {topBanner.fontColor}; font-family: {topBanner.fontFamily};"
 							>
+								{#if previewView !== 'main'}
+									<button
+										type="button"
+										class="absolute left-4 top-4 text-xl font-bold text-white/90 transition-transform hover:scale-110 hover:text-white"
+										onclick={() => (previewView = 'main')}
+										aria-label="Back to main"
+									>
+										←
+									</button>
+								{/if}
+
 								<button
 									type="button"
-									class="absolute right-4 top-4 text-lg font-bold text-white/80 transition-colors hover:text-white"
+									class="absolute right-4 top-4 text-xl font-bold text-white/80 transition-transform hover:scale-110 hover:text-white"
 									onclick={() => (leadBoxOpen = false)}
 									aria-label="Close leadbox"
 								>
 									✕
 								</button>
-								<p class="px-2 text-sm font-extrabold leading-snug">{topBanner.text}</p>
+								
+								<p class="px-5 text-[15px] font-bold leading-snug">
+									{#if previewView === 'text_us'}
+										Text with us. Enter your info below and we will text you back.
+									{:else if previewView === 'request_call'}
+										Select times to get a call, & complete fields below.
+									{:else}
+										{topBanner.text || 'Text with us. Message us now, book a demo, or start a free trial.'}
+									{/if}
+								</p>
+
+								<!-- Enlarged Circular Logo Avatar -->
 								<div
-									class="absolute bottom-[-36px] left-1/2 z-10 flex h-20 w-20 -translate-x-1/2 items-center justify-center rounded-full border-[3px] border-white bg-white p-2 shadow-lg"
+									class="absolute bottom-[-46px] left-1/2 z-10 flex h-[92px] w-[92px] -translate-x-1/2 items-center justify-center rounded-full border-4 border-white bg-white p-2 shadow-xl"
 								>
 									<img
 										src={logoImage}
 										alt="Company Logo"
-										class="h-full w-full object-contain"
+										class="h-[82%] w-[82%] object-contain"
 									/>
 								</div>
 							</div>
 
-							<div class="relative flex flex-col gap-4 bg-[#f0f2f5] px-4 pb-4 pt-12">
+							<div class="relative flex flex-col gap-3 bg-[#f0f2f5] px-4 pb-4 pt-14">
 								<div>
 									{#if !textOnly}
 										{#if previewView === 'main'}
-											<div class="space-y-3 rounded-2xl bg-white p-4 shadow-sm">
+											<div class="space-y-3.5 rounded-2xl bg-white p-5 shadow-sm">
 												{#each channels as channel}
 													<Button
 														variant="custom"
 														class="flex h-12 w-full items-center justify-center gap-3 rounded-full px-4 text-xs font-extrabold uppercase tracking-wider text-white shadow-sm transition-all hover:opacity-95"
-														style={`background-color: ${channel.buttonColor || '#3B5BDB'};`}
+														style={`background-color: ${channel.buttonColor || '#3B5BDB'}; color: ${channel.fontColor || '#ffffff'};`}
 														onclick={() => {
 															if (channel.type === 'text_us') {
 																previewView = 'text_us';
@@ -606,73 +628,52 @@
 														{/if}
 													</Button>
 												{/each}
-												<p class="cursor-pointer pt-1 text-center text-[11px] text-gray-400 hover:underline">Privacy policy</p>
+											</div>
+											<div class="mt-2 flex items-center justify-center gap-1.5 text-[11px] text-gray-400">
+												<span>Use policy</span> • <span>ClearSky</span> • <span class="cursor-pointer underline hover:text-gray-600">Privacy policy</span>
 											</div>
 										{:else if previewView === 'text_us'}
 											<div class="space-y-3.5">
-												<div class="flex items-center justify-between px-1">
-													<button
-														type="button"
-														class="flex items-center gap-1 text-xs font-bold text-gray-500 hover:text-gray-800"
-														onclick={() => (previewView = 'main')}
-													>
-														← Back
-													</button>
-													<span class="text-xs font-bold uppercase tracking-wider text-primary">Text Us</span>
-												</div>
 												<div class="rounded-2xl bg-white p-5 shadow-sm">
 													<div class="flex flex-col gap-3">
-														<div class="flex items-center border-b border-gray-100 pb-2">
-															<label class="w-1/3 text-[11px] font-medium text-gray-500" for="preview-name">Full Name</label>
-															<input id="preview-name" type="text" placeholder="Robert Betts" class="w-2/3 bg-transparent text-sm font-bold text-gray-900 focus:outline-none" />
+														<div class="border-b border-gray-200 py-1">
+															<input id="preview-name" type="text" placeholder="Full Name" class="w-full bg-transparent text-sm font-medium text-gray-900 placeholder:text-gray-500 focus:outline-none" />
 														</div>
-														<div class="flex items-center border-b border-gray-100 pb-2">
-															<label class="w-1/3 text-[11px] font-medium text-gray-500" for="preview-phone">Mobile Number</label>
-															<input id="preview-phone" type="tel" placeholder="708-246-3456" class="w-2/3 bg-transparent text-sm font-bold text-gray-900 focus:outline-none" />
+														<div class="border-b border-gray-200 py-1">
+															<input id="preview-phone" type="tel" placeholder="Mobile Number" class="w-full bg-transparent text-sm font-medium text-gray-900 placeholder:text-gray-500 focus:outline-none" />
 														</div>
-														<div class="flex flex-col gap-1 border-b border-gray-100 pb-2">
-															<label class="text-[11px] font-medium text-gray-500" for="preview-msg">Message</label>
-															<textarea id="preview-msg" rows="2" placeholder="Can I get a salesman to call me" class="resize-none bg-transparent text-sm font-bold text-gray-900 focus:outline-none"></textarea>
+														<div class="border-b border-gray-200 py-1">
+															<textarea id="preview-msg" rows="2" placeholder="Message" class="w-full resize-none bg-transparent text-sm font-medium text-gray-900 placeholder:text-gray-500 focus:outline-none"></textarea>
 														</div>
-														<p class="text-center text-[10px] leading-tight text-gray-400 mt-2">
-															By submitting, you agree to receive informational text messages. Consent is optional & content may be automated. Msg/data rates apply.
+														<p class="mt-2 text-center text-[10px] leading-tight text-gray-400">
+															By submitting, you agree to receive informational text messages. Consent is optional & content may be automated. Msg/data rates apply, msg frequency varies. Text HELP for help. Text STOP to stop.
 														</p>
 														<Button variant="custom" class="w-full rounded-xl bg-[#E84C22] py-3.5 text-xs font-black uppercase tracking-wider text-white shadow-md hover:opacity-90">
 															SEND
 														</Button>
 													</div>
 												</div>
-												<p class="cursor-pointer text-center text-[11px] text-gray-400 hover:underline">Privacy policy</p>
+												<div class="flex items-center justify-center gap-1.5 text-[11px] text-gray-400">
+													<span>Use policy</span> • <span>ClearSky</span> • <span class="cursor-pointer underline hover:text-gray-600">Privacy policy</span>
+												</div>
 											</div>
 										{:else if previewView === 'request_call'}
 											<div class="space-y-3.5">
-												<div class="flex items-center justify-between px-1">
-													<button
-														type="button"
-														class="flex items-center gap-1 text-xs font-bold text-gray-500 hover:text-gray-800"
-														onclick={() => (previewView = 'main')}
-													>
-														← Back
-													</button>
-													<span class="text-xs font-bold uppercase tracking-wider text-primary">Request a Call</span>
-												</div>
 												<div class="rounded-2xl bg-white p-5 shadow-sm">
 													<div class="flex flex-col gap-3">
-														<div class="flex items-center border-b border-gray-100 pb-2">
-															<label class="w-1/3 text-[11px] font-medium text-gray-500" for="preview-rc-name">Full Name</label>
-															<input id="preview-rc-name" type="text" placeholder="Robert Betts" class="w-2/3 bg-transparent text-sm font-bold text-gray-900 focus:outline-none" />
+														<div class="border-b border-gray-200 py-1">
+															<input id="preview-rc-name" type="text" placeholder="Full Name" class="w-full bg-transparent text-sm font-medium text-gray-900 placeholder:text-gray-500 focus:outline-none" />
 														</div>
-														<div class="flex items-center border-b border-gray-100 pb-2">
-															<label class="w-1/3 text-[11px] font-medium text-gray-500" for="preview-rc-phone">Mobile Number</label>
-															<input id="preview-rc-phone" type="tel" placeholder="708-246-3456" class="w-2/3 bg-transparent text-sm font-bold text-gray-900 focus:outline-none" />
+														<div class="border-b border-gray-200 py-1">
+															<input id="preview-rc-phone" type="tel" placeholder="Mobile Number" class="w-full bg-transparent text-sm font-medium text-gray-900 placeholder:text-gray-500 focus:outline-none" />
 														</div>
-														<div class="flex flex-col gap-1.5 pb-2 border-b border-gray-100">
-															<label class="text-[11px] font-medium text-gray-500">Select preferred times</label>
+														<div class="flex flex-col gap-1.5 py-1">
+															<label class="text-[13px] font-medium text-gray-600">Select preferred times</label>
 															<div class="flex gap-2">
 																{#each ['ASAP', 'Morning', 'Afternoon'] as timeOpt}
 																	<button
 																		type="button"
-																		class="flex-1 rounded-full border px-3 py-1.5 text-[10px] font-bold transition-all {requestCallTime === timeOpt ? 'border-[#FF6B00] bg-orange-50 text-[#FF6B00]' : 'border-gray-300 text-gray-600 hover:border-gray-400'}"
+																		class="flex-1 rounded-full border px-3 py-1.5 text-xs font-bold transition-all {requestCallTime === timeOpt ? 'border-[#FF6B00] bg-orange-50 text-[#FF6B00]' : 'border-gray-300 text-gray-600 hover:border-gray-400'}"
 																		onclick={() => (requestCallTime = timeOpt as any)}
 																	>
 																		{timeOpt}
@@ -680,15 +681,17 @@
 																{/each}
 															</div>
 														</div>
-														<p class="text-center text-[10px] leading-tight text-gray-400 mt-2">
-															By submitting, you agree to receive informational text messages. Consent is optional & content may be automated. Msg/data rates apply.
+														<p class="mt-2 text-center text-[10px] leading-tight text-gray-400">
+															By submitting, you agree to receive informational text messages. Consent is optional & content may be automated. Msg/data rates apply, msg frequency varies. Text HELP for help. Text STOP to stop.
 														</p>
 														<Button variant="custom" class="w-full rounded-xl bg-[#E84C22] py-3.5 text-xs font-black uppercase tracking-wider text-white shadow-md hover:opacity-90">
-															SEND
+															SUBMIT
 														</Button>
 													</div>
 												</div>
-												<p class="cursor-pointer text-center text-[11px] text-gray-400 hover:underline">Privacy policy</p>
+												<div class="flex items-center justify-center gap-1.5 text-[11px] text-gray-400">
+													<span>Use policy</span> • <span>ClearSky</span> • <span class="cursor-pointer underline hover:text-gray-600">Privacy policy</span>
+												</div>
 											</div>
 										{/if}
 									{/if}
@@ -723,22 +726,20 @@
 							</div>
 						</div>
 
-						<!-- secondary button -->
+						<!-- Floating Cancel FAB when Open -->
 						<div class="mt-4 flex justify-end">
-							<Button
-								variant="custom"
-								class="flex h-14 items-center justify-between gap-4 rounded-full border-none px-8 text-lg font-extrabold uppercase tracking-wide text-white shadow-lg hover:opacity-95"
-								style="background-color: {secondaryButton.buttonColor || '#FF6B00'}; color: {secondaryButton.fontColor || '#ffffff'}; border: none;"
+							<button
+								type="button"
+								class="flex h-[54px] w-[54px] items-center justify-center rounded-full text-white shadow-xl transition-transform hover:scale-105 active:scale-95"
+								style="background-color: {closedState.bannerBgColor || topBanner.backgroundColor || '#FF6B00'};"
+								onclick={() => (leadBoxOpen = false)}
+								aria-label="Close leadbox"
 							>
-								<span>{secondaryButton.text}</span>
-								{#if secondaryButton.showIcon}
-									<div class="flex h-9 w-9 flex-shrink-0 items-center justify-center">
-										<div class="flex translate-x-[1px] items-center justify-center [&>svg]:!h-7 [&>svg]:!w-7 [&>svg:not([stroke='none'])]:!stroke-current">
-											{@html iconSvgs[secondaryButton.icon] || iconSvgs['Play'] || ''}
-										</div>
-									</div>
-								{/if}
-							</Button>
+								<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+									<line x1="18" y1="6" x2="6" y2="18"></line>
+									<line x1="6" y1="6" x2="18" y2="18"></line>
+								</svg>
+							</button>
 						</div>
 					{/if}
 
@@ -761,50 +762,44 @@
 							</Button>
 						{/if}
 
-						{#if primaryIconOnly}
-							<Button
-								variant="custom"
-								class="flex h-14 w-14 items-center justify-center rounded-full p-2 [&>svg]:!h-6 [&>svg]:!w-6 [&>svg:not([stroke='none'])]:!stroke-current"
-								style="background-color: {closedState.buttonBgColor}; color: {closedState.iconColor}; border: 2px solid {closedState.iconColor};"
-								onclick={() => (leadBoxOpen = !leadBoxOpen)}
-							>
-								{@html iconSvgs[closedState.icon] || iconSvgs['Phone'] || ''}
-							</Button>
-						{:else}
-							<!-- The orange is ONE continuous shape: this wrapper carries the banner
-							     colour, and the pill is a child sitting flush in its bottom. Its
-							     rounded-b radius equals the pill's (38px = half of h-76), so the pill
-							     covers the wrapper's bottom exactly and the only orange left showing is
-							     the top band plus the pill's corner notches. Drawing the banner as a
-							     separate strip above the pill cannot work - any width mismatch leaves its
-							     square bottom corners stranded on white. min-w-max keeps long labels from
-							     clipping, since neither child has an intrinsic width. -->
-							<div
-								class="flex w-fit min-w-max flex-col items-center overflow-hidden rounded-t-[36px] rounded-b-[38px]"
-								style="background-color: {closedState.bannerBgColor || '#FF6B00'}; filter: drop-shadow(0 10px 20px rgba(0,0,0,0.12));"
-							>
-								<p class="m-0 w-full whitespace-nowrap px-8 pb-4 pt-3 text-center text-[14px] font-extrabold uppercase tracking-wide" style="color: {closedState.bannerFontColor || '#ffffff'};">
-									{closedState.bannerText || 'QUESTIONS? JUST ASK!'}
-								</p>
-
-								<!-- Pill Button -->
+						{#if !leadBoxOpen}
+							{#if primaryIconOnly}
 								<Button
 									variant="custom"
-									class="flex h-[76px] w-full items-center justify-between gap-6 rounded-full pl-8 pr-1 hover:opacity-95"
-									style="border: none; background-color: {closedState.buttonBgColor || '#ffffff'};"
+									class="flex h-14 w-14 items-center justify-center rounded-full p-2 [&>svg]:!h-6 [&>svg]:!w-6 [&>svg:not([stroke='none'])]:!stroke-current"
+									style="background-color: {closedState.buttonBgColor}; color: {closedState.iconColor}; border: 2px solid {closedState.iconColor};"
 									onclick={() => (leadBoxOpen = !leadBoxOpen)}
 								>
-									<span class="whitespace-nowrap text-[24px] font-extrabold tracking-[0.18em]" style="color: {closedState.buttonFontColor || '#222222'};">
-										{closedState.buttonText || 'TEXT US'}
-									</span>
-									<div
-										class="flex h-[68px] w-[68px] flex-shrink-0 items-center justify-center rounded-full [&>svg]:!h-8 [&>svg]:!w-8 [&>svg:not([stroke='none'])]:!stroke-current"
-										style="background-color: {closedState.buttonBgColor || '#ffffff'}; border: 2.5px solid {closedState.iconColor || '#FF6B00'}; color: {closedState.iconColor || '#FF6B00'};"
-									>
-										{@html iconSvgs[closedState.icon] || iconSvgs['Phone'] || ''}
-									</div>
+									{@html iconSvgs[closedState.icon] || iconSvgs['Phone'] || ''}
 								</Button>
-							</div>
+							{:else}
+								<div
+									class="flex w-fit min-w-max flex-col items-center overflow-hidden rounded-t-[36px] rounded-b-[38px]"
+									style="background-color: {closedState.bannerBgColor || '#FF6B00'}; filter: drop-shadow(0 10px 20px rgba(0,0,0,0.12));"
+								>
+									<p class="m-0 w-full whitespace-nowrap px-8 pb-4 pt-3 text-center text-[14px] font-extrabold uppercase tracking-wide" style="color: {closedState.bannerFontColor || '#ffffff'};">
+										{closedState.bannerText || 'QUESTIONS? JUST ASK!'}
+									</p>
+
+									<!-- Pill Button -->
+									<Button
+										variant="custom"
+										class="flex h-[76px] w-full items-center justify-between gap-6 rounded-full pl-8 pr-1 hover:opacity-95"
+										style="border: none; background-color: {closedState.buttonBgColor || '#ffffff'};"
+										onclick={() => (leadBoxOpen = !leadBoxOpen)}
+									>
+										<span class="whitespace-nowrap text-[24px] font-extrabold tracking-[0.18em]" style="color: {closedState.buttonFontColor || '#222222'};">
+											{closedState.buttonText || 'TEXT US'}
+										</span>
+										<div
+											class="flex h-[68px] w-[68px] flex-shrink-0 items-center justify-center rounded-full [&>svg]:!h-8 [&>svg]:!w-8 [&>svg:not([stroke='none'])]:!stroke-current"
+											style="background-color: {closedState.buttonBgColor || '#ffffff'}; border: 2.5px solid {closedState.iconColor || '#FF6B00'}; color: {closedState.iconColor || '#FF6B00'};"
+										>
+											{@html iconSvgs[closedState.icon] || iconSvgs['Phone'] || ''}
+										</div>
+									</Button>
+								</div>
+							{/if}
 						{/if}
 					</div>
 				</div>
