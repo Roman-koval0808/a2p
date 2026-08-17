@@ -233,7 +233,10 @@ describe('the emergency ladder is not affected', () => {
 
 describe('rota feeds the ladder in the right order', () => {
 	it('an on-duty rota becomes rungs 1..n in list order', () => {
-		const mon9 = new Date(2026, 7, 17, 9, 0);
+		// 13:00Z = 09:00 in America/Toronto, the zone buildRepRota reads shifts in. Constructing
+		// this with `new Date(y, m, d, 9)` would be the SERVER's 09:00, which is what the
+		// 2026-08-17 production bug was made of.
+		const mon9 = new Date('2026-08-17T13:00:00Z');
 		const rota = buildRepRota({
 			reps: [
 				{ id: 'm1', name: 'Joe Sales', phone: '+15550000001', schedule: { Monday: { start: '08:00', end: '17:00' } } },

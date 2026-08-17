@@ -118,8 +118,10 @@ export const POST: RequestHandler = async ({ request }) => {
 					})
 				: null;
 
-		// Initial communication log without AI summary
-		await logCommunication({
+		// Initial communication log without AI summary. The id is kept: the callback dispatcher
+		// uses it as the work order's commId, which is what the Telnyx webhook keys the bridge
+		// RECORDING off — without it the recording of the callback attaches to nothing.
+		const inboundLog = await logCommunication({
 			type: source === 'leadform' ? 'leadform' : 'leadbox',
 			direction: 'inbound',
 			status: 'success',
@@ -224,7 +226,8 @@ export const POST: RequestHandler = async ({ request }) => {
 					customerPhone,
 					message: messageContent,
 					contactId: contact?.id ?? null,
-					threadId
+					threadId,
+					commLogId: inboundLog?.id ?? null
 				});
 				if (cb.handled) {
 					// Everything you need to diagnose a run in one line: what was asked, what we

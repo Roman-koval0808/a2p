@@ -262,6 +262,76 @@ leadbox/leadform submission.** The callback dispatch is unaffected — it sits a
 this was left alone rather than folded into an unrelated change. One-line scope fix when someone
 wants it.
 
+## Fourth pass: the timezone caveat was not theoretical — it was a live wrong answer
+
+First production run, and the log looked like a success:
+
+```
+[Callback] ASAP → schedule (asap_after_hours) for 2026-08-18T06:00:00.000Z | rota: Carter Adams | ack sms: not sent
+```
+
+Rota populated, task written, diagnostics working. **The decision was wrong.**
+
+The host stamps `2026-08-17 23:31:07 +02:00`. The business is North American (company number
++1 804, Virginia). At that instant it was **17:31 in Toronto — inside 8:00–18:00, so the office was
+open and it should have BRIDGED Carter Adams immediately.** Reading `at.getHours()` gave 23:31,
+which is after hours anywhere, so it scheduled instead. Worse, the slot it booked — 08:00 *server*
+time — is **02:00 in Toronto**. Carter Adams would have been rung in the middle of the night.
+
+This is listed as a known caveat three sections above, described as "pre-existing on this path, not
+introduced here, and not fixed". That was the wrong call. It was not pre-existing on this path —
+this path is new — and "the server and the business are in different countries" is the normal case
+in production, not an edge case. **This repo has been bitten by exactly this before**, and carries
+a regression note about it at the top of `calendar.test.ts`:
+
+> the host runs in Europe/Berlin while the business is America/Toronto … a customer was offered a
+> "Monday at 3:00 AM" furnace slot.
+
+Writing a caveat is not the same as noticing that the caveat is the bug.
+
+### The fix
+
+All wall-clock reasoning now happens in the **business's** zone:
+
+- `partsIn(at, tz)` reads year/month/day/hour/minute/weekday through `Intl.DateTimeFormat`, and
+  `instantForWallClock(day, minutes, tz)` goes back the other way via `zonedNaiveToUtc` — reused
+  from `datetime.ts`, which is dependency-free, so `callback-routing.ts` stays pure and mock-free.
+- `isOpenAt`, `windowAt`, `nextOpening`, `nextWindowStart`, `decideCallback`, `isRepOnDuty` and
+  `buildRepRota` all take a `timeZone`, defaulting to `America/Toronto` to match
+  `BUSINESS_TIME_ZONE` in google-calendar.ts.
+- `dayIn()` steps between calendar days from **local noon**, so a DST transition cannot skip or
+  repeat a day. There is a test crossing the 1 Nov 2026 change.
+- The rep task and the customer's after-hours SMS are rendered with an explicit `timeZone`. Telling
+  a customer "we open at 2:00 AM" is the same bug wearing a different hat.
+- `callback-dispatch.ts` supplies the zone from `settings.timezone` when an admin has set one,
+  validating it through `Intl` first and falling back rather than throwing from inside date maths.
+
+The zone is a **parameter, not an import**, so the routing module keeps zero runtime dependencies
+and can be tested at any zone.
+
+### Tests
+
+Rewritten so no test constructs a server-local `Date`: `at()` builds instants from business-zone
+wall clock via `zonedNaiveToUtc`, and assertions read back through `Intl` rather than `getHours()`.
+That was the flaw that let the bug through — the old tests used `new Date(y, m, d, h)` for both the
+input and the expectation, so they passed in every zone while the code was wrong in all but one.
+
+A new block reproduces the production instant exactly:
+
+```
+isOpenAt('2026-08-17T21:31:00Z', HOURS, 'America/Toronto') === true
+isOpenAt('2026-08-17T21:31:00Z', HOURS, 'Europe/Berlin')   === false
+decideCallback(ASAP, that instant, tz: 'America/Toronto').action === 'bridge_now'
+```
+
+plus: the same instant giving different, each-correct answers for Vancouver vs Berlin; a genuinely
+after-hours Toronto request booking `2026-08-18T12:00:00.000Z` (08:00 local, asserted as an absolute
+instant); rep shifts read in the business zone; and the DST crossing.
+
+**The suite is run under three server zones** — `Europe/Berlin` (mimicking production),
+`America/Toronto`, and `Pacific/Auckland` — 53/53 in each. Before this fix those runs would have
+disagreed with each other, which is the property that was missing.
+
 ## Verified
 
 - `npx vitest run src/lib/server/callback-routing.test.ts` — 30/30 pass.
@@ -317,7 +387,13 @@ wants it.
   unexercised.
 - **No callback has yet been bridged with a real rep on the rota**, which is the one path these two
   fixes were meant to unblock.
-- Timezone: everything compares in the server's local clock, matching `isBusinessHours` and
-  `isOffHours`. A company in another timezone is scheduled against the server's day boundary. This
-  is pre-existing on this path, not introduced here, and not fixed.
+- **`isBusinessHours` in auto-reply.ts is still server-local.** Only the callback path was fixed.
+  That function drives the existing auto-reply feature and reads `new Date()` internally, so it has
+  the same defect for the same reason — a company whose zone differs from the host gets its
+  business-hours auto-replies at the wrong times. Out of scope here, but it is the same bug and
+  should be fixed with the same helpers.
+- **`settings.timezone` is read but nothing writes it.** There is no admin field for a company
+  timezone, so every company currently falls back to `America/Toronto`. Correct for the Toronto
+  clients, wrong for anyone else, and invisible until someone notices calls at odd hours. A
+  timezone selector on the company settings screen is the missing piece.
 - `/representatives` renders in the sidebar — the nav entry was added but the page was not loaded.

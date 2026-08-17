@@ -27,6 +27,7 @@ import {
 	callbackWhisperText,
 	afterHoursAckText,
 	nextOpening,
+	DEFAULT_BUSINESS_TIME_ZONE,
 	type CallbackPreference,
 	type CallbackDecision,
 	type RepRecord,
@@ -73,6 +74,28 @@ export async function loadReps(companyId: string): Promise<RepRecord[]> {
 		.filter((r) => !!r.phone);
 }
 
+/**
+ * The BUSINESS's timezone, not the server's.
+ *
+ * The production host runs at +02:00 while the companies are North American — reading the server
+ * clock put a 17:31 Toronto request (office open) into the after-hours branch and booked the call
+ * for 02:00 Toronto. Honours `settings.timezone` when an admin has set one; otherwise the same
+ * default the calendar integration uses (`BUSINESS_TIME_ZONE` in google-calendar.ts).
+ */
+function timeZoneFor(settings: Record<string, any>): string {
+	const tz = settings?.timezone ?? settings?.timeZone;
+	if (typeof tz === 'string' && tz.trim()) {
+		try {
+			// Reject a malformed value here rather than throwing from deep inside the date maths.
+			new Intl.DateTimeFormat('en-US', { timeZone: tz }).format(new Date());
+			return tz;
+		} catch {
+			console.warn(`[Callback] ignoring invalid settings.timezone "${tz}"`);
+		}
+	}
+	return DEFAULT_BUSINESS_TIME_ZONE;
+}
+
 function businessHoursFor(settings: Record<string, any>): BusinessHoursConfig {
 	const configured = settings?.autoReply?.businessHours;
 	if (configured && typeof configured === 'object') return configured as BusinessHoursConfig;
@@ -112,12 +135,13 @@ export async function dispatchCallbackRequest(input: {
 	const settings = (company.settings || {}) as Record<string, any>;
 	const businessHours = businessHoursFor(settings);
 	const config = windowConfigFrom(settings);
+	const timeZone = timeZoneFor(settings);
 
-	const decision = decideCallback({ preference, now, businessHours, config });
+	const decision = decideCallback({ preference, now, businessHours, config, timeZone });
 
 	// Who would take it at the moment the call is actually made — not at the moment he asked.
 	const rotaAt = decision.action === 'schedule' ? decision.callAt : now;
-	const rota = buildRepRota({ reps: await loadReps(company.id), at: rotaAt });
+	const rota = buildRepRota({ reps: await loadReps(company.id), at: rotaAt, timeZone });
 
 	// "We add the message to the rep based on his requests." The rep gets it whatever route the
 	// call itself takes, and BEFORE the dial is attempted — so a Telnyx failure or an empty rota
@@ -130,7 +154,8 @@ export async function dispatchCallbackRequest(input: {
 		preference,
 		decision,
 		rota,
-		commLogId: input.commLogId
+		commLogId: input.commLogId,
+		timeZone
 	});
 
 	if (decision.action === 'manual') {
@@ -175,7 +200,8 @@ export async function dispatchCallbackRequest(input: {
 			companyId: company.id,
 			companyName: company.name,
 			phone: input.customerPhone,
-			openAt: nextOpening(now, businessHours)
+			openAt: nextOpening(now, businessHours, timeZone),
+			timeZone
 		});
 	}
 
@@ -352,6 +378,7 @@ export async function sendAfterHoursAck(input: {
 	companyName?: string | null;
 	phone: string;
 	openAt: Date | null;
+	timeZone?: string;
 }): Promise<boolean> {
 	const phone = (input.phone || '').replace(/[^\d+]/g, '');
 	if (!phone) return false;
@@ -380,7 +407,10 @@ export async function sendAfterHoursAck(input: {
 		const brand = await resolveBrand(input.companyId, input.companyName || undefined);
 
 		const { sendAutomatedSms } = await import('./sms');
-		await sendAutomatedSms(phone, afterHoursAckText({ openAt: input.openAt, brand }));
+		await sendAutomatedSms(
+			phone,
+			afterHoursAckText({ openAt: input.openAt, brand, timeZone: input.timeZone })
+		);
 		return true;
 	} catch (e: any) {
 		console.error('[Callback] after-hours ack failed:', e?.message || e);
@@ -398,6 +428,7 @@ async function recordRepInstruction(input: {
 	decision: CallbackDecision;
 	rota: RepRotaItem[];
 	commLogId?: string | null;
+	timeZone?: string;
 }): Promise<void> {
 	const who = input.customerName?.trim() || 'A customer';
 	const phone = input.customerPhone || 'no number given';
@@ -411,7 +442,9 @@ async function recordRepInstruction(input: {
 						month: 'short',
 						day: 'numeric',
 						hour: 'numeric',
-						minute: '2-digit'
+						minute: '2-digit',
+						// The rep reads this; show it in their working day, not the server's.
+						timeZone: input.timeZone ?? DEFAULT_BUSINESS_TIME_ZONE
 					})
 				: 'UNSCHEDULED — no open slot found, arrange manually';
 
