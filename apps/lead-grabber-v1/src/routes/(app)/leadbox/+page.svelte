@@ -90,6 +90,15 @@
 		}
 	);
 
+	let topBanner = $state(
+		data.leadbox?.leadbox_data?.topBanner ?? {
+			text: 'Text with us.',
+			backgroundColor: '#3B5BDB',
+			fontColor: '#ffffff',
+			fontFamily: 'sans-serif'
+		}
+	);
+
 	function handleChannelUpdate(index: number, updatedChannel: any) {
 		const iconComponent = updatedChannel.icon;
 		channels[index] = {
@@ -215,7 +224,8 @@
 							primaryButton,
 							channels,
 							secondaryButton,
-							logoImage
+							logoImage,
+							topBanner
 						})}
 					/>
 
@@ -346,6 +356,73 @@
 							</label>
 						</div>
 					</div>
+
+					<div class="mb-8 w-full">
+						<h2 class="mb-2 text-xl font-semibold text-primary">Top Banner</h2>
+						<p class="mb-4 text-sm text-gray-500">Customize the top banner of your leadbox</p>
+						<div class="flex flex-col gap-4">
+							<div class="flex flex-col gap-2">
+								<label class="text-sm font-medium text-gray-700" for="banner-text">Text</label>
+								<input
+									id="banner-text"
+									type="text"
+									bind:value={topBanner.text}
+									class="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+								/>
+							</div>
+							<div class="flex gap-4">
+								<div class="flex flex-1 flex-col gap-2">
+									<label class="text-sm font-medium text-gray-700" for="bg-color">Background Color</label>
+									<div class="flex items-center gap-2">
+										<input
+											id="bg-color"
+											type="color"
+											bind:value={topBanner.backgroundColor}
+											class="h-10 w-10 cursor-pointer rounded border border-gray-300 p-1"
+										/>
+										<input
+											type="text"
+											bind:value={topBanner.backgroundColor}
+											class="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm uppercase focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+										/>
+									</div>
+								</div>
+								<div class="flex flex-1 flex-col gap-2">
+									<label class="text-sm font-medium text-gray-700" for="font-color">Font Color</label>
+									<div class="flex items-center gap-2">
+										<input
+											id="font-color"
+											type="color"
+											bind:value={topBanner.fontColor}
+											class="h-10 w-10 cursor-pointer rounded border border-gray-300 p-1"
+										/>
+										<input
+											type="text"
+											bind:value={topBanner.fontColor}
+											class="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm uppercase focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+										/>
+									</div>
+								</div>
+							</div>
+							<div class="flex flex-col gap-2">
+								<label class="text-sm font-medium text-gray-700" for="font-family">Font Style</label>
+								<select
+									id="font-family"
+									bind:value={topBanner.fontFamily}
+									class="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+								>
+									<option value="sans-serif">Sans Serif</option>
+									<option value="serif">Serif</option>
+									<option value="monospace">Monospace</option>
+									<option value="system-ui">System Default</option>
+									<option value="Arial">Arial</option>
+									<option value="Helvetica">Helvetica</option>
+									<option value="Times New Roman">Times New Roman</option>
+									<option value="Courier New">Courier New</option>
+								</select>
+							</div>
+						</div>
+					</div>
 				</div>
 			</div>
 
@@ -358,8 +435,11 @@
 						<div
 							class="relative mx-auto w-[517px] overflow-hidden border border-gray-200 bg-dialog"
 						>
-							<div class="h-28 items-center bg-[#3B5BDB] p-4 text-white">
-								<p class="text-lg">Text with us.</p>
+							<div
+								class="h-28 items-center p-4"
+								style="background-color: {topBanner.backgroundColor}; color: {topBanner.fontColor}; font-family: {topBanner.fontFamily};"
+							>
+								<p class="text-lg">{topBanner.text}</p>
 							</div>
 
 							<div class="relative flex flex-col gap-6 p-6">

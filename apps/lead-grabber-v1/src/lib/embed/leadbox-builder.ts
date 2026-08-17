@@ -149,7 +149,12 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
     }
     const logoImg = logoUrl.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     
-    return '<div class="clearsky-box clearsky-animate-in"><div class="clearsky-header"><p style="font-size: 1.125rem;">Text with us.</p></div><div class="clearsky-content"><div class="clearsky-logo"><img src="' + logoImg + '" alt="Company Logo" class="w-[164px] h-[82px] object-contain absolute top-[-40px] z-10" /></div>' + textOnlyHtml + '<div class="clearsky-terms">Use subject to terms • Lead&Terms</div></div></div>' + secondaryButtonHtml + createClosedLeadbox();
+    const bannerBgColor = (leadboxData.topBanner?.backgroundColor || '#3B5BDB').replace(/"/g, '&quot;');
+    const bannerFontColor = (leadboxData.topBanner?.fontColor || '#ffffff').replace(/"/g, '&quot;');
+    const bannerFontFamily = (leadboxData.topBanner?.fontFamily || 'sans-serif').replace(/"/g, '&quot;');
+    const bannerText = (leadboxData.topBanner?.text || 'Text with us.').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    
+    return '<div class="clearsky-box clearsky-animate-in"><div class="clearsky-header" style="background-color: ' + bannerBgColor + '; color: ' + bannerFontColor + '; font-family: ' + bannerFontFamily + ';"><p style="font-size: 1.125rem;">' + bannerText + '</p></div><div class="clearsky-content"><div class="clearsky-logo"><img src="' + logoImg + '" alt="Company Logo" class="w-[164px] h-[82px] object-contain absolute top-[-40px] z-10" /></div>' + textOnlyHtml + '<div class="clearsky-terms">Use subject to terms • Lead&Terms</div></div></div>' + secondaryButtonHtml + createClosedLeadbox();
   }
 
   function createClosedLeadbox() {

@@ -8,6 +8,12 @@ export interface LeadboxData {
 		icon?: string;
 		showIcon?: boolean;
 	};
+	topBanner?: {
+		text: string;
+		backgroundColor: string;
+		fontColor: string;
+		fontFamily: string;
+	};
 }
 
 export interface Channel {
