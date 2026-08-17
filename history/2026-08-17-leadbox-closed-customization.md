@@ -179,4 +179,22 @@ User reported: "primary button icon does not change though".
 - Updated `leadbox-builder.ts` to resolve `cs.icon || primaryBtn.icon || 'Phone'`, guaranteeing that saving either structure will render the chosen icon in both preview and embed.
 - Removed the ring/border around the secondary button icon container (`border-2 border-current` / `border: 2px solid`) and verified `border: none` on the button itself in both dashboard preview and embed script.
 
+---
+
+## Follow-up session: Leadbox expansion with interactive sub-form widgets (Text Us & Request a Call)
+
+User requested: "create widget that that be added in and out, not just links. But still allow for a link widget... and icons should be customisable, just add the text us and request a call widget for now."
+
+### Changed
+- `src/lib/types/leadbox.ts`: Added `type?: 'link' | 'text_us' | 'request_call'` to `Channel`.
+- `src/lib/components/EditChannelDialog.svelte`: Added Channel Action selector (`text_us`, `request_call`, `link`), conditional URL input for link channels, and icon customization from `iconOptions`.
+- `src/routes/(app)/leadbox/+page.svelte`: Added interactive drill-in preview navigation (`previewView = 'main' | 'text_us' | 'request_call'`), with Text Us form, Request Call form (with `ASAP` / `Morning` / `Afternoon` selection pills), back button, and disclaimer.
+- `src/lib/embed/styles.ts`: Added styles for `.clearsky-subform`, `.clearsky-subform-header`, `.clearsky-subform-back`, `.clearsky-time-pills`, `.clearsky-time-pill.active`, and `.clearsky-subform-submit`.
+- `src/lib/embed/leadbox-builder.ts`: Implemented `createTextUsHtml()`, `createRequestCallHtml()`, `switchLeadboxView()`, `selectTimePill()`, `handleSubformSubmit()`, and exposed handlers on window for embed script runtime.
+
+### Verified
+- `svelte-check`: 320 errors (matching baseline, zero errors in leadbox / embed).
+- `vitest`: 29 failed / 508 passed (matching baseline).
+
+
 

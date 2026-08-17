@@ -33,7 +33,8 @@ export interface Channel {
 	id: string;
 	name: string;
 	value: string;
-	url: string;
+	type?: 'link' | 'text_us' | 'request_call';
+	url?: string;
 	buttonColor: string;
 	icon?: string;
 	showIcon?: boolean;

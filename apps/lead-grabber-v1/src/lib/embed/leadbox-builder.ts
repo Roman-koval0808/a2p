@@ -45,15 +45,170 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
   }
 
   function createChannelButton(channel) {
-    const channelData = {name: channel.name, value: channel.value, url: channel.url};
-    const iconHtml = channel.showIcon ? createChannelIcon(channel.icon) : '';
+    const channelData = {
+      name: channel.name,
+      value: channel.value,
+      url: channel.url,
+      type: channel.type || (channel.url && channel.url !== 'sms://' && channel.url !== 'tel://' ? 'link' : channel.name?.toLowerCase().includes('call') ? 'request_call' : 'text_us')
+    };
+
+    let iconHtml = '';
+    if (channel.showIcon) {
+      const channelIcon = getIcon(channel.icon);
+      if (channelIcon) {
+        iconHtml = '<div style="display: flex; align-items: center; justify-content: center; width: 1.25rem; height: 1.25rem; margin-right: 0.5rem;">' + channelIcon + '</div>';
+      }
+    }
+
     const buttonColor = (channel.buttonColor || '#3B5BDB').replace(/"/g, '&quot;');
     const channelValue = (channel.value || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     
-    const onClickScript = 'handleChannelClick(' + JSON.stringify(channel.url) + ', ' + JSON.stringify(channel.target || '_blank') + ', ' + JSON.stringify(channelData) + ')';
+    let onClickScript = '';
+    if (channelData.type === 'text_us') {
+      onClickScript = 'switchLeadboxView(\'text_us\')';
+    } else if (channelData.type === 'request_call') {
+      onClickScript = 'switchLeadboxView(\'request_call\')';
+    } else {
+      onClickScript = 'handleChannelClick(' + JSON.stringify(channel.url || 'https://') + ', ' + JSON.stringify(channel.target || '_blank') + ', ' + JSON.stringify(channelData) + ')';
+    }
     const escapedOnClick = onClickScript.replace(/"/g, '&quot;');
     
     return '<button class="clearsky-button" type="button" style="background-color: ' + buttonColor + ';" onclick="' + escapedOnClick + '">' + iconHtml + channelValue + '</button>';
+  }
+
+  function createTextUsHtml() {
+    return '<div class="clearsky-subform">' +
+      '<div class="clearsky-subform-header">' +
+      '<button type="button" class="clearsky-subform-back" onclick="switchLeadboxView(\\\'main\\\')">← Back</button>' +
+      '<span class="clearsky-subform-title">Text Us</span>' +
+      '</div>' +
+      '<form id="clearsky-textus-form" onsubmit="handleSubformSubmit(event, \'text_us\')" style="display: flex; flex-direction: column; gap: 0.875rem;">' +
+      '<div class="clearsky-field-group"><label class="clearsky-field-label">Full Name</label><input type="text" name="name" class="clearsky-field-input" placeholder="Your Name" required /></div>' +
+      '<div class="clearsky-field-group"><label class="clearsky-field-label">Mobile Number</label><input type="tel" name="mobile" class="clearsky-field-input" placeholder="Your Mobile Number" required /></div>' +
+      '<div class="clearsky-field-group"><label class="clearsky-field-label">Message</label><textarea name="message" class="clearsky-field-textarea" placeholder="How can we help?" required></textarea></div>' +
+      '<p class="clearsky-subform-disclaimer">By submitting, you agree to receive informational text messages. Consent is optional & content may be automated. Msg/data rates apply.</p>' +
+      '<button type="submit" class="clearsky-subform-submit">SEND</button>' +
+      '<a class="clearsky-privacy-link">Privacy policy</a>' +
+      '</form>' +
+      '</div>';
+  }
+
+  function createRequestCallHtml() {
+    return '<div class="clearsky-subform">' +
+      '<div class="clearsky-subform-header">' +
+      '<button type="button" class="clearsky-subform-back" onclick="switchLeadboxView(\\\'main\\\')">← Back</button>' +
+      '<span class="clearsky-subform-title">Request a Call</span>' +
+      '</div>' +
+      '<form id="clearsky-requestcall-form" onsubmit="handleSubformSubmit(event, \'request_call\')" style="display: flex; flex-direction: column; gap: 0.875rem;">' +
+      '<div class="clearsky-field-group"><label class="clearsky-field-label">Full Name</label><input type="text" name="name" class="clearsky-field-input" placeholder="Your Name" required /></div>' +
+      '<div class="clearsky-field-group"><label class="clearsky-field-label">Mobile Number</label><input type="tel" name="mobile" class="clearsky-field-input" placeholder="Your Mobile Number" required /></div>' +
+      '<div style="display: flex; flex-direction: column; gap: 0.25rem;">' +
+      '<label class="clearsky-field-label">Select preferred times</label>' +
+      '<div class="clearsky-time-pills">' +
+      '<input type="hidden" name="preferred_time" id="clearsky-preferred-time" value="ASAP" />' +
+      '<button type="button" class="clearsky-time-pill active" onclick="selectTimePill(this, \'ASAP\')">ASAP</button>' +
+      '<button type="button" class="clearsky-time-pill" onclick="selectTimePill(this, \'Morning\')">Morning</button>' +
+      '<button type="button" class="clearsky-time-pill" onclick="selectTimePill(this, \'Afternoon\')">Afternoon</button>' +
+      '</div>' +
+      '</div>' +
+      '<p class="clearsky-subform-disclaimer">By submitting, you agree to receive informational text messages. Consent is optional & content may be automated. Msg/data rates apply.</p>' +
+      '<button type="submit" class="clearsky-subform-submit">SEND</button>' +
+      '<a class="clearsky-privacy-link">Privacy policy</a>' +
+      '</form>' +
+      '</div>';
+  }
+
+  async function handleSubformSubmit(event, formType) {
+    event.preventDefault();
+    const form = event.target;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.style.opacity = '0.7';
+      submitBtn.textContent = 'Submitting...';
+      submitBtn.style.cursor = 'not-allowed';
+    }
+
+    const formData = new FormData(form);
+    const data = Object.fromEntries(formData);
+
+    try {
+      const initials = data.name ? data.name.split(' ').map(n => n[0]).join('').toUpperCase() : '??';
+      let messageContent = data.message || '';
+      if (formType === 'request_call') {
+        const timeChoice = data.preferred_time || 'ASAP';
+        messageContent = 'Requested Call back. Preferred Time: ' + timeChoice;
+      }
+      const normalizedPhone = data.mobile ? data.mobile.replace(/[^+\\d]/g, '') : "";
+
+      const messageData = {
+        customer_name: data.name || "Anonymous",
+        customer_email: "",
+        customer_phone: data.mobile || "",
+        message: messageContent,
+        source: "leadbox",
+        status: "new",
+        thread_id: normalizedPhone || crypto.randomUUID(),
+        source_url: window.location.href,
+        company_id: companyId,
+        created: new Date().toISOString(),
+        initials: initials,
+        color: "bg-primary",
+        company: { id: companyId }
+      };
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+      try {
+        const apiBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+        const response = await fetch(apiBase + '/api/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(messageData),
+          mode: 'cors',
+          signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          form.innerHTML = '<div style="text-align: center; padding: 2rem; color: #EF4444;"><h3>Error</h3><p>There was an error submitting your request. Please try again.</p><button type="button" class="clearsky-button" style="margin-top: 1rem; background-color: #3B5BDB;" onclick="switchLeadboxView(\\\'main\\\')">Back</button></div>';
+          return;
+        }
+
+        form.innerHTML = '<div style="text-align: center; padding: 2rem 1rem;"><div style="width: 48px; height: 48px; border-radius: 9999px; background-color: #DCFCE7; color: #16A34A; display: flex; align-items: center; justify-content: center; margin: 0 auto 1rem auto; font-size: 24px; font-weight: bold;">✓</div><h3 style="font-size: 1.25rem; font-weight: 700; color: #111827; margin: 0 0 0.5rem 0;">Thank you!</h3><p style="color: #6B7280; font-size: 0.875rem; margin: 0 0 1.5rem 0;">Your request has been received. We\\'ll be in touch shortly.</p><button type="button" class="clearsky-button" style="background-color: #3B5BDB;" onclick="switchLeadboxView(\\\'main\\\')">Done</button></div>';
+
+      } catch (fetchError) {
+        clearTimeout(timeoutId);
+        form.innerHTML = '<div style="text-align: center; padding: 2rem; color: #EF4444;"><h3>Error</h3><p>There was an error submitting your request. Please try again.</p><button type="button" class="clearsky-button" style="margin-top: 1rem; background-color: #3B5BDB;" onclick="switchLeadboxView(\\\'main\\\')">Back</button></div>';
+      }
+    } catch (error) {
+      console.error('Error in handleSubformSubmit:', error);
+      form.innerHTML = '<div style="text-align: center; padding: 2rem; color: #EF4444;"><h3>Error</h3><p>There was an error submitting your request. Please try again.</p><button type="button" class="clearsky-button" style="margin-top: 1rem; background-color: #3B5BDB;" onclick="switchLeadboxView(\\\'main\\\')">Back</button></div>';
+    }
+  }
+
+  function switchLeadboxView(view) {
+    const container = document.getElementById('clearsky-leadbox-' + leadboxId);
+    if (!container) return;
+    const box = container.querySelector('.clearsky-box');
+    if (box) {
+      container.innerHTML = createOpenLeadbox(view);
+    }
+  }
+
+  function selectTimePill(btn, time) {
+    const parent = btn.parentElement;
+    if (parent) {
+      const pills = parent.querySelectorAll('.clearsky-time-pill');
+      pills.forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      const hiddenInput = parent.querySelector('#clearsky-preferred-time');
+      if (hiddenInput) {
+        hiddenInput.value = time;
+      }
+    }
   }
 
   async function handleFormSubmit(event) {
@@ -134,13 +289,18 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
     }
   }
 
-  function createOpenLeadbox() {
-    let textOnlyHtml = '';
-    if (leadboxData.textOnly) {
-      textOnlyHtml = '<form id="clearsky-form" onsubmit="handleFormSubmit(event)" class="clearsky-form-fields"><input type="text" name="name" placeholder="Name" class="clearsky-input" required /><input type="tel" name="mobile" placeholder="Mobile Number" class="clearsky-input" required /><textarea name="message" placeholder="Message" class="clearsky-input" style="min-height: 100px;" required></textarea><div class="text-sm text-gray-500 mb-4 text-center">By submitting, you agree to receive text messages at this mobile number. Message & data rates apply.</div><button type="submit" class="clearsky-button" style="background-color: #3B5BDB;">Send Message</button></form>';
+  function createOpenLeadbox(view) {
+    const currentView = view || 'main';
+    let bodyHtml = '';
+    if (currentView === 'text_us') {
+      bodyHtml = createTextUsHtml();
+    } else if (currentView === 'request_call') {
+      bodyHtml = createRequestCallHtml();
+    } else if (leadboxData.textOnly) {
+      bodyHtml = '<form id="clearsky-form" onsubmit="handleFormSubmit(event)" class="clearsky-form-fields"><input type="text" name="name" placeholder="Name" class="clearsky-input" required /><input type="tel" name="mobile" placeholder="Mobile Number" class="clearsky-input" required /><textarea name="message" placeholder="Message" class="clearsky-input" style="min-height: 100px;" required></textarea><div class="text-sm text-gray-500 mb-4 text-center">By submitting, you agree to receive text messages at this mobile number. Message & data rates apply.</div><button type="submit" class="clearsky-button" style="background-color: #3B5BDB;">Send Message</button></form>';
     } else {
       const buttonsHtml = (leadboxData.channels || []).map(channel => createChannelButton(channel)).join('');
-      textOnlyHtml = '<div class="clearsky-buttons">' + buttonsHtml + '</div>';
+      bodyHtml = '<div class="clearsky-buttons">' + buttonsHtml + '</div>';
     }
 
     function createSecondaryButton() {
@@ -170,7 +330,7 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
     const bannerFontFamily = (leadboxData.topBanner?.fontFamily || 'sans-serif').replace(/"/g, '&quot;');
     const bannerText = (leadboxData.topBanner?.text || 'Text with us.').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     
-    return '<div class="clearsky-box clearsky-animate-in"><div class="clearsky-header" style="background-color: ' + bannerBgColor + '; color: ' + bannerFontColor + '; font-family: ' + bannerFontFamily + ';"><p style="font-size: 1.125rem;">' + bannerText + '</p></div><div class="clearsky-content"><div class="clearsky-logo"><img src="' + logoImg + '" alt="Company Logo" class="w-[164px] h-[82px] object-contain absolute top-[-40px] z-10" /></div>' + textOnlyHtml + '<div class="clearsky-terms">Use subject to terms • Lead&Terms</div></div></div>' + createSecondaryButton() + createClosedLeadbox();
+    return '<div class="clearsky-box clearsky-animate-in"><div class="clearsky-header" style="background-color: ' + bannerBgColor + '; color: ' + bannerFontColor + '; font-family: ' + bannerFontFamily + ';"><p style="font-size: 1.125rem;">' + bannerText + '</p></div><div class="clearsky-content"><div class="clearsky-logo"><img src="' + logoImg + '" alt="Company Logo" class="w-[164px] h-[82px] object-contain absolute top-[-40px] z-10" /></div>' + bodyHtml + '<div class="clearsky-terms">Use subject to terms • Lead&Terms</div></div></div>' + createSecondaryButton() + createClosedLeadbox();
   }
 
   function createClosedLeadbox() {
@@ -294,6 +454,9 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
     
     window.handleChannelClick = handleChannelClick;
     window.handleFormSubmit = handleFormSubmit;
+    window.handleSubformSubmit = handleSubformSubmit;
+    window.switchLeadboxView = switchLeadboxView;
+    window.selectTimePill = selectTimePill;
     window.toggleLeadbox = toggleLeadbox;
     
     container.innerHTML = createClosedLeadbox();

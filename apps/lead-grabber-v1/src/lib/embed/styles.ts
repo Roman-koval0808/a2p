@@ -172,6 +172,147 @@ export const leadboxStyles = `
   outline: 2px solid #3B5BDB;
   outline-offset: 2px;
 }
+.clearsky-subform {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  padding: 0 1.25rem 2rem 1.25rem;
+  background: white;
+}
+.clearsky-subform-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #E5E7EB;
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+.clearsky-subform-back {
+  background: none;
+  border: none;
+  color: #6B7280;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0;
+  font-family: inherit;
+}
+.clearsky-subform-back:hover {
+  color: #111827;
+}
+.clearsky-subform-title {
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: #3B5BDB;
+  letter-spacing: 0.05em;
+}
+.clearsky-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  border-bottom: 1px solid #E5E7EB;
+  padding-bottom: 0.25rem;
+}
+.clearsky-field-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #6B7280;
+}
+.clearsky-field-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 0.25rem 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #111827;
+  outline: none;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+.clearsky-field-textarea {
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 0.25rem 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #111827;
+  outline: none;
+  font-family: inherit;
+  resize: none;
+  min-height: 48px;
+  box-sizing: border-box;
+}
+.clearsky-time-pills {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+.clearsky-time-pill {
+  flex: 1;
+  padding: 0.5rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border: 1px solid #D1D5DB;
+  background: white;
+  color: #4B5563;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+  font-family: inherit;
+}
+.clearsky-time-pill:hover {
+  border-color: #9CA3AF;
+}
+.clearsky-time-pill.active {
+  border-color: #FF6B00;
+  color: #FF6B00;
+  background: #FFF7ED;
+}
+.clearsky-subform-submit {
+  width: 100%;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  background-color: #E84C22;
+  color: white;
+  font-size: 0.9375rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  transition: opacity 0.2s;
+  font-family: inherit;
+}
+.clearsky-subform-submit:hover {
+  opacity: 0.95;
+}
+.clearsky-subform-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.clearsky-subform-disclaimer {
+  font-size: 0.6875rem;
+  color: #9CA3AF;
+  text-align: center;
+  line-height: 1.3;
+  margin: 0;
+}
+.clearsky-privacy-link {
+  display: block;
+  text-align: center;
+  font-size: 0.6875rem;
+  color: #9CA3AF;
+  text-decoration: underline;
+  cursor: pointer;
+}
 `;
 
 export const leadformStyles = `

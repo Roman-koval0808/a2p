@@ -44,33 +44,35 @@
 	let logoImage = $state(getDefaultLogo());
 	let logoImageFile: File | null = $state(null);
 
+	let previewView = $state<'main' | 'text_us' | 'request_call'>('main');
+	let requestCallTime = $state<'ASAP' | 'Morning' | 'Afternoon'>('ASAP');
+
 	let channels = $state(
 		data.leadbox?.leadbox_data?.channels ?? [
 			{
 				name: 'Text',
-				icon: MessageSquare,
-				value: 'Text Us',
-				url: 'sms://',
-				target: '_blank',
-				buttonColor: '#40C4AA',
+				type: 'text_us',
+				icon: 'Smartphone',
+				value: 'TEXT US',
+				buttonColor: '#2E9E2E',
 				showIcon: true
 			},
 			{
 				name: 'Call',
-				icon: Phone,
-				value: 'Request a Call',
-				url: 'tel://',
-				target: '_blank',
-				buttonColor: '#3B5BDB',
+				type: 'request_call',
+				icon: 'Phone',
+				value: 'REQUEST A CALL',
+				buttonColor: '#FF6B00',
 				showIcon: true
 			},
 			{
 				name: 'Watch',
-				icon: Play,
-				value: 'Watch a Demo',
+				type: 'link',
+				icon: 'Play',
+				value: 'WATCH A DEMO NOW',
 				url: 'https://',
 				target: '_blank',
-				buttonColor: '#3B5BDB',
+				buttonColor: '#FF6B00',
 				showIcon: true
 			}
 		]
@@ -556,46 +558,137 @@
 									/>
 								</div>
 
-								<div class="mt-12 space-y-3 bg-white px-5 pb-20 pt-4">
+								<div class="mt-12">
 									{#if !textOnly}
-										{#each channels as channel}
-											<Button
-												variant="custom"
-												class="w-full rounded-full py-4 text-white hover:bg-{channel.buttonColor}/90"
-												style={`background-color: ${channel.buttonColor};`}
-											>
-												{#if channel.showIcon}
-													{@html iconSvgs[channel.icon] || ''}
-												{/if}
-												{#if !iconOnly}
-													{channel.value}
-												{/if}
-											</Button>
-										{/each}
+										{#if previewView === 'main'}
+											<div class="space-y-3 bg-white px-5 pb-20 pt-4">
+												{#each channels as channel}
+													<Button
+														variant="custom"
+														class="w-full rounded-full py-4 text-white hover:opacity-90 shadow-sm transition-all"
+														style={`background-color: ${channel.buttonColor || '#3B5BDB'};`}
+														onclick={() => {
+															if (channel.type === 'text_us') {
+																previewView = 'text_us';
+															} else if (channel.type === 'request_call') {
+																previewView = 'request_call';
+															} else if (channel.url) {
+																toast.info(`Link channel clicked: ${channel.url}`);
+															}
+														}}
+													>
+														{#if channel.showIcon}
+															<div class="flex h-5 w-5 items-center justify-center [&>svg]:!h-5 [&>svg]:!w-5 [&>svg:not([stroke='none'])]:!stroke-current">
+																{@html iconSvgs[channel.icon] || ''}
+															</div>
+														{/if}
+														{#if !iconOnly}
+															<span>{channel.value}</span>
+														{/if}
+													</Button>
+												{/each}
+											</div>
+										{:else if previewView === 'text_us'}
+											<div class="space-y-4 bg-white px-6 pb-12 pt-4 rounded-xl shadow-sm">
+												<div class="flex items-center justify-between border-b pb-2">
+													<button
+														type="button"
+														class="text-gray-500 hover:text-gray-800 text-xs font-bold flex items-center gap-1"
+														onclick={() => (previewView = 'main')}
+													>
+														← Back to Channels
+													</button>
+													<span class="text-xs text-primary font-bold uppercase tracking-wider">Text Us</span>
+												</div>
+												<div class="flex flex-col gap-1 border-b border-gray-200 pb-1">
+													<label class="text-xs font-semibold text-gray-500" for="preview-name">Full Name</label>
+													<input id="preview-name" type="text" placeholder="Robert Betts" class="bg-transparent text-sm font-medium text-gray-900 focus:outline-none" />
+												</div>
+												<div class="flex flex-col gap-1 border-b border-gray-200 pb-1">
+													<label class="text-xs font-semibold text-gray-500" for="preview-phone">Mobile Number</label>
+													<input id="preview-phone" type="tel" placeholder="708-246-3456" class="bg-transparent text-sm font-medium text-gray-900 focus:outline-none" />
+												</div>
+												<div class="flex flex-col gap-1 border-b border-gray-200 pb-1">
+													<label class="text-xs font-semibold text-gray-500" for="preview-msg">Message</label>
+													<textarea id="preview-msg" rows="2" placeholder="Can I get a salesman to call me" class="bg-transparent text-sm font-medium text-gray-900 focus:outline-none resize-none"></textarea>
+												</div>
+												<p class="text-[11px] leading-tight text-gray-400 text-center">
+													By submitting, you agree to receive informational text messages. Consent is optional & content may be automated. Msg/data rates apply.
+												</p>
+												<Button variant="custom" class="w-full rounded-lg bg-[#E84C22] py-3 text-white font-extrabold uppercase tracking-wider hover:opacity-90 shadow-md">
+													SEND
+												</Button>
+												<p class="text-center text-[11px] text-gray-400 underline cursor-pointer">Privacy policy</p>
+											</div>
+										{:else if previewView === 'request_call'}
+											<div class="space-y-4 bg-white px-6 pb-12 pt-4 rounded-xl shadow-sm">
+												<div class="flex items-center justify-between border-b pb-2">
+													<button
+														type="button"
+														class="text-gray-500 hover:text-gray-800 text-xs font-bold flex items-center gap-1"
+														onclick={() => (previewView = 'main')}
+													>
+														← Back to Channels
+													</button>
+													<span class="text-xs text-primary font-bold uppercase tracking-wider">Request a Call</span>
+												</div>
+												<div class="flex flex-col gap-1 border-b border-gray-200 pb-1">
+													<label class="text-xs font-semibold text-gray-500" for="preview-rc-name">Full Name</label>
+													<input id="preview-rc-name" type="text" placeholder="Robert Betts" class="bg-transparent text-sm font-medium text-gray-900 focus:outline-none" />
+												</div>
+												<div class="flex flex-col gap-1 border-b border-gray-200 pb-1">
+													<label class="text-xs font-semibold text-gray-500" for="preview-rc-phone">Mobile Number</label>
+													<input id="preview-rc-phone" type="tel" placeholder="708-246-3456" class="bg-transparent text-sm font-medium text-gray-900 focus:outline-none" />
+												</div>
+												<div class="flex flex-col gap-2 pt-1">
+													<label class="text-xs font-semibold text-gray-500">Select preferred times</label>
+													<div class="flex gap-2">
+														{#each ['ASAP', 'Morning', 'Afternoon'] as timeOpt}
+															<button
+																type="button"
+																class="flex-1 py-1.5 px-3 rounded-full text-xs font-bold transition-all border {requestCallTime === timeOpt ? 'border-[#FF6B00] text-[#FF6B00] bg-orange-50' : 'border-gray-300 text-gray-600 hover:border-gray-400'}"
+																onclick={() => (requestCallTime = timeOpt as any)}
+															>
+																{timeOpt}
+															</button>
+														{/each}
+													</div>
+												</div>
+												<p class="text-[11px] leading-tight text-gray-400 text-center">
+													By submitting, you agree to receive informational text messages. Consent is optional & content may be automated. Msg/data rates apply.
+												</p>
+												<Button variant="custom" class="w-full rounded-lg bg-[#E84C22] py-3 text-white font-extrabold uppercase tracking-wider hover:opacity-90 shadow-md">
+													SEND
+												</Button>
+												<p class="text-center text-[11px] text-gray-400 underline cursor-pointer">Privacy policy</p>
+											</div>
+										{/if}
 									{/if}
 									{#if textOnly}
-										<div class="flex flex-col gap-2">
-											<label class="text-gray-700" for="name">Name</label>
-											<input
-												type="text"
-												class="rounded-none border border-y-0 border-b border-l-0 border-r-0 border-gray-200 border-b-black bg-transparent p-2 focus:outline-none focus:ring-0"
-												name="name"
-											/>
-										</div>
-										<div class="flex flex-col gap-2">
-											<label class="text-gray-700" for="mobile">Mobile Number</label>
-											<input
-												type="text"
-												class="rounded-none border border-y-0 border-b border-l-0 border-r-0 border-gray-200 border-b-black bg-transparent p-2 focus:outline-none focus:ring-0"
-												name="mobile"
-											/>
-										</div>
-										<div class="flex flex-col gap-2">
-											<label class="text-gray-700" for="message">Message</label>
-											<textarea
-												class="rounded-none border border-y-0 border-b border-l-0 border-r-0 border-gray-200 border-b-black bg-transparent p-2 focus:outline-none focus:ring-0"
-												name="message"
-											></textarea>
+										<div class="space-y-3 bg-white px-5 pb-20 pt-4">
+											<div class="flex flex-col gap-2">
+												<label class="text-gray-700 text-sm font-medium" for="name">Name</label>
+												<input
+													type="text"
+													class="rounded-none border-b border-gray-300 bg-transparent p-2 text-sm focus:border-primary focus:outline-none"
+													name="name"
+												/>
+											</div>
+											<div class="flex flex-col gap-2">
+												<label class="text-gray-700 text-sm font-medium" for="mobile">Mobile Number</label>
+												<input
+													type="text"
+													class="rounded-none border-b border-gray-300 bg-transparent p-2 text-sm focus:border-primary focus:outline-none"
+													name="mobile"
+												/>
+											</div>
+											<div class="flex flex-col gap-2">
+												<label class="text-gray-700 text-sm font-medium" for="message">Message</label>
+												<textarea
+													class="rounded-none border-b border-gray-300 bg-transparent p-2 text-sm focus:border-primary focus:outline-none"
+													name="message"
+												></textarea>
+											</div>
 										</div>
 									{/if}
 								</div>
