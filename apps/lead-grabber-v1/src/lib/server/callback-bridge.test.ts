@@ -231,6 +231,31 @@ describe('the emergency ladder is not affected', () => {
 	});
 });
 
+describe('the customer number must be dialable', () => {
+  // The widget posts the number as typed. Telnyx rejects anything that is not E.164, so an
+  // unnormalised customerNumber means the rep accepts the call and is then never connected —
+  // which is exactly what the first live bridge produced.
+  it('normalises a formatted number before it reaches the work order', async () => {
+    const { formatPhoneForDialing } = await import('$lib/utils/phone');
+    expect(formatPhoneForDialing('+1 (672) 238-7319')).toBe('+16722387319');
+    expect(formatPhoneForDialing('(672) 238-7319')).toBe('+16722387319');
+    expect(formatPhoneForDialing('672-238-7319')).toBe('+16722387319');
+  });
+
+  it('startCallbackBridge dials nobody when the number cannot be normalised', async () => {
+    const { startCallbackBridge } = await import('./callback-dispatch');
+    expect(
+      await startCallbackBridge({
+        companyId: 'co_1',
+        customerPhone: '',
+        message: 'x',
+        preference: 'ASAP',
+        rota: [JOE]
+      })
+    ).toBe(false);
+  });
+});
+
 describe('rota feeds the ladder in the right order', () => {
 	it('an on-duty rota becomes rungs 1..n in list order', () => {
 		// 13:00Z = 09:00 in America/Toronto, the zone buildRepRota reads shifts in. Constructing

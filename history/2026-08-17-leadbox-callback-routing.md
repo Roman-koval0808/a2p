@@ -560,3 +560,63 @@ needs a matching invariant test; reading the diff is not sufficient.
 - `leadbox-builder.test.ts` — 9 tests, and the new one demonstrated to fail without the fix.
 - svelte-check 320. Failing-set diff showed `ivr-webhook.test.ts` at 3 failures rather than 2;
   three consecutive runs gave 2, 2, 3 with the change in place, so it is flaky, not a regression.
+
+## Eighth pass: first live bridge — it dialled, and one bug remained
+
+First real ASAP-during-hours run against production Telnyx. The path executed end to end:
+
+```
+[Callback] ASAP → bridge_now (bridge_started) | rota: Carter Adams | bridge: started
+📞 [EmergencyDial] Dialing rep rung 1: Carter Adams (+18046082154)
+📞 Event API webhook: call.initiated … from: +17059985691 to: +18046082154
+✅ Call answered
+📞 Emergency Tech Leg Answered. Playing whisper and gathering DTMF...
+❌ Tech rejected or timed out … advancing ladder.
+[EmergencyDial] No tech at rung 2
+```
+
+Everything the earlier passes could only infer is now observed: Telnyx accepts the work order, the
+`isDialLadderTechLeg` branch fires, the whisper plays, the gather runs, no-DTMF advances the ladder,
+and a single-rep rota exhausts cleanly instead of looping. The rep hung up after ~5s without
+pressing a key, so the decline path is what was exercised; **DTMF 1 → bridge is still unproven.**
+
+Decoding the `client_state` off the webhook confirmed the work order:
+
+- `whisperText` — "Callback request. Arsenio Houston asked for a call back as soon as possible.
+  Their message: … Press 1 to accept, press 2 to decline." Reads the message out, as specified.
+- `kind: "callback"` — the marker holds through Telnyx and back, so callbacks stay distinguishable
+  from emergencies in the shared ladder.
+- `commId` — the leadbox CommunicationLog id, so the recording will attach to the lead.
+
+### The bug it exposed
+
+```
+"customerNumber": "+1 (672) 238-7319"
+```
+
+The widget posts the number **as the customer typed it**, and that string went straight into the
+work order. `bridgeCustomer` passes `customerNumber` to Telnyx as the dial target, which rejects
+anything that is not E.164. So the rep would have pressed 1, heard "connecting you to the
+customer", and then simply never been connected — the worst possible failure, because it looks like
+it worked right up until it doesn't.
+
+Invisible in every test so far: the unit tests construct their own work orders with clean E.164
+numbers, and the live run hung up before reaching the bridge leg. It took decoding a real
+`client_state` to see it.
+
+Fixed with `formatPhoneForDialing` from `$lib/utils/phone` — the helper `s2-emergency-bridge`
+already uses, rather than a third normaliser. Applied at the last point before the value becomes a
+dial, and `startCallbackBridge` now returns false rather than dialling when the number cannot be
+normalised.
+
+Two tests added: the normaliser against the exact string from this log, and the empty-number guard.
+
+### Verified
+
+- 19 tests in `callback-bridge.test.ts`; failing-set `diff` unchanged; svelte-check 320.
+
+### Still not verified
+
+- **DTMF 1 → customer bridge.** The only remaining unexercised step, and the one the fix above
+  affects. Needs someone to actually press 1 and confirm both legs join.
+- A second rep on the rota, so `next_rung` dials someone rather than reporting exhaustion.

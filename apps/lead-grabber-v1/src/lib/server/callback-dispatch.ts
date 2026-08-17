@@ -252,10 +252,21 @@ export async function startCallbackBridge(input: {
 	// Shaped as an EmergencyBridgeWorkOrder because the webhook's ladder branches read that shape.
 	// Unlike an emergency, no sla_breach timer is registered: a callback has no comm container to
 	// hang one off, and the booked retry is the safety net instead.
+	// The widget sends the number exactly as the customer typed it ("+1 (672) 238-7319").
+	// bridgeCustomer posts customerNumber straight to Telnyx as the dial target, which
+	// rejects anything that is not E.164 — so the rep would accept the call and then never
+	// be connected. Normalise here, at the last point before it becomes a dial.
+	const { formatPhoneForDialing } = await import('$lib/utils/phone');
+	const dialableCustomer = formatPhoneForDialing(input.customerPhone);
+	if (!dialableCustomer) {
+		console.warn(`[Callback] customer number ${input.customerPhone} is not dialable.`);
+		return false;
+	}
+
 	const workOrder = {
 		commId: input.commLogId || `callback-${crypto.randomUUID()}`,
 		personId: null,
-		customerNumber: input.customerPhone,
+		customerNumber: dialableCustomer,
 		dialLadder: input.rota,
 		currentRung: 1,
 		maxAttemptsPerRung: 1,
