@@ -212,6 +212,34 @@ export const POST: RequestHandler = async ({ request }) => {
 			} catch (err) {
 				console.error('[Background Pipeline Error]', err);
 			}
+
+			// Leadbox "Request a Call". A no-op for every other submission, so it is safe to run on
+			// all of them. Stays inside the background block and is never awaited by the response:
+			// the widget's SEND button must not sit waiting on a Telnyx dial.
+			try {
+				const { dispatchCallbackRequest } = await import('$lib/server/callback-dispatch');
+				const cb = await dispatchCallbackRequest({
+					companyId,
+					customerName: customerName !== 'Anonymous' ? customerName : null,
+					customerPhone,
+					message: messageContent,
+					contactId: contact?.id ?? null,
+					threadId
+				});
+				if (cb.handled) {
+					// Everything you need to diagnose a run in one line: what was asked, what we
+					// decided, who would take it, and whether the customer actually got a reply.
+					console.log(
+						`[Callback] ${cb.preference} → ${cb.decision} (${cb.reason})` +
+							(cb.scheduledFor ? ` for ${cb.scheduledFor}` : '') +
+							` | rota: ${cb.rota?.length ? cb.rota.map((r) => r.name).join(' → ') : 'NOBODY ON DUTY'}` +
+							(cb.decision === 'bridge_now' ? ` | bridge: ${cb.bridgeStarted ? 'started' : 'NOT started'}` : '') +
+							(cb.reason === 'asap_after_hours' ? ` | ack sms: ${cb.ackSent ? 'sent' : 'not sent'}` : '')
+					);
+				}
+			} catch (err) {
+				console.error('[Callback Dispatch Error]', err);
+			}
 		});
 
 		return new Response(JSON.stringify(message), {

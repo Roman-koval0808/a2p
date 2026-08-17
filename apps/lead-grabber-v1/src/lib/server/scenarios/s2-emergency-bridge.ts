@@ -22,6 +22,16 @@ export interface EmergencyBridgeWorkOrder {
 	emergencySummary: string;
 	slaDeadline: Date;
 	escalationPolicy: string;
+	/**
+	 * What this ladder is for. Absent means an emergency — every existing caller omits it, and the
+	 * emergency path must behave exactly as it did before this field existed.
+	 *
+	 * The leadbox callback router (callback-dispatch.ts) reuses this ladder because the dial /
+	 * whisper / DTMF / next-rung behaviour is identical. This field exists so the two are
+	 * distinguishable in logs and so a future change to one can be made without silently changing
+	 * the other. It must never gate the dialling logic itself.
+	 */
+	kind?: 'emergency' | 'callback';
 }
 
 export async function processEmergencyVoicemail(input: {

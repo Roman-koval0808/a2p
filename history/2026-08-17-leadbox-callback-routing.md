@@ -1,0 +1,236 @@
+# 2026-08-17 Leadbox "Request a Call" — ASAP / Morning / Afternoon routing
+
+## Goal
+
+Robert clicks Call Me in the leadbox and picks one of three windows. Route it:
+
+- **ASAP in business hours** → bridge the call the same way an emergency does: ring the rep, read
+  the message out, press 1 accept / 2 decline, no answer or decline falls to the next rep.
+- **ASAP after hours** → automated reply telling him a rep will call when the office opens.
+- **Morning asked in the morning** → next day, morning.
+- **Afternoon asked in the morning** → that same afternoon.
+- **Afternoon asked in the afternoon** → next day, afternoon.
+- Business hours set by admin; a schedule per representative; the message goes to the rep.
+
+## Most of this already existed — the delta was four things
+
+The first pass at this was much bigger and was reverted wholesale. Worth recording why, because the
+instinct to build was wrong: this repo already had nearly every piece.
+
+| Requirement | Already built |
+| --- | --- |
+| Bridge, whisper, 1 accept / 2 decline, next rung | `emergency-dial.ts` `startDialLadder` + the `isDialLadderTechLeg` → `gather_using_speak` → `isDialLadderTechLegGather` branches in `api/telnyx/call-webhook`, and `handleTechDtmfResponse` |
+| "the same process we use for emergency" | `orchestrator.ts:2084` builds a rota and calls it |
+| We owe a call → dated obligation | `orchestrator.ts:2513` `wants_callback` → `writeScheduledIntent`, actor BUSINESS |
+| Keep trying until we reach him | `callback-attempts.ts` + the daily sweep |
+| Business hours set by admin | `settings.autoReply.businessHours`, Settings → Auto-replies |
+| **A schedule per representative** | **`/representatives` already stores `profileData.phone` and `profileData.schedule` = `{ Monday: { start: '08:00', end: '17:00' }, … }`, editable in the add and edit forms** |
+
+The rep-schedule row is the one that mattered most. The first pass invented a new
+`settings.callbackReps` structure with per-day morning/afternoon booleans **and an admin screen to
+edit it**, without checking whether reps already had schedules. They did, with finer granularity
+(actual start/end times, not half-day flags). That work was thrown away.
+
+So the actual gap was:
+
+1. The leadbox `request_call` submission reached nothing — `/api/messages` runs UnifiedPipeline and
+   nothing parsed `Preferred Time:`.
+2. Nothing triggered the dial ladder for a *callback*; only `isEmergency` did.
+3. The morning/afternoon arithmetic did not exist anywhere.
+4. `/representatives` was not in the sidebar, so the schedules were unreachable in the UI.
+
+## Changed
+
+- **`src/lib/server/callback-routing.ts` (new)** — the whole decision, pure and injectable:
+  preference parsing, window arithmetic, rep rota, whisper and ack text. No I/O.
+- **`src/lib/server/callback-routing.test.ts` (new)** — 30 tests, including all three stated cases
+  and the fourth nobody stated.
+- **`src/lib/server/callback-dispatch.ts` (new)** — carries the decision out. Loads reps from
+  `CompanyMember`, builds an `EmergencyBridgeWorkOrder`, calls `startDialLadder`, books the slot via
+  `writeScheduledIntent`, sends the after-hours ack, writes the rep task.
+- **`scheduled-intents-handoff.ts`** — one branch: a `payload.kind === 'callback_request'` row
+  dials instead of drafting an SMS.
+- **`api/messages/+server.ts`** — one call in the existing background block.
+- **`nav-main.svelte`** — `/representatives` added to both sidebars (`UserCheck` was already
+  imported and unused).
+
+## The window rule
+
+The three stated cases are **one rule**, which is why the code is one rule and not a table:
+
+> the next occurrence of the requested window that we are not already inside.
+
+Inside the window you asked for → today's is underway → next open day. Still ahead of you today →
+today. That reproduces all three stated cases and settles the unstated one (afternoon, asked for
+morning → tomorrow morning). Closed days are skipped, so Friday afternoon lands on Monday.
+
+A named window is deliberately **not** treated as after-hours. He chose a time; there is nothing to
+apologise for, so no "we're closed" SMS goes out. Only ASAP-when-shut earns that.
+
+## Decisions worth knowing
+
+- **Reused `CUSTOMER_COMMITMENT_B` rather than adding a `CALLBACK_REQUEST` enum value.** A new enum
+  value needs a Postgres migration deployed in lockstep with the code. `payload.kind` distinguishes
+  them, and actor BUSINESS is what the existing mode-B retry loop keys off, so a missed callback is
+  retried for free. If callbacks grow their own sweep behaviour, that is the point to add the enum
+  properly.
+- **The rep instruction is written BEFORE the dial is attempted**, so a Telnyx failure or an empty
+  rota still leaves the request visible as work rather than losing it.
+- **A rep with no saved schedule is treated as always available.** Every rep predating this is in
+  that state; defaulting them to "never" would silently switch callbacks off for everyone.
+  A day left blank in the edit form *is* read as a day off — that is an explicit choice, an absent
+  schedule is not.
+- **An empty rota returns `[]` and does not fall back to ringing someone off duty.** The caller
+  decides; the request becomes a task.
+- **CAS ordering is inverted for callbacks.** The draft path writes the queue row first and claims
+  the intent second, deleting the duplicate if it loses. A phone call cannot be un-placed, so the
+  callback path claims first and only dials if it won. A duplicate draft is cheap; a duplicate call
+  to a customer is not.
+- **`handoffCallbackIntent` returns `handedOff: true` even when it could not bridge.** The row stays
+  DONE so the sweep does not redial in a loop; the rep task is the backstop.
+
+## Bug caught by svelte-check, not by me
+
+`getFirstCompanyNumber` returns `{ phoneNumber, id }`, not a string. The first version passed the
+row straight into the work order as the caller ID, which would have sent Telnyx `[object Object]`
+as `from` on every ASAP bridge. Fixed to `?.phoneNumber`. Worth noting because the unit tests could
+never have caught it — that call is on the I/O side of the split.
+
+## Rejected
+
+- **A new `settings.callbackReps` structure plus an admin screen.** Duplicated the schedule
+  `/representatives` already stores. Deleted.
+- **Refactoring `isBusinessHours` in `auto-reply.ts` to share a parser.** The extraction was
+  correct — `callback-routing.ts` now has its own copy of the "8:00 AM - 6:00 PM" parsing, which is
+  a third writer of that format — but the change was reverted along with everything else and not
+  re-attempted, to keep this diff small. **Flagged: consolidate next time `auto-reply.ts` is
+  touched.** The two must stay in agreement to the minute.
+- **A parallel dial ladder for callbacks.** The emergency one already does all of it; only the
+  whisper text differs. A second copy would not be covered by the emergency tests.
+- **Registering an `sla_breach` timer on the callback bridge.** `registerTimer` requires a
+  `commId` (a comm container), which a leadbox callback does not have. The booked retry is the
+  safety net instead.
+
+## Second pass: verifying it works exactly, without touching the emergency ladder
+
+The reuse of the emergency dial ladder is the whole risk in this design, so every shared branch was
+traced rather than assumed.
+
+### Every shared code path, traced
+
+| Webhook branch | What it does with a callback work order |
+| --- | --- |
+| `call.answered` → `isDialLadderTechLeg` (:538) | Speaks `workOrder.whisperText`, gathers 1 digit, 10s timeout. Our whisper flows through unchanged. |
+| `call.gather.ended` → `isDialLadderTechLegGather` (:788) | `1` → `bridgeCustomer(…, workOrder.customerNumber)` = Robert. Anything else → `handleBridgeFailure` → `currentRung++` → `startDialLadder`. |
+| `call.hangup` → `isDialLadderTechLeg` (:1317) | No-answer causes → same `handleBridgeFailure` → next rung. |
+| `call.answered` → `isDialLadderCustomerLeg` (:574) | Bridges the two legs. No emergency-specific logic. |
+| recording attach (:2862) | `findUnique` on `commId`, guarded by `if (emergencyLog)`. |
+| hangup thread lookup (:1621) | `findUnique` on `commId` as a *thread* id; misses and falls through to the normal path. |
+
+Two findings that made this safe:
+
+1. **`handleBridgeFailure` (s3-escalation.ts) is pure.** It takes `commId` but never reads it and
+   never touches the database. This was the main worry — the callback path passes a
+   CommunicationLog id or a synthetic `callback-<uuid>` where the emergency path passes a container
+   id. It cannot matter. There is now a test asserting exactly that.
+2. **Both `findUnique` sites are guarded and fall through on a miss.** A callback's `commId` simply
+   does not resolve, and nothing throws.
+
+### The `kind` field
+
+Callbacks were previously *indistinguishable* from emergencies once inside the ladder — the comm log
+read "[System Dialing Tech] Escaping to Rung 1" for a routine callback, and any future edit to one
+path would silently change the other. `EmergencyBridgeWorkOrder` now carries an optional
+`kind?: 'emergency' | 'callback'`.
+
+**Absent means emergency.** Every existing caller omits it, so the emergency strings are
+character-identical to before — asserted, not assumed:
+
+```
+expect(logged[0].summary).toBe('[System Dialing Tech] Escaping to Rung 1: Joe Sales');
+expect(logged[0].content).toBe('System is automatically dialing technician Joe Sales at +15550000001 for emergency bridge.');
+expect(logged[0].metadata.callback_bridge).toBeUndefined();
+```
+
+The field labels log output only. **It must never gate the dialling logic** — noted on the field
+itself, because the moment it does, the two paths have diverged and the emergency tests stop
+covering the callback one.
+
+### Spec, line by line
+
+| Brief | Where | Proven by |
+| --- | --- | --- |
+| Three choices | leadbox widget (pre-existing) | — |
+| ASAP → A2P | `/api/messages` | — |
+| "first thing we need to know is the time" | `decideCallback(now)` | routing tests |
+| In hours → routed to the person identified | `bridge_now` + rota | bridge tests |
+| Same process as emergency | `startDialLadder` | bridge tests |
+| Calls Joe Sales, reads the message out | `callbackWhisperText` | asserts name + message present |
+| Press 1 accept / 2 decline | `handleTechDtmfResponse` | `1`→bridge, `2`→next rung |
+| No answer or decline → next representative | `handleBridgeFailure` | both failure types → `next_rung_immediately`; last rung → `exhausted` |
+| Morning→morning = next day; morning→afternoon = same day; afternoon→afternoon = next day | `nextWindowStart` | one test each |
+| Message added to the rep | `recordRepInstruction` | — |
+| Business hours by admin | `settings.autoReply.businessHours` | — |
+| Schedule per representative | `/representatives` `profileData.schedule` | `isRepOnDuty` tests |
+| ASAP after hours → automated response | `sendAfterHoursAck` | text tests |
+
+### Consent gate on the after-hours reply — checked, and it does fire
+
+`hasSmsConsent(..., 'transactional')` returns `!row || row.status === 'granted'` (consent.ts:26) —
+transactional consent is **implied for a customer who initiated contact** and only blocks on an
+explicit revocation. So a first-time leadbox submitter is not blocked. The remaining gate is
+`pipelineBusinessConfig.smsAutoReplyAllowed`, which is the repo's deliberate fail-safe (a missing
+config means no unattended customer SMS) and is left in place, matching `sendCallbackAck`.
+
+## Verified
+
+- `npx vitest run src/lib/server/callback-routing.test.ts` — 30/30 pass.
+- `npx vitest run src/lib/server/callback-bridge.test.ts` — 17/17 pass, including the three
+  emergency-is-unchanged assertions above and an assertion that the Telnyx dial request
+  (`connection_id`, `to`, `from`, `timeout_secs`) is identical for both kinds.
+- **The failing-test list is byte-identical before and after**, compared properly rather than by
+  headline count: `git stash -u` → run → `git stash pop` → run, both filtered to the per-file
+  failure lines and `diff`ed. Nine files, same failure counts, including
+  `orchestrator.test.ts (39 tests | 17 failed)` — the suite covering the emergency dispatch this
+  change edits. The raw totals fluctuate between runs (27 vs 28) because several failures are
+  database-dependent and flaky; the per-file diff is the signal, not the total.
+- `scheduled-intents-handoff.test.ts` and `joe-scenario.test.ts` — the suites over the code paths
+  this modifies — both pass.
+- `npx svelte-check`: **320 errors / 142 warnings**, identical to the baseline measured this session
+  with `git stash -u` → check → `git stash pop`. Zero errors in either new file.
+
+## Not verified
+
+- **Nothing was exercised against a real database, a real Telnyx account, or a browser.** Every
+  claim above about runtime behaviour is read off the code.
+- **No ASAP bridge has ever been placed against real Telnyx.** The work order shape, the ladder
+  walk, and the DTMF transitions are now covered by tests driving the real functions with `fetch`
+  stubbed — but no actual call has been dialled. The `commId` concern from the first pass is
+  resolved (see the traced-paths table): `handleBridgeFailure` is pure, and both `findUnique` sites
+  are guarded. What remains unproven is everything *between* those functions — that Telnyx accepts
+  the call, that `gather_using_speak` reads the whisper intelligibly, and that `payload.from` on
+  the tech leg really is the company number the next rung is dialled from.
+- **Two console lines in the webhook still say "emergency" for a callback** ("Tech accepted the
+  emergency bridge", "[Bridge] Connecting Tech to Customer"). Cosmetic and log-only. Deliberately
+  left: editing the 2900-line call webhook is the single most likely way to break the emergency
+  path, which is the thing I was told not to do. The comm-log rows — the ones a person reads — are
+  labelled correctly via `kind`.
+- **ASAP in business hours with nobody on duty** creates the rep task and does *not* fall back to
+  booking a later slot. The brief does not say what should happen; a task felt more honest than
+  silently deferring a call the customer asked for now. Worth a decision.
+- **The rota stored on a scheduled callback's task is computed at request time**, for the future
+  slot; the handoff recomputes it at dial time. So the task can name a different rep than the one
+  actually rung if schedules change in between. Correct behaviour, potentially confusing text.
+- **The after-hours ack has not been sent.** It is gated on `pipelineBusinessConfig.smsAutoReplyAllowed`
+  and transactional consent, so on a company without that config it silently does nothing and
+  returns false. Whether the target companies have it enabled is unchecked.
+- **A booked slot has never actually come due**, so `handoffCallbackIntent` has not run outside of
+  the type checker. It has no unit test — writing one needs the sweep's prisma mocks extended, which
+  I did not do.
+- **The rep-schedule day-key casing.** The load path defaults to capitalised names (`Monday`) and
+  the edit form saves what it loaded, but I did not confirm what an older row written by the add
+  form contains. `isRepOnDuty` accepts either casing to cover it.
+- Timezone: everything compares in the server's local clock, matching `isBusinessHours` and
+  `isOffHours`. A company in another timezone is scheduled against the server's day boundary. This
+  is pre-existing on this path, not introduced here, and not fixed.
+- `/representatives` renders in the sidebar — the nav entry was added but the page was not loaded.

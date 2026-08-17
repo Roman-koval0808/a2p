@@ -19,7 +19,12 @@ import { ANTHROPIC_AI_KEY } from '$env/static/private';
 
 export interface HandoffResult {
 	handedOff: boolean;
-	reason?: 'already_handled' | 'no_contact' | 'queue_write_failed';
+	reason?:
+		| 'already_handled'
+		| 'no_contact'
+		| 'queue_write_failed'
+		| 'callback_bridged'
+		| 'callback_not_bridged';
 	channel?: ResolvedContactChannel;
 	queueId?: string;
 	draft?: string;
@@ -100,6 +105,13 @@ export async function handoffDueIntent(
 		}),
 		prisma.company.findUnique({ where: { id: intent.clientId }, select: { name: true } })
 	]);
+
+	// A booked leadbox callback is not a message to draft — he asked to be RUNG, in a window he
+	// chose. Ring the rota now, exactly as the ASAP-in-hours path does. Handled before the draft
+	// below so a callback can never land in the approval queue as a suggested SMS.
+	if (intent.payload?.kind === 'callback_request') {
+		return handoffCallbackIntent(intent, contact, now);
+	}
 
 	const channel = resolveContactChannel({
 		requestedChannel: intent.payload?.preferredChannel ?? null,
@@ -233,4 +245,56 @@ export async function handoffDueIntent(
 	);
 
 	return { handedOff: true, channel, queueId: queue.id, draft };
+}
+
+/**
+ * A booked leadbox callback has come due — place the call.
+ *
+ * Same CAS ordering as the draft path above, for the same reason: the side effect happens first,
+ * the PENDING → DONE claim second. Losing the CAS here means a concurrent runner already rang him,
+ * and unlike a draft there is nothing to delete — so the claim is checked BEFORE dialling instead,
+ * because a duplicate phone call is far worse than a duplicate draft.
+ */
+async function handoffCallbackIntent(
+	intent: { id: string; clientId: string; profileId: string; payload: any },
+	contact: { id: string; name: string | null; cell: string | null; phone: string | null } | null,
+	now: Date
+): Promise<HandoffResult> {
+	// Claim first — see the note above. If this loses, another runner owns the call.
+	const claimed = await prisma.scheduledIntent.updateMany({
+		where: { id: intent.id, status: 'PENDING' },
+		data: { status: 'DONE', updatedAt: now }
+	});
+	if (claimed.count === 0) return { handedOff: false, reason: 'already_handled' };
+
+	const phone = intent.payload?.originalTarget || contact?.cell || contact?.phone || null;
+	if (!phone) {
+		console.warn(`[schedule-handoff] callback ${intent.id} has no number to ring.`);
+		return { handedOff: false, reason: 'callback_not_bridged' };
+	}
+
+	const { loadReps, startCallbackBridge } = await import('./callback-dispatch');
+	const { buildRepRota } = await import('./callback-routing');
+	const rota = buildRepRota({ reps: await loadReps(intent.clientId), at: now });
+
+	const bridged = await startCallbackBridge({
+		companyId: intent.clientId,
+		customerName: intent.payload?.customerName || contact?.name || null,
+		customerPhone: phone,
+		message: intent.payload?.customerMessage || 'Requested a call back.',
+		preference: intent.payload?.preference || 'ASAP',
+		rota,
+		commLogId: intent.payload?.commLogId ?? null
+	});
+
+	console.log(
+		`[schedule-handoff] callback ${intent.id} due — ${
+			bridged ? `dialling ${rota.length} rep(s)` : 'not bridged, left as a task'
+		}`
+	);
+
+	// Not bridging is not a failed handoff: the rep task written at request time is still on the
+	// board, and callback-dispatch logs why. The row stays DONE so the sweep does not redial in a
+	// loop — the retry that matters is the customer-side one in callback-attempts.ts.
+	return { handedOff: true, reason: bridged ? 'callback_bridged' : 'callback_not_bridged' };
 }

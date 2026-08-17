@@ -19,7 +19,14 @@ export async function startDialLadder(workOrder: EmergencyBridgeWorkOrder, compa
 	const clientState = Buffer.from(JSON.stringify(clientStateObj)).toString('base64');
 
 	const to = currentTech.phone;
-	console.log(`📞 [EmergencyDial] Dialing tech rung ${workOrder.currentRung}: ${currentTech.name} (${to})`);
+	// Labels only. `kind` is absent for every emergency caller, so these resolve to the exact
+	// strings this function has always written — the callback reuse must not change what an
+	// emergency looks like in the log.
+	const isCallback = workOrder.kind === 'callback';
+	const role = isCallback ? 'representative' : 'technician';
+	console.log(
+		`📞 [EmergencyDial] Dialing ${isCallback ? 'rep' : 'tech'} rung ${workOrder.currentRung}: ${currentTech.name} (${to})`
+	);
 
 	const numberInfo = await getCompanyAndFlowByPhoneNumber(prisma, companyNumber);
 	await logCommunication({
@@ -29,13 +36,16 @@ export async function startDialLadder(workOrder: EmergencyBridgeWorkOrder, compa
 		source: companyNumber,
 		destination: to,
 		company_id: numberInfo?.companyId,
-		summary: `[System Dialing Tech] Escaping to Rung ${workOrder.currentRung}: ${currentTech.name}`,
-		content: `System is automatically dialing technician ${currentTech.name} at ${to} for emergency bridge.`,
+		summary: isCallback
+			? `[System Dialing Rep] Callback rung ${workOrder.currentRung}: ${currentTech.name}`
+			: `[System Dialing Tech] Escaping to Rung ${workOrder.currentRung}: ${currentTech.name}`,
+		content: `System is automatically dialing ${role} ${currentTech.name} at ${to} for ${isCallback ? 'a customer callback' : 'emergency'} bridge.`,
 		metadata: {
 			workOrder: true,
 			rung: workOrder.currentRung,
 			tech_name: currentTech.name,
-			commId: workOrder.commId
+			commId: workOrder.commId,
+			...(isCallback ? { callback_bridge: true } : {})
 		}
 	});
 

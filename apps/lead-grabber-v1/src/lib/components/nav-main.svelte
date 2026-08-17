@@ -59,6 +59,7 @@
 				{ title: 'Duplicates', url: '/profiles/merge', icon: UserCircle, href: '/profiles/merge' }
 			]
 		},
+		{ title: 'Representatives', url: '/representatives', icon: UserCheck, href: '/representatives' },
 		{ title: 'Dialer', url: '/dialer', icon: Phone, href: '/dialer' },
 		{ title: 'SMS Drafter', url: '/sms', icon: MessageCircle, href: '/sms' },
 		{ title: 'Orchestrator', url: '/orchestrator', icon: Activity, href: '/orchestrator' },
@@ -118,6 +119,7 @@
 				{ title: 'Duplicates', url: '/profiles/merge', icon: UserCircle, href: '/profiles/merge' }
 			]
 		},
+		{ title: 'Representatives', url: '/representatives', icon: UserCheck, href: '/representatives' },
 		{ title: 'Dialer', url: '/dialer', icon: Phone, href: '/dialer' },
 		{ title: 'SMS Drafter', url: '/sms', icon: MessageCircle, href: '/sms' },
 		{ title: 'Orchestrator', url: '/orchestrator', icon: Activity, href: '/orchestrator' },
