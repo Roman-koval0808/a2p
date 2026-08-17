@@ -63,6 +63,14 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
   async function handleFormSubmit(event) {
     event.preventDefault();
     const form = event.target;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.style.opacity = '0.7';
+      submitBtn.textContent = 'Submitting...';
+      submitBtn.style.cursor = 'not-allowed';
+    }
+
     const formData = new FormData(form);
     const data = Object.fromEntries(formData);
 

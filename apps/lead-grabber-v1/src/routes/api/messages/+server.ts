@@ -201,7 +201,9 @@ export const POST: RequestHandler = async ({ request }) => {
 								metadata: {
 									...((latestLog.metadata as object) || {}),
 									urgency: aiData.urgency,
-									sentiment: aiData.sentiment
+									sentiment: aiData.sentiment,
+									orchestrator_processed: true,
+									actionItems: pipelineResult?.ai_protocol?.raw_response?.topics || undefined
 								}
 							}
 						});
