@@ -78,6 +78,23 @@ describe('generated embed script', () => {
       expect(`${name} ${opens}/${closes}`).toBe(`${name} ${opens}/${opens}`);
     }
   });
+
+  // Inline on* attributes run in global scope. A handler defined inside the IIFE but not
+  // assigned to window throws a ReferenceError that never surfaces — it just silently does
+  // nothing. That shipped once: syncSubmitState was missing, so every SEND button stayed
+  // disabled forever. Assert that EVERY handler the HTML names is exported to window.
+  it('exports every inline event handler to window', () => {
+    const named = new Set<string>();
+    for (const m of script.matchAll(/\son[a-z]+=\\?"([A-Za-z_$][\w$]*)\(/g)) named.add(m[1]);
+    expect(named.size).toBeGreaterThan(0);
+
+    const exported = new Set(
+      [...script.matchAll(/window\.([A-Za-z_$][\w$]*)\s*=/g)].map((m) => m[1])
+    );
+    // Methods on the element itself (this.remove()) are not globals.
+    const missing = [...named].filter((n) => !exported.has(n));
+    expect(missing).toEqual([]);
+  });
 });
 
 describe('header lead', () => {

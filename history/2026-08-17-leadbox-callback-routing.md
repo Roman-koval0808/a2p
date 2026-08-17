@@ -522,3 +522,41 @@ blank widget rather than an error.
   Figma shows. A fixed label width may be needed.
 - The builder preview at `(app)/leadbox/+page.svelte` **still diverges** and was not touched in this
   pass either. It is now two design revisions behind the widget.
+
+## Seventh pass: every SEND button was permanently disabled
+
+Reported from the live widget. Cause: the previous pass added
+`oninput="syncSubmitState(this)"` to both subforms and shipped the submit buttons with a `disabled`
+attribute, to be cleared once `form.checkValidity()` passed.
+
+**Inline `on*` attributes are evaluated in GLOBAL scope.** `syncSubmitState` was defined inside the
+embed's IIFE and never assigned to `window`, unlike the six handlers beside it
+(`handleSubformSubmit`, `selectTimePill`, `toggleLeadbox`, …). Every keystroke threw a silent
+`ReferenceError` in the page's console, the button was never re-enabled, and the form became
+impossible to submit. The widget was fully bricked for both Text Us and Request a Call.
+
+One line: `window.syncSubmitState = syncSubmitState;`
+
+### The guard that should have existed
+
+Three tests already covered this file and none could see it — it is valid JavaScript, the divs
+balance, and the string contains everything expected. So the test suite now asserts the actual
+invariant:
+
+> every handler named in an inline `on*` attribute must be assigned to `window`
+
+It scrapes handler names out of the generated HTML, scrapes `window.X =` assignments, and requires
+the difference to be empty. **Verified by reverting the fix and watching it fail**
+(`expected [ 'syncSubmitState' ] to deeply equal []`) rather than trusting a green run — a guard
+that passes without being able to fail is worth nothing.
+
+That is now the third bug in this file caught only by a test written after the fact: a duplicated
+div, quotes that terminated a string literal, and a handler missing from `window`. All three
+produce a silently broken widget rather than an error. Anything added to this generated script
+needs a matching invariant test; reading the diff is not sufficient.
+
+### Verified
+
+- `leadbox-builder.test.ts` — 9 tests, and the new one demonstrated to fail without the fix.
+- svelte-check 320. Failing-set diff showed `ivr-webhook.test.ts` at 3 failures rather than 2;
+  three consecutive runs gave 2, 2, 3 with the change in place, so it is flaky, not a regression.

@@ -507,6 +507,10 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
     window.switchLeadboxView = switchLeadboxView;
     window.selectTimePill = selectTimePill;
     window.toggleLeadbox = toggleLeadbox;
+    // Inline on* attributes are evaluated in GLOBAL scope, so every handler named in the
+    // generated HTML has to be reachable from window — being defined inside this IIFE is
+    // not enough. Omitting this left every SEND button permanently disabled.
+    window.syncSubmitState = syncSubmitState;
     
     container.innerHTML = createClosedLeadbox();
     document.body.appendChild(container);
