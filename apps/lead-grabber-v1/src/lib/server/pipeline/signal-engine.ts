@@ -55,7 +55,7 @@ export class SignalEngine {
 				{ name: 'Marketing Rules', emoji: '📣', start: 15, end: 16 },
 				{ name: 'Liability & Safety Rules', emoji: '⚖️', start: 17, end: 17 }
 			];
-		} else if ((event.provider && event.provider.includes('telnyx')) || event.provider === 'email_provider' || event.provider === 'google_workspace_email' || event.provider === 'contentradar' || event.eventType === 'faq_received' || event.eventType === 'sms_received') {
+		} else if ((event.provider && event.provider.includes('telnyx')) || event.provider === 'email_provider' || event.provider === 'google_workspace_email' || event.provider === 'email_inbound' || event.provider === 'contentradar' || event.eventType === 'faq_received' || event.eventType === 'sms_received' || event.eventType === 'email.received') {
 			rules = TELNYX_SIGNAL_RULES;
 			families = [
 				{ name: 'Communication Priority Rules', emoji: '📞', start: 1, end: rules.length }

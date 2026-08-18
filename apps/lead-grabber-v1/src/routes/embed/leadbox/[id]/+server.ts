@@ -63,7 +63,8 @@ export async function GET({ params, request, locals }) {
 			id: params.id,
 			leadboxData: leadboxData || {},
 			companyId: company.company.id,
-			baseUrl: PUBLIC_BASE_URL
+			baseUrl: PUBLIC_BASE_URL,
+			companyName: company.company.name || undefined
 		});
 
 		return new Response(jsCode, {

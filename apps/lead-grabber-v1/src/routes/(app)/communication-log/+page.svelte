@@ -17,8 +17,10 @@
 		const interval = setInterval(() => {
 			// Pause the background refresh while the user is interacting with a dialog
 			// or panel (e.g. typing a reply) so we don't disrupt input or clobber state.
+			// The summary dialog is intentionally NOT paused: an inbound message's AI
+			// resolution (tasks/action items) lands after the message itself, and the
+			// open dialog must keep refreshing to flip from "Analyzing…" to resolved.
 			if (
-				summaryDialogOpen ||
 				replyPanelOpen ||
 				assignDialogOpen ||
 				pipelineDialogOpen ||
@@ -31,7 +33,18 @@
 			// not every loader in the app as invalidateAll() would.
 			invalidate('app:communication-log');
 		}, 4000);
-		return () => clearInterval(interval);
+
+		// Refresh immediately when the backend pushes an event (new inbound email/SMS
+		// or a freshly drafted outbound message) instead of waiting for the next poll.
+		const handleRealtimeUpdate = () => invalidate('app:communication-log');
+		window.addEventListener('sse-new-sms', handleRealtimeUpdate);
+		window.addEventListener('sse-new-notification', handleRealtimeUpdate);
+
+		return () => {
+			clearInterval(interval);
+			window.removeEventListener('sse-new-sms', handleRealtimeUpdate);
+			window.removeEventListener('sse-new-notification', handleRealtimeUpdate);
+		};
 	});
 
 	const PAGE_SIZES = [10, 20, 50, 100] as const;
@@ -62,7 +75,20 @@
 	let selectedAgentName = $state<string | null>(null);
 
 	let summaryDialogOpen = $state(false);
-	let selectedComm = $state<(typeof communications)[0] | null>(null);
+	// The selected comm is derived from its id + the freshest page data, so an open dialog
+	// keeps updating (e.g. "Analyzing…" → resolved tasks) without effectfully writing state
+	// — writing $state inside an $effect would re-trigger it (state is deep-proxied, so a
+	// raw data object never `===` its own proxy, and the guard can never stabilize).
+	let summaryCommId = $state<string | null>(null);
+	let lastSelectedComm = $state<any>(null);
+	let selectedComm = $derived.by(() => {
+		if (!summaryCommId) return null;
+		const log = (data.logs ?? []).find((l: any) => l.id === summaryCommId);
+		if (log) return mapLog(log);
+		// The row can briefly drop out of the current page slice during a refresh —
+		// keep showing the last known version instead of closing the dialog.
+		return lastSelectedComm;
+	});
 	let notificationsDialogOpen = $state(false);
 		let pipelineDialogOpen = $state(false);
 	let selectedPipelineEvent = $state<any>(null);
@@ -135,11 +161,9 @@
 			const json = await res.json();
 			if (json.success) {
 				toast.success('Email draft confirmed! (Email sending queued for later)');
-				if (selectedComm.raw) {
-					selectedComm.raw.status = 'completed';
-					if (!selectedComm.raw.metadata) selectedComm.raw.metadata = {};
-					selectedComm.raw.metadata.email_confirmed = true;
-				}
+				// selectedComm is now derived from page data, so reflect the server truth by
+				// refetching instead of mutating a (now untracked) raw object in place.
+				invalidate('app:communication-log');
 			} else {
 				toast.error(json.error || 'Failed to confirm email');
 			}
@@ -149,9 +173,8 @@
 	}
 
 	// Transform API data to UI format
-	let communications = $derived(
-		data.logs?.map((log: any) => {
-			const dateObj = new Date(log.created);
+	function mapLog(log: any) {
+		const dateObj = new Date(log.created);
 			const date = dateObj.toLocaleDateString('en-US', {
 				month: 'short',
 				day: '2-digit',
@@ -239,23 +262,36 @@
 				purpose = log.summary ? urgentPrefix + 'See Summary' : urgentPrefix + 'General';
 			}
 
-			return {
-				date,
-				time,
-				type: log.direction === 'inbound' ? 'In' : 'Out',
-				typeIcon: log.type,
-				source: log.source,
-				endpoint: log.destination,
-				purpose,
-				summary: log.summary || log.content || 'No content',
-				commId: log.commId,
-				id: log.id,
-				status,
-				assignedMemberNames,
-				raw: log
-			};
-		}) || []
-	);
+		// "Processing" = the inbound message arrived but the AI hasn't finished resolving it
+		// yet (no orchestrator completion marker, no action items). Only for fresh messages —
+		// old pre-orchestrator records never get the flag and must not spin forever.
+		const processing =
+			log.direction === 'inbound' &&
+			!meta.orchestrator_processed &&
+			!meta.actionItems &&
+			Date.now() - new Date(log.created).getTime() < 15 * 60 * 1000;
+
+		return {
+			date,
+			time,
+			type: log.direction === 'inbound' ? 'In' : 'Out',
+			typeIcon: log.type,
+			source: log.source,
+			endpoint: log.destination,
+			purpose,
+			summary: log.summary || log.content || 'No content',
+			commId: log.commId,
+			id: log.id,
+			status,
+			assignedMemberNames,
+			emailOpenedAt: log.emailOpenedAt ?? null,
+			emailClickedAt: log.emailClickedAt ?? null,
+			processing,
+			raw: log
+		};
+	}
+
+	let communications = $derived((data.logs ?? []).map(mapLog));
 
 	// Transform to CommunicationTable format
 	let tableCommunications = $derived(
@@ -273,14 +309,33 @@
 			commId: c.commId,
 			status: c.status as any,
 			assignedMemberNames: c.assignedMemberNames,
+			emailOpenedAt: c.emailOpenedAt,
+			emailClickedAt: c.emailClickedAt,
 			raw: c.raw
 		}))
 	);
 
 	function handleSummaryClick(comm: any) {
 		// Use the transformed comm object, not raw, so we have all the formatted fields
-		selectedComm = comm;
+		lastSelectedComm = comm;
+		summaryCommId = comm.id || comm.raw?.id || null;
 		summaryDialogOpen = true;
+	}
+
+	// The customer-facing contact point for the summary dialog: for outbound rows
+	// that's the destination (who we contacted/sent to), for inbound it's the source
+	// (who contacted us). Emails resolve the raw address from the underlying record
+	// (comm.raw.raw) because source/destination are remapped to display *names* for
+	// known contacts; voice keeps the formatted display value like the table does.
+	function dialogContactPoint(comm: any): string {
+		const isOutbound = comm?.raw?.direction === 'outbound';
+		if (comm?.raw?.type === 'email') {
+			const raw = comm?.raw?.raw;
+			return isOutbound
+				? raw?.destination || comm.endpoint || ''
+				: raw?.source || comm.source || '';
+		}
+		return isOutbound ? comm.endpoint ?? '' : comm.source ?? '';
 	}
 
 	function handleActionClick(action: string, comm: any) {
@@ -505,6 +560,10 @@
 			onReplyClick={handleReplyClick}
 			onConfirmClick={handleConfirmClick}
 			onViewLogClick={handleViewLogClick}
+			onProfileClick={(comm) => {
+				const customerId = comm.raw?.raw?.customer?.id;
+				if (customerId) goto(`/profiles/${customerId}`);
+			}}
 			showAssignButton={true}
 			showSearch={false}
 		/>
@@ -606,13 +665,15 @@
 			? ''
 			: capLabel(meta.subcat_gpt, meta.sub_intent) || 'General'}
 		sourceLabel={selectedComm.raw?.type === 'email' ? 'Email Address' : 'Phone'}
-		email={selectedComm.source ?? ''}
+		email={dialogContactPoint(selectedComm)}
 		subject={selectedComm.raw?.metadata?.subject || selectedComm.raw?.subject || 'No subject'}
 		body={selectedComm.raw?.content || selectedComm.summary || ''}
 		summary={selectedComm.summary}
 		tasks={meta.actionItems ?? meta.tasks ?? []}
+		loading={selectedComm.processing}
 		showTasks={true}
 		{recordingUrl}
+		attachments={Array.isArray(meta.attachments) ? meta.attachments : []}
 		estimatedPrice={meta.estimatedPrice ?? null}
 		draftedMessage={selectedComm.raw?.draftResponse || selectedComm.raw?.payload?.draftResponse || selectedComm.raw?.payload?.draft_reply || null}
 		department={capLabel(meta.ivr_intent, meta.message_category) || null}
@@ -626,6 +687,8 @@
 		targetEmail={meta.target_email || ''}
 		emailConfirmed={Boolean(meta.email_confirmed)}
 		onConfirmEmail={handleConfirmEmail}
+		emailOpenedAt={selectedComm.emailOpenedAt ?? null}
+		emailClickedAt={selectedComm.emailClickedAt ?? null}
 	/>
 {/if}
 

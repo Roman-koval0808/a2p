@@ -62,6 +62,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 			if (approval.draftType === 'email') {
 				const cp: any = approval.contextPayload || {};
 				const to = cp.extractedEmail || approval.container.customerProfile?.email || null;
+				const contactId = approval.container.customerProfile?.id;
 				if (to) {
 					try {
 						const { sendEmail } = await import('$lib/server/brevo');
@@ -71,19 +72,14 @@ export const POST: RequestHandler = async ({ params, request }) => {
 							? subjMatch[1].trim()
 							: cp.subject || `Appointment Confirmation - ${cp.product || 'Sales Opportunity'}`;
 						const body = raw.replace(/^\s*Subject:\s*.+$/im, '').trim();
-						await sendEmail({
-							to: [{ email: to }],
-							subject,
-							htmlContent: `<div style="font-family:sans-serif;white-space:pre-wrap">${body
-								.replace(/&/g, '&amp;')
-								.replace(/</g, '&lt;')
-								.replace(/\n/g, '<br>')}</div>`
-						});
-						console.log(`[Approval API] Email approved and sent to ${to}`);
+						let htmlContent = `<div style="font-family:sans-serif;white-space:pre-wrap">${body
+							.replace(/&/g, '&amp;')
+							.replace(/</g, '&lt;')
+							.replace(/\n/g, '<br>')}</div>`;
 
-						// Log outbound Email under the SAME commId thread (Requirement 3)
+						// Log outbound Email first so we can track opens/clicks against it
 						const { logCommunication } = await import('$lib/utils/communication-log');
-						await logCommunication({
+						const outboundLog = await logCommunication({
 							type: 'email',
 							direction: 'outbound',
 							status: 'success',
@@ -94,6 +90,18 @@ export const POST: RequestHandler = async ({ params, request }) => {
 							thread_id: approval.commId,
 							metadata: { commId: approval.commId, approvalId: id, subject }
 						});
+
+						if (contactId) {
+							const { injectEmailTracking } = await import('$lib/server/email/tracking-inject');
+							const result = await injectEmailTracking(htmlContent, contactId, companyId, undefined, outboundLog.id);
+							htmlContent = result.htmlContent;
+						}
+						await sendEmail({
+							to: [{ email: to }],
+							subject,
+							htmlContent
+						});
+						console.log(`[Approval API] Email approved and sent to ${to}`);
 					} catch (e) {
 						console.error(`[Approval API] Email send failed (continuing to booking):`, e);
 					}

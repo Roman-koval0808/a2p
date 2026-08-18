@@ -8,7 +8,13 @@
 //
 // The key is passed in so this stays a plain, testable unit.
 
-import { checkCalendarAvailability, formatDatetime, describeBusinessHours } from './calendar';
+import {
+	checkCalendarAvailability,
+	formatDatetime,
+	describeBusinessHours,
+	BUSINESS_TZ,
+	ensureFutureWallClock
+} from './calendar';
 import { claudeJSON, claudeText, CLAUDE_FAST } from './anthropic';
 import { bookingLinkWith } from '$lib/utils/booking';
 import { isUnsendableDraft, claimsUnverifiedDispatchOrTime } from './reply-sanity';
@@ -57,13 +63,22 @@ interface Extracted {
 
 function todayContext(): string {
 	const now = new Date();
+	// Anchor on the BUSINESS clock, not the server's — the host runs in a different zone, and
+	// "today"/"this afternoon" must mean today where the customer and the crew are.
 	const fmt = now.toLocaleString('en-US', {
 		weekday: 'long',
 		year: 'numeric',
 		month: 'long',
-		day: 'numeric'
+		day: 'numeric',
+		timeZone: BUSINESS_TZ
 	});
-	return `Today is ${fmt}. The current year is ${now.getFullYear()}.`;
+	const time = now.toLocaleString('en-US', {
+		hour: 'numeric',
+		minute: '2-digit',
+		timeZone: BUSINESS_TZ
+	});
+	const year = now.toLocaleString('en-US', { year: 'numeric', timeZone: BUSINESS_TZ });
+	return `Today is ${fmt} and the current local time is ${time}. The current year is ${year}. All times are local to the business; write them as plain wall-clock with no timezone suffix.`;
 }
 
 const EXTRACT_SCHEMA = {
@@ -86,7 +101,8 @@ const EXTRACT_SCHEMA = {
 // Step 1 — extract any proposed appointment datetime from the reply.
 async function extractReply(message: string, apiKey: string): Promise<Extracted | null> {
 	const system = `You extract appointment date/time from a customer's SMS reply for a trades business. ${todayContext()}
-If the reply proposes/agrees to a specific day and/or time, set contains_datetime=true and datetime_iso to an ISO 8601 timestamp (YYYY-MM-DDTHH:mm:ss) resolving relative dates against today; if only a day is given, use 09:00:00; if unclear, contains_datetime=false and datetime_iso as an empty string.
+If the reply proposes/agrees to a specific day and/or time, set contains_datetime=true and datetime_iso to an ISO 8601 timestamp (YYYY-MM-DDTHH:mm:ss, no timezone suffix) resolving relative dates against today; if only a day is given, use 09:00:00; if unclear, contains_datetime=false and datetime_iso as an empty string.
+The resolved timestamp MUST be in the FUTURE. A bare weekday always means the NEXT occurrence of that weekday: if the customer names the weekday it already is today, they mean the one a week from today, not today. Likewise, if a time-of-day today has already passed, move to the next day that fits. Never return a timestamp earlier than the current local time — an appointment cannot be booked in the past.
 reply_type: proposing_time (offers a time), confirming (agrees/says yes), declining (says no/cancel), question (asks something), other.`;
 	const result = await claudeJSON<Extracted>({
 		apiKey,
@@ -244,7 +260,14 @@ export async function draftConversationalReply(
 	const bookingUrl = input.reschedule?.mode === 'link' ? '' : (input.bookingUrl || '').trim();
 
 	if (extracted?.contains_datetime && extracted.datetime_iso) {
-		datetime = extracted.datetime_iso;
+		// Guard the prompt's "must be in the future" rule deterministically — a booking link for a
+		// time that has already passed is worse than no link at all.
+		datetime = ensureFutureWallClock(extracted.datetime_iso);
+		if (datetime !== extracted.datetime_iso) {
+			console.warn(
+				`[Conversational reply] extracted time ${extracted.datetime_iso} was in the past — rolled forward to ${datetime}.`
+			);
+		}
 		available = checkCalendarAvailability(datetime, input.locations || []);
 		const pretty = formatDatetime(datetime);
 		if (bookingUrl) {

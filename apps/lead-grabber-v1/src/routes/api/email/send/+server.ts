@@ -56,6 +56,23 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				summary: subject,
 				content: bodyText,
 				metadata: { emailId, subject }
+			}).then((log) => {
+				// Universal context check (outbound): an ad-hoc email that continues a conversation
+				// (reply to a call/SMS/text) should reuse that conversation's shared COM id.
+				if (log?.id) {
+					Promise.resolve().then(async () => {
+						try {
+							const { resolveAndLinkContext } =
+								await import('$lib/server/container/thread-resolver');
+							const linked = await resolveAndLinkContext(log.id);
+							console.log(
+								`[Email Send] Context check: ${linked.resolved ? `linked to ${linked.commRef}` : `no link (${linked.reason})`}`
+							);
+						} catch (e) {
+							console.error('[Email Send] Context check failed:', e);
+						}
+					});
+				}
 			});
 			results.push({ recipient: to, emailId, status: 'sent' });
 		} catch (err) {

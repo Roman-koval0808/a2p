@@ -1,118 +1,189 @@
 <script lang="ts">
-	import { Clock } from 'lucide-svelte';
+	import { Clock, X } from 'lucide-svelte';
+	import { parseTime24, toTime24, formatTime12 } from '$lib/utils/time';
 
-	interface Props {
-		value: string;
-		placeholder?: string;
-		class?: string;
-		disabled?: boolean;
-	}
 	let {
 		value = $bindable(''),
-		placeholder = '-- : --',
-		class: className = '',
-		disabled = false
-	}: Props = $props();
+		placeholder = '--:--',
+		disabled = false,
+		invalid = false,
+		ariaLabel = 'Time'
+	}: {
+		value?: string;
+		placeholder?: string;
+		disabled?: boolean;
+		invalid?: boolean;
+		ariaLabel?: string;
+	} = $props();
 
 	let open = $state(false);
-	let hour = $state(9);
+	// Draft state, seeded from `value` each time the dialog opens. Kept as editable state (not
+	// derived) so the AM/PM toggle can be changed without committing/ closing the dialog.
+	let hour12 = $state(9);
 	let minute = $state(0);
-	let pickerRoot: HTMLElement | undefined;
+	let period = $state<'AM' | 'PM'>('AM');
+	// Viewport-anchored position for the popover, so it escapes any `overflow`/scroll container it
+	// is nested in (e.g. the auto-replies half-height column). Recomputed each time it opens.
+	let pos = $state({ top: 0, left: 0 });
 
-	$effect(() => {
-		if (!open) return;
-		const root = pickerRoot;
-		const handler = (e: MouseEvent) => {
-			if (root && !root.contains(e.target as Node)) open = false;
-		};
-		document.addEventListener('click', handler, true);
-		return () => document.removeEventListener('click', handler, true);
+	const POPUP_WIDTH = 256;
+	const POPUP_HEIGHT = 240;
+
+	const display = $derived(formatTime24Display(value));
+
+	const hours = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+	const minuteOptions = $derived.by(() => {
+		const base = Array.from({ length: 12 }, (_, i) => i * 5);
+		if (!base.includes(minute)) base.push(minute);
+		return base.sort((a, b) => a - b);
 	});
 
-	function parseValue(v: string): { hour: number; minute: number } {
-		if (!v || typeof v !== 'string') return { hour: 9, minute: 0 };
-		const [h, m] = v.split(':').map((x) => parseInt(x, 10));
-		return {
-			hour: Number.isNaN(h) ? 9 : Math.max(0, Math.min(23, h)),
-			minute: Number.isNaN(m) ? 0 : Math.max(0, Math.min(59, m))
-		};
+	function formatTime24Display(v: string): string {
+		return formatTime12(v) ?? '';
 	}
 
-	function toValue(h: number, m: number): string {
-		return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+	function computePosition(trigger: HTMLElement | null) {
+		if (!trigger) return { top: 0, left: 0 };
+		const r = trigger.getBoundingClientRect();
+		let left = r.left;
+		if (left + POPUP_WIDTH > window.innerWidth - 8) {
+			left = Math.max(8, window.innerWidth - POPUP_WIDTH - 8);
+		}
+		let top = r.bottom + 4;
+		if (top + POPUP_HEIGHT > window.innerHeight - 8) {
+			top = Math.max(8, r.top - POPUP_HEIGHT - 4);
+		}
+		return { top, left };
 	}
 
-	function openPicker() {
-		if (disabled) return;
-		const { hour: h, minute: m } = parseValue(value);
-		hour = h;
-		minute = m;
+	function openPicker(trigger?: HTMLElement) {
+		const p = parseTime24(value);
+		if (p) {
+			hour12 = p.hour % 12 === 0 ? 12 : p.hour % 12;
+			minute = p.minute;
+			period = p.hour >= 12 ? 'PM' : 'AM';
+		}
+		pos = computePosition(trigger ?? null);
 		open = true;
 	}
 
-	function apply() {
-		value = toValue(hour, minute);
+	function toggle(e: MouseEvent) {
+		if (disabled) return;
+		if (open) {
+			open = false;
+			return;
+		}
+		openPicker(e.currentTarget as HTMLElement);
+	}
+
+	function select(h: number, m: number) {
+		hour12 = h;
+		minute = m;
+		value = toTime24(h, m, period);
 		open = false;
 	}
 
-	function displayVal(): string {
-		if (!value || value === '-- : --') return '';
-		const { hour: h, minute: m } = parseValue(value);
-		return toValue(h, m);
+	function setPeriod(p: 'AM' | 'PM') {
+		period = p;
+		value = toTime24(hour12, minute, p);
+		// Keep the dialog open so the user can keep adjusting.
 	}
 
-	const minutes = [0, 15, 30, 45];
-	const hours = Array.from({ length: 24 }, (_, i) => i);
+	function clear() {
+		value = '';
+		open = false;
+	}
 </script>
 
-<div class="relative inline-block {className}" data-time-picker bind:this={pickerRoot}>
+<svelte:window onkeydown={(e) => e.key === 'Escape' && (open = false)} />
+
+<div class="relative inline-block">
 	<button
 		type="button"
-		class="flex h-[40px] w-full items-center gap-2 rounded-[3px] border border-black bg-white px-3 pr-10 font-['Poppins'] text-lg font-light leading-[21px] text-[#808080] outline-none transition-colors hover:border-[#577AB7] disabled:opacity-50 {!displayVal()
-			? 'text-[#B6B6B6]'
-			: ''}"
+		class="inline-flex h-9 min-w-[7.5rem] items-center justify-between gap-2 rounded-md border px-3 text-sm transition-colors {invalid
+			? 'border-red-400 text-red-600'
+			: 'border-gray-300 text-gray-800 hover:border-gray-400'} {disabled ? 'cursor-not-allowed bg-gray-50 text-gray-400' : 'bg-white'}"
 		{disabled}
-		onclick={openPicker}
+		aria-label={ariaLabel}
+		onclick={toggle}
 	>
-		<span class="flex-1 text-left">{displayVal() || placeholder}</span>
-		<Clock
-			class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
-		/>
+		<span class={display ? '' : 'text-gray-400'}>{display || placeholder}</span>
+		<Clock class="h-4 w-4 opacity-60" />
 	</button>
+
 	{#if open}
+		<button
+			type="button"
+			class="fixed inset-0 z-40 cursor-default"
+			aria-label="Close time picker"
+			onclick={() => (open = false)}
+		></button>
+
 		<div
-			class="absolute left-0 top-full z-20 mt-1 min-w-[180px] rounded-lg border border-[#969696] bg-white p-3 shadow-lg"
+			class="fixed z-50 w-64 rounded-lg border border-gray-200 bg-white p-3 shadow-lg"
+			style={`top: ${pos.top}px; left: ${pos.left}px;`}
 			role="dialog"
-			aria-label="Pick time"
+			aria-label="Choose a time"
 		>
-			<div class="flex gap-2">
-				<select
-					class="flex-1 rounded border border-[#969696] bg-white px-2 py-1.5 font-['Poppins'] text-sm text-[#808080] outline-none"
-					bind:value={hour}
-					onchange={() => (value = toValue(hour, minute))}
+			<div class="mb-2 flex items-center justify-between">
+				<span class="text-xs font-semibold uppercase tracking-wide text-gray-500">Time</span>
+				<button
+					type="button"
+					class="text-gray-400 hover:text-gray-600"
+					aria-label="Clear time"
+					onclick={clear}
 				>
-					{#each hours as h}
-						<option value={h}>{String(h).padStart(2, '0')}</option>
-					{/each}
-				</select>
-				<span class="flex items-center font-['Poppins'] text-[#808080]">:</span>
-				<select
-					class="flex-1 rounded border border-[#969696] bg-white px-2 py-1.5 font-['Poppins'] text-sm text-[#808080] outline-none"
-					bind:value={minute}
-					onchange={() => (value = toValue(hour, minute))}
-				>
-					{#each minutes as m}
-						<option value={m}>{String(m).padStart(2, '0')}</option>
-					{/each}
-				</select>
+					<X class="h-4 w-4" />
+				</button>
 			</div>
-			<button
-				type="button"
-				class="mt-2 w-full rounded bg-[#577AB7] py-1.5 font-['Poppins'] text-sm text-white hover:bg-[#4a6ba5]"
-				onclick={apply}
-			>
-				Done
-			</button>
+
+			<div class="mb-2 grid grid-cols-2 gap-1 rounded-md bg-gray-100 p-1">
+				<button
+					type="button"
+					class="rounded px-2 py-1 text-xs font-semibold {period === 'AM' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500'}"
+					onclick={() => setPeriod('AM')}
+				>
+					AM
+				</button>
+				<button
+					type="button"
+					class="rounded px-2 py-1 text-xs font-semibold {period === 'PM' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500'}"
+					onclick={() => setPeriod('PM')}
+				>
+					PM
+				</button>
+			</div>
+
+			<div class="flex gap-2">
+				<div class="flex-1">
+					<div class="mb-1 text-xs text-gray-500">Hour</div>
+					<div class="grid max-h-40 grid-cols-3 gap-1 overflow-y-auto">
+						{#each hours as h (h)}
+							<button
+								type="button"
+								class="rounded px-1 py-1 text-sm {h === hour12 ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}"
+								onclick={() => select(h, minute)}
+							>
+								{h}
+							</button>
+						{/each}
+					</div>
+				</div>
+				<div class="flex-1">
+					<div class="mb-1 text-xs text-gray-500">Minute</div>
+					<div class="grid max-h-40 grid-cols-3 gap-1 overflow-y-auto">
+						{#each minuteOptions as m (m)}
+							<button
+								type="button"
+								class="rounded px-1 py-1 text-sm {m === minute ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}"
+								onclick={() => select(hour12, m)}
+							>
+								{String(m).padStart(2, '0')}
+							</button>
+						{/each}
+					</div>
+				</div>
+			</div>
 		</div>
 	{/if}
 </div>

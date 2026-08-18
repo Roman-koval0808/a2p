@@ -11,6 +11,7 @@ import {
 import { PUBLIC_BASE_URL } from '$env/static/public';
 import { normalizeUrl } from '$lib/utils';
 import { normalizePhoneNumber, formatPhoneForDialing } from '$lib/utils/phone';
+import { splitDraftSubject, draftBodyToHtml } from '$lib/utils/email-draft';
 
 export const POST: RequestHandler = async ({ params, locals }) => {
 	const auth = requireAuth(locals);
@@ -30,6 +31,10 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 		}
 
 		const meta = (log.metadata as any) || {};
+		// Metadata written mid-flight (e.g. the Gmail message id of the sent email). `meta` is a
+		// snapshot taken here, and the final update below spreads it — so anything written straight
+		// to the DB in between would be clobbered. Collect it here and merge it into that update.
+		const metaAdditions: Record<string, any> = {};
 
 		// The customer asked to be CALLED, not texted — place a call instead of sending the draft.
 		// Dial the number they left in their message (meta.callback_number), else their own line.
@@ -198,11 +203,19 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 		// account (same one used for Calendar); fall back to the single-account GMAIL_* sender.
 		if (log.type === 'email' && log.direction === 'outbound') {
 			const m = (log.metadata as any) || {};
-			const subjMatch = (log.content || '').match(/^\s*Subject:\s*(.+)$/im);
-			const subject = subjMatch
-				? subjMatch[1].trim()
-				: m.subject || log.summary || `Appointment Confirmation — ${m.product || m.purpose || 'Sales Opportunity'}`;
-			const htmlBody = (log.content || '').replace(/^\s*Subject:\s*.+(\r?\n)+/i, '').trim();
+			// The draft opens with its own "Subject:" line, often markdown-wrapped
+			// (`**Subject: ...**`). Parsing it with a bare-prefix regex missed those,
+			// so the customer got a literal "**Subject: ...**" as the first line of
+			// the email and the header read "Email Follow-up".
+			const { subject: draftedSubject, body: draftedBody } = splitDraftSubject(log.content);
+			const subject =
+				draftedSubject ||
+				m.subject ||
+				log.summary ||
+				`Appointment Confirmation — ${m.product || m.purpose || 'Sales Opportunity'}`;
+			// The body goes into a text/html part, where raw newlines collapse — which
+			// turned every multi-paragraph reply into one run-on block.
+			let htmlBody = draftBodyToHtml(draftedBody);
 			const to = log.destination || '';
 			// Guard: a half-transcribed address ("romankovalenko", no domain) makes Gmail 400. Don't
 			// attempt to send to a non-address — the booking below still proceeds.
@@ -211,18 +224,39 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 					`[Confirm Outbound Email] Recipient "${to}" is not a valid email — skipping send. Fix the address before confirming to email the customer.`
 				);
 			} else {
+				if (log.customerId) {
+					const { injectEmailTracking } = await import('$lib/server/email/tracking-inject');
+					const result = await injectEmailTracking(htmlBody, log.customerId, log.companyId, undefined, log.id);
+					htmlBody = result.htmlContent;
+				}
+				let sentMessageId: string | undefined = undefined;
 				try {
 					const { sendEmailViaConnectedGmail } = await import('$lib/server/gmail-send');
-					await sendEmailViaConnectedGmail(log.companyId, { to, subject, htmlContent: htmlBody });
+					const res = await sendEmailViaConnectedGmail(log.companyId, { to, subject, htmlContent: htmlBody });
+					sentMessageId = res.messageId;
 					console.log(`[Confirm Outbound Email] ✅ Sent via connected Google account to ${to}`);
 				} catch (connErr: any) {
 					console.warn('[Confirm Outbound Email] Connected Gmail unavailable:', connErr?.message || connErr);
 					try {
 						const { sendEmailViaGmail } = await import('$lib/server/gmail-send');
-						await sendEmailViaGmail({ to, subject, htmlContent: htmlBody });
+						const res = await sendEmailViaGmail({ to, subject, htmlContent: htmlBody });
+						sentMessageId = res.messageId;
 						console.log(`[Confirm Outbound Email] ✅ Sent via fallback Gmail to ${to}`);
 					} catch (e: any) {
 						console.warn('[Confirm Outbound Email] Email dispatch deferred (no sender available):', e?.message || e);
+					}
+				}
+
+				if (sentMessageId) {
+					try {
+						metaAdditions.email_message_id = sentMessageId;
+						const updatedMeta = { ...(log.metadata as object), email_message_id: sentMessageId };
+						await prisma.communicationLog.update({
+							where: { id: log.id },
+							data: { metadata: updatedMeta }
+						});
+					} catch (dbErr) {
+						console.error('[Confirm Outbound Email] Failed to save email_message_id:', dbErr);
 					}
 				}
 			}
@@ -324,6 +358,7 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 				status: 'completed',
 				metadata: {
 					...meta,
+					...metaAdditions,
 					is_draft: false,
 					email_confirmed: true,
 					email_confirmed_at: new Date().toISOString()

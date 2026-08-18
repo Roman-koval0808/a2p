@@ -2,6 +2,7 @@ import { prisma } from '$lib/db';
 import { logCommunication } from '$lib/utils/communication-log';
 import { createNotification } from '$lib/utils/notifications';
 import { createOrUpdateContact } from '$lib/utils/contacts';
+import { sanitizeEmailBody, isMarketingBlast } from './sanitize';
 export interface InboundEmailPayload {
 	from: string;
 	fromName?: string;
@@ -38,7 +39,8 @@ export async function processInboundEmail(payload: InboundEmailPayload) {
 		const companyId = company.id;
 
 		// 2. Prepare Message Data
-		const content = payload.textBody || payload.htmlBody || '(No content)';
+		const content = sanitizeEmailBody(payload.textBody || payload.htmlBody || '(No content)');
+		const isMarketing = isMarketingBlast(payload.textBody || payload.htmlBody || '');
 		const threadId = `email-${payload.messageId}`; // Use email messageId for consistency or a custom thread logic
 		const customerName = payload.fromName || payload.from.split('@')[0];
 		const customerEmail = payload.from;
@@ -99,7 +101,12 @@ export async function processInboundEmail(payload: InboundEmailPayload) {
 			customer_id: contact?.id ?? undefined,
 			summary: payload.subject,
 			content: content,
-			metadata: { thread_id: threadId, email_message_id: payload.messageId }
+			metadata: {
+				thread_id: threadId,
+				email_message_id: payload.messageId,
+				email_sanitized: true,
+				...(isMarketing ? { marketing_email: true } : {})
+			}
 		});
 
 		return { success: true, messageId: messageRecord.id };

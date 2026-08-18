@@ -5,39 +5,38 @@
 	import { Label } from '$lib/components/ui/label';
 	import { Switch } from '$lib/components/ui/switch';
 	import { getSvgIcon } from '$lib/utils/getSvgIcon';
+	import { iconOptions } from '$lib/utils/iconOptions';
 	import { onMount } from 'svelte';
 
 	let { children,
 		buttonText,
 		showIcon = true,
-		selectedIcon = 'MessageSquare',
+		selectedIcon = 'Play',
+		buttonColor = '#FF6B00',
+		fontColor = '#ffffff',
+		url = '',
 		onSave
 	} = $props<{
 		buttonText: string;
 		showIcon?: boolean;
 		selectedIcon?: string;
-		onSave: (data: { text: string; icon: string; showIcon: boolean }) => void;
+		buttonColor?: string;
+		fontColor?: string;
+		url?: string;
+		onSave: (data: { text: string; icon: string; showIcon: boolean; buttonColor?: string; fontColor?: string; url?: string }) => void;
 	}>();
 
 	let isOpen = $state(false);
 	let editedText = $state(buttonText);
 	let editedShowIcon = $state(showIcon);
 	let editedIcon = $state(selectedIcon);
+	let editedButtonColor = $state(buttonColor);
+	let editedFontColor = $state(fontColor);
+	let editedUrl = $state(url);
 
-	const icons = [
-		{ icon: 'Phone', name: 'Phone' },
-		{ icon: 'MessageSquare', name: 'Message' },
-		{ icon: 'Play', name: 'Play' },
-		{ icon: 'Mail', name: 'Mail' },
-		{ icon: 'Map', name: 'Map' },
-		{ icon: 'Target', name: 'Target' },
-		{ icon: 'Clock', name: 'Clock' },
-		{ icon: 'Calendar', name: 'Calendar' },
-		{ icon: 'CreditCard', name: 'Card' },
-		{ icon: 'Search', name: 'Search' }
-	];
+	const icons = iconOptions;
 
-	let iconSvgs = $state({});
+	let iconSvgs: Record<string, string> = $state({});
 
 	onMount(async () => {
 		for (const { icon } of icons) {
@@ -49,7 +48,10 @@
 		onSave({
 			text: editedText,
 			icon: editedIcon,
-			showIcon: editedShowIcon
+			showIcon: editedShowIcon,
+			buttonColor: editedButtonColor,
+			fontColor: editedFontColor,
+			url: editedUrl
 		});
 		isOpen = false;
 	}
@@ -81,6 +83,28 @@
 					<span class="text-sm text-muted-foreground">
 						{editedText.length} / 20
 					</span>
+				</div>
+			</div>
+
+			<div class="grid gap-2">
+				<Label for="buttonUrl">Link / URL:</Label>
+				<Input id="buttonUrl" bind:value={editedUrl} placeholder="https://..." />
+			</div>
+
+			<div class="grid grid-cols-2 gap-4">
+				<div class="grid gap-2">
+					<Label for="btn-bg-color">Background Color:</Label>
+					<div class="flex items-center gap-2">
+						<input id="btn-bg-color" type="color" bind:value={editedButtonColor} class="h-10 w-10 cursor-pointer rounded border border-gray-300 p-1" />
+						<Input bind:value={editedButtonColor} class="uppercase" />
+					</div>
+				</div>
+				<div class="grid gap-2">
+					<Label for="btn-font-color">Font Color:</Label>
+					<div class="flex items-center gap-2">
+						<input id="btn-font-color" type="color" bind:value={editedFontColor} class="h-10 w-10 cursor-pointer rounded border border-gray-300 p-1" />
+						<Input bind:value={editedFontColor} class="uppercase" />
+					</div>
 				</div>
 			</div>
 

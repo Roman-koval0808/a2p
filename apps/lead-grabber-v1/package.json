@@ -4,9 +4,9 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev --port 3005 --host 0.0.0.0",
-		"prebuild": "prisma generate && prisma generate --schema=prisma/profiledb.schema.prisma && node -e \"const fs = require('fs'); for (const p of ['./clearsky-db-client/package.json','./profiledb-client/package.json']) { const pkg = JSON.parse(fs.readFileSync(p)); pkg.type = 'commonjs'; fs.writeFileSync(p, JSON.stringify(pkg, null, 2)); }\"",
-		"build": "vite build",
-		"postbuild": "pm2 delete lead-grabber-v1 2>/dev/null || true; pm2 start ecosystem.config.cjs",
+		"prebuild": "prisma generate && prisma generate --schema=prisma/profiledb/schema.prisma && node -e \"const fs = require('fs'); for (const p of ['./clearsky-db-client/package.json','./profiledb-client/package.json']) { const pkg = JSON.parse(fs.readFileSync(p)); pkg.type = 'commonjs'; fs.writeFileSync(p, JSON.stringify(pkg, null, 2)); }\"",
+		"build": "NODE_OPTIONS=--max-old-space-size=4096 vite build",
+		"postbuild": "pm2 delete ecosystem.config.cjs 2>/dev/null || true; pm2 start ecosystem.config.cjs",
 		"preview": "vite preview --port 3005 --host 0.0.0.0",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
@@ -14,10 +14,11 @@
 		"lint": "prettier --check . && eslint .",
 		"test": "vitest run",
 		"test:watch": "vitest",
-		"db:generate": "prisma generate && prisma generate --schema=prisma/profiledb.schema.prisma && node -e \"const fs = require('fs'); for (const p of ['./clearsky-db-client/package.json','./profiledb-client/package.json']) { const pkg = JSON.parse(fs.readFileSync(p)); pkg.type = 'commonjs'; fs.writeFileSync(p, JSON.stringify(pkg, null, 2)); }\"",
+		"db:generate": "prisma generate && prisma generate --schema=prisma/profiledb/schema.prisma && node -e \"const fs = require('fs'); for (const p of ['./clearsky-db-client/package.json','./profiledb-client/package.json']) { const pkg = JSON.parse(fs.readFileSync(p)); pkg.type = 'commonjs'; fs.writeFileSync(p, JSON.stringify(pkg, null, 2)); }\"",
 		"db:push": "prisma db push",
 		"db:migrate": "prisma migrate dev",
-		"db:studio": "prisma studio"
+		"db:studio": "prisma studio",
+		"db:migrate:profiledb": "prisma migrate deploy --schema=prisma/profiledb/schema.prisma"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-auto": "^3.0.0",
@@ -65,11 +66,13 @@
 		"nodemailer": "^6.9.16",
 		"openai": "^6.44.0",
 		"pg": "^8.13.1",
+		"profiledb-client": "link:./profiledb-client",
 		"svelte-dnd-action": "^0.9.52",
 		"svelte-use-form": "^2.10.0",
+		"sveltekit-openapi-generator": "^0.1.6",
+		"swagger-ui-dist": "^5.32.11",
 		"uuid": "^14.0.0",
 		"ws": "^8.18.3",
-		"zod": "^4.4.3",
-		"profiledb-client": "link:./profiledb-client"
+		"zod": "^4.4.3"
 	}
 }

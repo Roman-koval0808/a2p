@@ -1,5 +1,8 @@
+import { env } from '$env/dynamic/private';
 import { prisma } from '$lib/db';
-import { generateReviewReplyDraft } from './ai-review-reply';
+import { claudeText } from '$lib/server/anthropic';
+import { generateReviewReplyDraft, getOrderTakerSystemPrompt } from './ai-review-reply';
+import { splitDraftSubject } from '$lib/utils/email-draft';
 import { KNOWN_EXECUTION_MODES } from './execution-modes';
 
 export interface ExecutionRecord {
@@ -42,7 +45,11 @@ export class ExecutionLog {
 
 	step(status: string, message: string, description?: string) {
 		const timestamp = new Date().toISOString().replace('T', ' ').replace('Z', '');
-		const statusIcon = status.includes('error') ? '🔴' : (status.includes('blocked') || status.includes('warning')) ? '🟡' : '🔵';
+		const statusIcon = status.includes('error')
+			? '🔴'
+			: status.includes('blocked') || status.includes('warning')
+				? '🟡'
+				: '🔵';
 		console.log(`${statusIcon} [${timestamp}] Section 5 - ${status.toUpperCase()} : ${message}`);
 		if (description) {
 			console.log(`      → ${description}`);
@@ -64,6 +71,73 @@ function shortId(prefix: string) {
 	return `${prefix}_${Math.random().toString(36).substring(2, 12)}`;
 }
 
+const PRIORITY_LABELS: Record<number, string> = {
+	1: 'CRITICAL',
+	2: 'HIGH',
+	3: 'MEDIUM',
+	4: 'LOW',
+	5: 'INFO'
+};
+
+const URGENCY_LABELS: Record<string, string> = {
+	critical: 'CRITICAL',
+	high: 'HIGH',
+	medium: 'MEDIUM',
+	low: 'LOW'
+};
+
+/**
+ * Owner alert text for the ACT-A2P-* internal notifications.
+ *
+ * The severity used to come from the dominant signal's priority, which is a
+ * routing weight, not a measure of how urgent the customer's problem is:
+ * CRITICAL_CHURN_RISK is priority 1, so "my new furnace makes a noise, call me
+ * tomorrow" paged the owner as a CRITICAL ALERT. The AI's own urgency reading is
+ * the honest signal; the priority stays as the fallback when there isn't one.
+ * The siren is reserved for alerts that warrant one — otherwise it trains the
+ * owner to ignore it.
+ */
+export function buildOwnerAlertText(opts: {
+	customerName: string;
+	aiSummary: string;
+	urgencyLevel?: string | null;
+	priorityLevel?: number | null;
+}): string {
+	const fromUrgency = URGENCY_LABELS[String(opts.urgencyLevel || '').toLowerCase()];
+	const label =
+		fromUrgency || PRIORITY_LABELS[opts.priorityLevel ?? 3] || `P${opts.priorityLevel ?? 3}`;
+	const siren = label === 'CRITICAL' || label === 'HIGH' ? ' 🚨' : '';
+	return `[ClearSky ${label} ALERT]${siren}\nCustomer: ${opts.customerName}\nIssue: ${opts.aiSummary}\n\nPlease check the dashboard for details.`;
+}
+
+/**
+ * Shared draft writer for the approval-required handlers. Uses the order-taker
+ * system prompt so every draft acknowledges what the customer actually said and
+ * never asks questions or assumes more than the source content. Falls back to a
+ * static draft in mock mode (or when no Anthropic key is configured).
+ */
+async function writeOrderTakerDraft(opts: {
+	mockMode: boolean;
+	businessName: string;
+	brandTone: string;
+	instruction: string;
+	context: string;
+	mockText: string;
+}): Promise<string> {
+	const apiKey = env.ANTHROPIC_AI_KEY;
+	if (opts.mockMode || !apiKey) return opts.mockText;
+
+	const outputText = await claudeText({
+		apiKey,
+		system: getOrderTakerSystemPrompt(opts.businessName, opts.brandTone),
+		messages: [{ role: 'user', content: `${opts.instruction}\n\n${opts.context}` }],
+		temperature: 0.3,
+		maxTokens: 400
+	});
+
+	return (outputText || opts.mockText).trim();
+}
+
 async function receiveQueueOutput(decisionId: string, eventId: string, log: ExecutionLog) {
 	const decision = await prisma.pipelineDecision.findUnique({
 		where: { decisionId },
@@ -74,7 +148,11 @@ async function receiveQueueOutput(decisionId: string, eventId: string, log: Exec
 	});
 
 	if (!decision) {
-		log.step('error', `Decision not found: ${decisionId}`, 'Section 5 cannot start without a valid orchestrator decision.');
+		log.step(
+			'error',
+			`Decision not found: ${decisionId}`,
+			'Section 5 cannot start without a valid orchestrator decision.'
+		);
 		return { error: 'decision_not_found' };
 	}
 
@@ -83,7 +161,11 @@ async function receiveQueueOutput(decisionId: string, eventId: string, log: Exec
 		.sort((a: any, b: any) => (a.createdAt?.getTime() || 0) - (b.createdAt?.getTime() || 0));
 
 	if (queueRecords.length === 0) {
-		log.step('warning', 'No queue records found for decision', 'Section 4 produced no actionable queue records for this decision.');
+		log.step(
+			'warning',
+			'No queue records found for decision',
+			'Section 4 produced no actionable queue records for this decision.'
+		);
 		return { error: 'no_queue_records' };
 	}
 
@@ -92,13 +174,21 @@ async function receiveQueueOutput(decisionId: string, eventId: string, log: Exec
 			where: { actionQueueId: record.id }
 		});
 		if (existing) {
-			log.step('error', `DUPLICATE GUARD: execution already exists for ${record.id}`, 'Duplicate execution prevention triggered.');
+			log.step(
+				'error',
+				`DUPLICATE GUARD: execution already exists for ${record.id}`,
+				'Duplicate execution prevention triggered.'
+			);
 			return { error: 'duplicate_execution_prevented' };
 		}
 	}
 
 	const blockedAuditOnly = (decision.blockedActionIds as any[]) || [];
-	log.step('exec_intake_opened', `${queueRecords.length} records received. No duplicates found.`, 'Execution intake opened and validated.');
+	log.step(
+		'exec_intake_opened',
+		`${queueRecords.length} records received. No duplicates found.`,
+		'Execution intake opened and validated.'
+	);
 
 	return { queueRecords, blockedAuditOnly, decision, event: decision.event };
 }
@@ -119,7 +209,8 @@ async function confirmEligibility(queueRecords: any[], log: ExecutionLog) {
 		const mode = record.executionLane;
 		if (!KNOWN_MODES.includes(mode)) reasons.push('unknown_execution_mode');
 
-		if (!VALID_QUEUE_STATUSES.includes(record.status)) reasons.push('invalid_queue_status_for_execution');
+		if (!VALID_QUEUE_STATUSES.includes(record.status))
+			reasons.push('invalid_queue_status_for_execution');
 
 		if (isEmptyParams(record.parameters)) reasons.push('parameters_missing_or_empty');
 
@@ -132,7 +223,11 @@ async function confirmEligibility(queueRecords: any[], log: ExecutionLog) {
 			ineligible.push({ action_queue_id: record.id, reasons });
 		} else {
 			eligible.push(record);
-			log.step('eligible', `${record.id} confirmed eligible`, 'Passed all eligibility checks for execution entry.');
+			log.step(
+				'eligible',
+				`${record.id} confirmed eligible`,
+				'Passed all eligibility checks for execution entry.'
+			);
 		}
 	}
 
@@ -143,7 +238,11 @@ async function confirmEligibility(queueRecords: any[], log: ExecutionLog) {
 	return { eligible, ineligible };
 }
 
-async function loadExecutionRules(companyId: string | null, actionIds: string[], log: ExecutionLog) {
+async function loadExecutionRules(
+	companyId: string | null,
+	actionIds: string[],
+	log: ExecutionLog
+) {
 	const actionLibraryRows = await prisma.pipelineActionLibrary.findMany({
 		where: { actionId: { in: actionIds } }
 	});
@@ -156,7 +255,11 @@ async function loadExecutionRules(companyId: string | null, actionIds: string[],
 	}
 
 	if (!businessConfig) {
-		log.step('warning', `No business config for ${companyId}. Applying safe defaults.`, 'Fail-safe defaults ensure approval-first behavior.');
+		log.step(
+			'warning',
+			`No business config for ${companyId}. Applying safe defaults.`,
+			'Fail-safe defaults ensure approval-first behavior.'
+		);
 		businessConfig = {
 			publicResponseRequiresApproval: true,
 			brandTone: 'professional_friendly',
@@ -188,51 +291,62 @@ async function loadExecutionRules(companyId: string | null, actionIds: string[],
 		failure_policy: 'fail_safe'
 	};
 
-	log.step('rules_snapshot_created', `Execution rules snapshot created: ${snapshot.snapshot_id}`, 'Frozen rules snapshot will be used for the rest of Section 5.');
+	log.step(
+		'rules_snapshot_created',
+		`Execution rules snapshot created: ${snapshot.snapshot_id}`,
+		'Frozen rules snapshot will be used for the rest of Section 5.'
+	);
 	return snapshot;
 }
 
 async function createExecutionRecords(eligibleRecords: any[], decision: any, log: ExecutionLog) {
 	const created: ExecutionRecord[] = [];
 
-	await prisma.$transaction(async (tx: any) => {
-		for (const record of eligibleRecords) {
-			const execId = shortId('exec');
-			const lane = record.executionLane;
-			const requiresApproval = lane === 'approval_required';
-			const approvalOwner = decision.owner || 'business_owner';
-			const createdRow = await tx.pipelineExecution.create({
-				data: {
-					actionExecutionId: execId,
-					actionQueueId: record.id,
-					actionId: record.actionId,
-					executionMode: lane,
-					executionStatus: 'created_pending_route',
-					approvalOwner: approvalOwner,
-					approvalStatus: requiresApproval ? 'pending_approval' : null,
-					requiresHumanApproval: requiresApproval,
-					postedExternally: false,
-					retryCount: 0
-				}
-			});
+	await prisma.$transaction(
+		async (tx: any) => {
+			for (const record of eligibleRecords) {
+				const execId = shortId('exec');
+				const lane = record.executionLane;
+				const requiresApproval = lane === 'approval_required';
+				const approvalOwner = decision.owner || 'business_owner';
+				const createdRow = await tx.pipelineExecution.create({
+					data: {
+						actionExecutionId: execId,
+						actionQueueId: record.id,
+						actionId: record.actionId,
+						executionMode: lane,
+						executionStatus: 'created_pending_route',
+						approvalOwner: approvalOwner,
+						approvalStatus: requiresApproval ? 'pending_approval' : null,
+						requiresHumanApproval: requiresApproval,
+						postedExternally: false,
+						retryCount: 0
+					}
+				});
 
-			created.push({
-				execution_id: execId,
-				execution_row_id: createdRow.id,
-				action_queue_id: record.id,
-				action_id: record.actionId,
-				execution_mode: lane,
-				execution_status: 'created_pending_route',
-				requires_human_approval: requiresApproval,
-				approval_owner: approvalOwner,
-				approval_status: requiresApproval ? 'pending_approval' : null,
-				posted_externally: false,
-				retry_count: 0
-			});
+				created.push({
+					execution_id: execId,
+					execution_row_id: createdRow.id,
+					action_queue_id: record.id,
+					action_id: record.actionId,
+					execution_mode: lane,
+					execution_status: 'created_pending_route',
+					requires_human_approval: requiresApproval,
+					approval_owner: approvalOwner,
+					approval_status: requiresApproval ? 'pending_approval' : null,
+					posted_externally: false,
+					retry_count: 0
+				});
 
-			log.step('execution_created', `${execId} created for ${record.id}`, 'Execution record created and staged for routing.');
-		}
-	}, { timeout: 15000 });
+				log.step(
+					'execution_created',
+					`${execId} created for ${record.id}`,
+					'Execution record created and staged for routing.'
+				);
+			}
+		},
+		{ timeout: 15000 }
+	);
 
 	return created;
 }
@@ -250,13 +364,25 @@ function routeByExecutionMode(executionRecords: ExecutionRecord[], log: Executio
 		const mode = rec.execution_mode;
 		if (lanes[mode]) {
 			lanes[mode].push(rec);
-			log.step('routed', `${rec.execution_id} routed to ${mode} lane`, 'Lane assignment complete. No execution performed yet.');
+			log.step(
+				'routed',
+				`${rec.execution_id} routed to ${mode} lane`,
+				'Lane assignment complete. No execution performed yet.'
+			);
 		} else {
-			log.step('warning', `${rec.execution_id} has unknown mode: ${mode}`, 'Unknown execution mode logged and skipped.');
+			log.step(
+				'warning',
+				`${rec.execution_id} has unknown mode: ${mode}`,
+				'Unknown execution mode logged and skipped.'
+			);
 		}
 	}
 
-	log.step('routing_complete', `Routing complete. approval_required=${lanes.approval_required.length} automatic=${lanes.automatic.length} manual=${lanes.manual.length}`, 'All records assigned to their execution lanes.');
+	log.step(
+		'routing_complete',
+		`Routing complete. approval_required=${lanes.approval_required.length} automatic=${lanes.automatic.length} manual=${lanes.manual.length}`,
+		'All records assigned to their execution lanes.'
+	);
 	return { routingSummaryId, lanes };
 }
 
@@ -275,10 +401,14 @@ async function executeAutomaticActions(
 		const params = queueRow?.parameters || {};
 		const libRow = rulesSnapshot.action_library[rec.action_id] || {};
 		const isPublic = !!libRow.isPublicFacing;
-		const callsA2p = !!(libRow.callsA2p);
+		const callsA2p = !!libRow.callsA2p;
 
 		if (isPublic) {
-			log.step('error', `${rec.execution_id} failed safety gate. isPublicFacing is TRUE.`, 'Automatic execution blocked by safety gate.');
+			log.step(
+				'error',
+				`${rec.execution_id} failed safety gate. isPublicFacing is TRUE.`,
+				'Automatic execution blocked by safety gate.'
+			);
 			await prisma.pipelineExecution.update({
 				where: { id: rec.execution_row_id },
 				data: { executionStatus: 'escalated_to_manual', updatedAt: new Date() }
@@ -331,7 +461,11 @@ async function executeAutomaticActions(
 					data: { status: 'execution_completed', updatedAt: new Date() }
 				});
 
-				log.step('automatic_completed', `${rec.execution_id} ACT-REV-004 completed. Complaint theme logged. No external action.`, 'Automatic internal action completed safely.');
+				log.step(
+					'automatic_completed',
+					`${rec.execution_id} ACT-REV-004 completed. Complaint theme logged. No external action.`,
+					'Automatic internal action completed safely.'
+				);
 				results.push({
 					...rec,
 					execution_status: 'automatic_internal_action_completed',
@@ -340,13 +474,15 @@ async function executeAutomaticActions(
 			} else if (rec.action_id === 'ACT-A2P-002') {
 				// REAL SMS Dispatch for Urgent Owner Notification
 				const customerName = params.customer_name || event?.authorName || 'Valued Customer';
-				const aiSummary = params.ai_summary || event?.enrichments?.[0]?.aiSummary || 'No summary available.';
-				
-				const priorityLabels: Record<number, string> = { 1: 'CRITICAL', 2: 'HIGH', 3: 'MEDIUM', 4: 'LOW', 5: 'INFO' };
-				const priorityLevel = decision?.priority ?? 3;
-				const urgencyText = priorityLabels[priorityLevel] || `P${priorityLevel}`;
-				
-				const smsText = `[ClearSky ${urgencyText} ALERT] 🚨\nCustomer: ${customerName}\nIssue: ${aiSummary}\n\nPlease check the dashboard for details.`;
+				const aiSummary =
+					params.ai_summary || event?.enrichments?.[0]?.aiSummary || 'No summary available.';
+
+				const smsText = buildOwnerAlertText({
+					customerName,
+					aiSummary,
+					urgencyLevel: params.urgency_level || event?.enrichments?.[0]?.aiUrgencyLevel,
+					priorityLevel: decision?.priority
+				});
 
 				// Call sendOwnerSmsAlert
 				const { sendOwnerSmsAlert } = await import('../sms-alert');
@@ -376,7 +512,11 @@ async function executeAutomaticActions(
 					data: { status: 'execution_completed', updatedAt: new Date() }
 				});
 
-				log.step('automatic_completed', `${rec.execution_id} ACT-A2P-002 completed. Sent SMS Alert to owner. Alert Text: "${smsText}"`, 'Automatic SMS alert sent successfully.');
+				log.step(
+					'automatic_completed',
+					`${rec.execution_id} ACT-A2P-002 completed. Sent SMS Alert to owner. Alert Text: "${smsText}"`,
+					'Automatic SMS alert sent successfully.'
+				);
 				results.push({
 					...rec,
 					execution_status: 'automatic_internal_action_completed',
@@ -385,7 +525,8 @@ async function executeAutomaticActions(
 			} else if (rec.action_id === 'ACT-A2P-001') {
 				// REAL CRM lead write: upsert a Contact for this company from the event.
 				const customerName = params.customer_name || event?.authorName || null;
-				const phone = params.phone_number && params.phone_number !== 'Unknown' ? params.phone_number : null;
+				const phone =
+					params.phone_number && params.phone_number !== 'Unknown' ? params.phone_number : null;
 				const intent = params.intent && params.intent !== 'Unknown' ? params.intent : null;
 
 				let contactId: string | null = null;
@@ -398,7 +539,10 @@ async function executeAutomaticActions(
 						contactId = existing.id;
 						crmStatus = 'existing_contact_matched';
 						if (!existing.name && customerName) {
-							await prisma.contact.update({ where: { id: existing.id }, data: { name: customerName } });
+							await prisma.contact.update({
+								where: { id: existing.id },
+								data: { name: customerName }
+							});
 						}
 					} else {
 						const createdContact = await prisma.contact.create({
@@ -443,7 +587,11 @@ async function executeAutomaticActions(
 					data: { status: 'execution_completed', updatedAt: new Date() }
 				});
 
-				log.step('automatic_completed', `${rec.execution_id} ACT-A2P-001 completed. CRM: ${crmStatus}${contactId ? ` (${contactId})` : ''}.`, 'CRM lead upserted from event.');
+				log.step(
+					'automatic_completed',
+					`${rec.execution_id} ACT-A2P-001 completed. CRM: ${crmStatus}${contactId ? ` (${contactId})` : ''}.`,
+					'CRM lead upserted from event.'
+				);
 				results.push({
 					...rec,
 					execution_status: 'automatic_internal_action_completed',
@@ -453,7 +601,8 @@ async function executeAutomaticActions(
 				// REAL emergency dispatch: create a high-priority internal dispatch task.
 				// The owner SMS is handled by ACT-A2P-002 (secondary), so this does not double-text.
 				const customerName = params.customer_name || event?.authorName || 'Valued Customer';
-				const aiSummary = params.ai_summary || event?.enrichments?.[0]?.aiSummary || 'No summary available.';
+				const aiSummary =
+					params.ai_summary || event?.enrichments?.[0]?.aiSummary || 'No summary available.';
 				const emergencyType = params.emergency_type || 'general_emergency';
 
 				const dispatchTask = await prisma.task.create({
@@ -488,7 +637,11 @@ async function executeAutomaticActions(
 					data: { status: 'execution_completed', updatedAt: new Date() }
 				});
 
-				log.step('automatic_completed', `${rec.execution_id} ACT-A2P-004 completed. Emergency dispatch task ${dispatchTask.id} created (${emergencyType}).`, 'Emergency dispatch task created.');
+				log.step(
+					'automatic_completed',
+					`${rec.execution_id} ACT-A2P-004 completed. Emergency dispatch task ${dispatchTask.id} created (${emergencyType}).`,
+					'Emergency dispatch task created.'
+				);
 				results.push({
 					...rec,
 					execution_status: 'automatic_internal_action_completed',
@@ -496,13 +649,15 @@ async function executeAutomaticActions(
 				});
 			} else if (rec.action_id.startsWith('ACT-A2P-')) {
 				const customerName = params.customer_name || event?.authorName || 'Valued Customer';
-				const aiSummary = params.ai_summary || event?.enrichments?.[0]?.aiSummary || 'No summary available.';
-				
-				const priorityLabels: Record<number, string> = { 1: 'CRITICAL', 2: 'HIGH', 3: 'MEDIUM', 4: 'LOW', 5: 'INFO' };
-				const priorityLevel = decision?.priority ?? 3;
-				const urgencyText = priorityLabels[priorityLevel] || `P${priorityLevel}`;
-				
-				const smsText = `[ClearSky ${urgencyText} ALERT] 🚨\nCustomer: ${customerName}\nIssue: ${aiSummary}\n\nPlease check the dashboard for details.`;
+				const aiSummary =
+					params.ai_summary || event?.enrichments?.[0]?.aiSummary || 'No summary available.';
+
+				const smsText = buildOwnerAlertText({
+					customerName,
+					aiSummary,
+					urgencyLevel: params.urgency_level || event?.enrichments?.[0]?.aiUrgencyLevel,
+					priorityLevel: decision?.priority
+				});
 
 				const generatedOutput = {
 					action: rec.action_id,
@@ -528,20 +683,32 @@ async function executeAutomaticActions(
 					data: { status: 'execution_completed', updatedAt: new Date() }
 				});
 
-				log.step('automatic_completed', `${rec.execution_id} ${rec.action_id} simulated. SMS Alert Text: "${smsText}"`, 'Automatic internal action simulated.');
-				
+				log.step(
+					'automatic_completed',
+					`${rec.execution_id} ${rec.action_id} simulated. SMS Alert Text: "${smsText}"`,
+					'Automatic internal action simulated.'
+				);
+
 				results.push({
 					...rec,
 					execution_status: 'automatic_internal_action_completed',
 					generated_output: generatedOutput
 				});
 			} else {
-				log.step('warning', `No automatic handler for action_id: ${rec.action_id}. Skipping.`, 'No internal handler registered for this action.');
+				log.step(
+					'warning',
+					`No automatic handler for action_id: ${rec.action_id}. Skipping.`,
+					'No internal handler registered for this action.'
+				);
 				results.push(rec);
 			}
 		} catch (err: any) {
 			const failureReason = err?.message || String(err);
-			log.step('error', `${rec.execution_id} automatic execution failed: ${failureReason}`, 'Automatic execution error captured.');
+			log.step(
+				'error',
+				`${rec.execution_id} automatic execution failed: ${failureReason}`,
+				'Automatic execution error captured.'
+			);
 			await prisma.pipelineExecution.update({
 				where: { id: rec.execution_row_id },
 				data: {
@@ -575,19 +742,37 @@ async function prepareApprovalRequiredOutputs(
 
 		try {
 			if (rec.action_id === 'ACT-REV-001') {
-				const draftText = await generateReviewReplyDraft({
-					review_text: params.review_text || event?.reviewText || '',
-					rating: params.rating || event?.reviewRatingNumeric || 0,
-					customer_name: params.customer_name || event?.authorName || 'Valued Customer',
-					praise_topics: params.praise_topics || (event?.enrichments?.[0]?.aiPraiseTopics ? (typeof event.enrichments[0].aiPraiseTopics === 'string' ? JSON.parse(event.enrichments[0].aiPraiseTopics) : event.enrichments[0].aiPraiseTopics) : []),
-					complaint_topics: params.complaint_topics || (event?.enrichments?.[0]?.aiComplaintTopics ? (typeof event.enrichments[0].aiComplaintTopics === 'string' ? JSON.parse(event.enrichments[0].aiComplaintTopics) : event.enrichments[0].aiComplaintTopics) : []),
-					business_name: businessName,
-					tone: bizConfig.brandTone || 'professional_friendly',
-					max_words: bizConfig.maxReplyLength || 150
-				}, mockMode);
+				const draftText = await generateReviewReplyDraft(
+					{
+						review_text: params.review_text || event?.reviewText || '',
+						rating: params.rating || event?.reviewRatingNumeric || 0,
+						customer_name: params.customer_name || event?.authorName || 'Valued Customer',
+						praise_topics:
+							params.praise_topics ||
+							(event?.enrichments?.[0]?.aiPraiseTopics
+								? typeof event.enrichments[0].aiPraiseTopics === 'string'
+									? JSON.parse(event.enrichments[0].aiPraiseTopics)
+									: event.enrichments[0].aiPraiseTopics
+								: []),
+						complaint_topics:
+							params.complaint_topics ||
+							(event?.enrichments?.[0]?.aiComplaintTopics
+								? typeof event.enrichments[0].aiComplaintTopics === 'string'
+									? JSON.parse(event.enrichments[0].aiComplaintTopics)
+									: event.enrichments[0].aiComplaintTopics
+								: []),
+						business_name: businessName,
+						tone: bizConfig.brandTone || 'professional_friendly',
+						max_words: bizConfig.maxReplyLength || 150,
+						ai_summary: params.ai_summary || event?.enrichments?.[0]?.aiSummary || '',
+						platform: params.platform || event?.provider || 'Google'
+					},
+					mockMode
+				);
 
 				const generatedOutput = {
 					draft_reply: draftText,
+					original_review: params.review_text || event?.reviewText || '',
 					source_review_id: event?.eventId || null,
 					rating: params.rating || event?.reviewRatingNumeric || null,
 					generated_by: mockMode ? 'mock' : 'ai_api',
@@ -620,7 +805,11 @@ async function prepareApprovalRequiredOutputs(
 					data: { status: 'draft_ready_pending_approval', updatedAt: new Date() }
 				});
 
-				log.step('draft_created', `${rec.execution_id} draft created. Pending approval.`, 'Approval-required draft stored.');
+				log.step(
+					'draft_created',
+					`${rec.execution_id} draft created. Pending approval.`,
+					'Approval-required draft stored.'
+				);
 
 				results.push({
 					...rec,
@@ -632,27 +821,38 @@ async function prepareApprovalRequiredOutputs(
 			} else if (rec.action_id === 'ACT-A2P-005') {
 				// Draft Callback Script
 				const customerName = params.customer_name || event?.authorName || 'Valued Customer';
-				const aiSummary = params.ai_summary || event?.enrichments?.[0]?.aiSummary || 'No summary available.';
 				const enrichment = event?.enrichments?.[0] || {};
-				
-				const isComplaint = enrichment.aiContainsProblem === true;
-				const isPraise = enrichment.aiPraiseDetected === true && !isComplaint;
-				
-				let scriptText = '';
-				if (isComplaint) {
-					scriptText = `[CALLBACK SCRIPT - SUPPORT]\n\n"Hi ${customerName}, this is [Your Name] from ${businessName}. I'm calling regarding your recent message about: ${aiSummary.substring(0, 100)}... I'm so sorry for the frustration. How can we make this right?"`;
-				} else if (isPraise) {
-					scriptText = `[CALLBACK SCRIPT - PRAISE]\n\n"Hi ${customerName}, this is [Your Name] from ${businessName}. I'm calling just to personally thank you for the wonderful review you left! We really appreciate the feedback about ${enrichment.aiPrimaryPraiseTopic || 'our service'}. Is there anything else we can do for you?"`;
-				} else {
-					scriptText = `[CALLBACK SCRIPT - REVENUE]\n\n"Hi ${customerName}, this is [Your Name] from ${businessName}. I'm calling regarding your interest in ${enrichment.aiServiceMentioned || 'our services'}. I'd love to discuss the quote and details you requested. When is a good time to talk?"`;
-				}
+				const aiSummary = params.ai_summary || enrichment.aiSummary || 'No summary available.';
+				const transcript = params.body_text || event?.reviewText || '';
+				const ivrPath = params.ivr_path || '';
+				const urgency = params.urgency_level || enrichment.aiUrgencyLevel || '';
+
+				const context = [
+					`Customer name: ${customerName}`,
+					urgency ? `Urgency level: ${urgency}` : '',
+					ivrPath ? `IVR path the caller navigated: ${ivrPath}` : '',
+					`AI summary: ${aiSummary}`,
+					transcript ? `Full call transcript:\n${transcript}` : ''
+				]
+					.filter(Boolean)
+					.join('\n');
+
+				const scriptText = await writeOrderTakerDraft({
+					mockMode,
+					businessName,
+					brandTone: bizConfig.brandTone || 'professional_friendly',
+					instruction:
+						'Write a natural, spoken callback script the business owner will say when calling this customer back. Address the customer by name and confirm the business is ready to help with what the customer asked about. Write the spoken words only — no stage directions, no labels like "[CALLBACK SCRIPT]".',
+					context,
+					mockText: `Hi ${customerName}, this is [Your Name] from ${businessName}. I'm calling back regarding your recent message. We have your details and will take care of it.`
+				});
 
 				const generatedOutput = {
 					draft_reply: scriptText,
 					script_text: scriptText,
 					action: 'draft_callback_script',
-					is_complaint: isComplaint,
-					is_praise: isPraise,
+					original_transcript: transcript,
+					urgency_level: urgency,
 					ready_for_approval: true
 				};
 
@@ -681,7 +881,11 @@ async function prepareApprovalRequiredOutputs(
 					data: { status: 'draft_ready_pending_approval', updatedAt: new Date() }
 				});
 
-				log.step('draft_created', `${rec.execution_id} Callback script drafted.`, 'Approval-required script stored.');
+				log.step(
+					'draft_created',
+					`${rec.execution_id} Callback script drafted.`,
+					'Approval-required script stored.'
+				);
 
 				results.push({
 					...rec,
@@ -690,24 +894,44 @@ async function prepareApprovalRequiredOutputs(
 					approval_package_id: approvalPkgId
 				});
 			} else if (rec.action_id === 'ACT-A2P-007') {
-				// SMS Followup Draft
+				// SMS Followup Draft — always use Claude for contextual replies
 				const customerName = params.customer_name || event?.authorName || 'Valued Customer';
 				const enrichment = event?.enrichments?.[0] || {};
-				
+				const aiSummary = enrichment.aiSummary || params.ai_summary || '';
+				const bodyText = params.body_text || event?.reviewText || event?.unstructuredText || '';
+
 				const isComplaint = enrichment.aiContainsProblem === true;
 				const isPraise = enrichment.aiPraiseDetected === true && !isComplaint;
 				const isQuote = enrichment.aiContainsQuoteRequest === true;
 
-				let smsText = '';
-				if (isPraise) {
-					smsText = `Hi ${customerName}, this is ${businessName}. Thank you so much for the kind words! We're thrilled you're happy with the work. Have a great day!`;
-				} else if (isQuote) {
-					smsText = `Hi ${customerName}, this is ${businessName}. We received your quote request and are putting the details together now. We'll call you shortly to discuss!`;
-				} else if (isComplaint) {
-					smsText = `Hi ${customerName}, this is ${businessName}. We are very sorry to hear about the issue you mentioned. Our manager is reviewing this now and will call you ASAP to resolve it.`;
-				} else {
-					smsText = `Hi ${customerName}, this is ${businessName}. We received your message and are looking into it right now. We'll follow up shortly!`;
-				}
+				const toneHint = isPraise
+					? 'The customer left positive feedback. Thank them warmly and specifically for what they praised.'
+					: isQuote
+						? 'The customer is requesting a quote. Acknowledge their request and confirm you are preparing the details.'
+						: isComplaint
+							? 'The customer has a complaint. Show empathy, acknowledge the issue without being defensive, and confirm someone will follow up.'
+							: 'Acknowledge what the customer said and confirm the business will follow up.';
+
+				const smsText = await writeOrderTakerDraft({
+					mockMode,
+					businessName,
+					brandTone: bizConfig.brandTone || 'professional_friendly',
+					instruction: `Write a short SMS reply (under 160 characters if possible) to this customer message on behalf of the business. ${toneHint}`,
+					context: [
+						`Customer name: ${customerName}`,
+						aiSummary ? `AI summary: ${aiSummary}` : '',
+						bodyText ? `Original message from customer:\n${bodyText}` : ''
+					]
+						.filter(Boolean)
+						.join('\n'),
+					mockText: isPraise
+						? `Hi ${customerName}, this is ${businessName}. Thank you so much for the kind words! We're thrilled you're happy with the work. Have a great day!`
+						: isQuote
+							? `Hi ${customerName}, this is ${businessName}. We got your quote request and are putting the details together now. We'll call you shortly to discuss!`
+							: isComplaint
+								? `Hi ${customerName}, this is ${businessName}. We are very sorry to hear about the issue you mentioned. Our manager is reviewing this now and will call you ASAP to resolve it.`
+								: `Hi ${customerName}, this is ${businessName}. We got your message and are looking into it right now. We'll follow up shortly!`
+				});
 
 				const generatedOutput = {
 					draft_reply: smsText,
@@ -742,7 +966,11 @@ async function prepareApprovalRequiredOutputs(
 					data: { status: 'draft_ready_pending_approval', updatedAt: new Date() }
 				});
 
-				log.step('draft_created', `${rec.execution_id} SMS follow-up drafted.`, 'Approval-required SMS stored.');
+				log.step(
+					'draft_created',
+					`${rec.execution_id} SMS follow-up drafted.`,
+					'Approval-required SMS stored.'
+				);
 
 				results.push({
 					...rec,
@@ -750,32 +978,55 @@ async function prepareApprovalRequiredOutputs(
 					generated_output: generatedOutput,
 					approval_package_id: approvalPkgId
 				});
-			} else if (event?.provider === 'google_workspace_email') {
-				// Email Reply Draft
+			} else if (rec.action_id === 'ACT-EMAIL-002') {
+				// ── Email Reply Draft (dedicated handler) ──────────────────────
+				// body_text is now resolved by resolveParameters — it carries the
+				// full original email body, not just the AI summary.
 				const customerName = params.customer_name || event?.authorName || 'Valued Customer';
 				const enrichment = event?.enrichments?.[0] || {};
+				const aiSummary = params.ai_summary || enrichment.aiSummary || 'No summary available.';
+				const emailBody = params.body_text || event?.reviewText || '';
+				const subject = params.subject || '';
+				const threadId = params.gmail_thread_id || null;
+				const messageId = params.gmail_message_id || null;
 
-				const isComplaint = enrichment.aiContainsProblem === true;
-				const isPraise = enrichment.aiPraiseDetected === true && !isComplaint;
-				const isQuote = enrichment.aiContainsQuoteRequest === true;
-				const aiSummary = params.ai_summary || enrichment.aiSummary || 'your recent message';
+				const context = [
+					`Customer name: ${customerName}`,
+					subject ? `Email subject: ${subject}` : '',
+					`AI summary: ${aiSummary}`,
+					emailBody ? `Original email from customer:\n${emailBody}` : ''
+				]
+					.filter(Boolean)
+					.join('\n');
 
-				let emailDraft = '';
-				if (isComplaint) {
-					emailDraft = `Subject: Re: Your Recent Experience with ${businessName}\n\nHi ${customerName},\n\nThank you for reaching out. I sincerely apologize for the issue you described regarding ${aiSummary}. We take every concern seriously and want to make this right.\n\nOur team is reviewing your message now, and someone will follow up with you shortly to resolve this.\n\nWarm regards,\n${businessName}`;
-				} else if (isQuote) {
-					emailDraft = `Subject: Re: Your Quote Request\n\nHi ${customerName},\n\nThank you for your interest in ${businessName}! We've received your request for ${enrichment.aiServiceMentioned || 'our services'} and are putting together the details now.\n\nWe'll have a full quote ready for you shortly and will follow up with a call or email.\n\nBest regards,\n${businessName}`;
-				} else if (isPraise) {
-					emailDraft = `Subject: Re: Thank You!\n\nHi ${customerName},\n\nThank you so much for your kind words — it truly means a lot to the whole team! We're thrilled that you had a great experience with ${enrichment.aiPrimaryPraiseTopic || businessName}.\n\nWe look forward to working with you again!\n\nWith gratitude,\n${businessName}`;
-				} else {
-					emailDraft = `Subject: Re: Your Message\n\nHi ${customerName},\n\nThank you for reaching out to ${businessName}. We've received your message and are looking into it right away.\n\nSomeone from our team will follow up with you shortly.\n\nBest regards,\n${businessName}`;
-				}
+				const emailDraft = await writeOrderTakerDraft({
+					mockMode,
+					businessName,
+					brandTone: bizConfig.brandTone || 'professional_friendly',
+					instruction:
+						'Write a reply to this customer email on behalf of the business. Acknowledge what the customer said and confirm the business is ready to help. If the customer said they will call or follow up themselves, acknowledge that instead of asking for anything. Start the reply with a plain "Subject: ..." line — no markdown, no asterisks, no bold — then a blank line, then the message. Sign off with the business name.',
+					context,
+					mockText: `Subject: Re: ${subject || 'Your Message'}\n\nHi ${customerName},\n\nThank you for reaching out to ${businessName}. We have your message and will follow up with you shortly.\n\nBest regards,\n${businessName}`
+				});
+
+				// The draft carries its own "Subject:" line. Separate it here so the
+				// stored reply is just the reply, and the subject is the one the model
+				// actually wrote rather than "Re: " glued onto whatever the param held.
+				const emailSplit = splitDraftSubject(emailDraft);
+				const emailBodyOnly = emailSplit.body || emailDraft;
+				const replySubject =
+					emailSplit.subject || (subject ? `Re: ${subject}` : 'Re: Your message');
 
 				const generatedOutput = {
-					draft_reply: emailDraft,
-					email_draft: emailDraft,
-					action: rec.action_id,
-					tone: isPraise ? 'praise' : isQuote ? 'quote' : isComplaint ? 'support' : 'neutral',
+					draft_reply: emailBodyOnly,
+					email_draft: emailBodyOnly,
+					action: 'ACT-EMAIL-002',
+					gmail_thread_id: threadId,
+					gmail_message_id: messageId,
+					to: event?.customerEmail || 'unknown',
+					subject: replySubject,
+					original_email_body: emailBody,
+					ai_summary_used: aiSummary,
 					ready_for_approval: true
 				};
 
@@ -804,7 +1055,86 @@ async function prepareApprovalRequiredOutputs(
 					data: { status: 'draft_ready_pending_approval', updatedAt: new Date() }
 				});
 
-				log.step('draft_created', `${rec.execution_id} Email reply drafted.`, 'Approval-required email draft stored.');
+				log.step(
+					'draft_created',
+					`${rec.execution_id} ACT-EMAIL-002 contextual email reply drafted.`,
+					'Approval-required email draft stored.'
+				);
+
+				results.push({
+					...rec,
+					execution_status: 'draft_created',
+					generated_output: generatedOutput,
+					approval_package_id: approvalPkgId
+				});
+			} else if (
+				event?.provider === 'google_workspace_email' ||
+				event?.provider === 'email_inbound'
+			) {
+				// Email Reply Draft
+				const customerName = params.customer_name || event?.authorName || 'Valued Customer';
+				const enrichment = event?.enrichments?.[0] || {};
+				const aiSummary = params.ai_summary || enrichment.aiSummary || 'No summary available.';
+				const emailBody = params.body_text || event?.reviewText || '';
+				const subject = params.subject || '';
+
+				const context = [
+					`Customer name: ${customerName}`,
+					subject ? `Email subject: ${subject}` : '',
+					`AI summary: ${aiSummary}`,
+					emailBody ? `Original email from customer:\n${emailBody}` : ''
+				]
+					.filter(Boolean)
+					.join('\n');
+
+				const emailDraft = await writeOrderTakerDraft({
+					mockMode,
+					businessName,
+					brandTone: bizConfig.brandTone || 'professional_friendly',
+					instruction:
+						'Write a reply to this customer email on behalf of the business. Acknowledge what the customer said and confirm the business is ready to help. If the customer said they will call or follow up themselves, acknowledge that instead of asking for anything. Start the reply with a plain "Subject: ..." line — no markdown, no asterisks, no bold — then a blank line, then the message. Sign off with the business name.',
+					context,
+					mockText: `Subject: Re: Your Message\n\nHi ${customerName},\n\nThank you for reaching out to ${businessName}. We have your message and will follow up with you shortly.\n\nBest regards,\n${businessName}`
+				});
+
+				const generatedOutput = {
+					draft_reply: emailDraft,
+					email_draft: emailDraft,
+					action: rec.action_id,
+					original_email_body: emailBody,
+					ready_for_approval: true
+				};
+
+				await prisma.pipelineExecution.update({
+					where: { id: rec.execution_row_id },
+					data: {
+						executionStatus: 'draft_created',
+						generatedOutput: JSON.stringify(generatedOutput),
+						requiresHumanApproval: true,
+						updatedAt: new Date()
+					}
+				});
+
+				const approvalPkgId = shortId('approval_pkg_email');
+				await prisma.pipelineApprovalPackage.create({
+					data: {
+						approvalPackageId: approvalPkgId,
+						executionId: rec.execution_row_id,
+						owner: rec.approval_owner || 'business_owner',
+						status: 'pending_approval'
+					}
+				});
+
+				await prisma.pipelineActionQueue.update({
+					where: { id: rec.action_queue_id },
+					data: { status: 'draft_ready_pending_approval', updatedAt: new Date() }
+				});
+
+				log.step(
+					'draft_created',
+					`${rec.execution_id} Email reply drafted.`,
+					'Approval-required email draft stored.'
+				);
 
 				results.push({
 					...rec,
@@ -824,8 +1154,7 @@ async function prepareApprovalRequiredOutputs(
 				// We record an internal work item for a human, NOT invented customer-facing copy:
 				// customer replies are owned by process_orchestrator, and fabricating message text
 				// here would put a second competing draft in the approval queue.
-				const actionName =
-					rulesSnapshot?.action_library?.[rec.action_id]?.name || rec.action_id;
+				const actionName = rulesSnapshot?.action_library?.[rec.action_id]?.name || rec.action_id;
 				const generatedOutput = {
 					action: 'internal_task',
 					action_id: rec.action_id,
@@ -875,7 +1204,11 @@ async function prepareApprovalRequiredOutputs(
 			}
 		} catch (err: any) {
 			const failureReason = err?.message || String(err);
-			log.step('error', `${rec.execution_id} draft generation failed: ${failureReason}`, 'Draft generation failed and recorded.');
+			log.step(
+				'error',
+				`${rec.execution_id} draft generation failed: ${failureReason}`,
+				'Draft generation failed and recorded.'
+			);
 			await prisma.pipelineExecution.update({
 				where: { id: rec.execution_row_id },
 				data: {
@@ -891,7 +1224,11 @@ async function prepareApprovalRequiredOutputs(
 	return results;
 }
 
-async function handleManualAssignments(manualRecords: ExecutionRecord[], queueMap: Map<string, any>, log: ExecutionLog) {
+async function handleManualAssignments(
+	manualRecords: ExecutionRecord[],
+	queueMap: Map<string, any>,
+	log: ExecutionLog
+) {
 	if (manualRecords.length === 0) {
 		log.step('manual_none', 'No manual lane records. Step 8 complete.', 'Manual lane empty.');
 		return [];
@@ -910,7 +1247,11 @@ async function handleManualAssignments(manualRecords: ExecutionRecord[], queueMa
 		});
 
 		results.push({ ...rec, execution_status: 'pending_manual_assignment' });
-		log.step('manual_assignment', `${rec.execution_id} requires manual action.`, 'Execution parked for human assignment.');
+		log.step(
+			'manual_assignment',
+			`${rec.execution_id} requires manual action.`,
+			'Execution parked for human assignment.'
+		);
 	}
 
 	return results;
@@ -919,9 +1260,13 @@ async function handleManualAssignments(manualRecords: ExecutionRecord[], queueMa
 function handleObserveOnly(observeRecords: ExecutionRecord[], log: ExecutionLog) {
 	if (observeRecords.length === 0) return [];
 	for (const rec of observeRecords) {
-		log.step('observe_only', `${rec.execution_id} routed to observe_only lane. No action taken.`, 'Observe-only lane recorded for audit.');
+		log.step(
+			'observe_only',
+			`${rec.execution_id} routed to observe_only lane. No action taken.`,
+			'Observe-only lane recorded for audit.'
+		);
 	}
-	return observeRecords.map(r => ({ ...r, execution_status: 'observe_only' }));
+	return observeRecords.map((r) => ({ ...r, execution_status: 'observe_only' }));
 }
 
 async function handleStates(allResults: ExecutionRecord[], rulesSnapshot: any, log: ExecutionLog) {
@@ -933,7 +1278,11 @@ async function handleStates(allResults: ExecutionRecord[], rulesSnapshot: any, l
 		const execId = rec.execution_id;
 
 		if (status === 'draft_created') {
-			log.step('waiting_for_approval', `${execId} waiting for human approval.`, 'Draft parked at approval gate.');
+			log.step(
+				'waiting_for_approval',
+				`${execId} waiting for human approval.`,
+				'Draft parked at approval gate.'
+			);
 			updated.push({ ...rec, execution_status: 'draft_created' });
 		} else if (status === 'automatic_internal_action_completed') {
 			log.step('completed', `${execId} completed successfully.`, 'Automatic execution complete.');
@@ -942,14 +1291,26 @@ async function handleStates(allResults: ExecutionRecord[], rulesSnapshot: any, l
 			const retryCount = rec.retry_count || 0;
 			if (retryCount < maxRetries) {
 				const newCount = retryCount + 1;
-				log.step('retry_pending', `${execId} retry ${newCount}/${maxRetries} scheduled.`, 'Retry scheduled.');
+				log.step(
+					'retry_pending',
+					`${execId} retry ${newCount}/${maxRetries} scheduled.`,
+					'Retry scheduled.'
+				);
 				updated.push({ ...rec, execution_status: 'retry_pending', retry_count: newCount });
 			} else {
-				log.step('error', `${execId} max retries reached. Failed permanently.`, 'Failure escalated.');
+				log.step(
+					'error',
+					`${execId} max retries reached. Failed permanently.`,
+					'Failure escalated.'
+				);
 				updated.push({ ...rec, execution_status: 'failed_permanently' });
 			}
 		} else if (status === 'pending_manual_assignment') {
-			log.step('pending_manual_assignment', `${execId} parked at manual assignment.`, 'Manual assignment pending.');
+			log.step(
+				'pending_manual_assignment',
+				`${execId} parked at manual assignment.`,
+				'Manual assignment pending.'
+			);
 			updated.push(rec);
 		} else {
 			log.step('warning', `${execId} unknown state: ${status}`, 'Unknown state.');
@@ -965,7 +1326,10 @@ async function updateStatuses(finalRecords: ExecutionRecord[], log: ExecutionLog
 		waiting_for_approval: ['draft_created', 'draft_ready_pending_approval'],
 		draft_created: ['draft_created', 'draft_ready_pending_approval'],
 		completed: ['automatic_internal_action_completed', 'execution_completed'],
-		automatic_internal_action_completed: ['automatic_internal_action_completed', 'execution_completed'],
+		automatic_internal_action_completed: [
+			'automatic_internal_action_completed',
+			'execution_completed'
+		],
 		retry_pending: ['retry_pending', 'retry_pending'],
 		failed_permanently: ['failed', 'failed'],
 		pending_manual_assignment: ['pending_manual_assignment', 'pending_manual'],
@@ -991,7 +1355,11 @@ async function updateStatuses(finalRecords: ExecutionRecord[], log: ExecutionLog
 			data: { status: queueStatus, updatedAt: new Date() }
 		});
 
-		log.step('status_updated', `${rec.execution_id} -> ${execStatus} | ${rec.action_queue_id} -> ${queueStatus}`, 'Statuses synced.');
+		log.step(
+			'status_updated',
+			`${rec.execution_id} -> ${execStatus} | ${rec.action_queue_id} -> ${queueStatus}`,
+			'Statuses synced.'
+		);
 	}
 }
 
@@ -1034,11 +1402,20 @@ function prepareExecutionOutput(
 		section_stop_reason: 'Section 5 stops before Outcome recording begins.'
 	};
 
-	log.step('exec_out_built', `exec_out package built: ${outputPackageId}. handoff_status = ready_for_outcome.`, 'Execution output prepared.');
+	log.step(
+		'exec_out_built',
+		`exec_out package built: ${outputPackageId}. handoff_status = ready_for_outcome.`,
+		'Execution output prepared.'
+	);
 	return output;
 }
 
-function stopBeforeOutcome(execOutPackage: any, finalRecords: ExecutionRecord[], blockedAuditOnly: any[], approvalPackageId: string | null) {
+function stopBeforeOutcome(
+	execOutPackage: any,
+	finalRecords: ExecutionRecord[],
+	blockedAuditOnly: any[],
+	approvalPackageId: string | null
+) {
 	return {
 		executed: true,
 		execution_records: finalRecords,
@@ -1051,9 +1428,18 @@ function stopBeforeOutcome(execOutPackage: any, finalRecords: ExecutionRecord[],
 	} as ExecutionResult;
 }
 
-export async function runExecution(decisionId: string, eventId: string, companyId: string | null, mockMode: boolean): Promise<ExecutionResult> {
+export async function runExecution(
+	decisionId: string,
+	eventId: string,
+	companyId: string | null,
+	mockMode: boolean
+): Promise<ExecutionResult> {
 	const log = new ExecutionLog(decisionId);
-	log.step('started', `Section 5 started. decision_id=${decisionId}`, 'Execution stage initialized.');
+	log.step(
+		'started',
+		`Section 5 started. decision_id=${decisionId}`,
+		'Execution stage initialized.'
+	);
 
 	try {
 		const intake = await receiveQueueOutput(decisionId, eventId, log);
@@ -1093,8 +1479,22 @@ export async function runExecution(decisionId: string, eventId: string, companyI
 
 		const createdRecords = await createExecutionRecords(eligible, decision, log);
 		const routing = routeByExecutionMode(createdRecords, log);
-		const autoResults = await executeAutomaticActions(routing.lanes.automatic, queueMap, rules, event, decision, log);
-		const approvalResults = await prepareApprovalRequiredOutputs(routing.lanes.approval_required, queueMap, rules, event, mockMode, log);
+		const autoResults = await executeAutomaticActions(
+			routing.lanes.automatic,
+			queueMap,
+			rules,
+			event,
+			decision,
+			log
+		);
+		const approvalResults = await prepareApprovalRequiredOutputs(
+			routing.lanes.approval_required,
+			queueMap,
+			rules,
+			event,
+			mockMode,
+			log
+		);
 		const manualResults = await handleManualAssignments(routing.lanes.manual, queueMap, log);
 		const observeResults = handleObserveOnly(routing.lanes.observe_only, log);
 
@@ -1103,7 +1503,7 @@ export async function runExecution(decisionId: string, eventId: string, companyI
 		await updateStatuses(finalRecords, log);
 
 		const approvalPkg = await prisma.pipelineApprovalPackage.findFirst({
-			where: { executionId: { in: finalRecords.map(r => r.execution_row_id) } },
+			where: { executionId: { in: finalRecords.map((r) => r.execution_row_id) } },
 			orderBy: { createdAt: 'desc' }
 		});
 
@@ -1119,11 +1519,20 @@ export async function runExecution(decisionId: string, eventId: string, companyI
 			routing.routingSummaryId
 		);
 
-		const finalResult = stopBeforeOutcome(execOut, finalRecords, blockedAuditOnly, approvalPkg?.approvalPackageId || null);
+		const finalResult = stopBeforeOutcome(
+			execOut,
+			finalRecords,
+			blockedAuditOnly,
+			approvalPkg?.approvalPackageId || null
+		);
 		finalResult.log = log;
 		return finalResult;
 	} catch (err: any) {
-		log.step('error', `Section 5 fatal error: ${err?.message || err}`, 'Section 5 stopped due to fatal error.');
+		log.step(
+			'error',
+			`Section 5 fatal error: ${err?.message || err}`,
+			'Section 5 stopped due to fatal error.'
+		);
 		return {
 			executed: false,
 			execution_records: [],

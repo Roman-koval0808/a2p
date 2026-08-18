@@ -1,8 +1,19 @@
 import { prisma } from '$lib/db';
-import { normalizePhoneNumber } from '$lib/utils/phone';
+import { toE164 } from '$lib/utils/phone';
 import { filterContacts } from './contacts-filter';
 
 export { filterContacts };
+
+/**
+ * Canonical email for use as an identity key (§4.4): lowercased and trimmed, every time.
+ *
+ * `Bert@X.com` and `bert@x.com` are one person. Matching on the raw string made them two contacts
+ * — Postgres `=` is case-sensitive — and that is the single most likely cause of a duplicate.
+ */
+function emailKey(email: string | null | undefined): string | null {
+	const cleaned = email?.trim().toLowerCase();
+	return cleaned || null;
+}
 
 interface ContactData {
 	company_id: string;
@@ -49,8 +60,11 @@ export async function createOrUpdateContact(data: ContactData) {
 	try {
 		let contact = null;
 
-		// Normalize phone number if provided
-		const normalizedPhone = data.phone ? normalizePhoneNumber(data.phone) : null;
+		// Identity keys — canonical forms, not display forms. `normalizePhoneNumber` only strips
+		// formatting, so "7052642251" and "+17052642251" stayed two different people; `toE164`
+		// resolves both to one key.
+		const normalizedPhone = data.phone ? toE164(data.phone) : null;
+		const normalizedEmail = emailKey(data.email);
 
 		// Priority 1: Match by phone number (normalized) - this is the most reliable identifier
 		if (normalizedPhone) {
@@ -65,11 +79,12 @@ export async function createOrUpdateContact(data: ContactData) {
 					}
 				});
 
-				// Find contact with matching normalized phone number
+				// Find contact with matching canonical phone number. Comparing canonical-to-canonical
+				// means rows stored under the old formatting still match.
 				for (const c of allContacts) {
 					if (c.phone) {
-						const existingNormalized = normalizePhoneNumber(c.phone);
-						if (existingNormalized === normalizedPhone) {
+						const existingNormalized = toE164(c.phone);
+						if (existingNormalized && existingNormalized === normalizedPhone) {
 							contact = c;
 							break;
 						}
@@ -80,12 +95,14 @@ export async function createOrUpdateContact(data: ContactData) {
 			}
 		}
 
-		// Priority 2: Match by email (if no phone match found)
-		if (!contact && data.email) {
+		// Priority 2: Match by email (if no phone match found).
+		// Case-insensitive, so a row written before normalisation ("Bert@X.com") still matches the
+		// canonical key and gets folded into the same contact instead of forking a new one.
+		if (!contact && normalizedEmail) {
 			try {
 				contact = await prisma.contact.findFirst({
 					where: {
-						email: data.email,
+						email: { equals: normalizedEmail, mode: 'insensitive' },
 						companyId: data.company_id
 					}
 				});
@@ -125,18 +142,15 @@ export async function createOrUpdateContact(data: ContactData) {
 				}
 			}
 
-			// Update email if provided and different
-			if (data.email && data.email !== contact.email) {
-				updates.email = data.email;
+			// Store the canonical email. This also rewrites a row that was saved before
+			// normalisation, so each contact is healed once rather than on every touch.
+			if (normalizedEmail && normalizedEmail !== contact.email) {
+				updates.email = normalizedEmail;
 			}
 
-			// Update phone if normalized version is different
-			if (normalizedPhone && contact.phone) {
-				const existingNormalized = normalizePhoneNumber(contact.phone);
-				if (existingNormalized !== normalizedPhone) {
-					// Keep the more complete format (with + if available)
-					updates.phone = normalizedPhone.startsWith('+') ? normalizedPhone : contact.phone;
-				}
+			// Same for the phone: store canonical E.164, healing legacy formatting in place.
+			if (normalizedPhone && toE164(contact.phone) !== normalizedPhone) {
+				updates.phone = normalizedPhone;
 			} else if (normalizedPhone && !contact.phone) {
 				updates.phone = normalizedPhone;
 			}
@@ -153,7 +167,7 @@ export async function createOrUpdateContact(data: ContactData) {
 			const contactData = {
 				companyId: data.company_id,
 				name: data.name || 'Anonymous',
-				email: data.email || null,
+				email: normalizedEmail,
 				phone: normalizedPhone || data.phone || null
 			};
 

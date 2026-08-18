@@ -29,7 +29,8 @@
 		Sparkles,
 		Globe,
 		Megaphone,
-		Share2
+		Share2,
+		ListTodo
 	} from 'lucide-svelte';
 	import { page } from '$app/state';
 	import { Button } from '$lib/components/ui/button/index';
@@ -47,8 +48,20 @@
 		},
 		{ title: 'Important Notifications', url: '/notifications', icon: Bell, href: '/notifications' },
 		{ title: 'Inbox', url: '/inbox', icon: Home, href: '/inbox' },
-		{ title: 'Profiles', url: '/profiles', icon: UserCircle, href: '/profiles' },
+		{ title: 'Tasks', url: '/tasks', icon: ListTodo, href: '/tasks' },
+		{
+			title: 'Profiles',
+			url: '/profiles',
+			icon: UserCircle,
+			href: '/profiles',
+			subItems: [
+				{ title: 'All Profiles', url: '/profiles', icon: UserCircle, href: '/profiles' },
+				{ title: 'Duplicates', url: '/profiles/merge', icon: UserCircle, href: '/profiles/merge' }
+			]
+		},
+		{ title: 'Representatives', url: '/representatives', icon: UserCheck, href: '/representatives' },
 		{ title: 'Dialer', url: '/dialer', icon: Phone, href: '/dialer' },
+		{ title: 'SMS Drafter', url: '/sms', icon: MessageCircle, href: '/sms' },
 		{ title: 'Orchestrator', url: '/orchestrator', icon: Activity, href: '/orchestrator' },
 		{
 			title: 'Buy Number',
@@ -95,8 +108,20 @@
 		},
 		{ title: 'Important Notifications', url: '/notifications', icon: Bell, href: '/notifications' },
 		{ title: 'Inbox', url: '/inbox', icon: Home, href: '/inbox' },
-		{ title: 'Profiles', url: '/profiles', icon: UserCircle, href: '/profiles' },
+		{ title: 'Tasks', url: '/tasks', icon: ListTodo, href: '/tasks' },
+		{
+			title: 'Profiles',
+			url: '/profiles',
+			icon: UserCircle,
+			href: '/profiles',
+			subItems: [
+				{ title: 'All Profiles', url: '/profiles', icon: UserCircle, href: '/profiles' },
+				{ title: 'Duplicates', url: '/profiles/merge', icon: UserCircle, href: '/profiles/merge' }
+			]
+		},
+		{ title: 'Representatives', url: '/representatives', icon: UserCheck, href: '/representatives' },
 		{ title: 'Dialer', url: '/dialer', icon: Phone, href: '/dialer' },
+		{ title: 'SMS Drafter', url: '/sms', icon: MessageCircle, href: '/sms' },
 		{ title: 'Orchestrator', url: '/orchestrator', icon: Activity, href: '/orchestrator' },
 		{
 			title: 'Buy Number',

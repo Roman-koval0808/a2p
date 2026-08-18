@@ -2,6 +2,8 @@ import { prisma } from '$lib/db';
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { getContactsByCompany } from '$lib/utils/contacts';
+import { tierForIdentifiers, type LineType } from '$lib/server/profiledb/tiers';
+import { toE164 } from '$lib/utils/phone';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const user = locals.user;
@@ -43,6 +45,26 @@ export const load: PageServerLoad = async ({ locals }) => {
 		} catch (e: any) {
 			console.error('[profiles] could not read latest classification:', e?.message || e);
 		}
+		// Line types for every phone on the page, in one read. A contact's tier depends on whether
+		// their number is a mobile (§4.3a), and this is a list — so we read what the cache already
+		// knows rather than calling Telnyx per row. A number that has never been classified is
+		// absent here, comes through as undefined, and lands on Tier 2. Never default upward.
+		const lineTypeByPhone = new Map<string, LineType>();
+		try {
+			const phones = Array.from(
+				new Set(contacts.map((c) => toE164(c.phone)).filter((p): p is string => !!p))
+			);
+			if (phones.length) {
+				const cached = await prisma.numberLookup.findMany({
+					where: { phoneNumber: { in: phones } },
+					select: { phoneNumber: true, lineType: true }
+				});
+				for (const row of cached) lineTypeByPhone.set(row.phoneNumber, row.lineType as LineType);
+			}
+		} catch (e: any) {
+			console.error('[profiles] could not read line types:', e?.message || e);
+		}
+
 		const localList = contacts.map((c) => {
 			const score = c.engagementScore ?? 0;
 			return {
@@ -57,8 +79,16 @@ export const load: PageServerLoad = async ({ locals }) => {
 				// measure of engagement. Deriving it from engagementScore combined the two dimensions
 				// the canonical tiers doc says must never be combined (§4.1 "Two Confidence Dimensions
 				// — Never Combined"), so a highly-engaged anonymous visitor was reported as Tier 1.
-				// Locked model: 1 = strong identifier · 2 = name only · 2B = real but no identifier.
-				tier: c.phone || c.email ? 'Tier 1' : c.name ? 'Tier 2' : 'Tier 2B',
+				// Locked model: 1 = exclusive identifier · 2 = name only, or a shared phone line ·
+				// 2B = real but no identifier. A phone alone is NOT a strong identifier: a landline
+				// or VoIP number identifies a handset a household or office shares, so it is Tier 2
+				// until the person gives a mobile or an email (§4.3a).
+				tier: tierForIdentifiers({
+					hasEmail: !!c.email,
+					hasPhone: !!c.phone,
+					lineType: lineTypeByPhone.get(toE164(c.phone)),
+					hasName: !!c.name
+				}),
 				scoreLive: score,
 				// NOT score >= 20 ? 'active' : 'research' — that threshold matches none of the
 				// canonical bands (research 9-34 / comparison 35-49 / active 50-74) and could never
@@ -98,6 +128,10 @@ export const actions: Actions = {
 		if (!profileId) return fail(400, { error: 'Profile ID is required' });
 
 		try {
+			// Our schedule rows are plans filed under this profile — they die with it.
+			await prisma.scheduledIntent.deleteMany({
+				where: { clientId: user.company.id, profileId }
+			});
 			await prisma.contact.deleteMany({
 				where: { id: profileId, companyId: user.company.id }
 			});

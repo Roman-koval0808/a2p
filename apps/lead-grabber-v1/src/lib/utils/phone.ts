@@ -24,6 +24,37 @@ export function normalizePhoneNumber(phone: string): string {
 }
 
 /**
+ * Canonical E.164 for use as an *identity key* — the value we hash, store on an identifier row, or
+ * look a person up by. Distinct from `normalizePhoneNumber`, which only strips formatting for
+ * dialing and so leaves "7052642251" and "+17052642251" as two different strings. Two spellings of
+ * one number hashing differently is a silently duplicated person, which is the whole point of §4.4.
+ *
+ * NANP-first: a bare 10-digit number is assumed +1, as is 11 digits led by a 1. Anything already
+ * carrying a "+" is kept as-is (digits only). Returns '' when there's nothing usable, and callers
+ * must treat '' as "no phone key" rather than as a key.
+ */
+export function toE164(phone: string | null | undefined): string {
+	if (!phone) return '';
+
+	const trimmed = phone.trim();
+	// An explicit country code is authoritative — never re-guess it.
+	if (trimmed.startsWith('+')) {
+		const digits = trimmed.slice(1).replace(/\D/g, '');
+		return digits ? '+' + digits : '';
+	}
+
+	const digits = trimmed.replace(/\D/g, '');
+	if (digits.length === 10) return '+1' + digits;
+	if (digits.length === 11 && digits.startsWith('1')) return '+' + digits;
+	// Too short to be a dialable number — an extension, a fragment, a bad parse. Refuse it rather
+	// than mint an identity key that can never match anything.
+	if (digits.length < 10) return '';
+	// Longer than NANP and no "+": assume it already carries its own country code. We don't guess
+	// a +1 here, because that would collide with a real North-American number.
+	return '+' + digits;
+}
+
+/**
  * Extract a North-American callback number a customer spoke/wrote in a message and return it as
  * E.164, e.g. "...give me a call, 705-264-2251" -> "+17052642251". Returns null if there's no
  * plausible 10/11-digit number. Used so a "call me back" reply dials the number they LEFT, which

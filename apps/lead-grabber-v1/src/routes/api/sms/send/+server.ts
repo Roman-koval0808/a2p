@@ -16,6 +16,7 @@ import { logCommunication } from '$lib/utils/communication-log';
 import { getFirstCompanyNumber } from '$lib/company-numbers';
 import { prisma } from '$lib/db';
 import { requireAuth, unauthorized } from '$lib/api/spec';
+import { createOrUpdateContact } from '$lib/utils/contacts';
 
 export const POST: RequestHandler = async ({ request, locals }) => {
 	const auth = requireAuth(locals);
@@ -39,6 +40,39 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		fromNumber = companyNumber?.phoneNumber ?? TELNYX_PHONE_NUMBER;
 	}
 	fromNumber = fromNumber ?? TELNYX_PHONE_NUMBER;
+
+	// Universal context check (outbound): a sent SMS joins the container that topic and people
+	// live in — even if the last exchange happened on EMAIL or VOICE. Only when the matcher is
+	// genuinely unsure do we fall back to the plain 48h phone-window reuse.
+	async function linkContext(companyId: string, phone: string, logId: string): Promise<void> {
+		try {
+			const { resolveAndLinkContext } = await import('$lib/server/container/thread-resolver');
+			const linked = await resolveAndLinkContext(logId);
+			if (linked.resolved) return;
+		} catch (e) {
+			console.error('[Telnyx SMS] Context thread lookup failed:', e);
+		}
+		try {
+			const recent = await prisma.communicationLog.findFirst({
+				where: {
+					companyId,
+					OR: [{ source: phone }, { destination: phone }],
+					communicationThreadId: { not: null },
+					created: { gte: new Date(Date.now() - 48 * 3600 * 1000) }
+				},
+				select: { communicationThreadId: true },
+				orderBy: { created: 'desc' }
+			});
+			if (recent?.communicationThreadId) {
+				await prisma.communicationLog.update({
+					where: { id: logId },
+					data: { communicationThreadId: recent.communicationThreadId }
+				});
+			}
+		} catch (e) {
+			console.error('[Telnyx SMS] Failed to find recent thread:', e);
+		}
+	}
 
 	const results: { recipient: string; messageId?: string; status: string; error?: string }[] = [];
 	for (const to of recipients) {
@@ -69,6 +103,18 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			const result = await response.json();
 			if (response.ok && result.data?.id) {
 				console.log('[Telnyx SMS] API Success:', JSON.stringify(result, null, 2));
+				// Resolve/create the recipient contact so the comms log row links to the customer
+				// (same as the inbound webhook path) instead of appearing as a bare number.
+				let customerId: string | null = null;
+				try {
+					const contact = await createOrUpdateContact({
+						company_id: auth.companyId,
+						phone: formatted
+					});
+					customerId = contact?.id ?? null;
+				} catch (contactErr) {
+					console.error('[Telnyx SMS] Failed to resolve contact:', contactErr);
+				}
 				await logCommunication({
 					type: 'sms',
 					direction: 'outbound',
@@ -76,9 +122,19 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 					source: fromNumber,
 					destination: formatted,
 					company_id: auth.companyId,
+					user_id: auth.id,
+					customer_id: customerId ?? undefined,
 					summary: message.slice(0, 50) + (message.length > 50 ? '...' : ''),
 					content: message,
-					metadata: { telnyx_id: result.data.id }
+					metadata: { telnyx_id: result.data.id, thread_id: formatted }
+				}).then((outboundLog) => {
+					// Route the sent SMS through the universal context checker (and the 48h
+					// phone-window backstop) so it shares the conversation's COM id.
+					if (outboundLog?.id) {
+						Promise.resolve()
+							.then(() => linkContext(auth.companyId, formatted, outboundLog.id))
+							.catch((e) => console.error('[Telnyx SMS] Context link failed:', e));
+					}
 				});
 				results.push({ recipient: formatted, messageId: result.data.id, status: 'sent' });
 			} else {

@@ -25,12 +25,17 @@
 		/** When true (pending approval), the draft's subject/body can be edited before sending. */
 		editable?: boolean;
 		onSaveDraft?: (content: string, subject: string) => void | Promise<void>;
+		attachments?: Array<{ name: string; url: string; mime: string }>;
 		/** Tasks belong to the inbound customer message — hide them on outbound replies. */
 		showTasks?: boolean;
+		/** The inbound message's AI resolution (tasks/action items) hasn't landed yet. */
+		loading?: boolean;
 		requestedEmailContact?: boolean;
 		targetEmail?: string;
 		emailConfirmed?: boolean;
 		onConfirmEmail?: () => void | Promise<void>;
+		emailOpenedAt?: string | null;
+		emailClickedAt?: string | null;
 	}
 
 	let {
@@ -51,13 +56,17 @@
 		draftedMessage = null,
 		department = null,
 		ivrPath = null,
+		attachments = [],
 		editable = false,
 		onSaveDraft,
 		showTasks = true,
+		loading = false,
 		requestedEmailContact = false,
 		targetEmail = '',
 		emailConfirmed = false,
-		onConfirmEmail
+		onConfirmEmail,
+		emailOpenedAt = null,
+		emailClickedAt = null
 	}: Props = $props();
 
 	let confirmingEmail = $state(false);
@@ -127,7 +136,11 @@
 				<!-- Right side: Comm ID, Category, Sub-Category -->
 				<div class="flex flex-col items-end gap-1">
 					<span class="font-sans text-base font-medium leading-[1.29] text-[rgba(86,86,86,0.78)]">
-						Comm ID - {commId ? (commId.startsWith('DROP-') ? commId : 'COM-' + commId.slice(-5).toUpperCase()) : '—'}
+						Comm ID - {commId
+							? commId.startsWith('DROP-')
+								? commId
+								: 'COM-' + commId.slice(-5).toUpperCase()
+							: 'Pending'}
 					</span>
 					<span class="font-sans text-base font-medium leading-[1.29] text-[rgba(86,86,86,0.88)]">
 						Category: {category}
@@ -142,6 +155,20 @@
 							class="text-right font-sans text-base font-medium leading-[1.29] text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded mt-1"
 						>
 							Department: {department}
+						</span>
+					{/if}
+					{#if emailOpenedAt}
+						<span
+							class="text-right font-sans text-xs font-medium leading-tight text-green-700"
+						>
+							Opened: {new Date(emailOpenedAt).toLocaleString()}
+						</span>
+					{/if}
+					{#if emailClickedAt}
+						<span
+							class="text-right font-sans text-xs font-medium leading-tight text-blue-700"
+						>
+							Clicked: {new Date(emailClickedAt).toLocaleString()}
 						</span>
 					{/if}
 				</div>
@@ -196,6 +223,30 @@
 								<audio controls class="h-9 w-full max-w-sm" src={recordingUrl} preload="metadata">
 									Your browser does not support the audio element.
 								</audio>
+							</div>
+						{/if}
+						{#if attachments.length > 0}
+							<div class="flex flex-col gap-1">
+								<span
+									class="flex-shrink-0 whitespace-nowrap font-sans text-[15px] font-normal leading-[141%] text-[rgba(86,86,86,0.78)]"
+								>
+									Attachments:
+								</span>
+								<div class="flex flex-wrap gap-2">
+									{#each attachments as att}
+										<a
+											href={att.url}
+											target="_blank"
+											rel="noopener noreferrer"
+											class="inline-flex items-center gap-1.5 rounded border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+										>
+											{#if att.mime.startsWith('image/')}
+												<img src={att.url} alt={att.name} class="h-8 w-8 rounded object-cover" />
+											{/if}
+											<span class="truncate max-w-[180px]">{att.name}</span>
+										</a>
+									{/each}
+								</div>
 							</div>
 						{/if}
 						<div class="flex items-start gap-4">
@@ -256,7 +307,19 @@
 					<div class="my-1 h-px w-full bg-[#979797]"></div>
 
 					<!-- Tasks to Complete — only for the inbound customer message, and only real tasks -->
-					{#if showTasks && tasks && tasks.length}
+					{#if showTasks && loading}
+						<div class="flex flex-col gap-2">
+							<span class="font-sans text-[15px] font-semibold leading-[141%] text-[#797979]">
+								Tasks to complete
+							</span>
+							<div class="flex items-center gap-2 font-sans text-xs leading-[141%] text-[#7B7B7B]">
+								<span
+									class="inline-block h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-[#B5C2DA] border-t-[#577AB7]"
+								></span>
+								Analyzing message…
+							</div>
+						</div>
+					{:else if showTasks && tasks && tasks.length}
 						<div class="flex flex-col gap-2">
 							<span class="font-sans text-[15px] font-semibold leading-[141%] text-[#797979]">
 								Tasks to complete

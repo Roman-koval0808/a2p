@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button/index';
 	import { Switch } from '$lib/components/ui/switch/index';
-	import { Edit, Clock } from 'lucide-svelte';
+	import { Edit } from 'lucide-svelte';
 	import { toast } from 'svelte-sonner';
 	import { enhance } from '$app/forms';
+	import TimePicker from '$lib/components/TimePicker.svelte';
+	import { parseRange12, formatRange12 } from '$lib/utils/time';
 
 	let { data } = $props();
 
@@ -38,40 +40,8 @@
 		}
 	}
 
-	// Helper function to parse hours string and extract time components
-	function parseHours(hours: string | null) {
-		if (!hours) {
-			return {
-				startHour: 8,
-				startMinute: 0,
-				startPeriod: 'AM',
-				endHour: 6,
-				endMinute: 0,
-				endPeriod: 'PM'
-			};
-		}
-		const match = hours.match(/(\d+):(\d+)\s+(AM|PM)\s+-\s+(\d+):(\d+)\s+(AM|PM)/);
-		if (match) {
-			return {
-				startHour: parseInt(match[1]),
-				startMinute: parseInt(match[2]),
-				startPeriod: match[3],
-				endHour: parseInt(match[4]),
-				endMinute: parseInt(match[5]),
-				endPeriod: match[6]
-			};
-		}
-		return {
-			startHour: 8,
-			startMinute: 0,
-			startPeriod: 'AM',
-			endHour: 6,
-			endMinute: 0,
-			endPeriod: 'PM'
-		};
-	}
-
-	// Initialize business hours from saved data
+	// Initialize business hours from saved data, storing each day's range as two 24h "HH:MM"
+	// values ('' = closed / not set) that the TimePicker binds to.
 	const savedBusinessHours = data?.autoReply?.businessHours || {};
 	const defaultBusinessHours = {
 		sunday: { isOpen: false, hours: null },
@@ -86,21 +56,15 @@
 	let businessHours = $state(
 		Object.entries({ ...defaultBusinessHours, ...savedBusinessHours }).reduce(
 			(acc, [day, settings]: [string, any]) => {
-				const parsed = parseHours(settings.hours);
+				const range = parseRange12(settings.hours);
 				acc[day] = {
 					isOpen: settings.isOpen ?? false,
-					hours: settings.hours ?? null,
-					showTimePicker: false,
-					startHour: parsed.startHour,
-					startMinute: parsed.startMinute,
-					startPeriod: parsed.startPeriod,
-					endHour: parsed.endHour,
-					endMinute: parsed.endMinute,
-					endPeriod: parsed.endPeriod
+					start: range?.start ?? '',
+					end: range?.end ?? ''
 				};
 				return acc;
 			},
-			{} as Record<string, any>
+			{} as Record<string, { isOpen: boolean; start: string; end: string }>
 		)
 	);
 </script>
@@ -128,114 +92,26 @@
 			<div>
 				<h2 class="mb-4 text-xl font-semibold text-primary">Set your business hours</h2>
 				<div class="space-y-4">
-					{#each Object.entries(businessHours) as [day, settings]}
-						<div class="flex items-center gap-4">
-							<span class="w-24 capitalize">{day}:</span>
-							<Button
-								variant="outline"
-								class={`w-24 ${settings.isOpen ? 'text-primary' : ''}`}
-								onclick={() => (settings.isOpen = !settings.isOpen)}
-								disabled={!textAutoReply}
-							>
-								{settings.isOpen ? 'Open' : 'Closed'}
-							</Button>
-							{#if settings.isOpen}
-								<div class="relative flex items-center gap-2">
-									{#if settings.hours}
-										<span class="text-sm text-gray-600">{settings.hours}</span>
-									{/if}
-									<Button
-										variant="ghost"
-										class="p-1 hover:bg-transparent"
-										onclick={() => (settings.showTimePicker = !settings.showTimePicker)}
-										disabled={!textAutoReply}
-									>
-										<Clock class="h-4 w-4" />
-									</Button>
-
-									{#if settings.showTimePicker}
-										<div
-											class="absolute top-full z-10 mt-2 min-w-[300px] rounded-lg border bg-white p-4 shadow-lg"
-										>
-											<div class="flex gap-4">
-												<!-- Start Time -->
-												<div class="flex-1">
-													<div class="mb-2 block text-sm font-medium">Start Time</div>
-													<div class="flex items-center gap-1">
-														<select
-															class="rounded border p-1 text-sm"
-															bind:value={settings.startHour}
-														>
-															{#each Array.from({ length: 12 }, (_, i) => i + 1) as hour}
-																<option value={hour}>{hour}</option>
-															{/each}
-														</select>
-														<span>:</span>
-														<select
-															class="w-16 rounded border p-1 text-sm"
-															bind:value={settings.startMinute}
-														>
-															{#each Array.from({ length: 4 }, (_, i) => i * 15) as minute}
-																<option value={minute}>{String(minute).padStart(2, '0')}</option>
-															{/each}
-														</select>
-														<select
-															class="ml-1 rounded border p-1 text-sm"
-															bind:value={settings.startPeriod}
-														>
-															<option value="AM">AM</option>
-															<option value="PM">PM</option>
-														</select>
-													</div>
-												</div>
-
-												<!-- End Time -->
-												<div class="flex-1">
-													<div class="mb-2 block text-sm font-medium">End Time</div>
-													<div class="flex items-center gap-1">
-														<select
-															class="rounded border p-1 text-sm"
-															bind:value={settings.endHour}
-														>
-															{#each Array.from({ length: 12 }, (_, i) => i + 1) as hour}
-																<option value={hour}>{hour}</option>
-															{/each}
-														</select>
-														<span>:</span>
-														<select
-															class="w-16 rounded border p-1 text-sm"
-															bind:value={settings.endMinute}
-														>
-															{#each Array.from({ length: 4 }, (_, i) => i * 15) as minute}
-																<option value={minute}>{String(minute).padStart(2, '0')}</option>
-															{/each}
-														</select>
-														<select
-															class="ml-1 rounded border p-1 text-sm"
-															bind:value={settings.endPeriod}
-														>
-															<option value="AM">AM</option>
-															<option value="PM">PM</option>
-														</select>
-													</div>
-												</div>
-											</div>
-
-											<Button
-												class="mt-4 w-full"
-												onclick={() => {
-													settings.hours = `${settings.startHour}:${String(settings.startMinute).padStart(2, '0')} ${settings.startPeriod} - ${settings.endHour}:${String(settings.endMinute).padStart(2, '0')} ${settings.endPeriod}`;
-													settings.showTimePicker = false;
-												}}
-											>
-												Apply
-											</Button>
-										</div>
-									{/if}
-								</div>
-							{/if}
-						</div>
-					{/each}
+				{#each Object.entries(businessHours) as [day, settings]}
+					<div class="flex items-center gap-4">
+						<span class="w-24 capitalize">{day}:</span>
+						<Button
+							variant="outline"
+							class={`w-24 ${settings.isOpen ? 'text-primary' : ''}`}
+							onclick={() => (settings.isOpen = !settings.isOpen)}
+							disabled={!textAutoReply}
+						>
+							{settings.isOpen ? 'Open' : 'Closed'}
+						</Button>
+						{#if settings.isOpen}
+							<div class="flex items-center gap-2">
+								<TimePicker bind:value={settings.start} disabled={!textAutoReply} />
+								<span class="text-gray-500">–</span>
+								<TimePicker bind:value={settings.end} disabled={!textAutoReply} />
+							</div>
+						{/if}
+					</div>
+				{/each}
 				</div>
 			</div>
 
@@ -261,16 +137,16 @@
 						afterHoursMessage,
 						leadformBusinessHoursMessage,
 						leadformAfterHoursMessage,
-						businessHours: Object.entries(businessHours).reduce(
-							(acc, [day, settings]: [string, any]) => {
-								acc[day] = {
-									isOpen: settings.isOpen,
-									hours: settings.hours
-								};
-								return acc;
-							},
-							{} as Record<string, { isOpen: boolean; hours: string | null }>
-						)
+					businessHours: Object.entries(businessHours).reduce(
+						(acc, [day, settings]: [string, any]) => {
+							acc[day] = {
+								isOpen: settings.isOpen,
+								hours: settings.start && settings.end ? formatRange12(settings.start, settings.end) : null
+							};
+							return acc;
+						},
+						{} as Record<string, { isOpen: boolean; hours: string | null }>
+					)
 					})}
 				/>
 

@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { enhance } from '$app/forms';
+	import TimePicker from '$lib/components/TimePicker.svelte';
+	import { invalidScheduleDays } from '$lib/utils/time';
 
 	const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -22,6 +24,10 @@
 		Sunday: { start: '', end: '' }
 	});
 
+	// A day is invalid when it is not a proper shift: malformed time, one bound missing, or an end
+	// that is not after the start. Days fully empty (a day off) are valid.
+	const invalidDays = $derived(invalidScheduleDays(schedule));
+
 	function handleCancel() {
 		goto('/representatives');
 	}
@@ -35,7 +41,14 @@
 	}
 </script>
 
-<form method="POST" action="?/addRepresentative" use:enhance class="min-h-screen bg-[#ECEEF3] p-6">
+<form
+	method="POST"
+	action="?/addRepresentative"
+	use:enhance={({ cancel }) => {
+		if (invalidDays.length > 0) cancel();
+	}}
+	class="min-h-screen bg-[#ECEEF3] p-6"
+>
 	<!-- Hidden input to send JSON schedule string -->
 	<input type="hidden" name="schedule" value={JSON.stringify(schedule)} />
 
@@ -52,7 +65,8 @@
 			</button>
 			<button
 				type="submit"
-				class="h-[41px] rounded-[5px] bg-[#4B77BE] px-4 font-['Poppins'] text-base font-normal leading-[21px] text-white transition-colors hover:bg-[#4B77BE]/90"
+				disabled={invalidDays.length > 0}
+				class="h-[41px] rounded-[5px] bg-[#4B77BE] px-4 font-['Poppins'] text-base font-normal leading-[21px] text-white transition-colors hover:bg-[#4B77BE]/90 disabled:cursor-not-allowed disabled:opacity-50"
 			>
 				Save and Add
 			</button>
@@ -148,20 +162,18 @@
 					{#each days as day}
 						<div class="flex items-center">
 							<span class="w-24 font-['Poppins'] text-[14px] text-[#808080]">{day}</span>
-							<div class="flex gap-4">
-								<input
-									type="time"
-									bind:value={schedule[day].start}
-									class="h-[26px] w-[120.24px] rounded-[3px] border-none bg-[#E0E8F5] px-2 font-['Poppins'] text-sm"
-								/>
-								<input
-									type="time"
-									bind:value={schedule[day].end}
-									class="h-[26px] w-[120.24px] rounded-[3px] border-none bg-[#E0E8F5] px-2 font-['Poppins'] text-sm"
-								/>
+							<div class="flex items-center gap-2">
+								<TimePicker bind:value={schedule[day].start} invalid={invalidDays.includes(day)} />
+								<span class="text-[#9E9E9E]">–</span>
+								<TimePicker bind:value={schedule[day].end} invalid={invalidDays.includes(day)} />
 							</div>
 						</div>
 					{/each}
+					{#if invalidDays.length}
+						<p class="text-xs text-red-500">
+							End time must be after start time on {invalidDays.join(', ')}.
+						</p>
+					{/if}
 				</div>
 			</div>
 

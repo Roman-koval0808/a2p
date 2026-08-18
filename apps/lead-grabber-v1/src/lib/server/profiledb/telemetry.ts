@@ -3,6 +3,8 @@ import { randomUUID } from 'crypto';
 import { request as httpRequest } from 'http';
 import { request as httpsRequest } from 'https';
 import { resolveCustomerProfile, sha256, normalizeEmail, normalizePhone } from './identity.service';
+import { tierForIdentifiers, groupForIdentifiers, type LineType } from './tiers';
+import { getLineType } from '$lib/server/number-lookup';
 import { emergencyAdvice } from '$lib/server/emergency-templates';
 import { resolveBrand } from '$lib/server/brand';
 import {
@@ -254,6 +256,15 @@ export async function ingestTelemetryEvent(params: {
     let resolvedGroup = reqBody.group;
     let resolvedTier = reqBody.tier;
     let attributionConfidence = 0.00;
+    // Telnyx line type for `phone`, once we've looked it up. Undefined means unclassified, which
+    // `tierForIdentifiers` treats as a shared line — Tier 2.
+    let resolvedLineType: LineType | undefined;
+    // An inbound SMS came off a handset, so the sender's number is a mobile and no lookup is
+    // needed (§4.3a, "What this does not change"). Outbound SMS says nothing about the recipient.
+    const isInboundSms =
+      typeof eventType === 'string' &&
+      /sms|message/i.test(eventType) &&
+      /received|inbound/i.test(eventType);
 
     // Q2 Check 1: cs_token JWT — highest confidence, Group 1
     let tokenPayload: any = null;
@@ -272,10 +283,26 @@ export async function ingestTelemetryEvent(params: {
     // Q2 Check 2: Phone or email hash — verified identity, Group 2/3
     if (!tokenPayload) {
       if (email || phone) {
-        resolvedTier = 'Tier 1';
-        resolvedGroup = email ? 2 : 3;
-        attributionConfidence = 0.99;
-        stageLog('Q2', `Check 2 MATCH — ${email ? 'email' : 'phone'} hash present → Group ${resolvedGroup} / Tier 1 / confidence=0.99`);
+        // §4.3a: an email is exclusive to one person, a phone only if it's a mobile. Inbound SMS
+        // is a mobile by definition and needs no lookup. Anything else — landline, VoIP,
+        // toll-free, or a lookup we couldn't complete — identifies a shared line, so Tier 2.
+        if (phone && !email && !isInboundSms) {
+          resolvedLineType = await getLineType(phone);
+        }
+        const tierInput = {
+          hasEmail: !!email,
+          hasPhone: !!phone,
+          lineType: resolvedLineType,
+          inboundSms: isInboundSms
+        };
+        resolvedTier = tierForIdentifiers(tierInput);
+        resolvedGroup = groupForIdentifiers(tierInput);
+        attributionConfidence = resolvedTier === 'Tier 1' ? 0.99 : 0.5;
+        stageLog(
+          'Q2',
+          `Check 2 MATCH — ${email ? 'email' : `phone (line=${resolvedLineType ?? 'n/a'})`} present → ` +
+            `Group ${resolvedGroup} / ${resolvedTier} / confidence=${attributionConfidence}`
+        );
       } else if (name) {
         resolvedTier = 'Tier 2';
         resolvedGroup = 4;
@@ -299,6 +326,8 @@ export async function ingestTelemetryEvent(params: {
       name,
       group: resolvedGroup,
       tier: resolvedTier,
+      lineType: resolvedLineType,
+      inboundSms: isInboundSms,
     });
 
     stageLog('CL1', `Profile resolved — id=${profile.id} prior_bucket=${profile.intentBucket} prior_score=${profile.scoreRaw}`);

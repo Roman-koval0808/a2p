@@ -1,6 +1,7 @@
 import { prisma } from '$lib/db';
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
+import { buildRoutingPreview } from '$lib/server/routing-preview';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const user = locals.user;
@@ -58,17 +59,26 @@ export const load: PageServerLoad = async ({ locals }) => {
 				}
 			: null;
 
+		let routingPreview = null;
+		try {
+			routingPreview = await buildRoutingPreview(user.company.id);
+		} catch (error) {
+			console.error('Error building routing preview:', error);
+		}
+
 		return {
 			user,
 			leadbox,
-			companyLogo: company?.logo || null
+			companyLogo: company?.logo || null,
+			routingPreview
 		};
 	} catch (error) {
 		console.error('Error loading leadbox:', error);
 		return {
 			user,
 			leadbox: null,
-			companyLogo: null
+			companyLogo: null,
+			routingPreview: null
 		};
 	}
 };

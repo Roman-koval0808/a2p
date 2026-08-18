@@ -1,6 +1,6 @@
 import { prisma } from '$lib/db';
-import { redirect } from '@sveltejs/kit';
-import type { PageServerLoad } from './$types';
+import { fail, redirect } from '@sveltejs/kit';
+import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user || !locals.user.company) {
@@ -103,5 +103,49 @@ export const load: PageServerLoad = async ({ locals }) => {
 	} catch (err) {
 		console.error('Error fetching representatives:', err);
 		return { representatives: [], pendingInvites: [] };
+	}
+};
+
+export const actions: Actions = {
+	/**
+	 * Remove a representative.
+	 *
+	 * The member row is set `inactive`, not deleted. A rep's user id is referenced by comm logs,
+	 * assigned messages and tasks, so deleting the row would either fail on a foreign key or strip
+	 * the author off historical records — the same reasoning the identity rules apply to contacts.
+	 * `inactive` drops them out of this page and out of the callback rota, which is what "delete"
+	 * means to the person clicking it.
+	 *
+	 * Pending invites predate the direct-add change and are still deleted outright: nothing points
+	 * at them and an unaccepted invite has no history worth keeping.
+	 */
+	deleteRepresentative: async ({ request, locals }) => {
+		if (!locals.user?.company) return fail(401, { error: 'Unauthorized' });
+
+		const data = await request.formData();
+		const id = data.get('id')?.toString();
+		const isPending = data.get('isPending')?.toString() === 'true';
+		if (!id) return fail(400, { error: 'Missing representative id' });
+
+		const companyId = locals.user.company.id;
+
+		try {
+			if (isPending) {
+				// Scoped to the company so an id from another tenant cannot be cancelled.
+				const removed = await prisma.invite.deleteMany({ where: { id, companyId } });
+				if (removed.count === 0) return fail(404, { error: 'Invite not found' });
+				return { success: true };
+			}
+
+			const removed = await prisma.companyMember.updateMany({
+				where: { id, companyId, role: 'member' },
+				data: { status: 'inactive' }
+			});
+			if (removed.count === 0) return fail(404, { error: 'Representative not found' });
+			return { success: true };
+		} catch (err: any) {
+			console.error('Failed to remove representative:', err);
+			return fail(500, { error: err.message || 'Failed to remove representative' });
+		}
 	}
 };

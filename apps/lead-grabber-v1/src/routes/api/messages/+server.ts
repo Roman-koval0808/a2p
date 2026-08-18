@@ -118,8 +118,10 @@ export const POST: RequestHandler = async ({ request }) => {
 					})
 				: null;
 
-		// Initial communication log without AI summary
-		await logCommunication({
+		// Initial communication log without AI summary. The id is kept: the callback dispatcher
+		// uses it as the work order's commId, which is what the Telnyx webhook keys the bridge
+		// RECORDING off — without it the recording of the callback attaches to nothing.
+		const inboundLog = await logCommunication({
 			type: source === 'leadform' ? 'leadform' : 'leadbox',
 			direction: 'inbound',
 			status: 'success',
@@ -139,9 +141,14 @@ export const POST: RequestHandler = async ({ request }) => {
 			try {
 				let aiData: any = {};
 				let logSummary = logSummaryFallback;
+				// Hoisted: the pipeline result is read again below (actionItems) once aiData is set.
+				// It was const-declared inside the leadbox/leadform branch, so every leadbox/leadform
+				// submission that produced an aiData threw `pipelineResult is not defined` here and
+				// lost its AI summary / urgency / actionItems.
+				let pipelineResult: any = null;
 
 				if (source === 'leadform' || source === 'leadbox') {
-					const pipelineResult = await UnifiedPipeline.process({
+					pipelineResult = await UnifiedPipeline.process({
 						provider: 'clearsky_pixel',
 						eventType: source === 'leadform' ? 'leadform_submit' : 'leadbox_submit',
 						externalId: crypto.randomUUID(),
@@ -201,7 +208,9 @@ export const POST: RequestHandler = async ({ request }) => {
 								metadata: {
 									...((latestLog.metadata as object) || {}),
 									urgency: aiData.urgency,
-									sentiment: aiData.sentiment
+									sentiment: aiData.sentiment,
+									orchestrator_processed: true,
+									actionItems: pipelineResult?.ai_protocol?.raw_response?.topics || undefined
 								}
 							}
 						});
@@ -209,6 +218,62 @@ export const POST: RequestHandler = async ({ request }) => {
 				}
 			} catch (err) {
 				console.error('[Background Pipeline Error]', err);
+			}
+
+			// Leadbox "Request a Call". A no-op for every other submission, so it is safe to run on
+			// all of them. Stays inside the background block and is never awaited by the response:
+			// the widget's SEND button must not sit waiting on a Telnyx dial.
+			try {
+				const { dispatchCallbackRequest } = await import('$lib/server/callback-dispatch');
+				const cb = await dispatchCallbackRequest({
+					companyId,
+					customerName: customerName !== 'Anonymous' ? customerName : null,
+					customerPhone,
+					message: messageContent,
+					contactId: contact?.id ?? null,
+					threadId,
+					commLogId: inboundLog?.id ?? null
+				});
+				if (cb.handled) {
+					// Everything you need to diagnose a run in one line: what was asked, what we
+					// decided, who would take it, and whether the customer actually got a reply.
+					console.log(
+						`[Callback] ${cb.preference} → ${cb.decision} (${cb.reason})` +
+							(cb.scheduledFor ? ` for ${cb.scheduledFor}` : '') +
+							` | rota: ${cb.rota?.length ? cb.rota.map((r) => r.name).join(' → ') : 'NOBODY ON DUTY'}` +
+							(cb.decision === 'bridge_now' ? ` | bridge: ${cb.bridgeStarted ? 'started' : 'NOT started'}` : '') +
+							(cb.reason === 'asap_after_hours' ? ` | ack sms: ${cb.ackSent ? 'sent' : 'not sent'}` : '')
+					);
+				} else {
+					// Not a callback — a plain "Text Us" message. Route it by the clock: to the
+					// on-duty rep during business hours, or an office-closed reply + a rep task after.
+					try {
+						const { dispatchTextMessageRequest } = await import(
+							'$lib/server/text-message-dispatch'
+						);
+						const tx = await dispatchTextMessageRequest({
+							companyId,
+							customerName: customerName !== 'Anonymous' ? customerName : null,
+							customerPhone,
+							message: messageContent,
+							contactId: contact?.id ?? null,
+							communicationThreadId: inboundLog?.communicationThreadId ?? null,
+							messageId: message.id
+						});
+						if (tx.handled) {
+							console.log(
+								`[TextMessage] ${tx.routed === 'rep' ? 'business hours → routed to rep' : 'after hours → office-closed reply + rep task'}` +
+									` (${tx.reason})` +
+									` | rota: ${tx.rota?.length ? tx.rota.map((r) => r.name).join(' → ') : 'NOBODY ON DUTY'}` +
+									(tx.routed === 'after_hours' ? ` | ack sms: ${tx.ackSent ? 'sent' : 'not sent'}` : '')
+							);
+						}
+					} catch (err) {
+						console.error('[TextMessage Dispatch Error]', err);
+					}
+				}
+			} catch (err) {
+				console.error('[Callback Dispatch Error]', err);
 			}
 		});
 

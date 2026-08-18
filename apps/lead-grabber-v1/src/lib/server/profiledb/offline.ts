@@ -1,6 +1,8 @@
 import { randomUUID } from 'crypto';
 import { profileDb as prisma } from '$lib/profiledb-db';
 import { resolveCustomerProfile, sha256, normalizeEmail, normalizePhone } from './identity.service';
+import { getLineType } from '$lib/server/number-lookup';
+import { tierForIdentifiers, groupForIdentifiers } from './tiers';
 
 interface CreateOfflineRepEntryInput {
   name?: string;
@@ -75,6 +77,10 @@ export async function createOfflineRepEntry(
     const hashedEmail = normalizedEmail ? sha256(normalizedEmail) : undefined;
     const hashedPhone = normalizedPhone ? sha256(normalizedPhone) : undefined;
 
+    // §4.3a: a number a rep typed in is still only Tier 1 if it's a mobile. Classified here,
+    // before the tier is decided, because the stored phone is a hash and can't be classified later.
+    const lineType = phone ? await getLineType(phone) : undefined;
+
     // ── Check for existing profile ────────────────────────────────────────────
     let existingProfile = null;
     if (hashedEmail) {
@@ -124,9 +130,20 @@ export async function createOfflineRepEntry(
           name: name ?? null,
           email: hashedEmail ?? null,
           phone: hashedPhone ?? null,
-          // Q2 Attribution: email or phone = Tier 1, name only = Tier 2 (locked model: 1/2/2B/3)
-          tier: (hashedEmail || hashedPhone) ? 'Tier 1' : 'Tier 2',
-          group: hashedEmail ? 2 : (hashedPhone ? 3 : 4),
+          // Q2 Attribution (locked model: 1/2/2B/3). An email is exclusive to one person; a phone
+          // only is if it's a mobile (§4.3a), so the tier comes from the line type, not from the
+          // mere presence of a number.
+          tier: tierForIdentifiers({
+            hasEmail: !!hashedEmail,
+            hasPhone: !!hashedPhone,
+            lineType,
+            hasName: !!name
+          }),
+          group: groupForIdentifiers({
+            hasEmail: !!hashedEmail,
+            hasPhone: !!hashedPhone
+          }),
+          lineType: lineType ?? null,
           intentBucket: 'unclassified',
           scoreRaw: 0,
           scoreLive: 0,

@@ -14,7 +14,9 @@
 		Facebook,
 		Bot,
 		FileText,
-		Trash2
+		Trash2,
+		Calendar,
+		ArrowUpRight
 	} from 'lucide-svelte';
 	import { goto } from '$app/navigation';
 	import { invalidateAll } from '$app/navigation';
@@ -30,6 +32,7 @@
 	import PipelineModal from '$lib/components/PipelineModal.svelte';
 	import OrchestratorLogModal from '$lib/components/orchestrator-log-modal.svelte';
 	import CommReplyPanel from '$lib/components/CommReplyPanel.svelte';
+	import ProfileFilesDialog from '$lib/components/profile-files-dialog.svelte';
 	import { toast } from 'svelte-sonner';
 
 	interface Connection {
@@ -82,9 +85,13 @@
 
 	let communications = $state<Communication[]>(data.communications || []);
 
+	let scheduledIntents = $state(data.scheduledIntents || []);
+	let sweeping = $state(false);
+
 	// Update when data changes
 	$effect(() => {
 		communications = data.communications || [];
+		scheduledIntents = data.scheduledIntents || [];
 	});
 
 	onMount(() => {
@@ -144,6 +151,7 @@
 	let selectedSummary = $state<Communication | null>(null);
 	let summaryDialogOpen = $state(false);
 	let showEditDialog = $state(false);
+	let filesDialogOpen = $state(false);
 	let editForm = $state({ name: '', email: '', phone: '' });
 	let pipelineDialogOpen = $state(false);
 	let selectedPipelineEvent = $state<any>(null);
@@ -257,6 +265,22 @@
 		summaryDialogOpen = true;
 	}
 
+	// The customer-facing contact point for the summary dialog: for outbound rows
+	// that's the destination (who we contacted/sent to), for inbound it's the source
+	// (who contacted us). Emails resolve the raw address from the underlying record
+	// (comm.raw.raw) because source/destination are remapped to display *names* for
+	// known contacts; voice keeps the formatted display value like the table does.
+	function dialogContactPoint(comm: Communication): string {
+		const isOutbound = comm.raw?.direction === 'outbound';
+		if (comm.raw?.type === 'email') {
+			const raw = comm.raw?.raw;
+			return isOutbound
+				? raw?.destination || comm.endpoint || ''
+				: raw?.source || comm.source || '';
+		}
+		return isOutbound ? comm.endpoint ?? '' : comm.source ?? '';
+	}
+
 	function handleActionClick(action: string, comm: Communication) {
 		if (action === 'sms' || action === 'email') {
 			replyType = action === 'email' ? 'email' : 'sms';
@@ -348,6 +372,106 @@
 			console.error(e);
 			toast.error('Failed to confirm communication', { id: loadingId });
 		}
+	}
+
+	// Spec §10: cancel/reschedule OUR plan only — the customer's words (the CRM
+	// note on the comm log) are a fact and are never touched by these.
+	async function cancelIntent(si: { id: string; payload?: any }) {
+		const loadingId = toast.loading('Cancelling scheduled intent...');
+		try {
+			const res = await fetch(`/api/a2p/schedule/${si.id}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ status: 'CANCELLED' })
+			});
+			const result = await res.json();
+			if (result.ok) {
+				toast.success('Scheduled intent cancelled (profile note kept)', { id: loadingId });
+				await invalidateAll();
+			} else {
+				toast.error(result.error || 'Failed to cancel', { id: loadingId });
+			}
+		} catch (e) {
+			console.error(e);
+			toast.error('Failed to cancel scheduled intent', { id: loadingId });
+		}
+	}
+
+	async function runSweep() {
+		sweeping = true;
+		const loadingId = toast.loading('Running schedule sweep...');
+		try {
+			const res = await fetch('/api/a2p/schedule/sweep', { method: 'POST' });
+			const result = await res.json();
+			if (result.ok) {
+				toast.success(
+					`Sweep done — due ${result.due ?? 0}, handed off ${result.handedOff ?? 0}, skipped ${result.skipped ?? 0}, expired ${result.expired ?? 0}`,
+					{ id: loadingId }
+				);
+				await invalidateAll();
+			} else {
+				toast.error(result.error || 'Sweep failed', { id: loadingId });
+			}
+		} catch (e) {
+			console.error(e);
+			toast.error('Sweep failed', { id: loadingId });
+		} finally {
+			sweeping = false;
+		}
+	}
+
+	function formatSIDate(d: Date): string {
+		return new Date(d).toLocaleDateString('en-US', {
+			month: 'short',
+			day: 'numeric',
+			year: 'numeric'
+		});
+	}
+
+	async function rescheduleIntent(si: { id: string; dueAt: Date | string }) {
+		const current = new Date(si.dueAt);
+		const iso = new Date(current.getTime() - current.getTimezoneOffset() * 60_000)
+			.toISOString()
+			.slice(0, 16);
+		const input = window.prompt('New due date (YYYY-MM-DD HH:mm, local):', iso);
+		if (!input) return;
+		const dueAt = new Date(input);
+		if (isNaN(dueAt.getTime())) {
+			toast.error('Invalid date — nothing changed.');
+			return;
+		}
+		const loadingId = toast.loading('Rescheduling...');
+		try {
+			const res = await fetch(`/api/a2p/schedule/${si.id}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ dueAt: dueAt.toISOString() })
+			});
+			const result = await res.json();
+			if (result.ok) {
+				toast.success('Scheduled intent rescheduled', { id: loadingId });
+				await invalidateAll();
+			} else {
+				toast.error(result.error || 'Failed to reschedule', { id: loadingId });
+			}
+		} catch (e) {
+			console.error(e);
+			toast.error('Failed to reschedule scheduled intent', { id: loadingId });
+		}
+	}
+
+	function formatOrdinal(d: Date): string {
+		const date = new Date(d);
+		const day = date.getDate();
+		const suffix =
+			day === 1 || day === 21 || day === 31
+				? 'st'
+				: day === 2 || day === 22
+					? 'nd'
+					: day === 3 || day === 23
+						? 'rd'
+						: 'th';
+		return `${date.toLocaleDateString('en-US', { month: 'short' })} ${day}${suffix}`;
 	}
 
 	async function simulateOutboundCall(profileId: string, clearPhone: string) {
@@ -784,8 +908,113 @@
 							<SquarePen class="h-5 w-5 text-[#577AB7]" />
 							<span class="font-sans text-xs font-semibold leading-[16px] text-[#577AB7]">Add Task</span>
 						</button>
+						<button
+							onclick={() => (filesDialogOpen = true)}
+							class="col-span-2 flex h-[63px] items-center justify-center gap-2 rounded-sm border border-[#B5C2DA] bg-white transition-colors hover:bg-[#f0f4fb]"
+						>
+							<FileText class="h-5 w-5 text-[#577AB7]" />
+							<span class="font-sans text-xs font-semibold leading-[16px] text-[#577AB7]">Files</span>
+						</button>
 					</div>
 				</div>
+			</div>
+
+			<!-- Pending Actions (§10): a look-up list, never the queue. What's coming,
+			     by date, with the reason. Cancel/reschedule moves OUR plan only — the
+			     customer's words stay in the communications table below, untouched. -->
+			<div class="mb-6 rounded-lg bg-white p-6 shadow-[0px_0px_4px_rgba(0,0,0,0.41)]">
+				<div class="mb-4 flex items-center justify-between">
+					<h2 class="font-sans text-base font-semibold leading-[21px] text-[#555555]">
+						Pending Actions
+					</h2>
+					<div class="flex items-center gap-4">
+						<button
+							type="button"
+							onclick={runSweep}
+							disabled={sweeping}
+							class="inline-flex items-center font-sans text-xs font-semibold text-[#577AB7] hover:text-[#3d5a8a] disabled:opacity-50"
+						>
+							{#if sweeping}Sweeping…{:else}Run sweep{/if}
+						</button>
+						<a
+							href="/profiles/{data.profile.id}/scheduled-intents"
+							class="inline-flex items-center font-sans text-xs font-semibold text-[#577AB7] hover:text-[#3d5a8a]"
+						>
+							View all
+							<ArrowUpRight class="ml-1 h-3 w-3" />
+						</a>
+					</div>
+				</div>
+
+				{#if scheduledIntents.length === 0}
+					<p class="font-sans text-sm text-gray-400">Nothing scheduled.</p>
+				{:else}
+					<div class="space-y-1">
+						{#each scheduledIntents.slice(0, 5) as si (si.id)}
+							{@const isPast = new Date(si.dueAt) < new Date() && si.status === 'PENDING'}
+							{@const payload = si.payload as any}
+							<div class="flex items-start justify-between gap-4 border-b border-gray-100 py-3 last:border-0">
+								<div class="flex items-start gap-4">
+									<div class="mt-0.5 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-[#f0f4fb]">
+										<Calendar class="h-5 w-5 text-[#577AB7]" />
+									</div>
+									<div>
+										<div class="mb-1 flex flex-wrap items-center gap-3">
+											<span
+												class="font-sans text-base font-semibold {isPast ? 'text-red-600' : 'text-[#555555]'}"
+											>
+												{formatOrdinal(si.dueAt)}
+											</span>
+											<span
+												class="rounded px-2 py-0.5 text-xs font-semibold {si.status === 'PENDING'
+													? 'bg-blue-100 text-blue-800'
+													: si.status === 'DONE'
+														? 'bg-emerald-100 text-emerald-800'
+														: 'bg-gray-200 text-gray-600'}"
+											>
+												{si.status}
+											</span>
+											<span class="font-sans text-xs text-gray-500">Out</span>
+											<span class="font-sans text-xs text-gray-400">
+												{si.actor === 'CUSTOMER' ? 'They act' : 'We act'}
+											</span>
+										</div>
+										<p class="max-w-2xl font-sans text-sm text-[#555555]">
+												{payload?.whatHeWants ?? '—'}
+												{#if payload?.rawTimeframe}
+													<span class="text-gray-400">(said: "{payload.rawTimeframe}")</span>
+												{/if}
+											</p>
+										<p class="mt-1 font-sans text-xs text-gray-400">
+											INT-{si.id.slice(0, 8)}…
+											{#if si.expiresAt}
+												· Expires {formatSIDate(si.expiresAt)}
+											{/if}
+										</p>
+									</div>
+								</div>
+								<div class="flex flex-shrink-0 items-center gap-2">
+									{#if si.status === 'PENDING'}
+										<button
+											type="button"
+											onclick={() => rescheduleIntent(si)}
+											class="font-sans text-xs text-[#577AB7] underline hover:text-[#3d5a8a]"
+										>
+											Reschedule
+										</button>
+										<button
+											type="button"
+											onclick={() => cancelIntent(si)}
+											class="font-sans text-xs text-red-600 underline hover:text-red-800"
+										>
+											Cancel
+										</button>
+									{/if}
+								</div>
+							</div>
+						{/each}
+					</div>
+				{/if}
 			</div>
 
 			<!-- Communications Container -->
@@ -876,8 +1105,8 @@
 				subCategory={meta.drop_call
 					? ''
 					: cap2(meta.subcat_gpt || meta.sub_intent || '') || 'General'}
-				sourceLabel={selectedSummary.raw?.type === 'email' ? 'Email Address' : 'Phone'}
-				email={selectedSummary.source ?? ''}
+			sourceLabel={selectedSummary.raw?.type === 'email' ? 'Email Address' : 'Phone'}
+			email={dialogContactPoint(selectedSummary)}
 				subject={meta.subject || 'No subject'}
 				body={selectedSummary.raw?.content || selectedSummary.summary || ''}
 				summary={selectedSummary.summary ?? ''}
@@ -892,6 +1121,8 @@
 						.find((s) => s && !['<unknown>', 'unknown', 'n/a', 'none'].includes(s.toLowerCase())) || ''
 				) || null}
 				{ivrPath}
+				emailOpenedAt={selectedSummary.emailOpenedAt ?? null}
+				emailClickedAt={selectedSummary.emailClickedAt ?? null}
 			/>
 		{/if}
 
@@ -919,6 +1150,9 @@
 			replyComm = null;
 		}}
 	/>
+
+	<!-- Files dialog -->
+	<ProfileFilesDialog bind:open={filesDialogOpen} files={data.files || []} />
 {:else}
 	<EmptyState
 		title="Profile not found"

@@ -1,12 +1,15 @@
 import type { PrismaClient } from '@prisma/client';
-import { normalizePhoneNumber } from '$lib/utils/phone';
+import { toE164 as canonicalE164 } from '$lib/utils/phone';
 
-/** Normalize to E.164 for DB lookup (digits with + prefix). */
+/**
+ * Normalize to E.164 for DB lookup.
+ *
+ * Delegates to the canonical implementation. This used to strip formatting and prepend "+", which
+ * turned a bare NANP number into a different country's: "7052642251" became "+7052642251" rather
+ * than "+17052642251" — a key that matches nothing and forks the caller into their own record.
+ */
 export function toE164(phone: string): string {
-	const n = normalizePhoneNumber(phone);
-	if (!n) return '';
-	// Ensure + prefix
-	return n.startsWith('+') ? n : `+${n}`;
+	return canonicalE164(phone);
 }
 
 /** Get company id that owns this number (for incoming call/SMS). */
@@ -32,13 +35,14 @@ export async function getCompanyAndFlowByPhoneNumber(
 	return row ? { companyId: row.companyId, callFlowId: row.callFlowId } : null;
 }
 
-/** Get first number assigned to company (for outbound dial/SMS). */
+/** Get the primary number assigned to company (for outbound dial/SMS). */
 export async function getFirstCompanyNumber(
 	prisma: PrismaClient,
 	companyId: string
 ): Promise<{ phoneNumber: string; id: string } | null> {
 	const row = await prisma.companyPhoneNumber.findFirst({
 		where: { companyId },
+		orderBy: { created: 'asc' },
 		select: { phoneNumber: true, id: true }
 	});
 	return row ?? null;

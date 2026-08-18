@@ -3,6 +3,8 @@ import { redirect, error } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { commCode } from '$lib/utils/comm-id';
 import { assignRepresentative } from '$lib/server/profiledb/profiles';
+import { tierForIdentifiers, type LineType } from '$lib/server/profiledb/tiers';
+import { toE164 } from '$lib/utils/phone';
 
 export const load: PageServerLoad = async ({ params, locals }) => {
 	const user = locals.user;
@@ -33,7 +35,11 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			where: { companyId: user.company.id, role: 'member' },
 			include: { user: true }
 		});
-		representatives = members.map(m => ({ id: m.user.id, name: m.user.name, email: m.user.email }));
+		representatives = members.map((m) => ({
+			id: m.user.id,
+			name: m.user.name,
+			email: m.user.email
+		}));
 	}
 
 	try {
@@ -65,11 +71,32 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				occurredAt: log.created,
 				pageUrl: md.pageUrl ?? null,
 				name: md.callerName ?? dbContact.name ?? null,
-				phone: isEmail ? null : (log.direction === 'inbound' ? log.source : log.destination),
-				email: isEmail ? (log.direction === 'inbound' ? log.source : log.destination) : (dbContact.email ?? null),
+				phone: isEmail ? null : log.direction === 'inbound' ? log.source : log.destination,
+				email: isEmail
+					? log.direction === 'inbound'
+						? log.source
+						: log.destination
+					: (dbContact.email ?? null),
 				payload: { ...md, textContent: log.content ?? undefined }
 			};
 		});
+
+		// Line type decides whether this contact's number can identify a person at all (§4.3a).
+		// Read from the cache rather than looked up live — a profile page must not wait on Telnyx,
+		// and an unclassified number simply stays Tier 2.
+		let contactLineType: LineType | undefined;
+		try {
+			const e164 = toE164(dbContact.phone);
+			if (e164) {
+				const cached = await prisma.numberLookup.findUnique({
+					where: { phoneNumber: e164 },
+					select: { lineType: true }
+				});
+				contactLineType = (cached?.lineType as LineType) ?? undefined;
+			}
+		} catch (e: any) {
+			console.error('[profile] could not read line type:', e?.message || e);
+		}
 
 		// The engagement score the orchestrator maintains on the Contact is the real score here.
 		const cdpProfile: any = {
@@ -79,7 +106,15 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			email: dbContact.email || '',
 			clearPhone: dbContact.phone || '—',
 			clearEmail: dbContact.email || '—',
-			tier: dbContact.phone || dbContact.email ? 'Tier 1' : 'Tier 2B',
+			// A phone alone is not an exclusive identifier — a landline or VoIP number identifies a
+			// shared handset, not a person, so it stays Tier 2 until a mobile or email turns up
+			// (§4.3a). An unclassified number is treated the same way; never default upward.
+			tier: tierForIdentifiers({
+				hasEmail: !!dbContact.email,
+				hasPhone: !!dbContact.phone,
+				lineType: contactLineType,
+				hasName: !!dbContact.name
+			}),
 			scoreLive: dbContact.engagementScore ?? 0,
 			intentBucket: 'unclassified',
 			isAnonymous: !dbContact.email && !dbContact.phone,
@@ -97,9 +132,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 		historyEvents.forEach((ev: any) => {
 			const payload = ev.payload || {};
-			const emailVal = payload.email || payload.metadata?.email || payload.payload?.email || ev.email || null;
-			let nameVal = payload.name || payload.metadata?.name || payload.payload?.name || ev.name || null;
-			const phoneVal = payload.phone || payload.metadata?.phone || payload.payload?.phone || ev.phone || null;
+			const emailVal =
+				payload.email || payload.metadata?.email || payload.payload?.email || ev.email || null;
+			let nameVal =
+				payload.name || payload.metadata?.name || payload.payload?.name || ev.name || null;
+			const phoneVal =
+				payload.phone || payload.metadata?.phone || payload.payload?.phone || ev.phone || null;
 
 			// Do not record "Unknown Caller" or Anonymous as valid identity updates
 			if (nameVal === 'Unknown Caller' || nameVal === 'Anonymous') {
@@ -176,19 +214,22 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		else if (cdpProfile.scoreLive >= 50 || (viewedService && viewedPricing)) intentLevel = 'High';
 		else if (viewedService) intentLevel = 'Medium';
 
-		let interpretation = 'Monitor page views and visitor interaction logs to build a behavioral profile.';
+		let interpretation =
+			'Monitor page views and visitor interaction logs to build a behavioral profile.';
 		let recAction = 'Monitor Behavior';
 
 		const isAnonymous = !clearEmail && !clearPhone;
 		if (cdpProfile.intentBucket === 'emergency') {
-			interpretation = 'Active emergency situation detected. Urgent assistance required. Auto-dispatching technician.';
+			interpretation =
+				'Active emergency situation detected. Urgent assistance required. Auto-dispatching technician.';
 			recAction = 'Verify dispatch status';
 		} else if (intentLevel === 'High' && !formSubmitted) {
 			interpretation =
 				"Visitor viewed service pages and pricing, showing strong buying intent but hasn't booked yet. Recommend showing a limited-time promo banner or exit intent discount.";
 			recAction = 'Show 20% Promo Banner';
 		} else if (formSubmitted) {
-			interpretation = 'Visitor successfully submitted a lead capture form. Follow-up workflow initiated.';
+			interpretation =
+				'Visitor successfully submitted a lead capture form. Follow-up workflow initiated.';
 			recAction = 'Queue follow-up draft';
 		} else if (intentLevel === 'Very High' && !isAnonymous) {
 			interpretation =
@@ -198,7 +239,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 		// 5. Query CommunicationLog for the table
 		const dbLogs = await prisma.communicationLog.findMany({
-			where: { 
+			where: {
 				companyId: locals.user.company.id,
 				OR: [
 					{ customerId: params.id },
@@ -209,7 +250,33 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			orderBy: { created: 'desc' }
 		});
 
-		const comms = dbLogs.map(log => {
+		// Our own scheduled-intent rows (the §10 CRM note and the old ack log) are internal
+		// bookkeeping, not conversation — keep them in the DB (the schedule card reads them)
+		// but keep them out of the conversation table so one email shows as one conversation.
+		const conversationLogs = dbLogs.filter((log) => {
+			const md = (log.metadata as Record<string, any>) || {};
+			return !(md.scheduled_intent_note === true || md.scheduled_intent_ack === true);
+		});
+
+		// File manager: every attachment stored on the contact's email logs (Bunny CDN URLs
+		// from gmail-sync / bridge) collected into one list for the Files dialog.
+		const files = conversationLogs
+			.flatMap((log) => {
+				const md = (log.metadata as Record<string, any>) || {};
+				const atts = Array.isArray(md.attachments) ? md.attachments : [];
+				return atts.map((a: any) => ({
+					name: a.name ?? 'file',
+					url: a.url ?? '',
+					mime: a.mime ?? '',
+					direction: log.direction,
+					created: log.created.toISOString(),
+					commId: commCode(log.communicationThreadId, md.commRef, log.created, Date.now(), log.id),
+					summary: log.summary || ''
+				}));
+			})
+			.sort((a, b) => b.created.localeCompare(a.created));
+
+		const comms = conversationLogs.map((log) => {
 			const dateObj = new Date(log.created);
 			const date = dateObj.toLocaleDateString('en-US', {
 				month: 'short',
@@ -258,10 +325,15 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 			// Random-looking per-THREAD COM ID (hash of the thread id, anchored on the message's own
 			// id when unlinked) — related messages share it, a different context gets a new one.
-			const convoCode = commCode(log.communicationThreadId, log.id);
-			
+			// Rows linked to a CommContainer display the container's commRef (cross-channel).
+			const convoCode = commCode(log.communicationThreadId, meta.commRef, log.created, Date.now(), log.id);
+
 			let endpoint = log.destination || locals.user.company.id;
-			if (log.direction === 'outbound' && meta.is_emergency_dispatch && Array.isArray(meta.recipients)) {
+			if (
+				log.direction === 'outbound' &&
+				meta.is_emergency_dispatch &&
+				Array.isArray(meta.recipients)
+			) {
 				endpoint = meta.recipients.map((r: any) => r.name || r.number).join(', ');
 			}
 
@@ -277,8 +349,30 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				summary: summary,
 				commId: convoCode,
 				status,
+				emailOpenedAt: log.emailOpenedAt?.toISOString() ?? null,
+				emailClickedAt: log.emailClickedAt?.toISOString() ?? null,
 				raw: log
 			};
+		});
+
+		// ClearSky Scheduled Intents (spec §10): this customer's schedule — a separate
+		// LOOK-UP list, deliberately not the agent queue ("the queue is today's work").
+		// Agents can see what's coming and cancel/reschedule OUR plan; the customer's
+		// words live on in the communication log above, untouched.
+		const scheduledIntents = await prisma.scheduledIntent.findMany({
+			where: { clientId: companyId, profileId: dbContact.id },
+			orderBy: { dueAt: 'asc' },
+			take: 20,
+			select: {
+				id: true,
+				intentType: true,
+				status: true,
+				actor: true,
+				dueAt: true,
+				expiresAt: true,
+				payload: true,
+				createdAt: true
+			}
 		});
 
 		return {
@@ -286,11 +380,13 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				...cdpProfile,
 				clearPhone,
 				clearEmail,
-				past_names: identityHistory.filter(h => h.field === 'Name').map(h => h.newValue)
+				past_names: identityHistory.filter((h) => h.field === 'Name').map((h) => h.newValue)
 			},
 			accountBalance: dbContact?.accountBalance ?? null,
 			engagementScore: dbContact.engagementScore ?? 0,
 			communications: comms,
+			scheduledIntents,
+			files,
 			historyEvents,
 			identityHistory,
 			behavioralFacts: {
@@ -341,6 +437,10 @@ export const actions: Actions = {
 		const user = locals.user;
 		if (!user?.company) return { success: false };
 		try {
+			// Our schedule rows are plans filed under this profile — they die with it.
+			await prisma.scheduledIntent.deleteMany({
+				where: { clientId: user.company.id, profileId: params.id }
+			});
 			await prisma.contact.deleteMany({
 				where: { id: params.id, companyId: user.company.id }
 			});

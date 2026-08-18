@@ -5,7 +5,7 @@ datasource db {
 
 generator client {
   provider = "prisma-client-js"
-  output   = "../profiledb-client"
+  output   = "../../profiledb-client"
 }
 
 /// Represents an individual business/client on the platform (e.g., Plumber A, Plumber B)
@@ -36,7 +36,18 @@ model CustomerProfile {
   // Q2 Identity Tiers & Groups
   group           Int               @default(2)
   tier            String            @default("Tier 2B")
-  
+
+  // Telnyx line type for `phone` — mobile | landline | voip | toll_free | unknown (§4.3a).
+  // Only a mobile is exclusive to one person, so only a mobile earns Tier 1. `phone` is stored as
+  // a hash and can't be looked up after the fact, so this is captured when the raw number arrives
+  // and null means "never classified" — which is treated as unknown, i.e. Tier 2.
+  lineType        String?
+
+  // Set when this record is retired into another. Merging points the keys at the survivor and
+  // tombstones the loser — it never deletes, because old IDs are sitting in cookies, conversation
+  // threads and task records, and looking one up has to keep working.
+  mergedInto      String?
+
   // CL3 Immutable Sealed Context Package
   sealedPackage   Json?
   

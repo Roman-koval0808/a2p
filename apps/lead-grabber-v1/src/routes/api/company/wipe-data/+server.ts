@@ -25,7 +25,9 @@ export const POST: RequestHandler = async ({ locals }) => {
 			prisma.communicationLog.deleteMany({ where: { companyId } }),
 			prisma.communicationThread.deleteMany({ where: { companyId } }),
 			prisma.message.deleteMany({ where: { companyId } }),
+			prisma.task.deleteMany({ where: { companyId } }),
 			prisma.contact.deleteMany({ where: { companyId } }),
+			prisma.scheduledIntent.deleteMany({ where: { clientId: companyId } }),
 			prisma.notification.deleteMany({ where: { companyId } })
 		]);
 

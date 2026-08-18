@@ -7,6 +7,25 @@ export interface LeadboxData {
 		text: string;
 		icon?: string;
 		showIcon?: boolean;
+		buttonColor?: string;
+		fontColor?: string;
+		url?: string;
+	};
+	topBanner?: {
+		text: string;
+		backgroundColor: string;
+		fontColor: string;
+		fontFamily: string;
+	};
+	closedState?: {
+		bannerText?: string;
+		bannerBgColor?: string;
+		bannerFontColor?: string;
+		buttonText?: string;
+		buttonBgColor?: string;
+		buttonFontColor?: string;
+		iconColor?: string;
+		icon?: string;
 	};
 }
 
@@ -14,7 +33,8 @@ export interface Channel {
 	id: string;
 	name: string;
 	value: string;
-	url: string;
+	type?: 'link' | 'text_us' | 'request_call';
+	url?: string;
 	buttonColor: string;
 	icon?: string;
 	showIcon?: boolean;

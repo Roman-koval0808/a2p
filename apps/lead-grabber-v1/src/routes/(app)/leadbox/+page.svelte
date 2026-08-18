@@ -2,7 +2,7 @@
 	import { Button } from '$lib/components/ui/button/index';
 	import * as Card from '$lib/components/ui/card/index';
 	import { Switch } from '$lib/components/ui/switch/index';
-	import { CodeXml, Edit, MessageSquare, Pen, Phone, Play, PlusCircle } from 'lucide-svelte';
+	import { CodeXml, Edit, MessageSquare, Pen, Phone, Play, PlusCircle, Trash2 } from 'lucide-svelte';
 	import EditChannelDialog from '$lib/components/EditChannelDialog.svelte';
 	import EditSecondaryButtonDialog from '$lib/components/EditSecondaryButtonDialog.svelte';
 	import EditPrimaryButtonDialog from '$lib/components/EditPrimaryButtonDialog.svelte';
@@ -13,6 +13,7 @@
 	import { getFileUrl } from '$lib/utils/file-url';
 	import { Copy, Check } from 'lucide-svelte';
 	import { getSvgIcon } from '$lib/utils/getSvgIcon';
+	import { iconOptions, iconNames } from '$lib/utils/iconOptions';
 	import { onMount } from 'svelte';
 
 	let { data } = $props();
@@ -43,33 +44,45 @@
 	let logoImage = $state(getDefaultLogo());
 	let logoImageFile: File | null = $state(null);
 
+	let previewView = $state<'main' | 'text_us' | 'request_call'>('main');
+	let requestCallTime = $state<'ASAP' | 'Morning' | 'Afternoon'>('ASAP');
+
 	let channels = $state(
 		data.leadbox?.leadbox_data?.channels ?? [
 			{
 				name: 'Text',
-				icon: MessageSquare,
-				value: 'Text Us',
-				url: 'sms://',
-				target: '_blank',
-				buttonColor: '#40C4AA',
+				type: 'text_us',
+				icon: 'Smartphone',
+				value: 'TEXT US',
+				buttonColor: '#2E9E2E',
 				showIcon: true
 			},
 			{
 				name: 'Call',
-				icon: Phone,
-				value: 'Request a Call',
-				url: 'tel://',
-				target: '_blank',
-				buttonColor: '#3B5BDB',
+				type: 'request_call',
+				icon: 'Phone',
+				value: 'REQUEST A CALL',
+				buttonColor: '#FF6B00',
 				showIcon: true
 			},
 			{
 				name: 'Watch',
-				icon: Play,
-				value: 'Watch a Demo',
+				type: 'link',
+				icon: 'PlayCircle',
+				value: 'WATCH A DEMO NOW',
 				url: 'https://',
 				target: '_blank',
-				buttonColor: '#3B5BDB',
+				buttonColor: '#FF6B00',
+				showIcon: true
+			},
+			{
+				name: 'Book',
+				type: 'link',
+				icon: 'Calendar',
+				value: 'BOOK APPOINTMENT',
+				url: 'https://',
+				target: '_blank',
+				buttonColor: '#FF6B00',
 				showIcon: true
 			}
 		]
@@ -77,16 +90,41 @@
 
 	let secondaryButton = $state(
 		data.leadbox?.leadbox_data?.secondaryButton ?? {
-			text: 'Call us now!',
-			icon: 'MessageSquare',
-			showIcon: true
+			text: 'WATCH A DEMO NOW',
+			icon: 'Play',
+			showIcon: true,
+			buttonColor: '#FF6B00',
+			fontColor: '#ffffff',
+			url: ''
 		}
 	);
 
 	let primaryButton = $state(
 		data.leadbox?.leadbox_data?.primaryButton ?? {
 			text: 'TEXT US',
-			icon: 'MessageSquare'
+			icon: 'Phone'
+		}
+	);
+
+	let topBanner = $state(
+		data.leadbox?.leadbox_data?.topBanner ?? {
+			text: 'Text with us.',
+			backgroundColor: '#3B5BDB',
+			fontColor: '#ffffff',
+			fontFamily: 'sans-serif'
+		}
+	);
+
+	let closedState = $state(
+		data.leadbox?.leadbox_data?.closedState ?? {
+			bannerText: 'QUESTIONS? JUST ASK!',
+			bannerBgColor: '#FF6B00',
+			bannerFontColor: '#ffffff',
+			buttonText: 'TEXT US',
+			buttonBgColor: '#ffffff',
+			buttonFontColor: '#222222',
+			iconColor: '#FF6B00',
+			icon: 'Phone'
 		}
 	);
 
@@ -100,12 +138,39 @@
 		channels = channels; // trigger reactivity
 	}
 
-	function handleSecondaryButtonUpdate(data: { text: string; icon: any; showIcon: boolean }) {
-		secondaryButton = data;
+	function addChannel() {
+		channels = [
+			...channels,
+			{
+				name: 'New Channel',
+				type: 'link',
+				icon: 'Target',
+				value: 'LEARN MORE',
+				url: 'https://',
+				target: '_blank',
+				buttonColor: '#3B5BDB',
+				showIcon: true
+			}
+		];
+	}
+
+	function deleteChannel(index: number) {
+		channels = channels.filter((_c: unknown, idx: number) => idx !== index);
+	}
+
+	function handleSecondaryButtonUpdate(data: { text: string; icon: any; showIcon: boolean; buttonColor?: string; fontColor?: string; url?: string }) {
+		secondaryButton = {
+			...secondaryButton,
+			...data
+		};
 	}
 
 	function handlePrimaryButtonUpdate(data: { text: string; icon: string }) {
 		primaryButton = data;
+		if (closedState) {
+			closedState.buttonText = data.text;
+			closedState.icon = data.icon;
+		}
 	}
 
 	// Add image upload handler
@@ -157,21 +222,10 @@
 		}, 2000);
 	}
 
-	let iconSvgs = $state({});
+	let iconSvgs: Record<string, string> = $state({});
 
 	onMount(async () => {
-		// Load all needed SVG icons
-		const iconNames = [
-			'MessageSquare',
-			'Phone',
-			'Play',
-			'Mail',
-			'Map',
-			'Target',
-			'Clock',
-			'CreditCard',
-			'Search'
-		];
+		// Load every icon the builder offers (see $lib/utils/iconOptions).
 		for (const name of iconNames) {
 			iconSvgs[name] = await getSvgIcon(name);
 		}
@@ -215,7 +269,9 @@
 							primaryButton,
 							channels,
 							secondaryButton,
-							logoImage
+							logoImage,
+							topBanner,
+							closedState
 						})}
 					/>
 
@@ -234,7 +290,7 @@
 						<h2 class="mb-2 flex items-center gap-2 text-xl font-semibold text-primary">
 							Channels
 							{#if channels.length < 4 && !textOnly}
-								<Button variant="ghost" class="p-0 hover:bg-transparent">
+								<Button variant="ghost" class="p-0 hover:bg-transparent" onclick={addChannel}>
 									<PlusCircle class="h-6 w-6" />
 								</Button>
 							{/if}
@@ -261,14 +317,23 @@
 											<span>{channel.name}</span>
 											<div class="rounded-lg bg-[#D9D9D9] px-4 py-1">{channel.value}</div>
 										</div>
-										<EditChannelDialog
-											{channel}
-											onSave={(updatedChannel) => handleChannelUpdate(i, updatedChannel)}
-										>
-											<Button variant="ghost" class="p-0 hover:bg-transparent">
-												<Pen class="h-6 w-6" />
+										<div class="flex items-center gap-2">
+											<EditChannelDialog
+												{channel}
+												onSave={(updatedChannel) => handleChannelUpdate(i, updatedChannel)}
+											>
+												<Button variant="ghost" class="p-0 hover:bg-transparent">
+													<Pen class="h-6 w-6" />
+												</Button>
+											</EditChannelDialog>
+											<Button
+												variant="ghost"
+												class="p-0 text-red-500 hover:bg-transparent hover:text-red-700"
+												onclick={() => deleteChannel(i)}
+											>
+												<Trash2 class="h-5 w-5" />
 											</Button>
-										</EditChannelDialog>
+										</div>
 									</div>
 								{/each}
 							</div>
@@ -305,6 +370,9 @@
 								buttonText={secondaryButton.text}
 								showIcon={secondaryButton.showIcon}
 								selectedIcon={secondaryButton.icon}
+								buttonColor={secondaryButton.buttonColor || '#FF6B00'}
+								fontColor={secondaryButton.fontColor || '#ffffff'}
+								url={secondaryButton.url || ''}
 								onSave={handleSecondaryButtonUpdate}
 							>
 								<Button variant="ghost" class="p-0 hover:bg-transparent">
@@ -346,6 +414,161 @@
 							</label>
 						</div>
 					</div>
+
+					<div class="mb-8 w-full">
+						<h2 class="mb-2 text-xl font-semibold text-primary">Top Banner</h2>
+						<p class="mb-4 text-sm text-gray-500">Customize the top banner of your leadbox</p>
+						<div class="flex flex-col gap-4">
+							<div class="flex flex-col gap-2">
+								<label class="text-sm font-medium text-gray-700" for="banner-text">Text</label>
+								<textarea
+									id="banner-text"
+									bind:value={topBanner.text}
+									rows="3"
+									class="resize-none rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+								></textarea>
+							</div>
+							<div class="flex gap-4">
+								<div class="flex flex-1 flex-col gap-2">
+									<label class="text-sm font-medium text-gray-700" for="bg-color">Background Color</label>
+									<div class="flex items-center gap-2">
+										<input
+											id="bg-color"
+											type="color"
+											bind:value={topBanner.backgroundColor}
+											class="h-10 w-10 cursor-pointer rounded border border-gray-300 p-1"
+										/>
+										<input
+											type="text"
+											bind:value={topBanner.backgroundColor}
+											class="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm uppercase focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+										/>
+									</div>
+								</div>
+								<div class="flex flex-1 flex-col gap-2">
+									<label class="text-sm font-medium text-gray-700" for="font-color">Font Color</label>
+									<div class="flex items-center gap-2">
+										<input
+											id="font-color"
+											type="color"
+											bind:value={topBanner.fontColor}
+											class="h-10 w-10 cursor-pointer rounded border border-gray-300 p-1"
+										/>
+										<input
+											type="text"
+											bind:value={topBanner.fontColor}
+											class="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm uppercase focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+										/>
+									</div>
+								</div>
+							</div>
+							<div class="flex flex-col gap-2">
+								<label class="text-sm font-medium text-gray-700" for="font-family">Font Style</label>
+								<select
+									id="font-family"
+									bind:value={topBanner.fontFamily}
+									class="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+								>
+									<option value="sans-serif">Sans Serif</option>
+									<option value="serif">Serif</option>
+									<option value="monospace">Monospace</option>
+									<option value="system-ui">System Default</option>
+									<option value="Arial">Arial</option>
+									<option value="Helvetica">Helvetica</option>
+									<option value="Times New Roman">Times New Roman</option>
+									<option value="Courier New">Courier New</option>
+								</select>
+							</div>
+						</div>
+					</div>
+
+					<div class="mb-8 w-full">
+						<h2 class="mb-2 text-xl font-semibold text-primary">Floating Widget (Closed)</h2>
+						<p class="mb-4 text-sm text-gray-500">Customize the closed state floating button</p>
+						<div class="flex flex-col gap-4">
+							<div class="flex flex-col gap-2">
+								<label class="text-sm font-medium text-gray-700" for="closed-banner-text">Top Banner Text</label>
+								<input
+									id="closed-banner-text"
+									type="text"
+									bind:value={closedState.bannerText}
+									class="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+								/>
+							</div>
+							<div class="flex gap-4">
+								<div class="flex flex-1 flex-col gap-2">
+									<label class="text-sm font-medium text-gray-700" for="closed-banner-bg">Banner Background</label>
+									<div class="flex items-center gap-2">
+										<input id="closed-banner-bg" type="color" bind:value={closedState.bannerBgColor} class="h-10 w-10 cursor-pointer rounded border border-gray-300 p-1" />
+										<input type="text" bind:value={closedState.bannerBgColor} class="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm uppercase focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary" />
+									</div>
+								</div>
+								<div class="flex flex-1 flex-col gap-2">
+									<label class="text-sm font-medium text-gray-700" for="closed-banner-font">Banner Font Color</label>
+									<div class="flex items-center gap-2">
+										<input id="closed-banner-font" type="color" bind:value={closedState.bannerFontColor} class="h-10 w-10 cursor-pointer rounded border border-gray-300 p-1" />
+										<input type="text" bind:value={closedState.bannerFontColor} class="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm uppercase focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary" />
+									</div>
+								</div>
+							</div>
+
+							<div class="my-2 h-px w-full bg-gray-200"></div>
+
+							<div class="flex flex-col gap-2">
+								<label class="text-sm font-medium text-gray-700" for="closed-button-text">Button Text</label>
+								<input
+									id="closed-button-text"
+									type="text"
+									bind:value={closedState.buttonText}
+									oninput={() => {
+										primaryButton.text = closedState.buttonText;
+									}}
+									class="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+								/>
+							</div>
+							<div class="flex gap-4">
+								<div class="flex flex-1 flex-col gap-2">
+									<label class="text-sm font-medium text-gray-700" for="closed-button-bg">Button Background</label>
+									<div class="flex items-center gap-2">
+										<input id="closed-button-bg" type="color" bind:value={closedState.buttonBgColor} class="h-10 w-10 cursor-pointer rounded border border-gray-300 p-1" />
+										<input type="text" bind:value={closedState.buttonBgColor} class="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm uppercase focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary" />
+									</div>
+								</div>
+								<div class="flex flex-1 flex-col gap-2">
+									<label class="text-sm font-medium text-gray-700" for="closed-button-font">Button Font Color</label>
+									<div class="flex items-center gap-2">
+										<input id="closed-button-font" type="color" bind:value={closedState.buttonFontColor} class="h-10 w-10 cursor-pointer rounded border border-gray-300 p-1" />
+										<input type="text" bind:value={closedState.buttonFontColor} class="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm uppercase focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary" />
+									</div>
+								</div>
+							</div>
+
+							<div class="flex gap-4">
+								<div class="flex flex-1 flex-col gap-2">
+									<label class="text-sm font-medium text-gray-700" for="closed-icon-color">Icon Color</label>
+									<div class="flex items-center gap-2">
+										<input id="closed-icon-color" type="color" bind:value={closedState.iconColor} class="h-10 w-10 cursor-pointer rounded border border-gray-300 p-1" />
+										<input type="text" bind:value={closedState.iconColor} class="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm uppercase focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary" />
+									</div>
+								</div>
+								<div class="flex flex-1 flex-col gap-2">
+									<label class="text-sm font-medium text-gray-700" for="closed-icon-type">Icon Style</label>
+									<select
+										id="closed-icon-type"
+										bind:value={closedState.icon}
+										onchange={() => {
+											primaryButton.icon = closedState.icon;
+										}}
+										class="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary h-10"
+									>
+										{#each iconOptions as { icon, name }}
+											<option value={icon}>{name}</option>
+										{/each}
+									</select>
+								</div>
+							</div>
+						</div>
+					</div>
 				</div>
 			</div>
 
@@ -356,114 +579,432 @@
 				<div class="absolute bottom-4 right-4 origin-bottom-right" style="transform: scale(0.65);">
 					{#if leadBoxOpen}
 						<div
-							class="relative mx-auto w-[517px] overflow-hidden border border-gray-200 bg-dialog"
+							class="relative mx-auto w-[380px] overflow-hidden rounded-[18px] border border-gray-100 bg-[#f0f2f5] shadow-2xl"
 						>
-							<div class="h-28 items-center bg-[#3B5BDB] p-4 text-white">
-								<p class="text-lg">Text with us.</p>
-							</div>
+							<div
+								class="relative px-6 pb-14 pt-6 text-center"
+								style="background-color: {topBanner.backgroundColor}; color: {topBanner.fontColor}; font-family: {topBanner.fontFamily};"
+							>
+								{#if previewView !== 'main'}
+									<button
+										type="button"
+										class="absolute left-4 top-4 text-xl font-bold text-white/90 transition-transform hover:scale-110 hover:text-white"
+										onclick={() => (previewView = 'main')}
+										aria-label="Back to main"
+									>
+										←
+									</button>
+								{/if}
 
-							<div class="relative flex flex-col gap-6 p-6">
-								<div class="relative mb-4 flex justify-center">
+								<button
+									type="button"
+									class="absolute right-4 top-4 text-xl font-bold text-white/80 transition-transform hover:scale-110 hover:text-white"
+									onclick={() => (leadBoxOpen = false)}
+									aria-label="Close leadbox"
+								>
+									✕
+								</button>
+								
+								<p class="px-5 text-[15px] font-bold leading-snug">
+									{#if previewView === 'text_us'}
+										Text with us. Enter your info below and we will text you back.
+									{:else if previewView === 'request_call'}
+										Select times to get a call, & complete fields below.
+									{:else}
+										{topBanner.text || 'Text with us. Message us now, book a demo, or start a free trial.'}
+									{/if}
+								</p>
+
+								<!-- Enlarged Circular Logo Avatar -->
+								<div
+									class="absolute bottom-[-46px] left-1/2 z-10 flex h-[92px] w-[92px] -translate-x-1/2 items-center justify-center rounded-full border-4 border-white bg-white p-2 shadow-xl"
+								>
 									<img
 										src={logoImage}
 										alt="Company Logo"
-										class="absolute top-[-40px] z-10 h-[82px] w-[164px] object-contain"
+										class="h-[82%] w-[82%] object-contain"
 									/>
 								</div>
+							</div>
 
-								<div class="mt-12 space-y-3 bg-white px-5 pb-20 pt-4">
+							<div class="relative flex flex-col gap-3 bg-[#f0f2f5] px-4 pb-4 pt-14">
+								<div>
 									{#if !textOnly}
-										{#each channels as channel}
-											<Button
-												variant="custom"
-												class="w-full rounded-full py-4 text-white hover:bg-{channel.buttonColor}/90"
-												style={`background-color: ${channel.buttonColor};`}
-											>
-												{#if channel.showIcon}
-													{@html iconSvgs[channel.icon] || ''}
-												{/if}
-												{#if !iconOnly}
-													{channel.value}
-												{/if}
-											</Button>
-										{/each}
+										{#if previewView === 'main'}
+											<div class="space-y-3.5 rounded-2xl bg-white p-5 shadow-sm">
+												{#each channels as channel}
+													<Button
+														variant="custom"
+														class="flex h-12 w-full items-center justify-center gap-3 rounded-full px-4 text-xs font-extrabold uppercase tracking-wider text-white shadow-sm transition-all hover:opacity-95"
+														style={`background-color: ${channel.buttonColor || '#3B5BDB'}; color: ${channel.fontColor || '#ffffff'};`}
+														onclick={() => {
+															if (channel.type === 'text_us') {
+																previewView = 'text_us';
+															} else if (channel.type === 'request_call') {
+																previewView = 'request_call';
+															} else if (channel.url) {
+																toast.info(`Link channel clicked: ${channel.url}`);
+															}
+														}}
+													>
+														{#if channel.showIcon}
+															<div class="flex h-5 w-5 items-center justify-center [&>svg]:!h-5 [&>svg]:!w-5 [&>svg:not([stroke='none'])]:!stroke-current">
+																{@html iconSvgs[channel.icon] || ''}
+															</div>
+														{/if}
+														{#if !iconOnly}
+															<span>{channel.value}</span>
+														{/if}
+													</Button>
+												{/each}
+											</div>
+											<div class="mt-2 flex items-center justify-center gap-1.5 text-[11px] text-gray-400">
+												<span>Use policy</span> • <span>ClearSky</span> • <span class="cursor-pointer underline hover:text-gray-600">Privacy policy</span>
+											</div>
+										{:else if previewView === 'text_us'}
+											<div class="space-y-3.5">
+												<div class="rounded-2xl bg-white p-5 shadow-sm">
+													<div class="flex flex-col gap-3">
+														<div class="border-b border-gray-200 py-1">
+															<input id="preview-name" type="text" placeholder="Full Name" class="w-full bg-transparent text-sm font-medium text-gray-900 placeholder:text-gray-500 focus:outline-none" />
+														</div>
+														<div class="border-b border-gray-200 py-1">
+															<input id="preview-phone" type="tel" placeholder="Mobile Number" class="w-full bg-transparent text-sm font-medium text-gray-900 placeholder:text-gray-500 focus:outline-none" />
+														</div>
+														<div class="border-b border-gray-200 py-1">
+															<textarea id="preview-msg" rows="2" placeholder="Message" class="w-full resize-none bg-transparent text-sm font-medium text-gray-900 placeholder:text-gray-500 focus:outline-none"></textarea>
+														</div>
+														<p class="mt-2 text-center text-[10px] leading-tight text-gray-400">
+															By submitting, you agree to receive informational text messages. Consent is optional & content may be automated. Msg/data rates apply, msg frequency varies. Text HELP for help. Text STOP to stop.
+														</p>
+														<Button variant="custom" class="w-full rounded-xl bg-[#E84C22] py-3.5 text-xs font-black uppercase tracking-wider text-white shadow-md hover:opacity-90">
+															SEND
+														</Button>
+													</div>
+												</div>
+												<div class="flex items-center justify-center gap-1.5 text-[11px] text-gray-400">
+													<span>Use policy</span> • <span>ClearSky</span> • <span class="cursor-pointer underline hover:text-gray-600">Privacy policy</span>
+												</div>
+											</div>
+										{:else if previewView === 'request_call'}
+											<div class="space-y-3.5">
+												<div class="rounded-2xl bg-white p-5 shadow-sm">
+													<div class="flex flex-col gap-3">
+														<div class="border-b border-gray-200 py-1">
+															<input id="preview-rc-name" type="text" placeholder="Full Name" class="w-full bg-transparent text-sm font-medium text-gray-900 placeholder:text-gray-500 focus:outline-none" />
+														</div>
+														<div class="border-b border-gray-200 py-1">
+															<input id="preview-rc-phone" type="tel" placeholder="Mobile Number" class="w-full bg-transparent text-sm font-medium text-gray-900 placeholder:text-gray-500 focus:outline-none" />
+														</div>
+														<div class="flex flex-col gap-1.5 py-1">
+															<label class="text-[13px] font-medium text-gray-600">Select preferred times</label>
+															<div class="flex gap-2">
+																{#each ['ASAP', 'Morning', 'Afternoon'] as timeOpt}
+																	<button
+																		type="button"
+																		class="flex-1 rounded-full border px-3 py-1.5 text-xs font-bold transition-all {requestCallTime === timeOpt ? 'border-[#FF6B00] bg-orange-50 text-[#FF6B00]' : 'border-gray-300 text-gray-600 hover:border-gray-400'}"
+																		onclick={() => (requestCallTime = timeOpt as any)}
+																	>
+																		{timeOpt}
+																	</button>
+																{/each}
+															</div>
+														</div>
+														<p class="mt-2 text-center text-[10px] leading-tight text-gray-400">
+															By submitting, you agree to receive informational text messages. Consent is optional & content may be automated. Msg/data rates apply, msg frequency varies. Text HELP for help. Text STOP to stop.
+														</p>
+														<Button variant="custom" class="w-full rounded-xl bg-[#E84C22] py-3.5 text-xs font-black uppercase tracking-wider text-white shadow-md hover:opacity-90">
+															SUBMIT
+														</Button>
+													</div>
+												</div>
+												<div class="flex items-center justify-center gap-1.5 text-[11px] text-gray-400">
+													<span>Use policy</span> • <span>ClearSky</span> • <span class="cursor-pointer underline hover:text-gray-600">Privacy policy</span>
+												</div>
+											</div>
+										{/if}
 									{/if}
 									{#if textOnly}
-										<div class="flex flex-col gap-2">
-											<label class="text-gray-700" for="name">Name</label>
-											<input
-												type="text"
-												class="rounded-none border border-y-0 border-b border-l-0 border-r-0 border-gray-200 border-b-black bg-transparent p-2 focus:outline-none focus:ring-0"
-												name="name"
-											/>
-										</div>
-										<div class="flex flex-col gap-2">
-											<label class="text-gray-700" for="mobile">Mobile Number</label>
-											<input
-												type="text"
-												class="rounded-none border border-y-0 border-b border-l-0 border-r-0 border-gray-200 border-b-black bg-transparent p-2 focus:outline-none focus:ring-0"
-												name="mobile"
-											/>
-										</div>
-										<div class="flex flex-col gap-2">
-											<label class="text-gray-700" for="message">Message</label>
-											<textarea
-												class="rounded-none border border-y-0 border-b border-l-0 border-r-0 border-gray-200 border-b-black bg-transparent p-2 focus:outline-none focus:ring-0"
-												name="message"
-											></textarea>
+										<div class="space-y-3 rounded-2xl bg-white p-5 shadow-sm">
+											<div class="flex flex-col gap-2">
+												<label class="text-sm font-medium text-gray-700" for="name">Name</label>
+												<input
+													type="text"
+													class="rounded-none border-b border-gray-300 bg-transparent p-2 text-sm focus:border-primary focus:outline-none"
+													name="name"
+												/>
+											</div>
+											<div class="flex flex-col gap-2">
+												<label class="text-sm font-medium text-gray-700" for="mobile">Mobile Number</label>
+												<input
+													type="text"
+													class="rounded-none border-b border-gray-300 bg-transparent p-2 text-sm focus:border-primary focus:outline-none"
+													name="mobile"
+												/>
+											</div>
+											<div class="flex flex-col gap-2">
+												<label class="text-sm font-medium text-gray-700" for="message">Message</label>
+												<textarea
+													class="rounded-none border-b border-gray-300 bg-transparent p-2 text-sm focus:border-primary focus:outline-none"
+													name="message"
+												></textarea>
+											</div>
 										</div>
 									{/if}
-								</div>
-
-								<div class="text-center text-xs text-gray-500">
-									Use subject to terms • Lead&Terms
 								</div>
 							</div>
 						</div>
 
-						<!-- secondary button -->
-						<div class="mt-4 flex justify-end gap-2">
-							<Button
-								variant="custom"
-								class="flex items-center gap-2 rounded-md bg-[#3B5BDB] px-6 text-white"
+						<!-- Floating Cancel FAB when Open -->
+						<div class="mt-4 flex justify-end">
+							<button
+								type="button"
+								class="flex h-[54px] w-[54px] items-center justify-center rounded-full text-white shadow-xl transition-transform hover:scale-105 active:scale-95"
+								style="background-color: {closedState.bannerBgColor || topBanner.backgroundColor || '#FF6B00'};"
+								onclick={() => (leadBoxOpen = false)}
+								aria-label="Close leadbox"
 							>
-								{secondaryButton.text}
-								{#if secondaryButton.showIcon}
-									{@html iconSvgs[secondaryButton.icon] || ''}
-								{/if}
-							</Button>
+								<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+									<line x1="18" y1="6" x2="6" y2="18"></line>
+									<line x1="6" y1="6" x2="18" y2="18"></line>
+								</svg>
+							</button>
 						</div>
 					{/if}
 
-					<div class="mt-7 flex justify-end gap-2">
-						{#if primaryIconOnly}
+					<div class="mt-4 flex flex-col items-end gap-4">
+						{#if !leadBoxOpen && secondaryButton && secondaryButton.text}
+							<!-- Secondary Button when Closed -->
 							<Button
 								variant="custom"
-								class="flex h-14 w-14 items-center gap-2 rounded-full bg-[#3B5BDB] p-2 text-white"
-								onclick={() => (leadBoxOpen = !leadBoxOpen)}
+								class="flex h-14 items-center justify-between gap-4 rounded-full border-none px-8 text-lg font-extrabold uppercase tracking-wide text-white shadow-lg hover:opacity-95"
+								style="background-color: {secondaryButton.buttonColor || '#FF6B00'}; color: {secondaryButton.fontColor || '#ffffff'}; border: none;"
 							>
-								{@html iconSvgs[primaryButton.icon] || iconSvgs['MessageSquare'] || ''}
+								<span>{secondaryButton.text}</span>
+								{#if secondaryButton.showIcon}
+									<div class="flex h-9 w-9 flex-shrink-0 items-center justify-center">
+										<div class="flex translate-x-[1px] items-center justify-center [&>svg]:!h-7 [&>svg]:!w-7 [&>svg:not([stroke='none'])]:!stroke-current">
+											{@html iconSvgs[secondaryButton.icon] || iconSvgs['Play'] || ''}
+										</div>
+									</div>
+								{/if}
 							</Button>
-						{:else}
-							<div class="relative flex flex-col items-center">
-								<div
-									class="absolute top-[-22px] z-10 flex h-14 w-full justify-center rounded-3xl bg-primary"
-								>
-									<p class="px-4 text-sm text-white">Questions?, just ask</p>
-								</div>
+						{/if}
+
+						{#if !leadBoxOpen}
+							{#if primaryIconOnly}
 								<Button
 									variant="custom"
-									class="z-20 flex h-14 items-center justify-center gap-2 rounded-full bg-white px-20 text-lg font-medium text-primary shadow-md"
+									class="flex h-14 w-14 items-center justify-center rounded-full p-2 [&>svg]:!h-6 [&>svg]:!w-6 [&>svg:not([stroke='none'])]:!stroke-current"
+									style="background-color: {closedState.buttonBgColor}; color: {closedState.iconColor}; border: 2px solid {closedState.iconColor};"
 									onclick={() => (leadBoxOpen = !leadBoxOpen)}
 								>
-									{primaryButton.text}
+									{@html iconSvgs[closedState.icon] || iconSvgs['Phone'] || ''}
 								</Button>
-							</div>
+							{:else}
+								<div
+									class="flex w-fit min-w-max flex-col items-center overflow-hidden rounded-t-[36px] rounded-b-[38px]"
+									style="background-color: {closedState.bannerBgColor || '#FF6B00'}; filter: drop-shadow(0 10px 20px rgba(0,0,0,0.12));"
+								>
+									<p class="m-0 w-full whitespace-nowrap px-8 pb-4 pt-3 text-center text-[14px] font-extrabold uppercase tracking-wide" style="color: {closedState.bannerFontColor || '#ffffff'};">
+										{closedState.bannerText || 'QUESTIONS? JUST ASK!'}
+									</p>
+
+									<!-- Pill Button -->
+									<Button
+										variant="custom"
+										class="flex h-[76px] w-full items-center justify-between gap-6 rounded-full pl-8 pr-1 hover:opacity-95"
+										style="border: none; background-color: {closedState.buttonBgColor || '#ffffff'};"
+										onclick={() => (leadBoxOpen = !leadBoxOpen)}
+									>
+										<span class="whitespace-nowrap text-[24px] font-extrabold tracking-[0.18em]" style="color: {closedState.buttonFontColor || '#222222'};">
+											{closedState.buttonText || 'TEXT US'}
+										</span>
+										<div
+											class="flex h-[68px] w-[68px] flex-shrink-0 items-center justify-center rounded-full [&>svg]:!h-8 [&>svg]:!w-8 [&>svg:not([stroke='none'])]:!stroke-current"
+											style="background-color: {closedState.buttonBgColor || '#ffffff'}; border: 2.5px solid {closedState.iconColor || '#FF6B00'}; color: {closedState.iconColor || '#FF6B00'};"
+										>
+											{@html iconSvgs[closedState.icon] || iconSvgs['Phone'] || ''}
+										</div>
+									</Button>
+								</div>
+							{/if}
 						{/if}
 					</div>
 				</div>
 			</div>
 		</div>
+
+		{#if data.routingPreview}
+			{@const rp = data.routingPreview}
+			<div class="mt-5 rounded-xl bg-white p-6">
+				<h2 class="mb-1 text-xl font-semibold text-primary">Routing preview</h2>
+				<p class="mb-6 text-sm text-gray-500">
+					What happens right now, given your reps and auto-reply rules. Refresh after changing
+					reps or business hours.
+				</p>
+
+				<div class="grid grid-cols-3 gap-4">
+					<div class="rounded-lg border p-4">
+						<div class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Office now</div>
+						<div class="flex items-center gap-2">
+							<span
+								class="inline-flex h-2.5 w-2.5 rounded-full {rp.openNow ? 'bg-green-500' : 'bg-red-500'}"
+							></span>
+							<span class="text-sm font-semibold">{rp.openNow ? 'Open' : 'Closed'}</span>
+						</div>
+						<div class="mt-1 text-xs text-gray-500">{rp.timeZone}</div>
+						{#if !rp.openNow && rp.nextOpeningText}
+							<div class="mt-2 text-xs text-gray-600">Next opening: {rp.nextOpeningText}</div>
+						{/if}
+					</div>
+
+					<div class="rounded-lg border p-4">
+						<div class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">On duty now</div>
+						{#if rp.onDutyNow.length}
+							<div class="text-sm font-semibold">{rp.onDutyNow.join(', ')}</div>
+						{:else}
+							<div class="text-sm text-gray-500">Nobody on duty</div>
+						{/if}
+						{#if rp.onDutyAtOpening.length}
+							<div class="mt-2 text-xs text-gray-600">
+								At next opening: {rp.onDutyAtOpening.join(', ')}
+							</div>
+						{/if}
+					</div>
+
+					<div class="rounded-lg border p-4">
+						<div class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Text Auto Reply</div>
+						<div class="text-sm font-semibold {rp.textAutoReply ? 'text-green-600' : 'text-red-600'}">
+							{rp.textAutoReply ? 'Enabled' : 'Disabled'}
+						</div>
+						<div class="mt-1 text-xs text-gray-500">
+							{#if rp.textAutoReply}
+								Office-closed replies will be sent.
+							{:else}
+								Office-closed replies are suppressed. Turn on "Auto Reply" in
+								<a class="text-blue-600 hover:underline" href="/settings/auto-replies">Settings → Auto-replies</a>.
+							{/if}
+						</div>
+					</div>
+				</div>
+
+				<div class="mt-6 grid grid-cols-2 gap-4">
+					<div class="rounded-lg border p-4">
+						<div class="mb-3 text-sm font-semibold text-gray-900">Business hours</div>
+						<ul class="space-y-1 text-sm">
+							{#each rp.businessHours as h}
+								<li class="flex items-center justify-between">
+									<span class="text-gray-600">{h.day}</span>
+									{#if h.isOpen && h.hours}
+										<span class="text-gray-900">{h.hours}</span>
+									{:else}
+										<span class="text-gray-400">Closed</span>
+									{/if}
+								</li>
+							{/each}
+						</ul>
+					</div>
+
+					<div class="rounded-lg border p-4">
+						<div class="mb-3 text-sm font-semibold text-gray-900">Auto-reply messages</div>
+						<div class="text-sm text-gray-500">
+							<div class="mb-1 font-medium text-gray-700">Business hours</div>
+							<div class="mb-3">{rp.businessHoursMessage}</div>
+							<div class="mb-1 font-medium text-gray-700">After hours</div>
+							<div>{rp.afterHoursMessage}</div>
+						</div>
+					</div>
+				</div>
+
+				<div class="mt-6">
+					<div class="mb-3 text-sm font-semibold text-gray-900">Representatives</div>
+					{#if rp.reps.length}
+						<div class="overflow-x-auto rounded-lg border">
+							<table class="w-full text-left text-sm text-gray-700">
+								<thead class="bg-gray-50 font-semibold text-gray-900">
+									<tr>
+										<th class="px-3 py-2">Name</th>
+										<th class="px-3 py-2">Phone</th>
+										<th class="px-3 py-2">On duty now</th>
+										<th class="px-3 py-2">Schedule</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each rp.reps as rep}
+										<tr class="border-t">
+											<td class="px-3 py-2 font-medium">{rep.name}</td>
+											<td class="px-3 py-2 font-mono text-xs">{rep.phone}</td>
+											<td class="px-3 py-2">
+												<span
+													class="rounded px-1.5 py-0.5 text-xs font-semibold {rep.onDutyNow ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}"
+												>
+													{rep.onDutyNow ? 'On duty' : 'Off duty'}
+												</span>
+											</td>
+											<td class="px-3 py-2 text-xs text-gray-500">
+												{#each rep.schedule as day}
+													<div class="inline-flex items-center gap-1">
+														<span class="w-9">{day.day.slice(0, 3)}</span>
+														<span class="font-mono">{day.start || '—'}{day.end ? `–${day.end}` : ''}</span>
+														<span class="mx-1">·</span>
+													</div>
+												{/each}
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{:else}
+						<p class="text-sm text-gray-500">
+							No representatives yet. Add them in <a class="text-blue-600 hover:underline" href="/representatives">Representatives</a>.
+						</p>
+					{/if}
+				</div>
+
+				<div class="mt-6 grid grid-cols-2 gap-4">
+					<div class="rounded-lg border p-4">
+						<div class="mb-1 text-sm font-semibold text-gray-900">Text Us</div>
+						<div class="mb-2 text-xs text-gray-500">A customer sends a text message.</div>
+						{#if rp.text.action === 'route_to_rep'}
+							<p class="text-sm text-gray-800">
+								Office open → routed to <span class="font-semibold">{rp.text.repName ?? 'no rep'}</span> and a task is
+								created on their list.
+							</p>
+						{:else}
+							<p class="text-sm text-gray-800">
+								Office closed → <span class="font-semibold">auto-reply sent</span> and a task is created for
+								<span class="font-semibold">{rp.text.repName ?? 'no rep'}</span>.
+							</p>
+							{#if rp.text.reply}
+								<div class="mt-3 rounded border-l-4 border-gray-300 bg-gray-50 px-3 py-2 text-sm italic text-gray-700">
+									“{rp.text.reply}”
+								</div>
+							{/if}
+						{/if}
+					</div>
+
+					<div class="rounded-lg border p-4">
+						<div class="mb-1 text-sm font-semibold text-gray-900">Request a Call</div>
+						<div class="mb-2 text-xs text-gray-500">ASAP request, evaluated right now.</div>
+						{#if rp.call.action === 'bridge_now'}
+							<p class="text-sm text-gray-800">
+								Office open → bridges <span class="font-semibold">{rp.call.repName ?? 'no rep'}</span> now via the
+								dial ladder.
+							</p>
+						{:else if rp.call.action === 'schedule'}
+							<p class="text-sm text-gray-800">
+								Office closed → automated reply, and the callback is scheduled for
+								<span class="font-semibold">{rp.call.scheduleFor ?? 'the next opening'}</span> ({rp.call.repName ?? 'no rep'}).
+							</p>
+						{:else}
+							<p class="text-sm text-gray-800">No open slot found — a human must arrange it manually.</p>
+						{/if}
+					</div>
+				</div>
+			</div>
+		{/if}
 	</div>
 {:else}
 	<div class="flex h-[90vh] flex-col items-center justify-center gap-3 bg-gray-100 p-4">

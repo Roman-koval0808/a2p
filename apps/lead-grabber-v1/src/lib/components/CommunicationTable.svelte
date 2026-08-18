@@ -31,6 +31,8 @@
 		status: 'red' | 'green' | 'blue' | 'in' | 'out';
 		assignedMemberNames?: string[];
 		raw?: any;
+		emailOpenedAt?: string | null;
+		emailClickedAt?: string | null;
 	}
 
 	interface Props {
@@ -45,6 +47,7 @@
 		onViewLogClick?: (comm: Communication) => void;
 		onReplyClick?: (comm: Communication) => void;
 		onConfirmClick?: (comm: Communication) => void;
+		onProfileClick?: (comm: Communication) => void;
 		showFilters?: boolean;
 		showSearch?: boolean;
 		showAssignButton?: boolean;
@@ -72,6 +75,7 @@
 		onViewLogClick,
 		onReplyClick,
 		onConfirmClick,
+		onProfileClick,
 		showFilters = true,
 		showSearch = true,
 		showAssignButton = false
@@ -427,13 +431,42 @@
 							<td class="whitespace-nowrap px-3 py-2.5">
 								<div class="flex items-center gap-1.5 text-sm text-gray-700">
 									<IconComponent class="h-4 w-4 shrink-0 text-gray-500" />
-									<span class="font-medium">{comm.direction === 'Out' ? 'out' : 'In'}</span>
+									<span class="font-medium">{comm.direction === 'Out' ? 'Out' : 'In'}</span>
 								</div>
+								{#if comm.type === 'email' && comm.emailOpenedAt}
+									<div class="mt-0.5">
+										<span
+											class="inline-flex items-center rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-green-700"
+											title="Opened: {new Date(comm.emailOpenedAt).toLocaleString()}"
+										>
+											Opened
+										</span>
+										{#if comm.emailClickedAt}
+											<span
+												class="ml-1 inline-flex items-center rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-blue-700"
+											>
+												Clicked
+											</span>
+										{/if}
+									</div>
+								{/if}
 							</td>
 							<td
 								class="max-w-[160px] truncate px-3 py-2.5 text-sm text-gray-700"
 							>
-								<div class="font-semibold text-gray-900" title={comm.source}>{comm.source || '—'}</div>
+								{#if onProfileClick && comm.raw?.raw?.customer?.id}
+									{@const profileId = comm.raw?.raw?.customer?.id}
+									<button
+										type="button"
+										class="block max-w-full cursor-pointer truncate text-left font-semibold text-gray-900 hover:text-blue-600 hover:underline"
+										title={comm.source}
+										onclick={() => onProfileClick(comm)}
+									>
+										{comm.source || '—'}
+									</button>
+								{:else}
+									<div class="font-semibold text-gray-900" title={comm.source}>{comm.source || '—'}</div>
+								{/if}
 								{#if contactDetail && contactDetail !== comm.source}
 									<div class="text-xs text-gray-500 mt-0.5 truncate" title={contactDetail}>{contactDetail}</div>
 								{/if}
@@ -551,7 +584,15 @@
 										{comm.commId.startsWith('DROP-') ? comm.commId : 'COM-' + comm.commId.slice(-5).toUpperCase()}
 									</button>
 								{:else}
-									<span class="text-gray-400 italic">Processing...</span>
+									<!-- No conversation anchor yet: threading resolves asynchronously, so showing a
+									     code here would mint one that changes moments later. -->
+									<span
+										class="inline-flex items-center gap-1.5 text-gray-400 italic"
+										title="Waiting for this message to be linked to a conversation"
+									>
+										<span class="h-1.5 w-1.5 animate-pulse rounded-full bg-gray-400"></span>
+										Pending
+									</span>
 								{/if}
 							</td>
 							<!-- Pipeline hidden -->

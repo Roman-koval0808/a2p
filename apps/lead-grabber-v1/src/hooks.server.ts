@@ -1,5 +1,6 @@
 import { prisma } from '$lib/db';
 import { getUserFromToken, parseSessionCookie, createSessionCookie } from '$lib/auth';
+import { env } from '$env/dynamic/private';
 import type { Handle } from '@sveltejs/kit';
 import { redirect } from '@sveltejs/kit';
 
@@ -44,6 +45,28 @@ if (!cohort2CronGlobal.__cohort2CronStarted) {
 	timer.unref?.();
 }
 
+// ClearSky Scheduled Intents sweep (§2): once a day, read the schedule rows that have come
+// due, run each type's own checks, and hand verified intents to the Orchestrator. Same pattern
+// as the SLA/cohort2 crons — lazy-imported inside the tick, guarded, .unref()'d. The sweep is
+// idempotent (CAS PENDING→DONE), so a shorter interval is harmless; the external-cron
+// alternative POST /api/a2p/schedule/sweep stays available.
+const scheduleCronGlobal = globalThis as unknown as { __scheduleCronStarted?: boolean };
+if (!scheduleCronGlobal.__scheduleCronStarted) {
+	scheduleCronGlobal.__scheduleCronStarted = true;
+	const timer = setInterval(
+		async () => {
+			try {
+				const { checkDueScheduledIntents } = await import('$lib/server/scheduled-intents-sweep');
+				await checkDueScheduledIntents();
+			} catch (e: any) {
+				console.error('[Schedule cron] sweep failed:', e?.message || e);
+			}
+		},
+		60 * 60_000
+	);
+	timer.unref?.();
+}
+
 // A2P Orchestrator general timer service sweep (runs every 30 seconds).
 const timerCronGlobal = globalThis as unknown as { __timerSweepStarted?: boolean };
 if (!timerCronGlobal.__timerSweepStarted) {
@@ -63,10 +86,43 @@ if (!timerCronGlobal.__timerSweepStarted) {
 const authRefreshCache = new Map<string, number>();
 const AUTH_REFRESH_CACHE_MS = 60000; // Cache auth refresh for 60 seconds
 
+// Extract a Bearer token from an Authorization header ("Bearer <jwt>").
+function parseBearerToken(header: string | null): string | null {
+	if (!header) return null;
+	const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+	return match?.[1] ?? null;
+}
+
 export const handle: Handle = async ({ event, resolve }) => {
+	// --- Docs access gate -------------------------------------------------
+	// /docs, /docs/*, /documentation and the dev OpenAPI middleware are public
+	// in name only — they need the shared access code (DOCS_ACCESS_CODE env),
+	// delivered via the /docs-access form. Fail closed: if the env var is not
+	// set, nobody gets in. JSON clients (spec import) get a 401, browsers a
+	// redirect to the code form.
+	const pathname = event.url.pathname;
+	const DOCS_ACCESS_CODE = env.DOCS_ACCESS_CODE ?? null;
+	const isDocsRoute =
+		pathname === '/docs' ||
+		pathname.startsWith('/docs/') ||
+		pathname.startsWith('/documentation') ||
+		pathname === '/openapi-spec.json';
+	if (isDocsRoute && DOCS_ACCESS_CODE && event.cookies.get('docs_access') !== DOCS_ACCESS_CODE) {
+		const wantsHtml = (event.request.headers.get('accept') ?? '').includes('text/html');
+		if (wantsHtml) {
+			throw redirect(303, `/docs-access?next=${encodeURIComponent(pathname)}`);
+		}
+		return new Response(
+			JSON.stringify({ success: false, error: 'Docs access code required — open /docs-access in a browser first.' }),
+			{ status: 401, headers: { 'content-type': 'application/json' } }
+		);
+	}
+
 	const publicRoutes = [
 		'/login',
 		'/signup',
+		'/docs',
+		'/documentation',
 		'/api',
 		'/book',
 		'/embed',
@@ -90,8 +146,10 @@ export const handle: Handle = async ({ event, resolve }) => {
 		return event.url.pathname.startsWith(route);
 	});
 
-	// Get user from session cookie using SvelteKit's native cookies
-	const token = event.cookies.get('app_session');
+	// Get user from session cookie using SvelteKit's native cookies.
+	// Mobile clients can also authenticate with `Authorization: Bearer <token>`
+	// where <token> is the JWT returned by POST /api/auth/login.
+	const token = event.cookies.get('app_session') ?? parseBearerToken(event.request.headers.get('authorization'));
 	let user = null;
 
 	if (token) {
@@ -129,6 +187,19 @@ export const handle: Handle = async ({ event, resolve }) => {
 	if (!user && token) {
 		console.log(`[Auth] Clearing session for ${event.url.pathname} - user is null but token exists`);
 		event.cookies.delete('app_session', { path: '/' });
+	}
+
+	// Remember the last route for an unauthenticated browser hit on a protected page, and send it to
+	// /login?next=… so the login action can land the user back where they were. API and public
+	// routes are left alone (API callers get a 401 from the endpoint, not an HTML redirect).
+	if (!user && !isPublicRoute && !isApiRoute) {
+		const wantsHtml = (event.request.headers.get('accept') ?? '').includes('text/html');
+		if (wantsHtml) {
+			throw redirect(
+				303,
+				`/login?next=${encodeURIComponent(pathname + event.url.search)}`
+			);
+		}
 	}
 
 	event.locals.user = user;

@@ -23,6 +23,15 @@ export type IntentBucket =
 	| 'sales'
 	| 'other';
 
+/** Why the customer made contact — decides which workflow the orchestrator runs. */
+export type CommunicationPurpose =
+	| 'emergency'
+	| 'enquiry'
+	| 'opportunity'
+	| 'support'
+	| 'complaint'
+	| 'positive_feedback';
+
 export interface MessageIntent {
 	intent_bucket: IntentBucket;
 	urgency: 'low' | 'medium' | 'high' | 'critical';
@@ -36,6 +45,40 @@ export interface MessageIntent {
 	needs_human_review: boolean;
 	reason: string;
 	action_items: string[];
+
+	// ── Structured extraction: who owes the next move, and when ──────────────
+	// Summaries alone can't route a workflow. These answer, one question at a
+	// time, what the customer actually committed to — so the orchestrator can
+	// branch in code instead of hoping a summary phrased it usefully.
+	purpose: CommunicationPurpose;
+	/** How they asked to be reached, when they said. */
+	preferred_contact_method: 'phone' | 'email' | 'sms' | 'in_person' | 'none';
+	/** When they asked us to make contact, verbatim ("tomorrow morning"), else null. */
+	callback_when: string | null;
+	/** They said THEY would make the next contact ("I'll call you when I'm back"). */
+	customer_will_initiate: boolean;
+	/** How they said they'd do it ("call", "email"), else null. */
+	customer_initiate_method: string | null;
+	/** An exact date/time they named for it, ISO 8601 if resolvable, else null. */
+	customer_initiate_exact_datetime: string | null;
+	/** A vague window they named, verbatim ("a couple of weeks"), else null. */
+	customer_initiate_timeframe: string | null;
+	/** That window in days — the number the suspense timer is set from. */
+	customer_initiate_timeframe_days: number | null;
+	/** They want a meeting/visit/face-to-face, not just a reply. */
+	wants_meeting: boolean;
+	meeting_when: string | null;
+	meeting_where: string | null;
+	/**
+	 * Whether we could actually price the job from what they told us. A request
+	 * for a quote is not a quotable job: without dimensions, existing equipment
+	 * and site conditions the only honest next step is an intake.
+	 */
+	has_enough_info_to_quote: boolean;
+	/** What we'd have to ask to be able to quote. */
+	missing_info_for_quote: string[];
+	/** Who owes the next move. */
+	next_action_owner: 'customer' | 'business';
 }
 
 const SYSTEM_PROMPT = `You are a data-extraction engine for a business.
@@ -70,6 +113,49 @@ Also set:
 - needs_human_review: true if confidence < 0.75 or the message is ambiguous/conflicting/empty.
 - reason: one short sentence.
 
+PURPOSE — pick exactly one; this decides which workflow runs:
+- emergency: Immediate safety/property risk in progress.
+- enquiry: A question about services, capability, or pricing.
+- opportunity: A prospect wanting work done / a quote / an estimate.
+- support: An existing job, ticket, appointment, or account matter.
+- complaint: Dissatisfaction with service or outcome.
+- positive_feedback: Praise or thanks with no request attached.
+
+WHO OWES THE NEXT MOVE — answer these separately and literally. Never infer a
+commitment nobody made:
+- wants_callback: true ONLY if they asked US to contact them.
+- callback_when: if they asked us to contact them and said when, quote their words; else null.
+- preferred_contact_method: only if they stated one; else "none".
+- customer_will_initiate: true if THEY said they would make the next contact
+  ("I'll call you when I get back", "I'll be in touch"). This can be true while
+  wants_callback is false — that is the normal case, not a contradiction.
+- customer_initiate_method / customer_initiate_exact_datetime / customer_initiate_timeframe:
+  only what they actually said. Quote a vague window verbatim ("a couple of weeks").
+- customer_initiate_timeframe_days: that window as a number of days — "a few days"=3,
+  "next week"=7, "a couple of weeks"=14, "a month"=30. null if they named no window.
+- next_action_owner: "customer" if customer_will_initiate is true and they did NOT
+  ask us to contact them first; otherwise "business". If the customer said they
+  will call us, the next move is theirs — we acknowledge and wait, we do not chase.
+- wants_meeting / meeting_when / meeting_where: an appointment, visit, or
+  face-to-face. Wanting one "eventually" is still true; when/where stay null
+  unless stated.
+
+QUOTES ARE NOT QUOTABLE ON REQUEST:
+- has_enough_info_to_quote: true ONLY if the message contains the specifics a
+  tradesperson would need to actually price the work — size/dimensions, the
+  existing equipment, the site conditions, the scope. "I'd like a quote on a new
+  air conditioner, what would central cost" is false: no home size, no existing
+  system, no ductwork information. Naming a service is not scoping a job.
+- missing_info_for_quote: the specifics we would have to ask for. Empty when
+  has_enough_info_to_quote is true.
+
+ACTION ITEMS — concrete next steps for the team, and only steps we can actually
+take now:
+- Never write "prepare a quote" when has_enough_info_to_quote is false. The real
+  next step is an intake/discovery to find out what they need.
+- Never write a task to contact the customer when next_action_owner is "customer".
+  They told us they would call; chasing them contradicts what they asked for.
+
 Return ONLY valid JSON matching the schema. No markdown, no explanation.
 
 EXAMPLES:
@@ -82,7 +168,11 @@ Output: {"intent_bucket":"emergency","urgency":"critical","sentiment":"negative"
 Input: "hi what's my balance, i think i owe you for the last job"
 Output: {"intent_bucket":"billing","urgency":"low","sentiment":"neutral","wants_appointment":false,"wants_balance":true,"confidence":0.94,"needs_human_review":false,"reason":"Asking about their outstanding balance only."}
 Input: "I just want to inquire. I want to book an appointment to come down and pay my bill."
-Output: {"intent_bucket":"booking","urgency":"low","sentiment":"neutral","wants_appointment":true,"wants_balance":true,"confidence":0.9,"needs_human_review":false,"reason":"Primary ask is to book an appointment to come in; paying is secondary."}`;
+Output: {"intent_bucket":"booking","urgency":"low","sentiment":"neutral","wants_appointment":true,"wants_balance":true,"confidence":0.9,"needs_human_review":false,"reason":"Primary ask is to book an appointment to come in; paying is secondary."}
+Input: "I would like to get a quote on a new air conditioning unit. I am wondering what the cost of central would be. I will be out of town for a couple of weeks. I will call you when I return so we can set up an appointment."
+Output: {"intent_bucket":"sales","purpose":"opportunity","urgency":"low","sentiment":"neutral","wants_appointment":false,"wants_balance":false,"wants_callback":false,"preferred_contact_method":"none","callback_when":null,"customer_will_initiate":true,"customer_initiate_method":"call","customer_initiate_exact_datetime":null,"customer_initiate_timeframe":"a couple of weeks","customer_initiate_timeframe_days":14,"wants_meeting":true,"meeting_when":null,"meeting_where":null,"has_enough_info_to_quote":false,"missing_info_for_quote":["home square footage","existing heating/cooling system","whether ductwork is present","site access"],"next_action_owner":"customer","confidence":0.95,"needs_human_review":false,"reason":"Prospect wants central AC pricing but gave no specifications; they will call us back after two weeks away.","action_items":["Schedule a customer intake to scope the central air conditioning job before any pricing"]}
+Input: "Hi, can you call me tomorrow morning about the furnace you installed, it's making a noise."
+Output: {"intent_bucket":"follow_up","purpose":"support","urgency":"medium","sentiment":"neutral","wants_appointment":false,"wants_balance":false,"wants_callback":true,"preferred_contact_method":"phone","callback_when":"tomorrow morning","customer_will_initiate":false,"customer_initiate_method":null,"customer_initiate_exact_datetime":null,"customer_initiate_timeframe":null,"customer_initiate_timeframe_days":null,"wants_meeting":false,"meeting_when":null,"meeting_where":null,"has_enough_info_to_quote":true,"missing_info_for_quote":[],"next_action_owner":"business","confidence":0.93,"needs_human_review":false,"reason":"Asked us to call them tomorrow morning about a noise on a job we did."}`;
 
 const INTENT_SCHEMA = {
 	type: 'object',
@@ -123,8 +213,28 @@ const INTENT_SCHEMA = {
 		action_items: {
 			type: 'array',
 			items: { type: 'string' },
-			description: '1-3 concrete next-step tasks for the rep/team based on this message (e.g. "Send the account balance to the customer", "Confirm the appointment time"). Always provide at least one.'
-		}
+			description: '1-3 concrete next-step tasks for the rep/team based on this message (e.g. "Send the account balance to the customer", "Confirm the appointment time"). Always provide at least one. Never a quote we cannot price, never a chase the customer did not ask for.'
+		},
+		purpose: {
+			type: 'string',
+			enum: ['emergency', 'enquiry', 'opportunity', 'support', 'complaint', 'positive_feedback']
+		},
+		preferred_contact_method: {
+			type: 'string',
+			enum: ['phone', 'email', 'sms', 'in_person', 'none']
+		},
+		callback_when: { type: ['string', 'null'] },
+		customer_will_initiate: { type: 'boolean' },
+		customer_initiate_method: { type: ['string', 'null'] },
+		customer_initiate_exact_datetime: { type: ['string', 'null'] },
+		customer_initiate_timeframe: { type: ['string', 'null'] },
+		customer_initiate_timeframe_days: { type: ['number', 'null'] },
+		wants_meeting: { type: 'boolean' },
+		meeting_when: { type: ['string', 'null'] },
+		meeting_where: { type: ['string', 'null'] },
+		has_enough_info_to_quote: { type: 'boolean' },
+		missing_info_for_quote: { type: 'array', items: { type: 'string' } },
+		next_action_owner: { type: 'string', enum: ['customer', 'business'] }
 	},
 	required: [
 		'intent_bucket',
@@ -138,7 +248,21 @@ const INTENT_SCHEMA = {
 		'confidence',
 		'needs_human_review',
 		'reason',
-		'action_items'
+		'action_items',
+		'purpose',
+		'preferred_contact_method',
+		'callback_when',
+		'customer_will_initiate',
+		'customer_initiate_method',
+		'customer_initiate_exact_datetime',
+		'customer_initiate_timeframe',
+		'customer_initiate_timeframe_days',
+		'wants_meeting',
+		'meeting_when',
+		'meeting_where',
+		'has_enough_info_to_quote',
+		'missing_info_for_quote',
+		'next_action_owner'
 	]
 };
 
@@ -168,7 +292,8 @@ export async function classifyMessageIntent(
 		toolName: 'classify_message',
 		model,
 		temperature: 0,
-		maxTokens: 700
+		// The questionnaire roughly doubled the field count; 700 truncated the tool call.
+		maxTokens: 1200
 	});
 }
 

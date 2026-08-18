@@ -123,7 +123,7 @@ Fields:
 - detected_keywords: List all important nouns/verbs related to business (e.g. quote, call, roof, leak, pricing). If the user mentions their name, include it here.
 - customer_name: The name of the customer if explicitly mentioned in message, e.g. 'sam' from 'sam here', otherwise an empty string.
 - has_name: True if customer name is explicitly mentioned in message, otherwise false.
-- datetime: If the customer mentions a specific date or time they want to book an appointment for (e.g. "saturday at 8am"), resolve it to the exact date using the Reference Calendar and output it in YYYY-MM-DDTHH:mm:ss format. If no time is specified but a day is, set time to "12:00:00". Otherwise an empty string.
+- datetime: Only if the customer names a SPECIFIC day or date they want to book an appointment for (e.g. "saturday at 8am", "tomorrow", "next tuesday"), resolve it to the exact date using the Reference Calendar and output it in YYYY-MM-DDTHH:mm:ss format. If a specific day is named but no time, set the time to "12:00:00". CRITICAL: Do NOT resolve vague references — "sometime next week", "in a few days", "soon", "one of these days" contain NO specific day and MUST return an empty string. Never invent a date the customer did not name. Return an empty string if no specific appointment day is mentioned.
 
 For 'complaint_topics' and 'praise_topics': Use concise phrases. 
 CRITICAL: If the communication mentions ANY safety concerns or dangerous behavior, include 'safety_violation' in complaint_topics.

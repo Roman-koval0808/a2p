@@ -100,6 +100,10 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
 		where: { id: params.id, companyId: auth.companyId }
 	});
 	if (!contact) return notFound('Contact not found');
+	// Our schedule rows are plans filed under this profile — they die with it.
+	await prisma.scheduledIntent.deleteMany({
+		where: { clientId: auth.companyId, profileId: params.id }
+	});
 	await prisma.contact.delete({ where: { id: params.id } });
 	return specSuccess(null, 'Contact deleted successfully');
 };

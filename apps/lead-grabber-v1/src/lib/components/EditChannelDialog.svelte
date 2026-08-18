@@ -5,6 +5,7 @@
 	import { Label } from '$lib/components/ui/label';
 	import { Switch } from '$lib/components/ui/switch';
 	import { getSvgIcon } from '$lib/utils/getSvgIcon';
+	import { iconOptions } from '$lib/utils/iconOptions';
 	import { onMount } from 'svelte';
 
 	let { children, channel, onSave } = $props<{
@@ -12,8 +13,9 @@
 			name: string;
 			icon: any;
 			value: string;
-			url: string;
-			target: string;
+			type?: 'link' | 'text_us' | 'request_call';
+			url?: string;
+			target?: string;
 			buttonColor: string;
 			showIcon?: boolean;
 		};
@@ -21,23 +23,16 @@
 	}>();
 
 	let isOpen = $state(false);
-	let editedChannel = $state({ ...channel, showIcon: channel.showIcon ?? true });
+	let editedChannel = $state({
+		...channel,
+		type: channel.type ?? (channel.url && channel.url !== 'sms://' && channel.url !== 'tel://' ? 'link' : channel.name?.toLowerCase().includes('call') ? 'request_call' : 'text_us'),
+		showIcon: channel.showIcon ?? true
+	});
 	let showIcon = $state(editedChannel.showIcon);
 
-	const icons = [
-		{ icon: 'Phone', name: 'Phone' },
-		{ icon: 'MessageSquare', name: 'Message' },
-		{ icon: 'Play', name: 'Play' },
-		{ icon: 'Mail', name: 'Mail' },
-		{ icon: 'Map', name: 'Map' },
-		{ icon: 'Target', name: 'Target' },
-		{ icon: 'Clock', name: 'Clock' },
-		{ icon: 'Calendar', name: 'Calendar' },
-		{ icon: 'CreditCard', name: 'Card' },
-		{ icon: 'Search', name: 'Search' }
-	];
+	const icons = iconOptions;
 
-	let iconSvgs = $state({});
+	let iconSvgs: Record<string, string> = $state({});
 
 	onMount(async () => {
 		for (const { icon } of icons) {
@@ -74,24 +69,39 @@
 		<Dialog.Header>
 			<Dialog.Title class="text-center text-2xl font-semibold">Edit Channel</Dialog.Title>
 			<Dialog.Description class="text-center text-gray-500">
-				Customize your channel settings below.
+				Customize your channel behavior and appearance.
 			</Dialog.Description>
 		</Dialog.Header>
 		<div class="space-y-4">
 			<div>
-				<Label for="name" class="block text-sm font-medium text-gray-700">Channel type:</Label>
-				<Input id="name" bind:value={editedChannel.name} class="mt-1 block w-full" />
+				<Label for="type" class="block text-sm font-medium text-gray-700">Channel Action:</Label>
+				<select
+					id="type"
+					bind:value={editedChannel.type}
+					class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+				>
+					<option value="text_us">Text Us (Embedded Form)</option>
+					<option value="request_call">Request a Call (Embedded Form)</option>
+					<option value="link">External Link (URL)</option>
+				</select>
 			</div>
 
 			<div>
-				<Label for="value" class="block text-sm font-medium text-gray-700">Button text:</Label>
-				<Input id="value" bind:value={editedChannel.value} class="mt-1 block w-full" />
+				<Label for="name" class="block text-sm font-medium text-gray-700">Channel Label / Name:</Label>
+				<Input id="name" bind:value={editedChannel.name} class="mt-1 block w-full" placeholder="e.g. Text Us, Request a Call" />
 			</div>
 
 			<div>
-				<Label for="url" class="block text-sm font-medium text-gray-700">URL:</Label>
-				<Input id="url" bind:value={editedChannel.url} class="mt-1 block w-full" />
+				<Label for="value" class="block text-sm font-medium text-gray-700">Button Text:</Label>
+				<Input id="value" bind:value={editedChannel.value} class="mt-1 block w-full" placeholder="TEXT US" />
 			</div>
+
+			{#if editedChannel.type === 'link'}
+				<div>
+					<Label for="url" class="block text-sm font-medium text-gray-700">Link URL:</Label>
+					<Input id="url" bind:value={editedChannel.url} class="mt-1 block w-full" placeholder="https://..." />
+				</div>
+			{/if}
 
 			<div>
 				<Label for="color" class="block text-sm font-medium text-gray-700">Button color:</Label>

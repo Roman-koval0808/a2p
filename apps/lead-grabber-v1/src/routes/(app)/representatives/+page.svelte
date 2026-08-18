@@ -1,6 +1,8 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
+	import { enhance } from '$app/forms';
 	import { MoreHorizontal } from 'lucide-svelte';
+	import { toast } from 'svelte-sonner';
 	import { slide } from 'svelte/transition';
 	import { quintOut } from 'svelte/easing';
 
@@ -43,10 +45,7 @@
 		goto(`/representatives/${id}/edit`);
 	}
 
-	function handleDelete(id: string) {
-		// TODO: Implement delete
-		console.log('Delete:', id);
-	}
+	let deletingId: string | null = $state(null);
 
 	function toggleExpand(id: string) {
 		expandedRep = expandedRep === id ? null : id;
@@ -103,16 +102,44 @@
 					<div class="flex items-center justify-end gap-2">
 						<button
 							onclick={() => handleEdit(rep.id)}
-							class="rounded bg-[#EFEFEF] px-3 py-1 font-['Poppins'] text-sm text-[#726F6F] transition-colors hover:bg-[#E0E0E0]"
+							disabled={rep.isPending}
+							title={rep.isPending
+								? 'This is a legacy unaccepted invite — remove it and add the representative again'
+								: undefined}
+							class="rounded bg-[#EFEFEF] px-3 py-1 font-['Poppins'] text-sm text-[#726F6F] transition-colors hover:bg-[#E0E0E0] disabled:cursor-not-allowed disabled:opacity-50"
 						>
 							Edit
 						</button>
-						<button
-							onclick={() => handleDelete(rep.id)}
-							class="flex items-center gap-1 rounded bg-[#FFEBEE] px-3 py-1 font-['Poppins'] text-sm text-[#D32F2F] transition-colors hover:bg-[#FFCDD2]"
+						<form
+							method="POST"
+							action="?/deleteRepresentative"
+							use:enhance={({ cancel }) => {
+								if (!confirm(`Remove ${rep.name}? They will stop receiving callbacks.`)) {
+									cancel();
+									return;
+								}
+								deletingId = rep.id;
+								return async ({ result }) => {
+									deletingId = null;
+									if (result.type === 'failure') {
+										toast.error((result.data as any)?.error ?? 'Could not remove representative');
+										return;
+									}
+									toast.success(`${rep.name} removed`);
+									await invalidateAll();
+								};
+							}}
 						>
-							Delete
-						</button>
+							<input type="hidden" name="id" value={rep.id} />
+							<input type="hidden" name="isPending" value={rep.isPending ? 'true' : 'false'} />
+							<button
+								type="submit"
+								disabled={deletingId === rep.id}
+								class="flex items-center gap-1 rounded bg-[#FFEBEE] px-3 py-1 font-['Poppins'] text-sm text-[#D32F2F] transition-colors hover:bg-[#FFCDD2] disabled:opacity-50"
+							>
+								{deletingId === rep.id ? 'Removing…' : 'Delete'}
+							</button>
+						</form>
 						<button
 							onclick={() => toggleExpand(rep.id)}
 							class="flex h-8 w-8 items-center justify-center rounded transition-colors hover:bg-gray-100"

@@ -2,15 +2,18 @@ import { redirect } from '@sveltejs/kit';
 import type { Actions } from './$types';
 import { verifyPassword, generateToken } from '$lib/auth';
 import { prisma } from '$lib/db';
+import { safeNext } from '$lib/utils/safe-redirect';
 
 export const actions: Actions = {
-	default: async ({ locals, request, cookies }) => {
+	default: async ({ locals, request, cookies, url }) => {
 		const data = Object.fromEntries(await request.formData()) as {
 			email: string;
 			password: string;
 		};
 
-		let dest = '/dashboard';
+		// Where we were headed before the auth redirect — only if it is a safe internal path.
+		const next = safeNext(url.searchParams.get('next'));
+		let dest = next ?? '/dashboard';
 
 		try {
 			// Find user by email
@@ -40,7 +43,7 @@ export const actions: Actions = {
 				}
 			});
 
-			dest = updatedUser.platformRole === 'CLEARSKY_ADMIN' ? '/clearsky-admin' : '/dashboard';
+			dest = next ?? (updatedUser.platformRole === 'CLEARSKY_ADMIN' ? '/clearsky-admin' : '/dashboard');
 
 			// Generate token and set cookie
 			const token = await generateToken(updatedUser);

@@ -15,7 +15,16 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 import { isA2pEnabled, forwardVoiceWebhook } from '$lib/server/a2p-client';
 import { createNotification } from '$lib/utils/notifications';
-import { setIntent, setVoicemail, removeVoicemail, getState, deleteState, addVoicemailRecordingId, hasVoicemailRecordingId, removeVoicemailRecordingId } from '$lib/server/call-state';
+import {
+	setIntent,
+	setVoicemail,
+	removeVoicemail,
+	getState,
+	deleteState,
+	addVoicemailRecordingId,
+	hasVoicemailRecordingId,
+	removeVoicemailRecordingId
+} from '$lib/server/call-state';
 import { logCommunication } from '$lib/utils/communication-log';
 import { ingestTelemetryEvent } from '$lib/server/profiledb/telemetry';
 const TELNYX_PUBLIC_KEY = process.env.TELNYX_PUBLIC_KEY;
@@ -90,6 +99,13 @@ function claimTranscriptionForCall(callControlId: string): boolean {
 const webrtcCalls = new Set<string>();
 const callPartyInfo = new Map<string, { to?: string; from?: string }>();
 
+// Dialer (WebRTC softphone) OUTBOUND legs, tracked from call.answered. These are the only
+// outbound calls the orchestrator may act on (transcript → booking draft + tasks + reply);
+// other outbound legs (emergency dial ladder, transfers, server dials) stay orchestrator-skipped.
+// In-process like webrtcCalls; log-webrtc-call stamps metadata.dialer_outbound as a fallback
+// when the server restarts between answer and hangup.
+const dialerWebrtcCalls = new Set<string>();
+
 function checkAndMarkWebrtcCall(callControlId: string, payload: any): boolean {
 	if (!callControlId) return false;
 
@@ -109,7 +125,9 @@ function checkAndMarkWebrtcCall(callControlId: string, payload: any): boolean {
 		payload?.calling_party_type === 'sip' ||
 		(Array.isArray(payload?.custom_headers) &&
 			payload.custom_headers.some((h: any) =>
-				String(h?.name || '').toUpperCase().startsWith('X-RTC')
+				String(h?.name || '')
+					.toUpperCase()
+					.startsWith('X-RTC')
 			));
 
 	if (isWebrtc) {
@@ -331,7 +349,6 @@ export const POST: RequestHandler = async ({ request }) => {
 						fromIsCompany: !!fromIsCompany
 					});
 
-
 					if (!numberInfo) {
 						addPendingCall({ name: callerName, phone: fromNumber, callId: callControlId });
 						console.log('📞 Number not assigned to a company - stored in pending calls');
@@ -391,8 +408,8 @@ export const POST: RequestHandler = async ({ request }) => {
 						});
 						if (active) {
 							const clientState = Buffer.from(
-								JSON.stringify({ 
-									ivrFlowId: active.flow.id, 
+								JSON.stringify({
+									ivrFlowId: active.flow.id,
 									ivrRuleId: active.rule.id,
 									ivrPath: active.flow.title
 								})
@@ -449,16 +466,26 @@ export const POST: RequestHandler = async ({ request }) => {
 					}
 				} else {
 					// Outbound call (could be a transfer leg)
-					console.log('📞 Outbound call initiated:', callControlId, 'from:', fromNumber, 'to:', toRaw);
-					
+					console.log(
+						'📞 Outbound call initiated:',
+						callControlId,
+						'from:',
+						fromNumber,
+						'to:',
+						toRaw
+					);
+
 					// Try to link to a pending transfer
 					const parentId = payload?.parent_call_control_id as string | undefined;
 					const intentKey = `${fromNumber}|${toRaw}`;
 					const intent = intentToTransfer.get(intentKey);
 					const decodedState = safeDecodeClientState(payload?.client_state);
-					
+
 					if (decodedState?.originalCallControlId) {
-						console.log('🔗 Linking outbound leg via client_state originalCallControlId:', decodedState.originalCallControlId);
+						console.log(
+							'🔗 Linking outbound leg via client_state originalCallControlId:',
+							decodedState.originalCallControlId
+						);
 						pendingTransfers.set(callControlId, {
 							originalCallControlId: decodedState.originalCallControlId,
 							ivrFlowId: decodedState.ivrFlowId || intent?.ivrFlowId,
@@ -476,9 +503,12 @@ export const POST: RequestHandler = async ({ request }) => {
 							});
 							intentToTransfer.delete(intentKey);
 						}
-					} else if (intent && (Date.now() - intent.timestamp < 10000)) {
+					} else if (intent && Date.now() - intent.timestamp < 10000) {
 						// Fallback: Link via from/to match within 10 seconds
-						console.log('🔗 Linking outbound leg via intent mapping to original:', intent.originalCallControlId);
+						console.log(
+							'🔗 Linking outbound leg via intent mapping to original:',
+							intent.originalCallControlId
+						);
 						pendingTransfers.set(callControlId, {
 							originalCallControlId: intent.originalCallControlId,
 							ivrFlowId: intent.ivrFlowId,
@@ -516,22 +546,25 @@ export const POST: RequestHandler = async ({ request }) => {
 					).toString('base64');
 
 					try {
-						await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/gather_using_speak`, {
-							method: 'POST',
-							headers: {
-								'Content-Type': 'application/json',
-								Authorization: `Bearer ${TELNYX_API_KEY}`
-							},
-							body: JSON.stringify({
-								payload: decoded.workOrder.whisperText,
-								voice: 'female',
-								language: 'en-US',
-								minimum_digits: 1,
-								maximum_digits: 1,
-								timeout_millis: 10000,
-								client_state: nextState
-							})
-						});
+						await fetch(
+							`https://api.telnyx.com/v2/calls/${callControlId}/actions/gather_using_speak`,
+							{
+								method: 'POST',
+								headers: {
+									'Content-Type': 'application/json',
+									Authorization: `Bearer ${TELNYX_API_KEY}`
+								},
+								body: JSON.stringify({
+									payload: decoded.workOrder.whisperText,
+									voice: 'female',
+									language: 'en-US',
+									minimum_digits: 1,
+									maximum_digits: 1,
+									timeout_millis: 10000,
+									client_state: nextState
+								})
+							}
+						);
 					} catch (err) {
 						console.error('❌ Tech whisper gather failed:', err);
 					}
@@ -564,9 +597,7 @@ export const POST: RequestHandler = async ({ request }) => {
 				// don't double-record transfer legs (which answer before bridge and record on bridge).
 				const isWebrtcCall = checkAndMarkWebrtcCall(callControlId, payload);
 				const isOutboundOrWebrtc =
-					isWebrtcCall ||
-					payload?.direction === 'outbound' ||
-					payload?.direction === 'outgoing';
+					isWebrtcCall || payload?.direction === 'outbound' || payload?.direction === 'outgoing';
 
 				if (isOutboundOrWebrtc) {
 					if (isWebrtcCall) {
@@ -610,11 +641,17 @@ export const POST: RequestHandler = async ({ request }) => {
 									}
 								});
 							}
+							// Mark this leg as a dialer OUTBOUND call so the hangup + recording.saved
+							// handlers stamp the comm log and the orchestrator may process its transcript.
+							dialerWebrtcCalls.add(callControlId);
 						} catch (err) {
 							console.error('❌ Failed to register CallLog for WebRTC dialer call:', err);
 						}
 					} else {
-						console.log('📞 Outbound transfer leg answered, bypassing IVR logic for control ID:', callControlId);
+						console.log(
+							'📞 Outbound transfer leg answered, bypassing IVR logic for control ID:',
+							callControlId
+						);
 					}
 					break;
 				}
@@ -635,7 +672,7 @@ export const POST: RequestHandler = async ({ request }) => {
 				if (isUnavailable && callControlId) {
 					const baseUrl = PUBLIC_BASE_URL || 'https://example.com';
 					const resolvedUrl = resolveAudioUrl(allUnavailableAudioUrl, baseUrl);
-					
+
 					const goesToVoicemail = !!ivrFlowId;
 					const nextState = Buffer.from(
 						JSON.stringify(
@@ -652,7 +689,10 @@ export const POST: RequestHandler = async ({ request }) => {
 					try {
 						if (resolvedUrl) {
 							await telnyxPlayback(callControlId, resolvedUrl, nextState);
-							console.log(`▶️ Playing unavailable audio url (${goesToVoicemail ? 'going to voicemail' : 'hanging up'}):`, resolvedUrl);
+							console.log(
+								`▶️ Playing unavailable audio url (${goesToVoicemail ? 'going to voicemail' : 'hanging up'}):`,
+								resolvedUrl
+							);
 						} else {
 							await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/speak`, {
 								method: 'POST',
@@ -666,7 +706,9 @@ export const POST: RequestHandler = async ({ request }) => {
 									client_state: nextState
 								})
 							});
-							console.log(`▶️ Speaking default unavailable message (${goesToVoicemail ? 'going to voicemail' : 'hanging up'})`);
+							console.log(
+								`▶️ Speaking default unavailable message (${goesToVoicemail ? 'going to voicemail' : 'hanging up'})`
+							);
 						}
 					} catch (err) {
 						console.error('❌ Failed to play unavailable audio/speak:', err);
@@ -765,7 +807,9 @@ export const POST: RequestHandler = async ({ request }) => {
 							bridgeCustomer(callControlId, decoded.workOrder, companyNumber).catch(console.error);
 						});
 					} else {
-						console.log('❌ Tech rejected or timed out on emergency bridge. Hanging up Tech leg and advancing ladder.');
+						console.log(
+							'❌ Tech rejected or timed out on emergency bridge. Hanging up Tech leg and advancing ladder.'
+						);
 						await telnyxHangup(callControlId);
 
 						const { handleBridgeFailure } = await import('$lib/server/scenarios/s3-escalation');
@@ -779,7 +823,9 @@ export const POST: RequestHandler = async ({ request }) => {
 							decoded.workOrder.currentRung++;
 							const { startDialLadder } = await import('$lib/server/emergency-dial');
 							// payload.from is the company number that originated the outbound call to the tech
-							await startDialLadder(decoded.workOrder, payload?.from as string).catch(console.error);
+							await startDialLadder(decoded.workOrder, payload?.from as string).catch(
+								console.error
+							);
 						}
 					}
 					break;
@@ -815,7 +861,8 @@ export const POST: RequestHandler = async ({ request }) => {
 						transferAudioUrl?: string;
 					}[]) ?? [];
 				const failoverCount = rule.failoverCount ?? 2;
-				const failoverDelaySecs = (rule as { failoverDelayMinutes?: number }).failoverDelayMinutes ?? 30;
+				const failoverDelaySecs =
+					(rule as { failoverDelayMinutes?: number }).failoverDelayMinutes ?? 30;
 				const failoverTimeoutMillis = failoverDelaySecs * 1000;
 				const failoverUrl = resolveAudioUrl(rule.failoverAudioUrl, baseUrl);
 				const hangupUrl = resolveAudioUrl(rule.hangupAudioUrl, baseUrl);
@@ -824,7 +871,9 @@ export const POST: RequestHandler = async ({ request }) => {
 				const encodeClientState = (extra: Record<string, unknown>) => {
 					const decoded = safeDecodeClientState(payload?.client_state);
 					let ivrPath = decoded?.ivrPath || '';
-					return Buffer.from(JSON.stringify({ ivrFlowId, ivrRuleId, ivrPath, ...extra })).toString('base64');
+					return Buffer.from(JSON.stringify({ ivrFlowId, ivrRuleId, ivrPath, ...extra })).toString(
+						'base64'
+					);
 				};
 
 				// Timeout or no digits: failover or hangup
@@ -886,16 +935,19 @@ export const POST: RequestHandler = async ({ request }) => {
 							headers: TELNYX_HEADERS,
 							body: JSON.stringify({})
 						}).catch(() => null);
-						
+
 						// Provide prompt
 						await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/speak`, {
 							method: 'POST',
 							headers: TELNYX_HEADERS,
 							body: JSON.stringify({
-								payload: 'Please leave your message after the tone. When you are finished, you may hang up.',
+								payload:
+									'Please leave your message after the tone. When you are finished, you may hang up.',
 								voice: 'female',
 								language: 'en-US',
-								client_state: Buffer.from(JSON.stringify({ isVoicemailPrompt: true, ivrFlowId, ivrRuleId })).toString('base64')
+								client_state: Buffer.from(
+									JSON.stringify({ isVoicemailPrompt: true, ivrFlowId, ivrRuleId })
+								).toString('base64')
 							})
 						});
 						console.log('📞 IVR voicemail prompt started (#)');
@@ -933,13 +985,18 @@ export const POST: RequestHandler = async ({ request }) => {
 				}
 
 				const match = keyPrompts.find((p) => String(p.key).trim() === digit);
-				
+
 				// --- GAP 6: EMERGENCY BYPASS & FLAG ---
 				const isEmergency = !!match?.name?.toLowerCase().includes('emergency');
 				const callPriority = isEmergency ? 'emergency' : 'standard';
 
 				if (match) {
-					await setIntent(callControlId, String(match.key), match.name || String(match.key), 'high');
+					await setIntent(
+						callControlId,
+						String(match.key),
+						match.name || String(match.key),
+						'high'
+					);
 				}
 
 				if (match?.extension) {
@@ -947,37 +1004,61 @@ export const POST: RequestHandler = async ({ request }) => {
 					const transferAudioUrl = match.transferAudioUrl
 						? resolveAudioUrl(match.transferAudioUrl, baseUrl)
 						: null;
-					
+
 					// Update path in client state
 					const decoded = safeDecodeClientState(payload?.client_state);
 					const currentPath = decoded?.ivrPath || '';
-					const newPath = currentPath ? `${currentPath} > ${match.name || digit}` : (match.name || digit);
+					const newPath = currentPath
+						? `${currentPath} > ${match.name || digit}`
+						: match.name || digit;
 
 					if (transferAudioUrl) {
 						// Play transfer audio first, then transfer on playback.ended
 						const transferState = Buffer.from(
-							JSON.stringify({ 
-								afterPlaybackTransfer: true, 
-								transferTo: to, 
-								ivrFlowId, 
-								ivrRuleId, 
+							JSON.stringify({
+								afterPlaybackTransfer: true,
+								transferTo: to,
+								ivrFlowId,
+								ivrRuleId,
 								ivrPath: newPath,
 								callPriority
 							})
 						).toString('base64');
 						await telnyxPlayback(callControlId, transferAudioUrl, transferState);
-						console.log('▶️ IVR playing transfer audio for', match.name ?? digit, isEmergency ? '(EMERGENCY)' : '');
+						console.log(
+							'▶️ IVR playing transfer audio for',
+							match.name ?? digit,
+							isEmergency ? '(EMERGENCY)' : ''
+						);
 					} else {
-						const transferLegId = await telnyxTransfer(callControlId, to, ivrFlowId, ivrRuleId, newPath, callPriority);
+						const transferLegId = await telnyxTransfer(
+							callControlId,
+							to,
+							ivrFlowId,
+							ivrRuleId,
+							newPath,
+							callPriority
+						);
 						if (transferLegId) {
 							pendingTransfers.set(transferLegId, {
 								originalCallControlId: callControlId,
 								ivrFlowId,
 								ivrRuleId
 							});
-							console.log('📞 IVR transfer to', to, match.name ?? digit, '| tracking leg', transferLegId);
+							console.log(
+								'📞 IVR transfer to',
+								to,
+								match.name ?? digit,
+								'| tracking leg',
+								transferLegId
+							);
 						} else {
-							console.log('📞 IVR transfer to', to, match.name ?? digit, isEmergency ? '(EMERGENCY)' : '');
+							console.log(
+								'📞 IVR transfer to',
+								to,
+								match.name ?? digit,
+								isEmergency ? '(EMERGENCY)' : ''
+							);
 						}
 					}
 				} else if (match) {
@@ -987,13 +1068,19 @@ export const POST: RequestHandler = async ({ request }) => {
 						method: 'POST',
 						headers: TELNYX_HEADERS,
 						body: JSON.stringify({
-							payload: 'Please leave your message after the tone. When you are finished, you may hang up.',
+							payload:
+								'Please leave your message after the tone. When you are finished, you may hang up.',
 							voice: 'female',
 							language: 'en-US',
-							client_state: Buffer.from(JSON.stringify({ isVoicemailPrompt: true, ivrFlowId, ivrRuleId })).toString('base64')
+							client_state: Buffer.from(
+								JSON.stringify({ isVoicemailPrompt: true, ivrFlowId, ivrRuleId })
+							).toString('base64')
 						})
 					});
-					console.log('📞 IVR key pressed but no extension provided, going to voicemail:', match.name ?? digit);
+					console.log(
+						'📞 IVR key pressed but no extension provided, going to voicemail:',
+						match.name ?? digit
+					);
 				} else {
 					// Unknown key: treat like timeout, failover or hangup
 					if (ivrRetry >= failoverCount) {
@@ -1043,8 +1130,6 @@ export const POST: RequestHandler = async ({ request }) => {
 				if (!callControlId || !payload?.client_state) break;
 				const decoded = safeDecodeClientState(payload.client_state);
 				if (decoded) {
-
-
 					if (decoded.afterPlaybackHangup) {
 						await telnyxHangup(callControlId);
 						console.log('📞 IVR playback (hangup) ended, hanging up');
@@ -1066,7 +1151,12 @@ export const POST: RequestHandler = async ({ request }) => {
 								ivrRuleId: decoded.ivrRuleId
 							});
 						}
-						console.log('📞 IVR transfer to', decoded.transferTo, 'after transfer audio | tracking leg', transferLegId);
+						console.log(
+							'📞 IVR transfer to',
+							decoded.transferTo,
+							'after transfer audio | tracking leg',
+							transferLegId
+						);
 						break;
 					}
 					if (decoded.isVoicemailPrompt) {
@@ -1092,22 +1182,28 @@ export const POST: RequestHandler = async ({ request }) => {
 							})
 						).toString('base64');
 						try {
-							const res = await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/record_start`, {
-								method: 'POST',
-								headers: TELNYX_HEADERS,
-								body: JSON.stringify({
-									format: 'mp3',
-									channels: 'single',
-									client_state: recordState
-								})
-							});
+							const res = await fetch(
+								`https://api.telnyx.com/v2/calls/${callControlId}/actions/record_start`,
+								{
+									method: 'POST',
+									headers: TELNYX_HEADERS,
+									body: JSON.stringify({
+										format: 'mp3',
+										channels: 'single',
+										client_state: recordState
+									})
+								}
+							);
 							const resData = await res.json().catch(() => null);
 							const recordingId = resData?.data?.recording_id;
 							if (recordingId) {
 								console.log('🎙️ Voicemail recording started, id:', recordingId);
 								await addVoicemailRecordingId(callControlId, recordingId);
 							} else {
-								console.warn('⚠️ Voicemail recording started but no recording_id in response:', resData);
+								console.warn(
+									'⚠️ Voicemail recording started but no recording_id in response:',
+									resData
+								);
 							}
 						} catch (err) {
 							console.error('❌ Failed to start voicemail recording:', err);
@@ -1163,7 +1259,10 @@ export const POST: RequestHandler = async ({ request }) => {
 				// WebRTC dialer calls bridge before they answer — record_start here always 90034s.
 				// They are recorded on call.answered instead; skip to avoid the noise.
 				if (checkAndMarkWebrtcCall(callControlId, payload)) {
-					console.log('⏭️ Skipping record_start on bridge for WebRTC call (records on answer):', callControlId);
+					console.log(
+						'⏭️ Skipping record_start on bridge for WebRTC call (records on answer):',
+						callControlId
+					);
 					break;
 				}
 				try {
@@ -1213,8 +1312,11 @@ export const POST: RequestHandler = async ({ request }) => {
 				if (payload?.client_state) {
 					decodedHangupState = safeDecodeClientState(payload.client_state);
 				}
-				
-				if (decodedHangupState?.isDialLadderTechLeg && noAnswerCauses.some((c) => hangupCause.toLowerCase().includes(c))) {
+
+				if (
+					decodedHangupState?.isDialLadderTechLeg &&
+					noAnswerCauses.some((c) => hangupCause.toLowerCase().includes(c))
+				) {
 					console.log(`❌ Tech leg failed with cause ${hangupCause}. Advancing ladder.`);
 					const { handleBridgeFailure } = await import('$lib/server/scenarios/s3-escalation');
 					const result = await handleBridgeFailure({
@@ -1227,7 +1329,9 @@ export const POST: RequestHandler = async ({ request }) => {
 						decodedHangupState.workOrder.currentRung++;
 						const { startDialLadder } = await import('$lib/server/emergency-dial');
 						// payload.from is the company number
-						await startDialLadder(decodedHangupState.workOrder, payload?.from as string).catch(console.error);
+						await startDialLadder(decodedHangupState.workOrder, payload?.from as string).catch(
+							console.error
+						);
 					}
 				}
 
@@ -1235,7 +1339,12 @@ export const POST: RequestHandler = async ({ request }) => {
 				if (pendingTransfer && noAnswerCauses.some((c) => hangupCause.toLowerCase().includes(c))) {
 					pendingTransfers.delete(callControlId);
 					const { originalCallControlId, ivrFlowId: tFlowId, ivrRuleId: tRuleId } = pendingTransfer;
-					console.log('📞 Transfer not answered (', hangupCause, '), playing voicemail on original caller', originalCallControlId);
+					console.log(
+						'📞 Transfer not answered (',
+						hangupCause,
+						'), playing voicemail on original caller',
+						originalCallControlId
+					);
 					try {
 						// Mark call as going to voicemail
 						await setVoicemail(originalCallControlId);
@@ -1256,21 +1365,37 @@ export const POST: RequestHandler = async ({ request }) => {
 							await telnyxPlayback(
 								originalCallControlId,
 								voicemailUrl,
-								Buffer.from(JSON.stringify({ isVoicemailPrompt: true, ivrFlowId: tFlowId, ivrRuleId: tRuleId })).toString('base64')
+								Buffer.from(
+									JSON.stringify({
+										isVoicemailPrompt: true,
+										ivrFlowId: tFlowId,
+										ivrRuleId: tRuleId
+									})
+								).toString('base64')
 							);
 							console.log('🎙️ Voicemail prompt playback started');
 						} else {
 							// No failover audio configured — just speak a default message
-							await fetch(`https://api.telnyx.com/v2/calls/${originalCallControlId}/actions/speak`, {
-								method: 'POST',
-								headers: TELNYX_HEADERS,
-								body: JSON.stringify({
-									payload: 'Unfortunately no one is available. Please leave a message after the tone.',
-									voice: 'female',
-									language: 'en-US',
-									client_state: Buffer.from(JSON.stringify({ isVoicemailPrompt: true, ivrFlowId: tFlowId, ivrRuleId: tRuleId })).toString('base64')
-								})
-							});
+							await fetch(
+								`https://api.telnyx.com/v2/calls/${originalCallControlId}/actions/speak`,
+								{
+									method: 'POST',
+									headers: TELNYX_HEADERS,
+									body: JSON.stringify({
+										payload:
+											'Unfortunately no one is available. Please leave a message after the tone.',
+										voice: 'female',
+										language: 'en-US',
+										client_state: Buffer.from(
+											JSON.stringify({
+												isVoicemailPrompt: true,
+												ivrFlowId: tFlowId,
+												ivrRuleId: tRuleId
+											})
+										).toString('base64')
+									})
+								}
+							);
 							console.log('🎙️ Default voicemail TTS started (no failover audio configured)');
 						}
 					} catch (err) {
@@ -1280,7 +1405,10 @@ export const POST: RequestHandler = async ({ request }) => {
 				} else if (pendingTransfer) {
 					// Transfer leg hung up for another reason (e.g. answered then caller hung up) — clean up
 					pendingTransfers.delete(callControlId);
-					console.log('📞 Transfer leg hung up (detected via pendingTransfers), skipping CommunicationLog creation:', callControlId);
+					console.log(
+						'📞 Transfer leg hung up (detected via pendingTransfers), skipping CommunicationLog creation:',
+						callControlId
+					);
 					await deleteState(callControlId);
 					break;
 				}
@@ -1295,9 +1423,13 @@ export const POST: RequestHandler = async ({ request }) => {
 					(callLog?.metadata as { direction?: string })?.direction ?? 'incoming';
 				const direction = directionFromMeta === 'incoming' ? 'inbound' : 'outbound';
 				if (callLog) {
-					const parentId = (callLog.metadata as any)?.parent_call_control_id || payload?.parent_call_control_id;
+					const parentId =
+						(callLog.metadata as any)?.parent_call_control_id || payload?.parent_call_control_id;
 					if (parentId) {
-						console.log('📞 Transfer leg hung up (detected via parent ID), skipping CommunicationLog creation:', callControlId);
+						console.log(
+							'📞 Transfer leg hung up (detected via parent ID), skipping CommunicationLog creation:',
+							callControlId
+						);
 						await deleteState(callControlId);
 						break;
 					}
@@ -1310,7 +1442,9 @@ export const POST: RequestHandler = async ({ request }) => {
 					const numberInfo = toInfo ?? fromInfo;
 					const companyNumber = toInfo ? callLog.to : fromInfo ? callLog.from : null;
 					const contactNumberRaw = toInfo ? callLog.from : fromInfo ? callLog.to : null;
-					const contactNumber = contactNumberRaw?.includes('anonymous') ? 'Anonymous' : contactNumberRaw;
+					const contactNumber = contactNumberRaw?.includes('anonymous')
+						? 'Anonymous'
+						: contactNumberRaw;
 					if (numberInfo?.companyId && contactNumber && companyNumber) {
 						let contact = await prisma.contact.findFirst({
 							where: { companyId: numberInfo.companyId, phone: contactNumber }
@@ -1319,14 +1453,18 @@ export const POST: RequestHandler = async ({ request }) => {
 
 						// --- DROP CALL LOGIC ---
 						const callState = await getState(callControlId);
-						let intentInfo: any = callState?.intentDigit ? {
-							digit: callState.intentDigit,
-							intentName: callState.intentName,
-							confidence: callState.intentConfidence,
-							timestamp: callState.intentTimestamp ? callState.intentTimestamp.getTime() : Date.now()
-						} : undefined;
+						let intentInfo: any = callState?.intentDigit
+							? {
+									digit: callState.intentDigit,
+									intentName: callState.intentName,
+									confidence: callState.intentConfidence,
+									timestamp: callState.intentTimestamp
+										? callState.intentTimestamp.getTime()
+										: Date.now()
+								}
+							: undefined;
 						const hasVoicemail = callState?.hasVoicemail || false;
-						
+
 						// Check if hangup was very fast after digit press
 						if (intentInfo) {
 							const timeSinceIntentMs = Date.now() - intentInfo.timestamp;
@@ -1358,7 +1496,11 @@ export const POST: RequestHandler = async ({ request }) => {
 									// Deliberately NOT under `call_control_id`: the recording.saved handler
 									// matches that key and would overwrite this clean attempt with the
 									// menu-audio transcript for numbers that record-from-answer.
-									metadata: { drop_attempt_call_id: callControlId, drop_call: true, known_contact: true }
+									metadata: {
+										drop_attempt_call_id: callControlId,
+										drop_call: true,
+										known_contact: true
+									}
 								});
 								console.log('📞 Known caller drop — logged failed attempt on existing profile');
 							} else {
@@ -1391,7 +1533,11 @@ export const POST: RequestHandler = async ({ request }) => {
 						const last10Contact = (contactNumber || '').replace(/\D/g, '').slice(-10);
 						const existingForCall = (
 							await prisma.communicationLog.findMany({
-								where: { companyId: numberInfo.companyId, type: 'voice', created: { gte: dupSince } },
+								where: {
+									companyId: numberInfo.companyId,
+									type: 'voice',
+									created: { gte: dupSince }
+								},
 								orderBy: { created: 'desc' },
 								take: 20
 							})
@@ -1407,7 +1553,10 @@ export const POST: RequestHandler = async ({ request }) => {
 							// (and its recording). So require the candidate to have no call_control_id yet.
 							const isMatchPhone =
 								!meta?.call_control_id &&
-								!(env.TELNYX_SIP_CONNECTION_ID?.trim() && payload?.connection_id === env.TELNYX_SIP_CONNECTION_ID?.trim()) &&
+								!(
+									env.TELNYX_SIP_CONNECTION_ID?.trim() &&
+									payload?.connection_id === env.TELNYX_SIP_CONNECTION_ID?.trim()
+								) &&
 								l.direction === 'outbound' &&
 								!!last10Contact &&
 								((l.destination || '').replace(/\D/g, '').slice(-10) === last10Contact ||
@@ -1437,6 +1586,7 @@ export const POST: RequestHandler = async ({ request }) => {
 											call_control_id: callControlId,
 											answered: wasAnswered,
 											no_answer: outboundNoAnswer,
+											dialer_outbound: dialerWebrtcCalls.has(callControlId) || undefined,
 											hangup_at: new Date().toISOString()
 										} as any
 									}
@@ -1452,7 +1602,9 @@ export const POST: RequestHandler = async ({ request }) => {
 						// Race-safe in-memory claim (the DB check above can race with a concurrent
 						// recording.saved event). Whoever claims this call first creates the log.
 						if (!claimLogForCall(callControlId)) {
-							console.log('📝 Another event is already logging this call — skipping duplicate on hangup');
+							console.log(
+								'📝 Another event is already logging this call — skipping duplicate on hangup'
+							);
 							await deleteState(callControlId);
 							break;
 						}
@@ -1465,7 +1617,8 @@ export const POST: RequestHandler = async ({ request }) => {
 								})
 							: null;
 
-						const providedCommId = decodedHangupState?.commId || decodedHangupState?.workOrder?.commId;
+						const providedCommId =
+							decodedHangupState?.commId || decodedHangupState?.workOrder?.commId;
 						let commThread: any = null;
 						if (providedCommId) {
 							commThread = await prisma.communicationThread.findUnique({
@@ -1511,7 +1664,11 @@ export const POST: RequestHandler = async ({ request }) => {
 						// "completed (Xs)", which made an unanswered ring look like a real conversation.
 						const wasAnswered = callControlId ? answeredCalls.has(callControlId) : true;
 						const outboundNoAnswer = direction === 'outbound' && !wasAnswered && !isDropCall;
-						const callVerb = isDropCall ? 'attempted' : outboundNoAnswer ? 'not answered' : 'completed';
+						const callVerb = isDropCall
+							? 'attempted'
+							: outboundNoAnswer
+								? 'not answered'
+								: 'completed';
 						const createdLog = await prisma.communicationLog.create({
 							data: {
 								type: 'voice',
@@ -1533,6 +1690,7 @@ export const POST: RequestHandler = async ({ request }) => {
 									origin: directionFromMeta,
 									answered: wasAnswered,
 									no_answer: outboundNoAnswer,
+									dialer_outbound: dialerWebrtcCalls.has(callControlId) || undefined,
 									ivr_intent: intentInfo?.intentName,
 									ivr_digit: intentInfo?.digit,
 									ivr_confidence: intentInfo?.confidence
@@ -1544,7 +1702,7 @@ export const POST: RequestHandler = async ({ request }) => {
 							'📝 Created CommunicationLog on hangup (duration, recording link added when saved)',
 							callControlId
 						);
-						
+
 						// Clean up tracking sets/maps
 						await deleteState(callControlId);
 
@@ -1554,14 +1712,17 @@ export const POST: RequestHandler = async ({ request }) => {
 							type: 'voice',
 							direction: direction as 'inbound' | 'outbound',
 							// Outbound: the source is OUR number, not the person we called.
-							source_name: direction === 'outbound' ? companyNumber : contact?.name || contactNumber,
+							source_name:
+								direction === 'outbound' ? companyNumber : contact?.name || contactNumber,
 							source_identifier: direction === 'outbound' ? companyNumber : contactNumber,
-							message_preview: hangupDuration != null
-								? `Call ${callVerb} (${Math.round(hangupDuration)}s${outboundNoAnswer ? ' ring' : ''})`
-								: `Call ${callVerb}`,
-							content: hangupDuration != null
-								? `Call ${callVerb} (${Math.round(hangupDuration)}s${outboundNoAnswer ? ' ring' : ''})`
-								: `Call ${callVerb}`,
+							message_preview:
+								hangupDuration != null
+									? `Call ${callVerb} (${Math.round(hangupDuration)}s${outboundNoAnswer ? ' ring' : ''})`
+									: `Call ${callVerb}`,
+							content:
+								hangupDuration != null
+									? `Call ${callVerb} (${Math.round(hangupDuration)}s${outboundNoAnswer ? ' ring' : ''})`
+									: `Call ${callVerb}`,
 							communication_log_id: createdLog.id,
 							thread_id: contactNumber
 						});
@@ -1600,7 +1761,9 @@ export const POST: RequestHandler = async ({ request }) => {
 										where: { id: matchingThread.id },
 										data: { messages: [...existingMsgs, callSummaryEntry] }
 									});
-									console.log(`📎 Attached call summary to thread ${matchingThread.threadId} (${Math.round(hangupDuration)}s)`);
+									console.log(
+										`📎 Attached call summary to thread ${matchingThread.threadId} (${Math.round(hangupDuration)}s)`
+									);
 								}
 							} catch (attachErr) {
 								console.error('⚠️ Failed to attach call summary to thread:', attachErr);
@@ -1680,53 +1843,53 @@ export const POST: RequestHandler = async ({ request }) => {
 					try {
 						const decoded = safeDecodeClientState(payload.client_state);
 						if (decoded) {
-						// If we're in a transfer playback, check if pressed digit is this rule's back digit
-						if (decoded.afterPlaybackTransfer && decoded.ivrFlowId && decoded.ivrRuleId) {
-							const flow = await prisma.callFlow.findUnique({
-								where: { id: decoded.ivrFlowId },
-								include: { rules: { where: { id: decoded.ivrRuleId } } }
-							});
-							const rule = flow?.rules?.[0];
-							const backDigit = (rule as { backDigit?: string | null })?.backDigit?.trim();
-							if (!backDigit || dtmfDigit !== backDigit) break;
-							// Stop current playback and return to menu
-							await fetch(
-								`https://api.telnyx.com/v2/calls/${callControlId}/actions/playback_stop`,
-								{
-									method: 'POST',
-									headers: TELNYX_HEADERS,
-									body: JSON.stringify({})
-								}
-							);
-							if (rule?.promptsAudioUrl || playPublic) {
-								const baseUrl = PUBLIC_BASE_URL || 'https://example.com';
-								const promptsUrl = resolveAudioUrl(rule?.promptsAudioUrl, baseUrl);
-								const nextState = Buffer.from(
-									JSON.stringify({
-										ivrFlowId: decoded.ivrFlowId,
-										ivrRuleId: decoded.ivrRuleId,
-										ivrRetry: 0
-									})
-								).toString('base64');
+							// If we're in a transfer playback, check if pressed digit is this rule's back digit
+							if (decoded.afterPlaybackTransfer && decoded.ivrFlowId && decoded.ivrRuleId) {
+								const flow = await prisma.callFlow.findUnique({
+									where: { id: decoded.ivrFlowId },
+									include: { rules: { where: { id: decoded.ivrRuleId } } }
+								});
+								const rule = flow?.rules?.[0];
+								const backDigit = (rule as { backDigit?: string | null })?.backDigit?.trim();
+								if (!backDigit || dtmfDigit !== backDigit) break;
+								// Stop current playback and return to menu
 								await fetch(
-									`https://api.telnyx.com/v2/calls/${callControlId}/actions/gather_using_audio`,
+									`https://api.telnyx.com/v2/calls/${callControlId}/actions/playback_stop`,
 									{
 										method: 'POST',
 										headers: TELNYX_HEADERS,
-										body: JSON.stringify({
-											audio_url: promptsUrl,
-											minimum_digits: 1,
-											maximum_digits: 1,
-											timeout_millis: 10000,
-											terminating_digit: '#',
-											client_state: nextState
-										})
+										body: JSON.stringify({})
 									}
 								);
-								console.log('📞 IVR back digit pressed during transfer, returning to menu');
+								if (rule?.promptsAudioUrl || playPublic) {
+									const baseUrl = PUBLIC_BASE_URL || 'https://example.com';
+									const promptsUrl = resolveAudioUrl(rule?.promptsAudioUrl, baseUrl);
+									const nextState = Buffer.from(
+										JSON.stringify({
+											ivrFlowId: decoded.ivrFlowId,
+											ivrRuleId: decoded.ivrRuleId,
+											ivrRetry: 0
+										})
+									).toString('base64');
+									await fetch(
+										`https://api.telnyx.com/v2/calls/${callControlId}/actions/gather_using_audio`,
+										{
+											method: 'POST',
+											headers: TELNYX_HEADERS,
+											body: JSON.stringify({
+												audio_url: promptsUrl,
+												minimum_digits: 1,
+												maximum_digits: 1,
+												timeout_millis: 10000,
+												terminating_digit: '#',
+												client_state: nextState
+											})
+										}
+									);
+									console.log('📞 IVR back digit pressed during transfer, returning to menu');
+								}
 							}
 						}
-					}
 					} catch (_) {}
 				}
 				break;
@@ -1755,7 +1918,7 @@ export const POST: RequestHandler = async ({ request }) => {
 								const localFilename = `${(recId as string) || callControlId}.mp3`;
 								const localFilePath = join(recordingsDir, localFilename);
 								await writeFile(localFilePath, buffer);
-								
+
 								const baseUrl = PUBLIC_BASE_URL || 'https://example.com';
 								const localUrl = `${baseUrl}/uploads/recordings/${localFilename}`;
 								recUrls = {
@@ -1792,9 +1955,10 @@ export const POST: RequestHandler = async ({ request }) => {
 								decoded = safeDecodeClientState(payload.client_state);
 							} catch (e) {}
 						}
-						const parentId = (callLog.metadata as any)?.parent_call_control_id || 
-						                 payload?.parent_call_control_id || 
-						                 decoded?.originalCallControlId;
+						const parentId =
+							(callLog.metadata as any)?.parent_call_control_id ||
+							payload?.parent_call_control_id ||
+							decoded?.originalCallControlId;
 						const targetCallControlId = parentId || callControlId;
 
 						// Resolve company by which number is the company's IVR (in CompanyPhoneNumber). The other is the contact.
@@ -1808,7 +1972,9 @@ export const POST: RequestHandler = async ({ request }) => {
 						const numberInfo = toInfo ?? fromInfo;
 						const companyNumber = toInfo ? callLog.to : fromInfo ? callLog.from : null;
 						const contactNumberRaw = toInfo ? callLog.from : fromInfo ? callLog.to : null;
-						const contactNumber = contactNumberRaw?.includes('anonymous') ? 'Anonymous' : contactNumberRaw;
+						const contactNumber = contactNumberRaw?.includes('anonymous')
+							? 'Anonymous'
+							: contactNumberRaw;
 						const direction = (callLog.metadata as { direction?: string })?.direction ?? 'incoming';
 
 						if (!numberInfo?.companyId || !contactNumber) {
@@ -1845,25 +2011,26 @@ export const POST: RequestHandler = async ({ request }) => {
 								orderBy: { created: 'desc' },
 								take: 20
 							});
-							const existingLog = existingLogs.find(
-								(l) => {
-									const meta = l.metadata as Record<string, unknown>;
-									const isMatchCallId =
-										meta?.call_control_id === targetCallControlId ||
-										meta?.call_control_id === callControlId ||
-										meta?.call_leg_id === callControlId ||
-										meta?.call_session_id === (payload?.call_session_id as string);
-									// Never attach this recording to a log already tied to a DIFFERENT call (it has a
-									// call_control_id). Phone-only fallback is for an un-keyed duplicate of THIS call.
-									const isMatchPhone =
-										!meta?.call_control_id &&
-										!(env.TELNYX_SIP_CONNECTION_ID?.trim() && payload?.connection_id === env.TELNYX_SIP_CONNECTION_ID?.trim()) &&
-										l.direction === 'outbound' &&
-										(l.destination === contactNumber ||
-											(contactNumber && l.destination?.includes(contactNumber)));
-									return isMatchCallId || isMatchPhone;
-								}
-							);
+							const existingLog = existingLogs.find((l) => {
+								const meta = l.metadata as Record<string, unknown>;
+								const isMatchCallId =
+									meta?.call_control_id === targetCallControlId ||
+									meta?.call_control_id === callControlId ||
+									meta?.call_leg_id === callControlId ||
+									meta?.call_session_id === (payload?.call_session_id as string);
+								// Never attach this recording to a log already tied to a DIFFERENT call (it has a
+								// call_control_id). Phone-only fallback is for an un-keyed duplicate of THIS call.
+								const isMatchPhone =
+									!meta?.call_control_id &&
+									!(
+										env.TELNYX_SIP_CONNECTION_ID?.trim() &&
+										payload?.connection_id === env.TELNYX_SIP_CONNECTION_ID?.trim()
+									) &&
+									l.direction === 'outbound' &&
+									(l.destination === contactNumber ||
+										(contactNumber && l.destination?.includes(contactNumber)));
+								return isMatchCallId || isMatchPhone;
+							});
 
 							let transcript = '';
 							let summary = '';
@@ -1881,6 +2048,14 @@ export const POST: RequestHandler = async ({ request }) => {
 							// skipped. Scoping it to the callback threw "webhookTrace is not defined" and
 							// crashed the whole call.recording.saved handler.
 							const webhookTrace: string[] = [];
+							// Dismissal state for silent/accidental calls. Declared at this scope so the
+							// log metadata + orchestrator gate below can see it on every path (analysis
+							// runs inside `if (transcript)`, but recordingMetadata is outside it).
+							let dismissed = false;
+							let dismissReason: string | null = null;
+							// Same scope reasoning: the recording metadata below stamps the IVR path
+							// on dismissed calls, but it is resolved inside `if (transcript)`.
+							let finalIvrPath = 'Direct Call';
 							// Hoisted so the pipeline callback (which resolves AFTER the log is written)
 							// can find the row to patch its trace onto. See the write-back at the end of
 							// the .then() below.
@@ -1915,7 +2090,9 @@ export const POST: RequestHandler = async ({ request }) => {
 								});
 							}
 
-							const hasVmRecId = recId ? await hasVoicemailRecordingId(callControlId, recId) : false;
+							const hasVmRecId = recId
+								? await hasVoicemailRecordingId(callControlId, recId)
+								: false;
 							const isVoicemailRecording = hasVmRecId || (hasVoicemail && recordingCount >= 2);
 
 							if (recId && hasVmRecId) {
@@ -1932,11 +2109,20 @@ export const POST: RequestHandler = async ({ request }) => {
 							// intent), overwrote the log's content with the greeting, and fired the whole
 							// downstream twice. `channels` is the reliable discriminator: unlike the call-state
 							// flags it survives the deleteState() that call.hangup performs before we get here.
+							const existingLogMeta = (existingLog?.metadata as Record<string, unknown>) || {};
 							const isOutboundCall =
 								direction === 'outbound' ||
 								direction === 'outgoing' ||
 								existingLog?.direction === 'outbound' ||
-								!!existingLog?.metadata?.dialer_outbound;
+								existingLogMeta.dialer_outbound === true;
+							// Dialer (WebRTC softphone) outbound calls: the ONLY outbound legs the
+							// orchestrator acts on. (Emergency ladder legs and transfer legs stay
+							// skipped.) `existingLog` may lag the hangup stamp by a second — the
+							// in-process set covers the gap, metadata.dialer_outbound is the durable
+							// record once log-webrtc-call enriches.
+							const dialerOutboundCall =
+								isOutboundCall &&
+								(existingLogMeta.dialer_outbound === true || dialerWebrtcCalls.has(callControlId));
 
 							const recordingChannels =
 								typeof payload?.channels === 'string' ? (payload.channels as string) : null;
@@ -1944,10 +2130,14 @@ export const POST: RequestHandler = async ({ request }) => {
 							const shouldTranscribe = isOutboundCall
 								? true
 								: recordingChannels
-									? (hasVoicemail ? !isFullCallRecording : true)
+									? hasVoicemail
+										? !isFullCallRecording
+										: true
 									: !hasVoicemail || isVoicemailRecording;
 							if (isFullCallRecording && hasVoicemail) {
-								console.log('🎥 Skipping transcription of the dual-channel whole-call recording (voicemail is transcribed separately)');
+								console.log(
+									'🎥 Skipping transcription of the dual-channel whole-call recording (voicemail is transcribed separately)'
+								);
 							}
 
 							const audioUrl = originalAudioUrl;
@@ -1963,7 +2153,28 @@ export const POST: RequestHandler = async ({ request }) => {
 									transcript = sttResult.text;
 									if (transcript) {
 										const intentName = callState?.intentName || null;
-										const analysis = await analyzeCallLog(transcript, intentName);
+										// Resolve final path and priority from client state BEFORE analysis so the
+										// AI has the full picture (what the caller pressed in the IVR) before it
+										// decides what the silence means.
+										let finalPriority = 'standard';
+										if (decoded) {
+											finalIvrPath = decoded.ivrPath || finalIvrPath;
+											finalPriority = decoded.callPriority || finalPriority;
+										}
+										const analysis = await analyzeCallLog(
+											transcript,
+											intentName,
+											finalIvrPath,
+											finalPriority,
+											recDurationSeconds
+										);
+										dismissed = analysis.dismiss === true;
+										dismissReason = analysis.dismiss_reason;
+										if (dismissed) {
+											console.log(
+												`[A2P] Call dismissed after IVR: ${dismissReason}. IVR path: ${finalIvrPath}. Not running pipeline or orchestrator.`
+											);
+										}
 										summary = analysis.summary;
 										intent = intentName || analysis.intent;
 										sub_intent = analysis.sub_intent;
@@ -1979,15 +2190,24 @@ export const POST: RequestHandler = async ({ request }) => {
 
 										// --- Identity resolution from transcript ---
 										// If the AI extracted a name and the contact has a default name, update the contact record
-										if (callerName && contact && (!contact.name || ['Unknown Caller', 'Anonymous', 'Valued Customer', 'Unknown'].includes(contact.name))) {
+										if (
+											callerName &&
+											contact &&
+											(!contact.name ||
+												['Unknown Caller', 'Anonymous', 'Valued Customer', 'Unknown'].includes(
+													contact.name
+												))
+										) {
 											try {
 												await prisma.contact.update({
 													where: { id: contact.id },
 													data: { name: callerName }
 												});
 												contact = { ...contact, name: callerName };
-												console.log(`👤 Contact name resolved from transcript: "${callerName}" (${contact.id})`);
-												
+												console.log(
+													`👤 Contact name resolved from transcript: "${callerName}" (${contact.id})`
+												);
+
 												// Also update PipelineCustomerProfile if it exists
 												if (contact.phone) {
 													await prisma.pipelineCustomerProfile.updateMany({
@@ -2007,28 +2227,49 @@ export const POST: RequestHandler = async ({ request }) => {
 													data: { email: ai_extracted_email }
 												});
 												contact = { ...contact, email: ai_extracted_email };
-												console.log(`📧 Contact email resolved from transcript: "${ai_extracted_email}" (${contact.id})`);
+												console.log(
+													`📧 Contact email resolved from transcript: "${ai_extracted_email}" (${contact.id})`
+												);
 											} catch (emailErr) {
 												console.error('⚠️ Failed to update contact email:', emailErr);
 											}
 										}
 
 										// Resolve final path and priority from client state
-										let finalIvrPath = 'Direct Call';
-										let finalPriority = 'standard';
-										if (decoded) {
-											finalIvrPath = decoded.ivrPath || finalIvrPath;
-											finalPriority = decoded.callPriority || finalPriority;
-										}
-
 										let bucketSignal = 'research';
 										const lowerTranscript = transcript.toLowerCase();
-										const emergencyKeywords = ['burst', 'flood', 'leak', 'emergency', 'pipe', 'water', 'immediate', 'urgent'];
-										const bookingKeywords = ['book', 'appointment', 'estimate', 'quote', 'schedule', 'renovate', 'renovation', 'toilet', 'shower', 'fixture'];
+										const emergencyKeywords = [
+											'burst',
+											'flood',
+											'leak',
+											'emergency',
+											'pipe',
+											'water',
+											'immediate',
+											'urgent'
+										];
+										const bookingKeywords = [
+											'book',
+											'appointment',
+											'estimate',
+											'quote',
+											'schedule',
+											'renovate',
+											'renovation',
+											'toilet',
+											'shower',
+											'fixture'
+										];
 
-										if (finalPriority === 'emergency' || emergencyKeywords.some(kw => lowerTranscript.includes(kw))) {
+										if (
+											finalPriority === 'emergency' ||
+											emergencyKeywords.some((kw) => lowerTranscript.includes(kw))
+										) {
 											bucketSignal = 'emergency';
-										} else if (intent === 'Booking' || bookingKeywords.some(kw => lowerTranscript.includes(kw))) {
+										} else if (
+											intent === 'Booking' ||
+											bookingKeywords.some((kw) => lowerTranscript.includes(kw))
+										) {
 											bucketSignal = 'active';
 										} else if (sentiment === 'Angry' || sentiment === 'Negative') {
 											bucketSignal = 'friction';
@@ -2046,190 +2287,274 @@ export const POST: RequestHandler = async ({ request }) => {
 										}
 
 										// RUN SVELTEKIT INTERNAL AI SIGNALS PIPELINE:
-										if (!isDropCall) {
+										// Dismissed calls (silent after IVR selection, pocket dials) never reach the
+										// pipeline: no ProfileDB event, no safety SMS, no score delta, no escalation.
+										if (!isDropCall && !dismissed) {
 											PipelineSimulator.run({
-											author_name: contact?.name || callerName || contactNumber || 'Unknown Caller',
-											customer_phone: contactNumber || undefined,
-											rating: 0,
-											comment: transcript,
-											mode: 'call',
-											sessionId: callControlId,
-											companyId: numberInfo?.companyId || undefined
-										}).then(async (pipelineResult) => {
-											if (!pipelineResult.success) {
-												console.error('❌ Voice Pipeline run failed:', pipelineResult.error);
-												return;
-											}
-											if (pipelineResult.logs) {
-												webhookTrace.push(...pipelineResult.logs);
-											}
+												author_name:
+													contact?.name || callerName || contactNumber || 'Unknown Caller',
+												customer_phone: contactNumber || undefined,
+												rating: 0,
+												comment: transcript,
+												mode: 'call',
+												sessionId: callControlId,
+												companyId: numberInfo?.companyId || undefined
+											})
+												.then(async (pipelineResult) => {
+													if (!pipelineResult.success) {
+														console.error('❌ Voice Pipeline run failed:', pipelineResult.error);
+														return;
+													}
+													if (pipelineResult.logs) {
+														webhookTrace.push(...pipelineResult.logs);
+													}
 
-											let bucketSignal = 'research';
-											const lowerTranscript = transcript.toLowerCase();
-											const emergencyKeywords = ['burst', 'flood', 'leak', 'emergency', 'pipe', 'water', 'immediate', 'urgent'];
-											const bookingKeywords = ['book', 'appointment', 'estimate', 'quote', 'schedule', 'renovate', 'renovation', 'toilet', 'shower', 'fixture'];
+													let bucketSignal = 'research';
+													const lowerTranscript = transcript.toLowerCase();
+													const emergencyKeywords = [
+														'burst',
+														'flood',
+														'leak',
+														'emergency',
+														'pipe',
+														'water',
+														'immediate',
+														'urgent'
+													];
+													const bookingKeywords = [
+														'book',
+														'appointment',
+														'estimate',
+														'quote',
+														'schedule',
+														'renovate',
+														'renovation',
+														'toilet',
+														'shower',
+														'fixture'
+													];
 
-											const hasEmergency = finalPriority === 'emergency' || emergencyKeywords.some(kw => lowerTranscript.includes(kw));
-											let scoreDelta = hasEmergency ? 95 : 0;
-											if (hasEmergency) {
-												bucketSignal = 'emergency';
-											} else if (intent === 'Booking' || bookingKeywords.some(kw => lowerTranscript.includes(kw))) {
-												bucketSignal = 'active';
-											} else if (sentiment === 'Angry' || sentiment === 'Negative') {
-												bucketSignal = 'friction';
-											}
+													const hasEmergency =
+														finalPriority === 'emergency' ||
+														emergencyKeywords.some((kw) => lowerTranscript.includes(kw));
+													let scoreDelta = hasEmergency ? 95 : 0;
+													if (hasEmergency) {
+														bucketSignal = 'emergency';
+													} else if (
+														intent === 'Booking' ||
+														bookingKeywords.some((kw) => lowerTranscript.includes(kw))
+													) {
+														bucketSignal = 'active';
+													} else if (sentiment === 'Angry' || sentiment === 'Negative') {
+														bucketSignal = 'friction';
+													}
 
-											// Persist the full pipeline package into ProfileDB
-											if (numberInfo?.companyId) {
-												const result = await ingestTelemetryEvent({
-													body: {
-														isTest: true,
-														tenantSlug: numberInfo.companyId,
-														fingerprintId: callControlId,
-													eventType: hasVoicemail ? 'telnyx.voice.voicemail' : 'telnyx.voice.call',
-													phone: contactNumber || null,
-													name: contact?.name || callerName || null,
-													scoreDelta: scoreDelta,
-													payload: {
-														provider: 'telnyx_voice',
-														event_type: hasVoicemail ? 'voicemail_received' : 'call_received',
-														textContent: transcript,
-														rating: 0,
-														author_name: contact?.name || callerName || contactNumber || 'Unknown Caller',
-														customer_phone: contactNumber || null,
-														audio_url: audioUrl || null,
-														pipeline_logs: pipelineResult.logs,
-														signals: pipelineResult.signals,
-														enrichments: pipelineResult.enrichments,
-														decision: pipelineResult.decision,
-														execution: pipelineResult.execution,
-														outcome: pipelineResult.outcome,
-														feedback: pipelineResult.feedback,
-														ai_protocol: pipelineResult.ai_protocol,
-													estimatedPrice: estimatedPrice
-												}
-											},
-											headers: { authorization: 'Bearer clearsky_pixel_api_key' }
-										});
+													// Persist the full pipeline package into ProfileDB
+													if (numberInfo?.companyId) {
+														const result = await ingestTelemetryEvent({
+															body: {
+																isTest: true,
+																tenantSlug: numberInfo.companyId,
+																fingerprintId: callControlId,
+																eventType: hasVoicemail
+																	? 'telnyx.voice.voicemail'
+																	: 'telnyx.voice.call',
+																phone: contactNumber || null,
+																name: contact?.name || callerName || null,
+																scoreDelta: scoreDelta,
+																payload: {
+																	provider: 'telnyx_voice',
+																	event_type: hasVoicemail ? 'voicemail_received' : 'call_received',
+																	textContent: transcript,
+																	rating: 0,
+																	author_name:
+																		contact?.name ||
+																		callerName ||
+																		contactNumber ||
+																		'Unknown Caller',
+																	customer_phone: contactNumber || null,
+																	audio_url: audioUrl || null,
+																	pipeline_logs: pipelineResult.logs,
+																	signals: pipelineResult.signals,
+																	enrichments: pipelineResult.enrichments,
+																	decision: pipelineResult.decision,
+																	execution: pipelineResult.execution,
+																	outcome: pipelineResult.outcome,
+																	feedback: pipelineResult.feedback,
+																	ai_protocol: pipelineResult.ai_protocol,
+																	estimatedPrice: estimatedPrice
+																}
+															},
+															headers: { authorization: 'Bearer clearsky_pixel_api_key' }
+														});
 
-										if (result.status >= 200 && result.status < 300) {
-											if (result.body?.pipeline_log) {
-												webhookTrace.push(...result.body.pipeline_log);
-											}
-											console.log('📡 Pipeline executed and Voice event logged to ProfileDB successfully');
-											webhookTrace.push('🔵 [CDP] Logged event to ProfileDB successfully.');
+														if (result.status >= 200 && result.status < 300) {
+															if (result.body?.pipeline_log) {
+																webhookTrace.push(...result.body.pipeline_log);
+															}
+															console.log(
+																'📡 Pipeline executed and Voice event logged to ProfileDB successfully'
+															);
+															webhookTrace.push('🔵 [CDP] Logged event to ProfileDB successfully.');
+														} else {
+															console.error(
+																'❌ Failed to log Voice event to ProfileDB:',
+																result.status
+															);
+														}
+													} else {
+														console.log('📡 Skipping ProfileDB logging for unassigned number');
+													}
+
+													// Check if the pipeline decided to dispatch a safety SMS (emergency route) or if it's an emergency
+													const action = pipelineResult?.decision?.action_queue?.[0];
+													if (
+														!isOutboundCall &&
+														(hasEmergency ||
+															(action &&
+																(action.action_id === 'ACT-A2P-002' ||
+																	action.title?.toLowerCase().includes('owner notification'))))
+													) {
+														console.log('🚨 Emergency action detected!');
+
+														// NOTE: the owner SMS alert is sent by process_orchestrator (its emergency branch texts the
+														// configured owner numbers with the caller's callback number + full message). We deliberately
+														// do NOT also send one here — doing so texted the owner twice for every emergency.
+
+														// Get safety SMS text
+														let safetySmsText = '';
+														try {
+															const execRecord =
+																pipelineResult.execution?.execution_output_package
+																	?.execution_records?.[0];
+															if (execRecord?.generated_output) {
+																const parsedOutput = JSON.parse(execRecord.generated_output);
+																safetySmsText = parsedOutput.draft_reply || parsedOutput.sms_text;
+															}
+														} catch (e) {
+															console.error(
+																'Failed to parse safety SMS text from execution output:',
+																e
+															);
+														}
+
+														if (!safetySmsText) {
+															safetySmsText = `Hi, we received your urgent message about the burst pipe/leak and are calling you right back to help!`;
+														}
+
+														// process_orchestrator — fired for every call that produced a communication log —
+														// is the SOLE drafter of customer-facing replies, and it already queues an emergency
+														// response for this same voicemail. Drafting again here put multiple competing
+														// drafts in the approval list for a single call (one per recording.saved event),
+														// and this one is canned/mock text. The owner SMS alert above still runs.
+														const orchestratorOwnsCustomerReply = !!finalLogId;
+														if (orchestratorOwnsCustomerReply) {
+															console.log(
+																'📤 Safety SMS draft skipped — orchestrator already drafted the reply for this call'
+															);
+															webhookTrace.push(
+																'📤 Safety SMS draft skipped — orchestrator owns the customer reply'
+															);
+														} else if (companyNumber && contactNumber) {
+															const formattedFrom = toE164(companyNumber);
+															const formattedTo = toE164(contactNumber);
+
+															console.log(
+																`📤 Logging safety SMS draft from ${formattedFrom} to ${formattedTo}: "${safetySmsText}"`
+															);
+															try {
+																await logCommunication({
+																	type: 'sms',
+																	direction: 'outbound',
+																	status: 'completed',
+																	source: formattedFrom,
+																	destination: formattedTo,
+																	company_id: numberInfo?.companyId ?? undefined,
+																	customer_id: contact?.id ?? undefined,
+																	summary: safetySmsText.substring(0, 50) + '...',
+																	content: safetySmsText,
+																	metadata: {
+																		thread_id: formattedTo,
+																		is_draft: true,
+																		is_safety_draft: true,
+																		is_emergency: true,
+																		// Known statically — this branch only fires on urgent voicemails.
+																		message_category: 'emergency',
+																		sub_intent: 'safety',
+																		urgency: 'high'
+																	}
+																});
+																console.log(
+																	'📡 Voicemail safety SMS logged as completed and sending automatically'
+																);
+																webhookTrace.push(
+																	'📡 Voicemail safety SMS logged as completed and sending automatically'
+																);
+
+																const { sendAutomatedSms } = await import('$lib/server/sms');
+																await sendAutomatedSms(
+																	formattedTo,
+																	safetySmsText,
+																	formattedFrom
+																).catch((e) => {
+																	console.error('❌ Failed to auto-send emergency safety SMS:', e);
+																});
+															} catch (draftErr) {
+																console.error('❌ Error logging safety SMS draft:', draftErr);
+															}
+														} else {
+															console.warn(
+																'⚠️ Missing companyNumber or contactNumber, cannot log safety SMS draft'
+															);
+														}
+													}
+
+													// WRITE-BACK: the pipeline is intentionally not awaited so this webhook can
+													// answer Telnyx promptly (it already spends ~6s on transcription + analysis).
+													// That means the communication log was written before these logs existed, so
+													// pipeline_logs saved as []. Patch the finished trace on now — otherwise the
+													// call's "View Log" shows all 8 sections empty even though they all ran.
+													if (finalLogId && webhookTrace.length) {
+														try {
+															const row = await prisma.communicationLog.findUnique({
+																where: { id: finalLogId },
+																select: { metadata: true }
+															});
+															await prisma.communicationLog.update({
+																where: { id: finalLogId },
+																data: {
+																	metadata: {
+																		...((row?.metadata as Record<string, unknown>) || {}),
+																		pipeline_logs: webhookTrace
+																	} as any
+																}
+															});
+															console.log(
+																`📝 Attached ${webhookTrace.length} pipeline log line(s) to ${finalLogId}`
+															);
+														} catch (traceErr) {
+															console.error(
+																'❌ Failed to attach pipeline_logs to communication log:',
+																traceErr
+															);
+														}
+													}
+												})
+												.catch((err) => console.error('[Voice Pipeline Error]', err));
 										} else {
-											console.error('❌ Failed to log Voice event to ProfileDB:', result.status);
+											console.log(
+												'🎥 Skipping PipelineSimulator run (drop call or dismissed after IVR)'
+											);
 										}
 									} else {
-										console.log('📡 Skipping ProfileDB logging for unassigned number');
-									}
-
-											// Check if the pipeline decided to dispatch a safety SMS (emergency route) or if it's an emergency
-											const action = pipelineResult?.decision?.action_queue?.[0];
-											if (!isOutboundCall && (hasEmergency || (action && (action.action_id === 'ACT-A2P-002' || action.title?.toLowerCase().includes('owner notification'))))) {
-												console.log('🚨 Emergency action detected!');
-
-												// NOTE: the owner SMS alert is sent by process_orchestrator (its emergency branch texts the
-												// configured owner numbers with the caller's callback number + full message). We deliberately
-												// do NOT also send one here — doing so texted the owner twice for every emergency.
-												
-												// Get safety SMS text
-												let safetySmsText = '';
-												try {
-													const execRecord = pipelineResult.execution?.execution_output_package?.execution_records?.[0];
-													if (execRecord?.generated_output) {
-														const parsedOutput = JSON.parse(execRecord.generated_output);
-														safetySmsText = parsedOutput.draft_reply || parsedOutput.sms_text;
-													}
-												} catch (e) {
-													console.error('Failed to parse safety SMS text from execution output:', e);
-												}
-
-												if (!safetySmsText) {
-													safetySmsText = `Hi, we received your urgent message about the burst pipe/leak and are calling you right back to help!`;
-												}
-
-												// process_orchestrator — fired for every call that produced a communication log —
-												// is the SOLE drafter of customer-facing replies, and it already queues an emergency
-												// response for this same voicemail. Drafting again here put multiple competing
-												// drafts in the approval list for a single call (one per recording.saved event),
-												// and this one is canned/mock text. The owner SMS alert above still runs.
-												const orchestratorOwnsCustomerReply = !!finalLogId;
-												if (orchestratorOwnsCustomerReply) {
-													console.log('📤 Safety SMS draft skipped — orchestrator already drafted the reply for this call');
-													webhookTrace.push('📤 Safety SMS draft skipped — orchestrator owns the customer reply');
-												} else if (companyNumber && contactNumber) {
-													const formattedFrom = toE164(companyNumber);
-													const formattedTo = toE164(contactNumber);
-
-													console.log(`📤 Logging safety SMS draft from ${formattedFrom} to ${formattedTo}: "${safetySmsText}"`);
-													try {
-														await logCommunication({
-															type: 'sms',
-															direction: 'outbound',
-															status: 'completed',
-															source: formattedFrom,
-															destination: formattedTo,
-															company_id: numberInfo?.companyId ?? undefined,
-															customer_id: contact?.id ?? undefined,
-															summary: safetySmsText.substring(0, 50) + '...',
-															content: safetySmsText,
-															metadata: {
-																thread_id: formattedTo,
-																is_draft: true,
-																is_safety_draft: true,
-																is_emergency: true,
-																// Known statically — this branch only fires on urgent voicemails.
-																message_category: 'emergency',
-																sub_intent: 'safety',
-																urgency: 'high'
-															}
-														});
-														console.log('📡 Voicemail safety SMS logged as completed and sending automatically');
-														webhookTrace.push('📡 Voicemail safety SMS logged as completed and sending automatically');
-														
-														const { sendAutomatedSms } = await import('$lib/server/sms');
-														await sendAutomatedSms(formattedTo, safetySmsText, formattedFrom).catch(e => {
-															console.error('❌ Failed to auto-send emergency safety SMS:', e);
-														});
-													} catch (draftErr) {
-														console.error('❌ Error logging safety SMS draft:', draftErr);
-													}
-												} else {
-													console.warn('⚠️ Missing companyNumber or contactNumber, cannot log safety SMS draft');
-												}
-											}
-
-											// WRITE-BACK: the pipeline is intentionally not awaited so this webhook can
-											// answer Telnyx promptly (it already spends ~6s on transcription + analysis).
-											// That means the communication log was written before these logs existed, so
-											// pipeline_logs saved as []. Patch the finished trace on now — otherwise the
-											// call's "View Log" shows all 8 sections empty even though they all ran.
-											if (finalLogId && webhookTrace.length) {
-												try {
-													const row = await prisma.communicationLog.findUnique({
-														where: { id: finalLogId },
-														select: { metadata: true }
-													});
-													await prisma.communicationLog.update({
-														where: { id: finalLogId },
-														data: {
-															metadata: {
-																...((row?.metadata as Record<string, unknown>) || {}),
-																pipeline_logs: webhookTrace
-															} as any
-														}
-													});
-													console.log(`📝 Attached ${webhookTrace.length} pipeline log line(s) to ${finalLogId}`);
-												} catch (traceErr) {
-													console.error('❌ Failed to attach pipeline_logs to communication log:', traceErr);
-												}
-											}
-										}).catch(err => console.error('[Voice Pipeline Error]', err));
-										} else {
-											console.log('🎥 Skipping PipelineSimulator run for drop call');
-										}
+										// No speech detected at all — deterministic dismissal, no AI call needed.
+										// Without this, a silent call with an IVR intent still reached the
+										// orchestrator (transcriptionClaimed was true) and got an AI reply draft.
+										dismissed = true;
+										dismissReason = 'no_speech_detected';
+										summary =
+											'No speech detected from the caller. Likely an accidental dial, wrong number, or one-way audio.';
+										console.log('[A2P] No speech detected — call dismissed:', callControlId);
 									}
 								} catch (err) {
 									console.error('❌ OpenAI processing failed:', err);
@@ -2253,7 +2578,14 @@ export const POST: RequestHandler = async ({ request }) => {
 								tasks: actionItems,
 								origin: direction,
 								estimatedPrice,
-								pipeline_logs: webhookTrace
+								pipeline_logs: webhookTrace,
+								...(dismissed
+									? {
+											dismissed: true,
+											dismiss_reason: dismissReason || 'no_content',
+											ivr_path: finalIvrPath
+										}
+									: {})
 							};
 
 							if (existingLog) {
@@ -2264,7 +2596,10 @@ export const POST: RequestHandler = async ({ request }) => {
 										// Keep the existing content/summary when this recording produced no transcript
 										// (outbound dialer calls skip transcription) — overwriting with null was wiping
 										// the dialer's "Outbound call to …" summary from the row.
-										content: transcript || existingLog.content || `Call recording available (${recDurationSeconds}s)`,
+										content:
+											transcript ||
+											existingLog.content ||
+											`Call recording available (${recDurationSeconds}s)`,
 										summary: summary || existingLog.summary || null,
 										metadata: {
 											...((existingLog.metadata as Record<string, unknown>) || {}),
@@ -2275,31 +2610,47 @@ export const POST: RequestHandler = async ({ request }) => {
 								finalLogId = updatedLog.id;
 								console.log('📝 Updated CommunicationLog with recording link', callControlId);
 
-								// Create notification for updated call log with recording/voicemail
-								await createNotification({
-									company_id: numberInfo.companyId,
-									type: 'voice',
-									direction: direction === 'incoming' ? 'inbound' : 'outbound',
-									// Source = who initiated: the CUSTOMER for inbound, but OUR company number for
-									// outbound — presenting the callee as the source made outbound rows read backwards.
-									source_name:
-										direction === 'incoming' ? contact?.name || contactNumber : companyNumber,
-									source_identifier: direction === 'incoming' ? contactNumber : companyNumber,
-									message_preview: summary || transcript || `Call recording available (${recDurationSeconds}s)`,
-									content: transcript || `Call recording available (${recDurationSeconds}s)`,
-									communication_log_id: updatedLog.id,
-									thread_id: contactNumber
-								});
+								// Create notification for updated call log with recording/voicemail.
+								// Dismissed calls stay silent — no consultant alert for a pocket dial.
+								if (!dismissed) {
+									await createNotification({
+										company_id: numberInfo.companyId,
+										type: 'voice',
+										direction: direction === 'incoming' ? 'inbound' : 'outbound',
+										// Source = who initiated: the CUSTOMER for inbound, but OUR company number for
+										// outbound — presenting the callee as the source made outbound rows read backwards.
+										source_name:
+											direction === 'incoming' ? contact?.name || contactNumber : companyNumber,
+										source_identifier: direction === 'incoming' ? contactNumber : companyNumber,
+										message_preview:
+											summary || transcript || `Call recording available (${recDurationSeconds}s)`,
+										content: transcript || `Call recording available (${recDurationSeconds}s)`,
+										communication_log_id: updatedLog.id,
+										thread_id: contactNumber
+									});
+								} else {
+									console.log(
+										'🔕 Skipping notification for dismissed call (silent after IVR):',
+										callControlId
+									);
+								}
 							} else {
-								const hasIntent = !!callState?.intentDigit || !!decoded?.ivrDigit || !!decoded?.callPriority;
+								const hasIntent =
+									!!callState?.intentDigit || !!decoded?.ivrDigit || !!decoded?.callPriority;
 								const isDropCall = !hasIntent && !hasVoicemail && direction === 'incoming';
-								
+
 								if (isDropCall) {
-									console.log('🎥 Recording saved for drop call - skipping CommunicationLog creation to prevent duplicate', callControlId);
+									console.log(
+										'🎥 Recording saved for drop call - skipping CommunicationLog creation to prevent duplicate',
+										callControlId
+									);
 								} else if (!claimLogForCall(callControlId)) {
 									// One call records from answer AND records the voicemail → two
 									// recording.saved events; without this they'd each create a log.
-									console.log('🎥 Recording saved but this call is already logged — skipping duplicate', callControlId);
+									console.log(
+										'🎥 Recording saved but this call is already logged — skipping duplicate',
+										callControlId
+									);
 								} else {
 									let commThread = await prisma.communicationThread.create({
 										data: {
@@ -2349,38 +2700,92 @@ export const POST: RequestHandler = async ({ request }) => {
 										'📝 Created CommunicationLog for call (no hangup log found)',
 										callControlId
 									);
+									finalLogId = createdLog.id;
 
-									// Create notification for new call log with recording/voicemail
-									await createNotification({
-										company_id: numberInfo.companyId,
-										type: 'voice',
-										direction: direction === 'incoming' ? 'inbound' : 'outbound',
-										// Outbound: the source is OUR number, not the person we called.
-										source_name:
-											direction === 'incoming' ? contact?.name || contactNumber : companyNumber,
-										source_identifier: direction === 'incoming' ? contactNumber : companyNumber,
-										message_preview: summary || transcript || `Call recording available (${recDurationSeconds}s)`,
-										content: transcript || `Call recording available (${recDurationSeconds}s)`,
-										communication_log_id: createdLog.id,
-										thread_id: contactNumber
-									});
+									// Create notification for new call log with recording/voicemail.
+									// Dismissed calls stay silent — no consultant alert for a pocket dial.
+									if (!dismissed) {
+										await createNotification({
+											company_id: numberInfo.companyId,
+											type: 'voice',
+											direction: direction === 'incoming' ? 'inbound' : 'outbound',
+											// Outbound: the source is OUR number, not the person we called.
+											source_name:
+												direction === 'incoming' ? contact?.name || contactNumber : companyNumber,
+											source_identifier: direction === 'incoming' ? contactNumber : companyNumber,
+											message_preview:
+												summary ||
+												transcript ||
+												`Call recording available (${recDurationSeconds}s)`,
+											content: transcript || `Call recording available (${recDurationSeconds}s)`,
+											communication_log_id: createdLog.id,
+											thread_id: contactNumber
+										});
+									} else {
+										console.log(
+											'🔕 Skipping notification for dismissed call (silent after IVR):',
+											callControlId
+										);
+									}
 									finalLogId = createdLog.id;
 								}
 							}
 
 							// Only the recording that actually produced the transcript may drive the reply.
-							// Outbound dialer calls skip draft reply generation.
-							const shouldTriggerOrchestrator = finalLogId && !isOutboundCall && (hasVoicemail ? !isFullCallRecording : true) && transcriptionClaimed;
+							// Outbound calls only trigger the orchestrator when they're DIALER calls
+							// (booking draft + tasks + confirmation reply); other outbound legs skip.
+							// Dismissed calls (silent after IVR) never trigger the orchestrator — no
+							// AI reply drafts, no callback tasks, no consultant escalation.
+							const shouldTriggerOrchestrator =
+								finalLogId &&
+								!dismissed &&
+								(!isOutboundCall || dialerOutboundCall) &&
+								(hasVoicemail ? !isFullCallRecording : true) &&
+								transcriptionClaimed;
 							if (shouldTriggerOrchestrator) {
 								import('$lib/server/orchestrator').then(({ process_orchestrator }) => {
-									process_orchestrator(finalLogId as string, 'ai_ready').catch(e => console.error('[Orchestrator] Error:', e));
+									process_orchestrator(finalLogId as string, 'ai_ready').catch((e) =>
+										console.error('[Orchestrator] Error:', e)
+									);
 								});
+							} else if (isOutboundCall && !dialerOutboundCall) {
+								console.log(
+									'🎥 Outbound non-dialer call logged and transcribed — skipping draft reply generation'
+								);
 							} else if (isOutboundCall) {
-								console.log('🎥 Outbound dialer call logged and transcribed — skipping draft reply generation');
+								console.log(
+									'🎥 Outbound dialer call logged and transcribed — sending to orchestrator'
+								);
 							} else if (isFullCallRecording && hasVoicemail) {
-								console.log('🎥 Not triggering the orchestrator from the whole-call recording — the voicemail leg owns the reply');
+								console.log(
+									'🎥 Not triggering the orchestrator from the whole-call recording — the voicemail leg owns the reply'
+								);
 							} else if (finalLogId && !transcriptionClaimed) {
-								console.log('🎥 Not triggering the orchestrator because transcription was claimed by another webhook leg');
+								console.log(
+									'🎥 Not triggering the orchestrator because transcription was claimed by another webhook leg'
+								);
+							}
+
+							// Semantic thread link + identity bridge (§8): the customer says "I told you
+							// I'll call previously" — link this call to the email/thread it continues,
+							// resolve any pending Scenario-A commitment, and fold the auto-created
+							// caller contact into the matched one. Runs regardless of which orchestrator
+							// path (or trigger skip) applies to this call; never throws.
+							if (finalLogId && transcript && !dismissed) {
+								const linkCommid = finalLogId;
+								const linkContent = transcript;
+								const linkPhone =
+									contactNumber && !contactNumber.includes('anonymous') ? contactNumber : null;
+								const linkCustomerId = contact?.id ?? null;
+								import('$lib/server/thread-link').then(({ linkThreadAndResolveIdentity }) => {
+									linkThreadAndResolveIdentity({
+										companyId: numberInfo.companyId,
+										commId: linkCommid,
+										content: linkContent,
+										callerPhone: linkPhone,
+										customerId: linkCustomerId
+									}).catch((e) => console.error('❌ thread-link failed:', e));
+								});
 							}
 
 							// Retroactively update the call_summary in the message thread with the AI analysis
@@ -2400,11 +2805,14 @@ export const POST: RequestHandler = async ({ request }) => {
 											: typeof matchingThread.messages === 'string'
 												? JSON.parse(matchingThread.messages as string)
 												: [];
-										
+
 										let modified = false;
 										for (let i = existingMsgs.length - 1; i >= 0; i--) {
 											const msg = existingMsgs[i];
-											if (msg.type === 'call_summary' && msg.call_data?.call_control_id === callControlId) {
+											if (
+												msg.type === 'call_summary' &&
+												msg.call_data?.call_control_id === callControlId
+											) {
 												if (estimatedPrice != null) {
 													msg.call_data.estimated_price = estimatedPrice;
 												}
@@ -2422,13 +2830,15 @@ export const POST: RequestHandler = async ({ request }) => {
 												break;
 											}
 										}
-										
+
 										if (modified) {
 											await prisma.message.update({
 												where: { id: matchingThread.id },
 												data: { messages: existingMsgs }
 											});
-											console.log(`📎 Updated call_summary in thread ${matchingThread.threadId} with estimated price and summary`);
+											console.log(
+												`📎 Updated call_summary in thread ${matchingThread.threadId} with estimated price and summary`
+											);
 										}
 									}
 								} catch (attachErr) {
@@ -2437,7 +2847,59 @@ export const POST: RequestHandler = async ({ request }) => {
 							}
 						}
 					} else {
-						console.log('⚠️ No initiated call log found for', callControlId);
+						// Emergency dial-ladder legs (tech + customer bridge) never register a
+						// CallLog, so the normal attach path can't resolve them. Their client_state
+						// carries the emergency comm log's id (workOrder.commId) — attach the
+						// recording straight to that log instead of dropping it.
+						let decodedEmergency: any = null;
+						if (payload?.client_state) {
+							try {
+								decodedEmergency = safeDecodeClientState(payload.client_state);
+							} catch (e) {}
+						}
+						if (
+							decodedEmergency &&
+							(decodedEmergency.isDialLadderTechLeg || decodedEmergency.isDialLadderCustomerLeg) &&
+							typeof decodedEmergency.commId === 'string'
+						) {
+							const emergencyLog = await prisma.communicationLog.findUnique({
+								where: { id: decodedEmergency.commId },
+								select: { id: true, metadata: true }
+							});
+							if (emergencyLog) {
+								const emergencyMeta = (emergencyLog.metadata as Record<string, unknown>) || {};
+								// Both bridge legs (tech + customer) record the SAME conversation, so
+								// two recording.saved events arrive for one emergency. Keep the FIRST
+								// recording that lands and skip the second leg — otherwise the comm
+								// would show the call twice (or flip between two identical files).
+								if (!emergencyMeta.recording_id && recUrls) {
+									await prisma.communicationLog.update({
+										where: { id: emergencyLog.id },
+										data: {
+											duration: recDurationSeconds > 0 ? recDurationSeconds : undefined,
+											metadata: {
+												...emergencyMeta,
+												recording_urls: recUrls as Record<string, unknown>,
+												recording_id: recId,
+												call_control_id: callControlId
+											} as any
+										}
+									});
+									console.log('📝 Attached emergency bridge recording to log', emergencyLog.id);
+								} else {
+									console.log(
+										'📝 Emergency bridge recording already attached to log',
+										emergencyLog.id,
+										'— skipping duplicate leg',
+										callControlId
+									);
+								}
+							} else {
+								console.log('⚠️ No initiated call log found for', callControlId);
+							}
+						} else {
+							console.log('⚠️ No initiated call log found for', callControlId);
+						}
 					}
 				}
 				break;
@@ -2563,7 +3025,9 @@ async function telnyxTransfer(
 	};
 	const clientState = Buffer.from(JSON.stringify(clientStateObj)).toString('base64');
 
-	console.log(`📡 Sending Telnyx transfer request for ${callControlId} to ${to} (timeout: ${timeoutSecs}s)...`);
+	console.log(
+		`📡 Sending Telnyx transfer request for ${callControlId} to ${to} (timeout: ${timeoutSecs}s)...`
+	);
 	const res = await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/transfer`, {
 		method: 'POST',
 		headers: TELNYX_HEADERS,

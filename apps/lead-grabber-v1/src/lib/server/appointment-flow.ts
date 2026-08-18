@@ -83,27 +83,53 @@ function naiveWallClock(iso: string, addMinutes = 0): string {
 	return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
-/** Find a recent, still-unbooked proposal we sent this caller (30-day window). */
+/** Find a recent, still-unbooked proposal we sent this caller (30-day window). When
+ * `containerId` is given, also look at proposals attached to conversations linked to that
+ * container — this covers replies that arrive on a different channel/identity than the proposal
+ * (e.g. we proposed a time by email and the customer confirms by text). */
 export async function findPendingProposal(
 	companyId: string,
-	callerPhone: string
+	callerPhone: string,
+	opts?: { containerId?: string | null }
 ): Promise<{ commId: string; proposal: Proposal } | null> {
+	// 1) Direct: an outbound message we sent to THIS phone number carried the proposal.
 	const ten = (callerPhone || '').replace(/\D/g, '').slice(-10);
-	if (!ten) return null;
-	const rows = await prisma.communicationLog.findMany({
-		where: {
-			companyId,
-			direction: 'outbound',
-			created: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
-		},
-		orderBy: { created: 'desc' },
-		take: 50,
-		select: { id: true, destination: true, metadata: true }
-	});
-	for (const r of rows) {
-		const p = (r.metadata as any)?.proposed_appointment as Proposal | undefined;
-		if (p && !p.booked && (r.destination || '').replace(/\D/g, '').slice(-10) === ten) {
-			return { commId: r.id, proposal: p };
+	if (ten) {
+		const rows = await prisma.communicationLog.findMany({
+			where: {
+				companyId,
+				direction: 'outbound',
+				created: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
+			},
+			orderBy: { created: 'desc' },
+			take: 50,
+			select: { id: true, destination: true, metadata: true }
+		});
+		for (const r of rows) {
+			const p = (r.metadata as any)?.proposed_appointment as Proposal | undefined;
+			if (p && !p.booked && (r.destination || '').replace(/\D/g, '').slice(-10) === ten) {
+				return { commId: r.id, proposal: p };
+			}
+		}
+	}
+	// 2) Via a context-matched container: proposals on ANY outbound message linked to it.
+	if (opts?.containerId) {
+		const linked = await prisma.communicationLog.findMany({
+			where: {
+				companyId,
+				direction: 'outbound',
+				communicationThreadId: opts.containerId,
+				created: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
+			},
+			orderBy: { created: 'desc' },
+			take: 20,
+			select: { id: true, metadata: true }
+		});
+		for (const r of linked) {
+			const p = (r.metadata as any)?.proposed_appointment as Proposal | undefined;
+			if (p && !p.booked) {
+				return { commId: r.id, proposal: p };
+			}
 		}
 	}
 	return null;
@@ -120,12 +146,20 @@ export async function bookProposedAppointment(opts: {
 	phone: string;
 	proposal: Proposal;
 	proposalCommId: string;
-}): Promise<{ booked: boolean; calendarEventId: string | null; appointmentId: string; message: string }> {
+}): Promise<{
+	booked: boolean;
+	calendarEventId: string | null;
+	appointmentId: string;
+	message: string;
+}> {
 	let resolvedName = opts.contactName?.trim();
 	if (!resolvedName || resolvedName === phone || /^\+?\d+$/.test(resolvedName)) {
 		try {
 			if (contactId) {
-				const c = await prisma.contact.findUnique({ where: { id: contactId }, select: { name: true } });
+				const c = await prisma.contact.findUnique({
+					where: { id: contactId },
+					select: { name: true }
+				});
 				if (c?.name) resolvedName = c.name;
 			}
 			if (!resolvedName && phone) {
@@ -153,7 +187,10 @@ export async function bookProposedAppointment(opts: {
 			addMeet: false
 		});
 	} catch (e: any) {
-		console.error('[appointment-flow] createEvent failed; booking without calendar sync:', e?.message || e);
+		console.error(
+			'[appointment-flow] createEvent failed; booking without calendar sync:',
+			e?.message || e
+		);
 	}
 	const appt = await prisma.appointment.create({
 		data: {
@@ -178,7 +215,11 @@ export async function bookProposedAppointment(opts: {
 			data: {
 				metadata: {
 					...md,
-					proposed_appointment: { ...(md.proposed_appointment || {}), booked: true, appointmentId: appt.id }
+					proposed_appointment: {
+						...(md.proposed_appointment || {}),
+						booked: true,
+						appointmentId: appt.id
+					}
 				}
 			}
 		});
@@ -188,11 +229,15 @@ export async function bookProposedAppointment(opts: {
 	// Notify reps (lazy import keeps firebase off the request module graph).
 	try {
 		const { notifyRepsOfBooking } = await import('./rep-notify');
-		await notifyRepsOfBooking(companyId, `New appointment: ${displayName} (${reason}) — ${proposal.proposedLabel}`, {
-			contactName: displayName,
-			reason,
-			commId: opts.proposalCommId
-		});
+		await notifyRepsOfBooking(
+			companyId,
+			`New appointment: ${displayName} (${reason}) — ${proposal.proposedLabel}`,
+			{
+				contactName: displayName,
+				reason,
+				commId: opts.proposalCommId
+			}
+		);
 	} catch (e: any) {
 		console.error('[appointment-flow] rep notify failed:', e?.message || e);
 	}

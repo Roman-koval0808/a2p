@@ -176,9 +176,12 @@ export const actions: Actions = {
 			}
 			if (!intentName && digit) {
 				intentName =
-					(({ '1': 'Billing', '2': 'Sales', '3': 'Support', '0': 'Operator' }) as Record<string, string>)[
-						digit
-					] || null;
+					(
+						{ '1': 'Billing', '2': 'Sales', '3': 'Support', '0': 'Operator' } as Record<
+							string,
+							string
+						>
+					)[digit] || null;
 			}
 			logs.push(
 				`📞 Inbound call from ${caller} → ${called}${digit ? `, pressed ${digit} (${intentName || '?'})` : ' (no digit)'}`
@@ -263,7 +266,9 @@ export const actions: Actions = {
 			//    is fire-and-forget; here we await it so the drafted reply is ready to show).
 			const { process_orchestrator } = await import('$lib/server/orchestrator');
 			await process_orchestrator(commLog.id, 'ai_ready');
-			logs.push('🤖 Orchestrator ran: AI-classified the message and drafted a reply if applicable.');
+			logs.push(
+				'🤖 Orchestrator ran: AI-classified the message and drafted a reply if applicable.'
+			);
 
 			// 6. Also run the ProfileDB signals pipeline like a real call (non-fatal if it is down).
 			try {
@@ -328,6 +333,206 @@ export const actions: Actions = {
 			};
 		} catch (err: any) {
 			console.error('Test Call Trigger failed:', err);
+			return { success: false, error: err.message || 'Internal processing error', logs };
+		}
+	},
+	triggerReview: async ({ request, locals }) => {
+		const user = locals.user;
+		if (!user || !user.companyId) {
+			return { success: false, error: 'Unauthorized' };
+		}
+		const companyId = user.companyId;
+
+		const data = await request.formData();
+		const authorName = String(data.get('author_name') || 'Anonymous Reviewer').trim();
+		const rating = Number(data.get('rating') || 5);
+		const comment = String(data.get('comment') || '').trim();
+
+		if (!comment) {
+			return { success: false, error: 'Review text is required' };
+		}
+
+		const sessionId = `review_sim_${Date.now()}`;
+		const logs: string[] = [`⭐ Inbound ${rating}-star review from ${authorName}`];
+
+		try {
+			const result = await PipelineSimulator.run({
+				author_name: authorName,
+				rating,
+				comment,
+				mode: 'review',
+				sessionId,
+				companyId
+			});
+
+			return {
+				success: true,
+				mode: 'review',
+				review: {
+					author_name: authorName,
+					rating,
+					comment,
+					sessionId
+				},
+				pipeline: JSON.parse(JSON.stringify(result ?? null)),
+				logs
+			};
+		} catch (err: any) {
+			console.error('Test Review Trigger failed:', err);
+			return { success: false, error: err.message || 'Internal processing error', logs };
+		}
+	},
+
+	triggerEmail: async ({ request, locals }) => {
+		const user = locals.user;
+		if (!user || !user.companyId) {
+			return { success: false, error: 'Unauthorized' };
+		}
+		const companyId = user.companyId;
+
+		const data = await request.formData();
+		const fromEmail = String(data.get('from') || 'customer@example.com').trim();
+		const toEmail = String(data.get('to') || 'company@hub.com').trim();
+		const subject = String(data.get('subject') || 'Question about service').trim();
+		const body = String(data.get('body') || '').trim();
+
+		const logs: string[] = [];
+		const msgId = `email_sim_${Date.now()}`;
+
+		try {
+			if (!body) {
+				return { success: false, error: 'Email body is required' };
+			}
+
+			logs.push(`📧 Inbound email from ${fromEmail} → ${toEmail} | Subject: "${subject}"`);
+
+			// 1. Resolve contact
+			let contact = await prisma.contact.findFirst({ where: { companyId, email: fromEmail } });
+			if (!contact) {
+				contact = await prisma.contact.create({
+					data: { companyId, email: fromEmail, name: fromEmail.split('@')[0] }
+				});
+				logs.push(`👤 Created new contact profile ${contact.id}`);
+			} else {
+				logs.push(`👤 Matched existing contact ${contact.id}`);
+			}
+
+			// 2. Perform AI analysis on the email body (similar to voice call)
+			const { analyzeCallLog } = await import('$lib/server/openai');
+			const analysis = await analyzeCallLog(body, 'Sales');
+			logs.push(
+				`🧠 analyzeCallLog → intent=${analysis?.intent}, urgency=${analysis?.urgency}, sentiment=${analysis?.sentiment}`
+			);
+
+			if (
+				analysis?.callerName &&
+				(!contact.name || ['Unknown', 'Anonymous'].includes(contact.name))
+			) {
+				await prisma.contact.update({
+					where: { id: contact.id },
+					data: { name: analysis.callerName }
+				});
+				contact = { ...contact, name: analysis.callerName };
+				logs.push(`👤 Resolved sender name: ${analysis.callerName}`);
+			}
+
+			// 3. Create the communication thread
+			const thread = await prisma.communicationThread.create({
+				data: { companyId, contactId: contact.id, status: 'open', summary: `Email: ${subject}` }
+			});
+
+			// 4. Create the inbound email log with complete metadata
+			const commLog = await prisma.communicationLog.create({
+				data: {
+					type: 'email',
+					direction: 'inbound',
+					status: 'completed',
+					source: fromEmail,
+					destination: toEmail,
+					companyId,
+					customerId: contact.id,
+					communicationThreadId: thread.id,
+					content: body,
+					summary: subject,
+					metadata: {
+						email_message_id: msgId,
+						email_sanitized: true,
+						subject: subject,
+						urgency: analysis?.urgency,
+						sentiment: analysis?.sentiment,
+						intent: analysis?.intent,
+						sub_intent: analysis?.sub_intent,
+						datetime: analysis?.datetime,
+						ai_extracted_email: fromEmail,
+						actionItems: analysis?.actionItems,
+						estimatedPrice: analysis?.estimatedPrice,
+						simulated: true
+					}
+				}
+			});
+			logs.push(`📝 Created CommunicationLog ${commLog.id}`);
+
+			// 5. Run orchestrator
+			const { process_orchestrator } = await import('$lib/server/orchestrator');
+			await process_orchestrator(commLog.id, 'ai_ready');
+			logs.push('🤖 Orchestrator ran: AI-classified the message and drafted a reply.');
+
+			// 5. Run ProfileDB signals pipeline
+			try {
+				await PipelineSimulator.run({
+					author_name: contact.name || fromEmail.split('@')[0],
+					customer_email: fromEmail,
+					rating: 0,
+					comment: body,
+					mode: 'email',
+					sessionId: msgId,
+					companyId
+				});
+			} catch (e: any) {
+				logs.push(`⚠️ ProfileDB pipeline skipped: ${e?.message}`);
+			}
+
+			// 6. Read back outcome
+			const finalLog = await prisma.communicationLog.findUnique({ where: { id: commLog.id } });
+			const draft = await prisma.communicationLog.findFirst({
+				where: {
+					companyId,
+					type: 'email',
+					direction: 'outbound',
+					status: 'pending_approval',
+					destination: fromEmail
+				},
+				orderBy: { created: 'desc' }
+			});
+			const updatedContact = await prisma.contact.findUnique({
+				where: { id: contact.id },
+				select: { name: true, engagementScore: true, accountBalance: true }
+			});
+
+			if (draft) logs.push(`🎉 Drafted email reply (pending approval): "${draft.content}"`);
+			else logs.push('ℹ️ No automated reply drafted (routed to a human / support).');
+
+			return {
+				success: true,
+				mode: 'email',
+				email: {
+					from: fromEmail,
+					to: toEmail,
+					subject,
+					body,
+					draftedReply: draft?.content || null,
+					draftStatus: draft?.status || null,
+					commLogId: commLog.id,
+					contactId: contact.id,
+					contactName: updatedContact?.name || null,
+					engagementScore: updatedContact?.engagementScore ?? 0,
+					accountBalance: updatedContact?.accountBalance ?? null
+				},
+				dbRecord: finalLog ? JSON.parse(JSON.stringify(finalLog)) : null,
+				logs
+			};
+		} catch (err: any) {
+			console.error('Test Email Trigger failed:', err);
 			return { success: false, error: err.message || 'Internal processing error', logs };
 		}
 	}

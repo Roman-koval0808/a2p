@@ -2,6 +2,7 @@ import { prisma } from '$lib/db';
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions } from './$types';
 import bcrypt from 'bcryptjs';
+import { invalidScheduleDays } from '$lib/utils/time';
 
 export const actions: Actions = {
 	addRepresentative: async ({ request, locals }) => {
@@ -28,6 +29,12 @@ export const actions: Actions = {
 			// ignore
 		}
 
+		// Reject improper shift times (end before/equal start, malformed, or a half-filled day).
+		const invalid = invalidScheduleDays(schedule as any);
+		if (invalid.length > 0) {
+			return fail(400, { error: `Invalid schedule times on ${invalid.join(', ')}.` });
+		}
+
 		const name = `${firstName} ${lastName}`.trim();
 
 		try {
@@ -48,71 +55,53 @@ export const actions: Actions = {
 				}
 			}
 
-			// Check for existing pending invite for this email and company
-			const existingInvite = await prisma.invite.findFirst({
-				where: {
-					email,
+			// A representative is a record the business keeps about its own staff — a name, a
+			// number and a shift — not an account somebody has to claim. Creating them as a
+			// PENDING INVITE meant a rep sat unusable until they clicked a link in an email:
+			// they showed as "pending" on this page and, because the callback rota reads active
+			// CompanyMember rows, they were never rung. So the member is created active here and
+			// now. Logging in is a separate concern, handled below.
+			const profileData = { phone: phoneNumber, location, schedule };
+
+			// Reuse the account if the person already has one — never touch their password.
+			let userId = existingUser?.id;
+			if (!userId) {
+				// CompanyMember requires a User, and User.password is required. A rep added this
+				// way has no login until they set a password via the reset flow; the random value
+				// is unguessable so the account is not left open in the meantime.
+				const placeholderPassword = await bcrypt.hash(crypto.randomUUID(), 10);
+				const created = await prisma.user.create({
+					data: {
+						email,
+						name,
+						password: placeholderPassword,
+						companyId: locals.user.company.id
+					}
+				});
+				userId = created.id;
+			}
+
+			// Re-activating someone previously removed must not trip the [userId, companyId]
+			// unique constraint, so this is an upsert rather than a create.
+			await prisma.companyMember.upsert({
+				where: { userId_companyId: { userId, companyId: locals.user.company.id } },
+				update: {
+					role: 'member',
+					status: 'active',
+					profileData
+				},
+				create: {
+					userId,
 					companyId: locals.user.company.id,
-					status: 'pending'
+					role: 'member',
+					status: 'active',
+					joinedAt: new Date(),
+					profileData
 				}
 			});
-
-			if (existingInvite) {
-				return fail(400, {
-					error: 'A pending invitation already exists for this email address'
-				});
-			}
-
-			// Create invite record with metadata
-			const inviteData: any = {
-				email,
-				role: 'member',
-				status: 'pending',
-				expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-				metadata: {
-					firstName,
-					lastName,
-					profileData: {
-						phone: phoneNumber,
-						location,
-						schedule
-					}
-				},
-				company: { connect: { id: locals.user.company.id } },
-				invitedBy: { connect: { id: locals.user.id } }
-			};
-
-			if (existingUser?.id) {
-				inviteData.user = { connect: { id: existingUser.id } };
-			}
-
-			const invite = await prisma.invite.create({ data: inviteData });
-
-			// Dispatch the email invite
-			const { PUBLIC_BASE_URL, PUBLIC_ENV } = await import('$env/static/public');
-			const { normalizeUrl } = await import('$lib/utils');
-			const inviteLink = normalizeUrl(PUBLIC_BASE_URL, `/invite/accept/${invite.id}`);
-
-			if (PUBLIC_ENV === 'production') {
-				try {
-					const { sendInviteEmail } = await import('$lib/server/brevo');
-					const company = await prisma.company.findUnique({ where: { id: locals.user.company.id } });
-					await sendInviteEmail({
-						email,
-						inviteId: invite.id,
-						companyName: company?.name || 'Company',
-						invitedByName: locals.user.name || locals.user.email
-					});
-				} catch (error) {
-					console.error('Error sending invite email:', error);
-				}
-			} else {
-				console.log(`[DEV] Invite link for ${email}: ${inviteLink}`);
-			}
-
 		} catch (err: any) {
 			console.error('Failed to add representative:', err);
-			return fail(500, { error: err.message || 'Failed to send invite' });
+			return fail(500, { error: err.message || 'Failed to add representative' });
 		}
 
 		throw redirect(303, '/representatives');
