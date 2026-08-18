@@ -17,13 +17,37 @@
 	import { slide } from 'svelte/transition';
 	import { invalidateAll } from '$app/navigation';
 	import { toast } from 'svelte-sonner';
+	import AssignAgentDialog from '$lib/components/assign-agent-dialog.svelte';
 
 	export let data;
-	let { tasks } = data;
+	let { tasks, reps = [] } = data;
+	$: ({ tasks, reps = [] } = data);
 	let activeTab = 'ALL';
 	let expandedTaskId: string | null = null;
 	let editingIntentId: string | null = null;
 	let editDraft: any = {};
+
+	let assignDialogOpen = false;
+	let selectedTaskForAssign: any = null;
+	let assignEndpointName = '';
+	let preSelectedAgents: string[] = [];
+
+	function openAssignDialog(task: any) {
+		selectedTaskForAssign = task;
+		assignEndpointName = task.clientName || 'Task';
+		const assignedRep = reps.find((r: any) => r.id === task.assignedToId || r.name === task.assignedToName);
+		preSelectedAgents = assignedRep ? [assignedRep.name] : (task.assignedToName ? [task.assignedToName] : []);
+		assignDialogOpen = true;
+	}
+
+	async function handleAssign(selectedAgents: string[]) {
+		if (!selectedTaskForAssign) return;
+		const selectedAgentName = selectedAgents[0] ?? null;
+		const rep = selectedAgentName ? reps.find((r: any) => r.name === selectedAgentName) : null;
+		const userId = rep ? rep.id : null;
+		await assignTask(selectedTaskForAssign.id, userId);
+		selectedTaskForAssign = null;
+	}
 
 	const tabs = ['ALL', 'Customer Requests', 'Owner Actions'];
 
@@ -136,6 +160,26 @@
 			toast.error('Failed', { id: loadingId });
 		}
 	}
+
+	async function assignTask(id: string, userId: string | null) {
+		const loadingId = toast.loading('Assigning...');
+		try {
+			const res = await fetch(`/api/tasks/${id}`, {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ assignedTo: userId })
+			});
+			const result = await res.json();
+			if (res.ok) {
+				toast.success('Task assigned', { id: loadingId });
+				await invalidateAll();
+			} else {
+				toast.error(result.error || 'Failed', { id: loadingId });
+			}
+		} catch (e) {
+			toast.error('Failed', { id: loadingId });
+		}
+	}
 </script>
 
 <div class="flex h-full flex-col p-8">
@@ -170,6 +214,7 @@
 					<th class="px-4 py-3">Intent</th>
 					<th class="px-4 py-3">comm id</th>
 					<th class="px-4 py-3">Ref-id</th>
+					<th class="px-4 py-3">Assigned to</th>
 					<th class="px-4 py-3 text-center">summary</th>
 				</tr>
 			</thead>
@@ -221,6 +266,36 @@
 						<td class="px-4 py-3">{task.intent}</td>
 						<td class="px-4 py-3 font-mono text-sm">{task.commId}</td>
 						<td class="px-4 py-3 font-mono text-sm">{task.refId}</td>
+						<td class="px-4 py-3">
+							{#if task._kind === 'task'}
+								{@const assignedRepName = task.assignedToName || reps.find((r) => r.id === task.assignedToId)?.name}
+								{#if assignedRepName}
+									<button
+										type="button"
+										class="text-left font-medium text-gray-900 underline hover:text-[#577AB7] cursor-pointer"
+										on:click={(e) => {
+											e.stopPropagation();
+											openAssignDialog(task);
+										}}
+									>
+										{assignedRepName}
+									</button>
+								{:else}
+									<button
+										type="button"
+										class="font-semibold text-red-500 hover:text-red-700 hover:underline cursor-pointer"
+										on:click={(e) => {
+											e.stopPropagation();
+											openAssignDialog(task);
+										}}
+									>
+										Assign
+									</button>
+								{/if}
+							{:else}
+								<span class="text-gray-400">—</span>
+							{/if}
+						</td>
 						<td class="px-4 py-3 text-center">
 							<DropdownMenu.Root>
 								<DropdownMenu.Trigger class="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-gray-100 text-gray-500" on:click={(e) => e.stopPropagation()}>
@@ -256,7 +331,7 @@
 
 	{#if expandedTaskId === task.id}
 						<tr>
-							<td colspan="9" class="p-0 border-b-2 border-gray-800">
+							<td colspan="10" class="p-0 border-b-2 border-gray-800">
 								<div transition:slide class="bg-gray-100 p-6 shadow-inner">
 									<div class="mb-4 text-center">
 										<h3 class="text-lg font-semibold text-gray-900">
@@ -414,3 +489,12 @@
 		</table>
 	</div>
 </div>
+
+<AssignAgentDialog
+	bind:open={assignDialogOpen}
+	endpointName={assignEndpointName}
+	agents={reps.map((r) => r.name)}
+	{preSelectedAgents}
+	onAssign={handleAssign}
+/>
+

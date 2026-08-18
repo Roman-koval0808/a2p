@@ -123,6 +123,8 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 				channelIcon: task.title.toLowerCase().includes('call') ? 'phone' : 'email',
 				clientId: task.contactId || '-',
 				clientName: displayName(task.contact ?? {}),
+				assignedToId: task.assignedToId ?? null,
+				assignedToName: task.assignedTo?.name ?? null,
 				// Where to send someone who clicks the name. Null when there's no contact to open.
 				profileHref: task.contactId ? `/profiles/${task.contactId}` : null,
 				intent: task.title.toLowerCase().includes('support') ? 'supp' : 'opp',
@@ -311,7 +313,19 @@ export const load: PageServerLoad = async ({ locals, depends }) => {
 		});
 
 		// Merge: tasks first, then pending actions — both are "work that needs attention"
-		return { tasks: [...tasks, ...pendingActions] };
+		// The representatives a task can be assigned to (active members), oldest-first to match the
+		// routing rota order.
+		const repMembers = await prisma.companyMember.findMany({
+			where: { companyId, role: 'member', status: 'active' },
+			include: { user: { select: { id: true, name: true, email: true } } },
+			orderBy: { created: 'asc' }
+		});
+		const reps = repMembers.map((m) => ({
+			id: m.user?.id ?? m.userId,
+			name: m.user?.name || m.user?.email || 'Representative'
+		}));
+
+		return { tasks: [...tasks, ...pendingActions], reps };
 	} catch (err) {
 		console.error('Error loading tasks:', err);
 		return { tasks: [] };
