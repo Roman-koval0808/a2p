@@ -138,6 +138,22 @@
 		channels = channels; // trigger reactivity
 	}
 
+	function addChannel() {
+		channels = [
+			...channels,
+			{
+				name: 'New Channel',
+				type: 'link',
+				icon: 'Target',
+				value: 'LEARN MORE',
+				url: 'https://',
+				target: '_blank',
+				buttonColor: '#3B5BDB',
+				showIcon: true
+			}
+		];
+	}
+
 	function handleSecondaryButtonUpdate(data: { text: string; icon: any; showIcon: boolean; buttonColor?: string; fontColor?: string; url?: string }) {
 		secondaryButton = {
 			...secondaryButton,
@@ -270,7 +286,7 @@
 						<h2 class="mb-2 flex items-center gap-2 text-xl font-semibold text-primary">
 							Channels
 							{#if channels.length < 4 && !textOnly}
-								<Button variant="ghost" class="p-0 hover:bg-transparent">
+								<Button variant="ghost" class="p-0 hover:bg-transparent" onclick={addChannel}>
 									<PlusCircle class="h-6 w-6" />
 								</Button>
 							{/if}

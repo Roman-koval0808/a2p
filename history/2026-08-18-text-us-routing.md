@@ -191,3 +191,13 @@ text opt-in and a callback opt-in are arguably different promises.
   type-checked and unit-tested only at the pure `officeClosedReply` level.
 - The "Request a Call" preview card still says "automated reply" for the after-hours case without
   noting it is gated by `smsAutoReplyAllowed` rather than `textAutoReply`.
+
+---
+
+## Leadbox "add channel" button was a no-op (same session)
+
+The `+` button in the leadbox editor's Channels header had no `onclick` — clicking it did nothing.
+Added `addChannel()`: appends a default `link` channel (name "New Channel", icon Target, url
+`https://`, color `#3B5BDB`, showIcon true) and reassigns the `$state` array so the list and preview
+update. It is then editable via the existing per-channel pen (EditChannelDialog), and the `channels.length < 4`
+guard still caps the list at four. Not browser-verified.
