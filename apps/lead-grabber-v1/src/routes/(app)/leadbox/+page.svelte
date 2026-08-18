@@ -2,7 +2,7 @@
 	import { Button } from '$lib/components/ui/button/index';
 	import * as Card from '$lib/components/ui/card/index';
 	import { Switch } from '$lib/components/ui/switch/index';
-	import { CodeXml, Edit, MessageSquare, Pen, Phone, Play, PlusCircle } from 'lucide-svelte';
+	import { CodeXml, Edit, MessageSquare, Pen, Phone, Play, PlusCircle, Trash2 } from 'lucide-svelte';
 	import EditChannelDialog from '$lib/components/EditChannelDialog.svelte';
 	import EditSecondaryButtonDialog from '$lib/components/EditSecondaryButtonDialog.svelte';
 	import EditPrimaryButtonDialog from '$lib/components/EditPrimaryButtonDialog.svelte';
@@ -152,6 +152,10 @@
 				showIcon: true
 			}
 		];
+	}
+
+	function deleteChannel(index: number) {
+		channels = channels.filter((_c: unknown, idx: number) => idx !== index);
 	}
 
 	function handleSecondaryButtonUpdate(data: { text: string; icon: any; showIcon: boolean; buttonColor?: string; fontColor?: string; url?: string }) {
@@ -313,14 +317,23 @@
 											<span>{channel.name}</span>
 											<div class="rounded-lg bg-[#D9D9D9] px-4 py-1">{channel.value}</div>
 										</div>
-										<EditChannelDialog
-											{channel}
-											onSave={(updatedChannel) => handleChannelUpdate(i, updatedChannel)}
-										>
-											<Button variant="ghost" class="p-0 hover:bg-transparent">
-												<Pen class="h-6 w-6" />
+										<div class="flex items-center gap-2">
+											<EditChannelDialog
+												{channel}
+												onSave={(updatedChannel) => handleChannelUpdate(i, updatedChannel)}
+											>
+												<Button variant="ghost" class="p-0 hover:bg-transparent">
+													<Pen class="h-6 w-6" />
+												</Button>
+											</EditChannelDialog>
+											<Button
+												variant="ghost"
+												class="p-0 text-red-500 hover:bg-transparent hover:text-red-700"
+												onclick={() => deleteChannel(i)}
+											>
+												<Trash2 class="h-5 w-5" />
 											</Button>
-										</EditChannelDialog>
+										</div>
 									</div>
 								{/each}
 							</div>

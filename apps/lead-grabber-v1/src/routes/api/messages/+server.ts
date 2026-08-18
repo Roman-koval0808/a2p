@@ -141,9 +141,14 @@ export const POST: RequestHandler = async ({ request }) => {
 			try {
 				let aiData: any = {};
 				let logSummary = logSummaryFallback;
+				// Hoisted: the pipeline result is read again below (actionItems) once aiData is set.
+				// It was const-declared inside the leadbox/leadform branch, so every leadbox/leadform
+				// submission that produced an aiData threw `pipelineResult is not defined` here and
+				// lost its AI summary / urgency / actionItems.
+				let pipelineResult: any = null;
 
 				if (source === 'leadform' || source === 'leadbox') {
-					const pipelineResult = await UnifiedPipeline.process({
+					pipelineResult = await UnifiedPipeline.process({
 						provider: 'clearsky_pixel',
 						eventType: source === 'leadform' ? 'leadform_submit' : 'leadbox_submit',
 						externalId: crypto.randomUUID(),
