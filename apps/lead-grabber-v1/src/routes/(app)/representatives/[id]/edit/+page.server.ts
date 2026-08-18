@@ -1,6 +1,7 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { prisma } from '$lib/db';
+import { invalidScheduleDays } from '$lib/utils/time';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -112,6 +113,12 @@ export const actions: Actions = {
 			}
 		} catch {
 			schedule = { ...DEFAULT_SCHEDULE };
+		}
+
+		// Reject improper shift times (end before/equal start, malformed, or a half-filled day).
+		const invalid = invalidScheduleDays(schedule);
+		if (invalid.length > 0) {
+			return fail(400, { error: `Invalid schedule times on ${invalid.join(', ')}.` });
 		}
 
 		const existingPd = (member.profileData && typeof member.profileData === 'object'

@@ -2,6 +2,7 @@ import { prisma } from '$lib/db';
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions } from './$types';
 import bcrypt from 'bcryptjs';
+import { invalidScheduleDays } from '$lib/utils/time';
 
 export const actions: Actions = {
 	addRepresentative: async ({ request, locals }) => {
@@ -26,6 +27,12 @@ export const actions: Actions = {
 			schedule = JSON.parse(scheduleJson);
 		} catch (e) {
 			// ignore
+		}
+
+		// Reject improper shift times (end before/equal start, malformed, or a half-filled day).
+		const invalid = invalidScheduleDays(schedule as any);
+		if (invalid.length > 0) {
+			return fail(400, { error: `Invalid schedule times on ${invalid.join(', ')}.` });
 		}
 
 		const name = `${firstName} ${lastName}`.trim();
