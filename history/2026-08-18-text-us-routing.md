@@ -113,3 +113,81 @@ a Message + comm log and never touched a rep or the customer's phone.
 - **The /tasks "Channel" column still renders a text task as "out" with an email icon** — that column
   only distinguishes call vs non-call and was left alone. A text message is not "outbound email", so
   this is cosmetic and pre-existing, but it will look wrong.
+
+---
+
+## Leadbox editor "Routing preview" panel (same session)
+
+Follow-up: add a preview to the leadbox edit page (`/leadbox`) showing "what would happen to which
+channel", based on the reps and auto-reply rules the company currently has.
+
+### What was added
+
+- **`src/lib/server/routing-preview.ts` (new)** — `buildRoutingPreview(companyId)` snapshots, at load
+  time: business hours, after-hours/business-hours messages, reps (name/phone/schedule/on-duty-now),
+  the `smsAutoReplyAllowed` flag, and the concrete outcome for **Text Us** and **Request a Call ASAP**
+  *right now*. It calls the SAME pure functions the live paths use (`decideTextMessage`,
+  `decideCallback`, `buildRepRota`, `isOpenAt`, `isRepOnDuty`, `nextOpening`), so the preview cannot
+  drift from what production does. No decisions live here.
+- **`(app)/leadbox/+page.server.ts`** — returns `routingPreview` alongside the existing leadbox data.
+- **`(app)/leadbox/+page.svelte`** — a full-width card below the editor/preview columns: office open/
+  closed + timezone + next opening, on-duty-now + at-opening rota, SMS auto-reply gate, business
+  hours table, auto-reply messages, a reps table (with schedule), and per-channel outcome cards.
+
+### Why the preview only shows "right now"
+
+The brief said "preview what would happen in what [channel]". Showing a concrete decision requires a
+concrete clock. I show the decision *for this instant* (open/closed, who's on duty, routed-to/bridge/
+schedule) plus the static rules and the next opening, so both branches are readable without inventing
+a fake "after hours" timestamp. The after-hours branch is represented by the "next opening" line and
+the office-closed reply text.
+
+### Not verified
+
+- **Nothing rendered.** The panel is markup written against the existing page's Tailwind classes; no
+  browser was opened. Layout, spacing and the schedule cell's inline day formatting are unproven.
+- **`buildRoutingPreview` has no unit test.** It orchestrates already-tested pure functions plus
+  `loadReps` (I/O); the orchestration itself (fallback-to-first-rep, on-duty-at-opening) is only
+  type-checked.
+- **The snapshot is stale until the page reloads** — changing reps or hours in another tab needs a
+  refresh. Acceptable for a preview, but not stated to the user in the UI.
+- svelte-check stays at 320 errors / 142 warnings (unchanged); no new errors in the added files. The
+  pre-existing `data` initial-value-capture warnings and `children`-prop errors on this page remain.
+
+---
+
+## The "Text Auto Reply" toggle was not the switch (same session)
+
+The user turned on "Text Auto Reply" in Settings → Auto-replies, but the preview still said "Auto SMS
+Disabled — until `pipelineBusinessConfig.smsAutoReplyAllowed` is on".
+
+### Root cause
+
+Two unrelated switches exist for "should we send unattended SMS":
+
+- `settings.autoReply.textAutoReply` — the toggle on the Auto-replies page. This is what the user
+  turned on, and what they reasonably expect to be the control.
+- `pipelineBusinessConfig.smsAutoReplyAllowed` — a pipeline fail-safe with **no admin screen**,
+  default `false`. The text dispatch (`sendOfficeClosedAck`) and the preview both keyed off this one,
+  so the toggle the business owner can see did nothing.
+
+### Fix
+
+The office-closed text reply now gates on `settings.autoReply.textAutoReply` (plus transactional
+consent) instead of `smsAutoReplyAllowed`. The preview's "Auto SMS" card now reads `textAutoReply`
+and links to Settings → Auto-replies. The pipeline fail-safe is deliberately left un-consulted on
+this path: requiring a flag with no UI and a `false` default would make the visible toggle a no-op.
+
+### Deliberate inconsistency, left in place
+
+The **callback** after-hours ack (`sendAfterHoursAck`) still gates on `smsAutoReplyAllowed`, not
+`textAutoReply`. That is a different feature (a rep will call you) and a prior deliberate decision
+(2026-08-17). If the two auto-replies are meant to share one switch, that needs a product call — a
+text opt-in and a callback opt-in are arguably different promises.
+
+### Not verified
+
+- No office-closed SMS has actually been sent with the new gate; the `textAutoReply` branch is
+  type-checked and unit-tested only at the pure `officeClosedReply` level.
+- The "Request a Call" preview card still says "automated reply" for the after-hours case without
+  noting it is gated by `smsAutoReplyAllowed` rather than `textAutoReply`.

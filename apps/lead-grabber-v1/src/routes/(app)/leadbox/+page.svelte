@@ -805,6 +805,177 @@
 				</div>
 			</div>
 		</div>
+
+		{#if data.routingPreview}
+			{@const rp = data.routingPreview}
+			<div class="mt-5 rounded-xl bg-white p-6">
+				<h2 class="mb-1 text-xl font-semibold text-primary">Routing preview</h2>
+				<p class="mb-6 text-sm text-gray-500">
+					What happens right now, given your reps and auto-reply rules. Refresh after changing
+					reps or business hours.
+				</p>
+
+				<div class="grid grid-cols-3 gap-4">
+					<div class="rounded-lg border p-4">
+						<div class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Office now</div>
+						<div class="flex items-center gap-2">
+							<span
+								class="inline-flex h-2.5 w-2.5 rounded-full {rp.openNow ? 'bg-green-500' : 'bg-red-500'}"
+							></span>
+							<span class="text-sm font-semibold">{rp.openNow ? 'Open' : 'Closed'}</span>
+						</div>
+						<div class="mt-1 text-xs text-gray-500">{rp.timeZone}</div>
+						{#if !rp.openNow && rp.nextOpeningText}
+							<div class="mt-2 text-xs text-gray-600">Next opening: {rp.nextOpeningText}</div>
+						{/if}
+					</div>
+
+					<div class="rounded-lg border p-4">
+						<div class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">On duty now</div>
+						{#if rp.onDutyNow.length}
+							<div class="text-sm font-semibold">{rp.onDutyNow.join(', ')}</div>
+						{:else}
+							<div class="text-sm text-gray-500">Nobody on duty</div>
+						{/if}
+						{#if rp.onDutyAtOpening.length}
+							<div class="mt-2 text-xs text-gray-600">
+								At next opening: {rp.onDutyAtOpening.join(', ')}
+							</div>
+						{/if}
+					</div>
+
+					<div class="rounded-lg border p-4">
+						<div class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Text Auto Reply</div>
+						<div class="text-sm font-semibold {rp.textAutoReply ? 'text-green-600' : 'text-red-600'}">
+							{rp.textAutoReply ? 'Enabled' : 'Disabled'}
+						</div>
+						<div class="mt-1 text-xs text-gray-500">
+							{#if rp.textAutoReply}
+								Office-closed replies will be sent.
+							{:else}
+								Office-closed replies are suppressed. Turn on "Auto Reply" in
+								<a class="text-blue-600 hover:underline" href="/settings/auto-replies">Settings → Auto-replies</a>.
+							{/if}
+						</div>
+					</div>
+				</div>
+
+				<div class="mt-6 grid grid-cols-2 gap-4">
+					<div class="rounded-lg border p-4">
+						<div class="mb-3 text-sm font-semibold text-gray-900">Business hours</div>
+						<ul class="space-y-1 text-sm">
+							{#each rp.businessHours as h}
+								<li class="flex items-center justify-between">
+									<span class="text-gray-600">{h.day}</span>
+									{#if h.isOpen && h.hours}
+										<span class="text-gray-900">{h.hours}</span>
+									{:else}
+										<span class="text-gray-400">Closed</span>
+									{/if}
+								</li>
+							{/each}
+						</ul>
+					</div>
+
+					<div class="rounded-lg border p-4">
+						<div class="mb-3 text-sm font-semibold text-gray-900">Auto-reply messages</div>
+						<div class="text-sm text-gray-500">
+							<div class="mb-1 font-medium text-gray-700">Business hours</div>
+							<div class="mb-3">{rp.businessHoursMessage}</div>
+							<div class="mb-1 font-medium text-gray-700">After hours</div>
+							<div>{rp.afterHoursMessage}</div>
+						</div>
+					</div>
+				</div>
+
+				<div class="mt-6">
+					<div class="mb-3 text-sm font-semibold text-gray-900">Representatives</div>
+					{#if rp.reps.length}
+						<div class="overflow-x-auto rounded-lg border">
+							<table class="w-full text-left text-sm text-gray-700">
+								<thead class="bg-gray-50 font-semibold text-gray-900">
+									<tr>
+										<th class="px-3 py-2">Name</th>
+										<th class="px-3 py-2">Phone</th>
+										<th class="px-3 py-2">On duty now</th>
+										<th class="px-3 py-2">Schedule</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each rp.reps as rep}
+										<tr class="border-t">
+											<td class="px-3 py-2 font-medium">{rep.name}</td>
+											<td class="px-3 py-2 font-mono text-xs">{rep.phone}</td>
+											<td class="px-3 py-2">
+												<span
+													class="rounded px-1.5 py-0.5 text-xs font-semibold {rep.onDutyNow ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}"
+												>
+													{rep.onDutyNow ? 'On duty' : 'Off duty'}
+												</span>
+											</td>
+											<td class="px-3 py-2 text-xs text-gray-500">
+												{#each rep.schedule as day}
+													<div class="inline-flex items-center gap-1">
+														<span class="w-9">{day.day.slice(0, 3)}</span>
+														<span class="font-mono">{day.start || '—'}{day.end ? `–${day.end}` : ''}</span>
+														<span class="mx-1">·</span>
+													</div>
+												{/each}
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{:else}
+						<p class="text-sm text-gray-500">
+							No representatives yet. Add them in <a class="text-blue-600 hover:underline" href="/representatives">Representatives</a>.
+						</p>
+					{/if}
+				</div>
+
+				<div class="mt-6 grid grid-cols-2 gap-4">
+					<div class="rounded-lg border p-4">
+						<div class="mb-1 text-sm font-semibold text-gray-900">Text Us</div>
+						<div class="mb-2 text-xs text-gray-500">A customer sends a text message.</div>
+						{#if rp.text.action === 'route_to_rep'}
+							<p class="text-sm text-gray-800">
+								Office open → routed to <span class="font-semibold">{rp.text.repName ?? 'no rep'}</span> and a task is
+								created on their list.
+							</p>
+						{:else}
+							<p class="text-sm text-gray-800">
+								Office closed → <span class="font-semibold">auto-reply sent</span> and a task is created for
+								<span class="font-semibold">{rp.text.repName ?? 'no rep'}</span>.
+							</p>
+							{#if rp.text.reply}
+								<div class="mt-3 rounded border-l-4 border-gray-300 bg-gray-50 px-3 py-2 text-sm italic text-gray-700">
+									“{rp.text.reply}”
+								</div>
+							{/if}
+						{/if}
+					</div>
+
+					<div class="rounded-lg border p-4">
+						<div class="mb-1 text-sm font-semibold text-gray-900">Request a Call</div>
+						<div class="mb-2 text-xs text-gray-500">ASAP request, evaluated right now.</div>
+						{#if rp.call.action === 'bridge_now'}
+							<p class="text-sm text-gray-800">
+								Office open → bridges <span class="font-semibold">{rp.call.repName ?? 'no rep'}</span> now via the
+								dial ladder.
+							</p>
+						{:else if rp.call.action === 'schedule'}
+							<p class="text-sm text-gray-800">
+								Office closed → automated reply, and the callback is scheduled for
+								<span class="font-semibold">{rp.call.scheduleFor ?? 'the next opening'}</span> ({rp.call.repName ?? 'no rep'}).
+							</p>
+						{:else}
+							<p class="text-sm text-gray-800">No open slot found — a human must arrange it manually.</p>
+						{/if}
+					</div>
+				</div>
+			</div>
+		{/if}
 	</div>
 {:else}
 	<div class="flex h-[90vh] flex-col items-center justify-center gap-3 bg-gray-100 p-4">

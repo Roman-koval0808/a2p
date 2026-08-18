@@ -48,10 +48,11 @@
 		}
 		loading = true;
 		try {
+			const next = new URLSearchParams(window.location.search).get('next');
 			const res = await fetch('/api/auth/otp/verify', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ email: otpEmail, code: otpCode, intent: 'login' })
+				body: JSON.stringify({ email: otpEmail, code: otpCode, intent: 'login', next: next || undefined })
 			});
 			const data = await res.json();
 			if (!res.ok) {

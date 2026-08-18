@@ -189,6 +189,19 @@ export const handle: Handle = async ({ event, resolve }) => {
 		event.cookies.delete('app_session', { path: '/' });
 	}
 
+	// Remember the last route for an unauthenticated browser hit on a protected page, and send it to
+	// /login?next=… so the login action can land the user back where they were. API and public
+	// routes are left alone (API callers get a 401 from the endpoint, not an HTML redirect).
+	if (!user && !isPublicRoute && !isApiRoute) {
+		const wantsHtml = (event.request.headers.get('accept') ?? '').includes('text/html');
+		if (wantsHtml) {
+			throw redirect(
+				303,
+				`/login?next=${encodeURIComponent(pathname + event.url.search)}`
+			);
+		}
+	}
+
 	event.locals.user = user;
 	event.locals.prisma = prisma;
 

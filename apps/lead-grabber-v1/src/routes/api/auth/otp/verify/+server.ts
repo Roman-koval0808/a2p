@@ -3,6 +3,7 @@ import type { RequestHandler } from './$types';
 import { prisma } from '$lib/db';
 import { generateToken, createSessionCookie } from '$lib/auth';
 import { verifyOtp } from '$lib/server/otp';
+import { safeNext } from '$lib/utils/safe-redirect';
 
 export const POST: RequestHandler = async ({ request, cookies }) => {
 	try {
@@ -10,6 +11,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
 		const code = typeof body.code === 'string' ? body.code.replace(/\D/g, '') : '';
 		const intent = body.intent === 'signup' ? 'signup' : 'login';
+		const next = safeNext(typeof body.next === 'string' ? body.next : null);
 
 		if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
 			return json({ success: false, error: 'Valid email is required' }, { status: 400 });
@@ -47,7 +49,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 				maxAge: 60 * 60 * 24 * 7
 			});
 			return json(
-				{ success: true, redirect: updatedUser.platformRole === 'CLEARSKY_ADMIN' ? '/clearsky-admin' : '/dashboard' },
+				{ success: true, redirect: next ?? (updatedUser.platformRole === 'CLEARSKY_ADMIN' ? '/clearsky-admin' : '/dashboard') },
 				{ headers: { 'Set-Cookie': createSessionCookie(token) } }
 			);
 		}

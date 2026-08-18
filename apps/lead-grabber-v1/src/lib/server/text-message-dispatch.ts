@@ -8,8 +8,8 @@
 //   • the rep        → /representatives (CompanyMember.profileData.phone + .schedule), via the same
 //                       `loadReps` + `buildRepRota` the callback ladder uses.
 //   • the timezone   → `timeZoneFor`/`businessHoursFor`, shared with callback-dispatch.
-//   • the SMS send   → `sendAutomatedSms`, gated on `pipelineBusinessConfig.smsAutoReplyAllowed`
-//                       and transactional consent exactly like the callback after-hours ack.
+//   • the SMS send   → `sendAutomatedSms`, gated on `settings.autoReply.textAutoReply` and
+//                       transactional consent.
 //   • the task       → `prisma.task.create` with contactId + assignedToId + communicationThreadId,
 //                       so it shows up in /tasks as a customer task on the responsible rep's list.
 
@@ -120,7 +120,8 @@ export async function dispatchTextMessageRequest(input: {
 			phone: input.customerPhone,
 			template: settings?.autoReply?.afterHoursMessage,
 			openAt: decision.openAt,
-			timeZone
+			timeZone,
+			textAutoReply: settings?.autoReply?.textAutoReply === true
 		});
 	}
 
@@ -180,8 +181,11 @@ async function createRepTask(input: {
 /**
  * The office-closed auto-reply: "we're shut, we'll get back to you in the morning."
  *
- * Same gates as the callback after-hours ack — the business must have opted in to unattended SMS
- * (`pipelineBusinessConfig.smsAutoReplyAllowed`) and the customer must have transactional consent.
+ * Gated on the admin's own "Text Auto Reply" switch (`settings.autoReply.textAutoReply`) — the
+ * control the Settings → Auto-replies screen exposes for exactly this — plus the customer's
+ * transactional consent. The pipeline's `smsAutoReplyAllowed` fail-safe is deliberately NOT
+ * consulted here: that flag has no admin screen and defaults off, so requiring it would make the
+ * toggle the business owner can see do nothing.
  */
 async function sendOfficeClosedAck(input: {
 	companyId: string;
@@ -190,18 +194,15 @@ async function sendOfficeClosedAck(input: {
 	template?: string | null;
 	openAt: Date | null;
 	timeZone?: string;
+	textAutoReply: boolean;
 }): Promise<boolean> {
 	const phone = (input.phone || '').replace(/[^\d+]/g, '');
 	if (!phone) return false;
 
 	try {
-		const config = await prisma.pipelineBusinessConfig.findUnique({
-			where: { companyId: input.companyId }
-		});
-		if (!config?.smsAutoReplyAllowed) {
+		if (!input.textAutoReply) {
 			console.log(
-				'[TextMessage] office-closed reply NOT sent: pipelineBusinessConfig.smsAutoReplyAllowed is off' +
-					(config ? '' : ' (no config row for this company)')
+				'[TextMessage] office-closed reply NOT sent: settings.autoReply.textAutoReply is off'
 			);
 			return false;
 		}
