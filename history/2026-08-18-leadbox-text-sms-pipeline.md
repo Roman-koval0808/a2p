@@ -49,3 +49,21 @@ confirmation loop, extract those from the webhook rather than re-implementing th
   dispatching end-to-end.
 - The orchestrator's comm-log `type` is `'leadbox'` (not `'sms'`); `process_orchestrator` does not
   gate on type (the email/call callers use other triggers), but this is read off the code, not run.
+
+---
+
+## Follow-up: leadbox comm-log Endpoint showed the raw company id
+
+The communication-log Endpoint column rendered `cmkw…` (the `companyId`) on every leadbox row.
+
+### Root cause
+
+`communication-log/+page.server.ts` computed `companyNameOrPhone = companyValue || companyId`. For an
+inbound leadbox/leadform log the destination is null, so `companyValue` was empty and the fallback
+exposed the raw id.
+
+### Fix
+
+The `dbLogs` query now includes `company.name`, and the fallback is `companyValue || log.company?.name
+|| 'Inbox'`. SMS/voice rows still fall through to their real destination number (unchanged); only the
+leadbox/leadform null-destination case now shows the business name.
