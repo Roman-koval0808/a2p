@@ -239,6 +239,33 @@ export const POST: RequestHandler = async ({ request }) => {
 							(cb.decision === 'bridge_now' ? ` | bridge: ${cb.bridgeStarted ? 'started' : 'NOT started'}` : '') +
 							(cb.reason === 'asap_after_hours' ? ` | ack sms: ${cb.ackSent ? 'sent' : 'not sent'}` : '')
 					);
+				} else {
+					// Not a callback — a plain "Text Us" message. Route it by the clock: to the
+					// on-duty rep during business hours, or an office-closed reply + a rep task after.
+					try {
+						const { dispatchTextMessageRequest } = await import(
+							'$lib/server/text-message-dispatch'
+						);
+						const tx = await dispatchTextMessageRequest({
+							companyId,
+							customerName: customerName !== 'Anonymous' ? customerName : null,
+							customerPhone,
+							message: messageContent,
+							contactId: contact?.id ?? null,
+							communicationThreadId: inboundLog?.communicationThreadId ?? null,
+							messageId: message.id
+						});
+						if (tx.handled) {
+							console.log(
+								`[TextMessage] ${tx.routed === 'rep' ? 'business hours → routed to rep' : 'after hours → office-closed reply + rep task'}` +
+									` (${tx.reason})` +
+									` | rota: ${tx.rota?.length ? tx.rota.map((r) => r.name).join(' → ') : 'NOBODY ON DUTY'}` +
+									(tx.routed === 'after_hours' ? ` | ack sms: ${tx.ackSent ? 'sent' : 'not sent'}` : '')
+							);
+						}
+					} catch (err) {
+						console.error('[TextMessage Dispatch Error]', err);
+					}
 				}
 			} catch (err) {
 				console.error('[Callback Dispatch Error]', err);

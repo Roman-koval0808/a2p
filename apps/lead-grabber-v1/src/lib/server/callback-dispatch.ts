@@ -82,7 +82,7 @@ export async function loadReps(companyId: string): Promise<RepRecord[]> {
  * for 02:00 Toronto. Honours `settings.timezone` when an admin has set one; otherwise the same
  * default the calendar integration uses (`BUSINESS_TIME_ZONE` in google-calendar.ts).
  */
-function timeZoneFor(settings: Record<string, any>): string {
+export function timeZoneFor(settings: Record<string, any>): string {
 	const tz = settings?.timezone ?? settings?.timeZone;
 	if (typeof tz === 'string' && tz.trim()) {
 		try {
@@ -96,7 +96,7 @@ function timeZoneFor(settings: Record<string, any>): string {
 	return DEFAULT_BUSINESS_TIME_ZONE;
 }
 
-function businessHoursFor(settings: Record<string, any>): BusinessHoursConfig {
+export function businessHoursFor(settings: Record<string, any>): BusinessHoursConfig {
 	const configured = settings?.autoReply?.businessHours;
 	if (configured && typeof configured === 'object') return configured as BusinessHoursConfig;
 	// Admin has never opened Settings → Auto-replies. Use the same defaults that screen ships with,
