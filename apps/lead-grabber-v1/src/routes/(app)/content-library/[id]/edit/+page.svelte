@@ -218,7 +218,7 @@
                     <Button 
                         type="button"
                         variant="destructive"
-                        on:click={handleDelete}
+                        onclick={handleDelete}
                         class="h-[39px] bg-red-500 hover:bg-red-600 rounded-[3px] font-semibold text-[16px] text-white flex items-center justify-center"
                     >
                         Delete

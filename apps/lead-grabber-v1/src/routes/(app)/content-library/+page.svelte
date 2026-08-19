@@ -181,13 +181,13 @@
                 <div class="flex space-x-4">
                     <Button 
                         class="bg-[#577AB7] hover:bg-[#577AB7]/90 h-[39px] rounded-[3px] font-semibold text-[16px] text-white"
-                        on:click={() => goto('/upload')}
+                        onclick={() => goto('/upload')}
                     >
                         Upload a Content
                     </Button>
                     <Button 
                         class="bg-[#577AB7] hover:bg-[#577AB7]/90 h-[39px] rounded-[3px] font-semibold text-[16px] text-white"
-                        on:click={() => {
+                        onclick={() => {
                             goto('/room');
                             setTimeout(() => {
                                 const addRoomButton = document.querySelector('button[data-add-room-dialog]');
@@ -337,10 +337,10 @@
         {/if}
         
         <Dialog.Footer>
-            <Button variant="outline" on:click={() => showDeleteDialog = false}>
+            <Button variant="outline" onclick={() => showDeleteDialog = false}>
                 Cancel
             </Button>
-            <Button variant="destructive" on:click={deleteContent}>
+            <Button variant="destructive" onclick={deleteContent}>
                 Delete
             </Button>
         </Dialog.Footer>

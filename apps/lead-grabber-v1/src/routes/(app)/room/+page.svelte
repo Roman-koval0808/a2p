@@ -333,7 +333,7 @@
                 <h1 class="text-lg font-bold leading-[118%] text-[#808080] sm:text-[24px] min-w-0">View Room List</h1>
                 <Button 
                     class="bg-[#577AB7] h-[39px] rounded-[3px] font-semibold text-[16px] text-white w-full sm:w-auto flex-shrink-0"
-                    on:click={openAddRoomDialog}
+                    onclick={openAddRoomDialog}
                     data-add-room-dialog
                 >
                     Add New Room
@@ -750,7 +750,7 @@
             </div>
 
             <Dialog.Footer>
-                <Button type="button" variant="outline" on:click={() => showAddRoomDialog = false}>
+                <Button type="button" variant="outline" onclick={() => showAddRoomDialog = false}>
                     Cancel
                 </Button>
                 <Button type="submit" disabled={!$form.valid}>Add Room</Button>

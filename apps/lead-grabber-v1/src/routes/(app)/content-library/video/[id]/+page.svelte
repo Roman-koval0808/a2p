@@ -46,11 +46,11 @@
     <div class="flex-1 overflow-auto">
         <div class="container mx-auto p-6">
             <div class="mb-6 flex justify-between items-center">
-                <Button variant="ghost" on:click={() => goto('/content-library')}>
+                <Button variant="ghost" onclick={() => goto('/content-library')}>
                     <ArrowLeft class="h-4 w-4 mr-2" />
                     Back to Library
                 </Button>
-                <Button on:click={() => showShareDialog = true}>
+                <Button onclick={() => showShareDialog = true}>
                     <Share2 class="h-4 w-4 mr-2" />
                     Share Video
                 </Button>
@@ -100,7 +100,7 @@
                         {#each representatives as rep}
                             <Select.Item 
                                 value={rep.id}
-                                on:click={() => handleRepresentativeChange(rep.id)}
+                                onclick={() => handleRepresentativeChange(rep.id)}
                             >
                                 {rep.name}
                             </Select.Item>
@@ -110,10 +110,10 @@
             </Select.Root>
         </div>
         <div class="flex justify-end space-x-2">
-            <Button variant="outline" on:click={() => showShareDialog = false}>
+            <Button variant="outline" onclick={() => showShareDialog = false}>
                 Cancel
             </Button>
-            <Button on:click={handleShare}>
+            <Button onclick={handleShare}>
                 Share
             </Button>
         </div>

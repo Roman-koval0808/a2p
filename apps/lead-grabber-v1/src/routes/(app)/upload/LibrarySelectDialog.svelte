@@ -22,21 +22,21 @@
             <Button 
                 variant="outline" 
                 class="w-full justify-start bg-primary text-white hover:bg-primary/80 rounded-none" 
-                on:click={() => onSelect('host')}
+                onclick={() => onSelect('host')}
             >
                 Host Library
             </Button>
             <Button 
                 variant="outline" 
                 class="w-full justify-start bg-primary text-white hover:bg-primary/80 rounded-none" 
-                on:click={() => onSelect('representative')}
+                onclick={() => onSelect('representative')}
             >
                 Representative Library
             </Button>
             <Button 
                 variant="outline" 
                 class="w-full justify-start bg-primary text-white hover:bg-primary/80 rounded-none" 
-                on:click={() => onSelect('both')}
+                onclick={() => onSelect('both')}
             >
                 Both
             </Button>
