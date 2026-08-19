@@ -1,6 +1,6 @@
 import { error, redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { resolveCompanyId, getRoomsForCompany, getCompanyRepsIncludeInactive, getCompanyContent } from '$lib/server/viewroom';
+import { resolveCompanyId, getRoomsForCompany, getCompanyReps, getCompanyContent } from '$lib/server/viewroom';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) {
@@ -11,7 +11,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 	try {
 		const rooms = companyId ? await getRoomsForCompany(companyId) : [];
-		const representatives = companyId ? await getCompanyRepsIncludeInactive(companyId) : [];
+		const representatives = companyId ? await getCompanyReps(companyId) : [];
 		const locations: any[] = [];
 
 		const allContent = companyId ? await getCompanyContent(companyId) : [];
