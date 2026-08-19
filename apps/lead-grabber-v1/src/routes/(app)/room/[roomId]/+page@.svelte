@@ -2466,7 +2466,7 @@ run(() => {
         // Use anonymous user ID from URL params when in anonymous mode
         name = urlAnonymousUserId;
     } else if (user && !isAnonymousMode) {
-        name = user?.company_name || '';
+        name = user?.name || user?.company || '';
     } else if (viewroomUser && !isAnonymousMode) {
         name = viewroomDisplayName;
     } else if (data?.representativeName) {
@@ -2488,7 +2488,7 @@ run(() => {
     isAnonymousHost = $page.url.searchParams.get('isHost') === 'true' && 
                        $page.url.searchParams.get('anonymous') === 'true';
     const urlHostUserId = $page.url.searchParams.get('hostUserId') || '';
-    const isRoomOwner = !!(user?.id && room?.owner_company && user.id === room.owner_company);
+    const isRoomOwner = !!(user?.companyId && room?.owner_company && user.companyId === room.owner_company);
     isHost = room ? isRoomOwner || 
              isAnonymousHost || 
              (room.host && urlHostUserId && room.host.includes(urlHostUserId) &&

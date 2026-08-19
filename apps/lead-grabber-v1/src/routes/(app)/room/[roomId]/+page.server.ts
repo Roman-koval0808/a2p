@@ -61,6 +61,7 @@ export const load: PageServerLoad = async ({ locals, params, url, cookies }) => 
 						last_name: '',
 						name: locals.user.name || 'User',
 						company: locals.user.company?.name || locals.user.companyId || 'Company User',
+						companyId: locals.user.company?.id || locals.user.companyId || null,
 						email: locals.user.email
 					}
 				: null,
