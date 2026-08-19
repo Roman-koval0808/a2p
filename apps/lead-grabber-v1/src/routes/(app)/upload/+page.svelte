@@ -420,7 +420,7 @@
                                     id="file" 
                                     name="file" 
                                     accept={allowedFileTypes[selectedType]} 
-                                    on:change={(e) => { handleFileChange(e); }}
+                                    onchange={(e) => { handleFileChange(e); }}
                                     required 
                                     class="absolute inset-0 opacity-0 z-10 cursor-pointer"
                                 />
