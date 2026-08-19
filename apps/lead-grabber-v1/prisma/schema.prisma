@@ -143,6 +143,9 @@ model Company {
   shortcuts                   Shortcut[]
   tasks                       Task[]
   users                       User[]
+  viewRooms                   ViewRoom[]
+  contentLibraryItems         ContentLibraryItem[]
+  viewroomQuotes              ViewroomQuote[]
 
   @@map("companies")
 }
@@ -293,6 +296,9 @@ model CompanyMember {
   permissions Json?
   status      CompanyMemberStatus
   joinedAt    DateTime?
+  viewroomSchedule          Json?  @map("viewroom_schedule")
+  viewroomScheduledMeetings Json?  @map("viewroom_scheduled_meetings")
+  viewroomLocation          Json?  @map("viewroom_location")
   created     DateTime            @default(now())
   updated     DateTime            @updatedAt
   profileData Json?
@@ -1590,4 +1596,72 @@ model NumberLookup {
   lookedUpAt  DateTime @default(now())
 
   @@map("number_lookups")
+}
+
+/// Viewroom integration: one row per view room. Mirrors the shape of viewroom's `rooms` table so
+/// the ported UI components can consume it without structural changes. `representative` /
+/// `hostContent` / `representativeContent` hold the ids of `CompanyMember` / `ContentLibraryItem`
+/// rows (cuid strings), matching how viewroom stored array-of-id columns. `contentActiveState`
+/// is a JSON map of `{ host_content_active: { <contentId>: bool }, representative_content_active: { ... } }`.
+model ViewRoom {
+  id                       String    @id @default(cuid())
+  roomId                   String    @unique
+  ownerCompanyId           String
+  title                    String
+  isActive                 Boolean   @default(true)
+  representative           String[]  @default([])
+  hostContent              String[]  @default([])
+  representativeContent    String[]  @default([])
+  scheduled                Boolean   @default(false)
+  scheduleTime             DateTime?
+  customerName             String?
+  customerEmail            String?
+  customerPhone            String?
+  additionalInformation    String?
+  representativeId         String?
+  contentActiveState       Json?
+  created                  DateTime  @default(now())
+  updated                  DateTime  @updatedAt
+  ownerCompany             Company   @relation(fields: [ownerCompanyId], references: [id], onDelete: Cascade)
+
+  @@index([ownerCompanyId])
+  @@map("view_rooms")
+}
+
+/// Viewroom integration: one row per uploaded content item (video / pdf / document / image).
+/// `file` and `thumbnail` store full Bunny CDN URLs (a2p has no PocketBase file storage, unlike
+/// viewroom). `libraryType` is `['host']`, `['representative']`, or both.
+model ContentLibraryItem {
+  id             String   @id @default(cuid())
+  title          String
+  description    String?
+  type           String
+  file           String
+  thumbnail      String?
+  ownerCompanyId String
+  sharedWith     String[] @default([])
+  libraryType    String[] @default([])
+  active         Boolean  @default(true)
+  created        DateTime @default(now())
+  updated        DateTime @updatedAt
+  ownerCompany   Company  @relation(fields: [ownerCompanyId], references: [id], onDelete: Cascade)
+
+  @@index([ownerCompanyId])
+  @@map("content_library")
+}
+
+/// Viewroom integration: quote request submitted from a room (Quote panel).
+model ViewroomQuote {
+  id          String   @id @default(cuid())
+  firstName   String?
+  lastName    String?
+  phone       String?
+  email       String?
+  description String?
+  toCompanyId String
+  created     DateTime @default(now())
+  company     Company  @relation(fields: [toCompanyId], references: [id], onDelete: Cascade)
+
+  @@index([toCompanyId])
+  @@map("viewroom_quotes")
 }

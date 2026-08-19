@@ -5,6 +5,7 @@
 	import { toast } from 'svelte-sonner';
 	import { slide } from 'svelte/transition';
 	import { quintOut } from 'svelte/easing';
+	import { Button } from '$lib/components/ui/button/index.js';
 
 	let { data } = $props<{
 		data: {
@@ -16,7 +17,7 @@
 				location: string;
 				avatar?: string;
 				schedule: Record<string, { start: string; end: string }>;
-				rooms: string[];
+				rooms: Array<{ id: string; title: string; created: Date }>;
 				isPending?: boolean;
 			}>;
 			pendingInvites: Array<{
@@ -27,7 +28,7 @@
 				location: string;
 				avatar?: string;
 				schedule: Record<string, { start: string; end: string }>;
-				rooms: string[];
+				rooms: Array<{ id: string; title: string; created: Date }>;
 				isPending?: boolean;
 			}>;
 		};
@@ -195,7 +196,21 @@
 										<div class="space-y-[10px]">
 											{#each rep.rooms as room}
 												<div class="flex items-center justify-between">
-													<span class="font-['Poppins'] text-[14px] text-[#808080]">{room}</span>
+													<div class="flex flex-col">
+														<span class="font-['Poppins'] text-[14px] font-medium text-[#808080]">
+															{room.title || `ViewRoom ${room.id.substring(0, 6)}`}
+														</span>
+														<span class="text-[12px] text-[#A0A0A0]">
+															Created: {new Date(room.created).toLocaleDateString()}
+														</span>
+													</div>
+													<Button
+														variant="ghost"
+														size="sm"
+														onclick={() => goto(`/room/${room.id}/info`)}
+													>
+														View
+													</Button>
 												</div>
 											{/each}
 										</div>

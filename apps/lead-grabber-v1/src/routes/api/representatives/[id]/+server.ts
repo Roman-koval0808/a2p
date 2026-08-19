@@ -1,17 +1,18 @@
-import { json } from '@sveltejs/kit';
-import type { RequestHandler } from './$types';
+import { json, type RequestHandler } from '@sveltejs/kit';
 import { prisma } from '$lib/db';
-import { requireAuth, unauthorized } from '$lib/api/spec';
+import { toRepresentative, resolveCompanyId } from '$lib/server/viewroom';
 
 export const GET: RequestHandler = async ({ params, locals }) => {
-	const auth = requireAuth(locals);
-	if (!auth) return unauthorized();
+	const authUser = locals.user;
+	if (!authUser) {
+		return json({ success: false, error: 'Unauthorized' }, { status: 401 });
+	}
+	const companyId = resolveCompanyId(locals.user);
 
 	const member = await prisma.companyMember.findFirst({
 		where: {
-			userId: params.id,
-			companyId: auth.companyId,
-			status: 'active'
+			companyId,
+			OR: [{ id: params.id }, { userId: params.id }]
 		},
 		include: { user: { select: { id: true, name: true, email: true, avatar: true } } }
 	});
@@ -19,6 +20,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 		return json({ success: false, error: 'Representative not found', code: 404 }, { status: 404 });
 	}
 
+	const representative = toRepresentative(member, member.user);
 	const data = {
 		id: member.userId,
 		name: member.user.name ?? member.user.email ?? 'Unknown',
@@ -27,5 +29,5 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 		department: (member.role as string) ?? null,
 		avatarUrl: member.user.avatar ?? null
 	};
-	return json({ success: true, data });
+	return json({ success: true, data, representative });
 };
