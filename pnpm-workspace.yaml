@@ -5,7 +5,7 @@ allowBuilds:
   '@prisma/client': true
   '@prisma/engines': true
   '@scarf/scarf': true
-  canvas: set this to true or false
+  canvas: true
   esbuild: true
   prisma: true
   protobufjs: true
