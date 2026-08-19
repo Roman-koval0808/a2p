@@ -1104,8 +1104,8 @@ function handleWebRTCCallback(info: string, obj: any) {
 
 let hasTrackedJoin = false;
 function trackViewroomJoin() {
-    // Track everyone who joins the room
-    if (hasTrackedJoin) return;
+    // Track everyone who joins the room EXCEPT representatives
+    if (hasTrackedJoin || isRepresentative || data?.representativeName) return;
     hasTrackedJoin = true;
     
     try {
@@ -2079,8 +2079,9 @@ function handleNameSubmitted(event) {
     // For anonymous users, just use their submitted name
     anonymousUser.set(submittedName);
     
-    // Track the name submission to update their profile
-    try {
+    // Track the name submission to update their profile (skip for representatives)
+    if (!isRepresentative && !data?.representativeName) {
+        try {
         let fpId = $page.url.searchParams.get('fp');
         if (!fpId && typeof localStorage !== 'undefined') {
             fpId = localStorage.getItem('fingerprintId') || localStorage.getItem('fingerprint') || localStorage.getItem('fp') || '';
@@ -2109,6 +2110,7 @@ function handleNameSubmitted(event) {
     } catch (err) {
         console.error('Error tracking name submission:', err);
     }
+    } // <-- Added closing brace for if (!isRepresentative...)
     
     // Initialize WebRTC after name is set
     initializeWebRTC();
