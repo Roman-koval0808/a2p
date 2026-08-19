@@ -92,9 +92,8 @@
             });
             
             if (response.ok) {
-                room.is_active = newStatus;
-                toast.success(`Room ${room.is_active ? 'activated' : 'deactivated'}`);
-                rooms = [...rooms];
+                toast.success(`Room ${newStatus ? 'activated' : 'deactivated'}`);
+                await invalidateAll();
             } else {
                 const error = await response.json().catch(() => ({}));
                 toast.error(`Failed to update: ${error.message || 'Unknown error'}`);
@@ -199,8 +198,9 @@
     }
 
     function getThumbnailUrl(content: any) {
-        if (!content?.thumbnail) return null;
-        return content.thumbnail;
+        if (content?.thumbnail) return content.thumbnail;
+        if (content?.type === 'image' && content?.file) return content.file;
+        return '';
     }
 
     function getFileUrl(content: any) {

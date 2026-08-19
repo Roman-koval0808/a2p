@@ -42,9 +42,9 @@
     });
 
     function getThumbnailUrl(content: any) {
-        if (!content?.thumbnail) return '';
-        const collection = content.collectionId || 'content_library';
-        return `/api/files/${collection}/${content.id}/${content.thumbnail}`;
+        if (content?.thumbnail) return content.thumbnail;
+        if (content?.type === 'image' && content?.file) return content.file;
+        return '';
     }
 
     function handleJoinRoom() {
