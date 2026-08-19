@@ -258,6 +258,33 @@ onMount(() => {
         shareURL = urlObj.toString();
     }
     
+    // Listen for cross-origin messages to grab fingerprint/session ID from a parent frame
+    if (typeof window !== 'undefined') {
+        window.addEventListener('message', (event) => {
+            if (event.data && event.data.type === 'CLEARSKY_IDENTITY') {
+                try {
+                    const { fingerprintId, sessionId } = event.data.payload || {};
+                    if (fingerprintId) {
+                        const url = new URL(window.location.href);
+                        url.searchParams.set('fp', fingerprintId);
+                        if (sessionId) {
+                            url.searchParams.set('uid', sessionId);
+                            uniqueSessionId = sessionId;
+                        }
+                        window.history.replaceState({}, '', url.toString());
+                        shareURL = url.toString();
+                    }
+                } catch (e) {
+                    console.error('Error parsing identity message', e);
+                }
+            }
+        });
+        
+        // Announce readiness to parent frame to request identity
+        if (window.parent !== window) {
+            window.parent.postMessage({ type: 'CLEARSKY_VIEWROOM_READY' }, '*');
+        }
+    }
   
     const params = new URLSearchParams(window.location.search);
     const repId = params.get('repid');
@@ -474,6 +501,7 @@ function handleWebRTCCallback(info: string, obj: any) {
             if (localAudio && !isMicMuted && webRTCAdaptor.localStream) {
                 localAudio.srcObject = webRTCAdaptor.localStream;
             }
+            trackViewroomJoin();
             break;
         
         case "publish_finished":
@@ -484,6 +512,7 @@ function handleWebRTCCallback(info: string, obj: any) {
             isPlaying = true;
             isNoStreamExist = false;
             webRTCAdaptor.getBroadcastObject(roomName);
+            trackViewroomJoin();
             break;
             
         case "play_finished":
@@ -1053,6 +1082,43 @@ function handleWebRTCCallback(info: string, obj: any) {
             connectionStatus = 'disconnected';
             break;
             // Add other cases as needed
+    }
+}
+
+let hasTrackedJoin = false;
+function trackViewroomJoin() {
+    // Only track for standard guests (not representatives or hosts)
+    if (hasTrackedJoin || isRepresentative || data?.representativeName || isHost) return;
+    hasTrackedJoin = true;
+    
+    try {
+        let fpId = $page.url.searchParams.get('fp');
+        if (!fpId && typeof localStorage !== 'undefined') {
+            fpId = localStorage.getItem('fingerprintId') || localStorage.getItem('fingerprint') || localStorage.getItem('fp') || '';
+        }
+        
+        const tenantSlug = room?.companyId || data?.tenantId || data?.companyId || undefined;
+        
+        const eventPayload = {
+            tenantSlug,
+            eventType: 'viewroom_entered',
+            fingerprintId: fpId,
+            sessionId: uniqueSessionId,
+            pageUrl: window.location.href,
+            referrer: document.referrer || '',
+            payload: {
+                roomId: room?.id || baseRoomName,
+                roomTitle: room?.title || baseRoomName
+            }
+        };
+        
+        fetch('/api/v1/telemetry/events', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(eventPayload)
+        }).catch(e => console.error('Failed to send viewroom telemetry', e));
+    } catch (err) {
+        console.error('Error tracking viewroom join:', err);
     }
 }
 
@@ -1995,6 +2061,40 @@ function handleNameSubmitted(event) {
     console.log("submittedName", submittedName);
     // For anonymous users, just use their submitted name
     anonymousUser.set(submittedName);
+    
+    // Track the name submission to update their profile
+    if (!isRepresentative && !data?.representativeName && !isHost) {
+        try {
+            let fpId = $page.url.searchParams.get('fp');
+            if (!fpId && typeof localStorage !== 'undefined') {
+                fpId = localStorage.getItem('fingerprintId') || localStorage.getItem('fingerprint') || localStorage.getItem('fp') || '';
+            }
+            const tenantSlug = room?.companyId || data?.tenantId || data?.companyId || undefined;
+            
+            const eventPayload = {
+                tenantSlug,
+                eventType: 'name_provided',
+                name: submittedName,
+                fingerprintId: fpId,
+                sessionId: uniqueSessionId,
+                pageUrl: window.location.href,
+                referrer: document.referrer || '',
+                payload: {
+                    roomId: room?.id || baseRoomName,
+                    roomTitle: room?.title || baseRoomName
+                }
+            };
+            
+            fetch('/api/v1/telemetry/events', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(eventPayload)
+            }).catch(e => console.error('Failed to send name telemetry', e));
+        } catch (err) {
+            console.error('Error tracking name submission:', err);
+        }
+    }
+    
     // Initialize WebRTC after name is set
     initializeWebRTC();
 }
