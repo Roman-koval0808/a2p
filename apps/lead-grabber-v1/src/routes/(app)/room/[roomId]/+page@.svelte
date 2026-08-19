@@ -1121,6 +1121,7 @@ function trackViewroomJoin() {
             eventType: 'viewroom_entered',
             fingerprintId: fpId,
             sessionId: uniqueSessionId,
+            name: name || $anonymousUser || '',
             pageUrl: window.location.href,
             referrer: document.referrer || '',
             payload: {
