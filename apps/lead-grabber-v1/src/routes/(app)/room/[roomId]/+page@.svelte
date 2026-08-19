@@ -260,6 +260,23 @@ onMount(() => {
     
     // Listen for cross-origin messages to grab fingerprint/session ID from a parent frame
     if (typeof window !== 'undefined') {
+        // Attempt to auto-generate identical Fingerprint natively using browser hardware
+        const existingFp = localStorage.getItem('fingerprintId') || localStorage.getItem('fingerprint') || localStorage.getItem('fp');
+        if (!existingFp && !$page.url.searchParams.get('fp')) {
+            import("https://openfpcdn.io/fingerprintjs/v4")
+                .then(m => (m.default || m).load())
+                .then(agent => agent.get())
+                .then(r => {
+                    const generatedFp = r.visitorId.slice(0, 12);
+                    localStorage.setItem('fingerprintId', generatedFp);
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('fp', generatedFp);
+                    window.history.replaceState({}, '', url.toString());
+                    shareURL = url.toString();
+                })
+                .catch(e => console.warn('Fingerprint auto-generation failed', e));
+        }
+
         window.addEventListener('message', (event) => {
             if (event.data && event.data.type === 'CLEARSKY_IDENTITY') {
                 try {
