@@ -992,11 +992,11 @@ export async function sendSmsController(params: {
 /**
  * Asynchronously checks if visitor is high-intent, builds notification, and POSTs to CMS Backend.
  */
-async function triggerTelemetryNotification(
+export async function notifyTelemetry(
   tenantSlug: string,
-  profile: { id: string; name: string | null; scoreLive: number; intentBucket: string },
   eventType: string,
-  pageUrl: string | null
+  profile: any,
+  pageUrl?: string
 ) {
   try {
     const isHighIntent = profile.intentBucket === 'emergency' || profile.intentBucket === 'active' || profile.scoreLive >= 80;
@@ -1014,52 +1014,29 @@ async function triggerTelemetryNotification(
       message = `Visitor "${nameStr}" entered Active Project bucket! Action: ${eventType} on ${pageUrl || 'unknown'}`;
     }
 
-    const postData = JSON.stringify({
-      tenantSlug,
-      title,
-      message,
-      metadata: {
-        profileId: profile.id,
-        eventType,
-        pageUrl,
-        scoreLive: profile.scoreLive,
-        intentBucket: profile.intentBucket,
-      },
+    const { prisma: mainPrisma } = await import('$lib/db');
+    
+    // Create the Communication Log directly using the main DB client
+    await mainPrisma.communicationLog.create({
+      data: {
+        companyId: tenantSlug,
+        type: 'web',
+        direction: 'inbound',
+        status: 'success',
+        source: 'Viewroom / Telemetry',
+        summary: title,
+        content: message,
+        metadata: {
+          profileId: profile.id,
+          eventType,
+          pageUrl,
+          scoreLive: profile.scoreLive,
+          intentBucket: profile.intentBucket,
+        },
+      }
     });
 
-    const cmsUrl = process.env.CMS_BACKEND_URL || 'http://localhost:5100';
-    const url = new URL(`${cmsUrl}/api/v1/notifications/telemetry`);
-
-    const options = {
-      hostname: url.hostname,
-      port: url.port || (url.protocol === 'https:' ? '443' : '80'),
-      path: url.pathname,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(postData),
-      },
-    };
-
-    const makeRequest = url.protocol === 'https:' ? httpsRequest : httpRequest;
-    const req = makeRequest(options, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
-        if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-          console.log(`[Telemetry Notification Sent] for tenant ${tenantSlug}`);
-        } else {
-          console.error(`[Telemetry Notification Failed] Status: ${res.statusCode}, Response: ${data}`);
-        }
-      });
-    });
-
-    req.on('error', (err) => {
-      console.error('[Telemetry Notification Connection Error]:', err.message);
-    });
-
-    req.write(postData);
-    req.end();
+    console.log(`[Telemetry Notification Logged] directly to DB for tenant ${tenantSlug}`);
   } catch (error: any) {
     console.error('[Telemetry Notification Trigger Error]:', error.message);
   }
