@@ -317,14 +317,14 @@
                     <Button 
                         variant="outline" 
                         class="h-[39px] rounded-[3px] font-semibold text-[16px]"
-                        on:click={() => showEmbed = true}
+                        onclick={() => showEmbed = true}
                     >
                         Get Embed Code
                     </Button>
                     <Button 
                         variant="outline"
                         class="h-[39px] rounded-[3px] font-semibold text-[16px]"
-                        on:click={openEditDialog}
+                        onclick={openEditDialog}
                     >
                         Edit Room
                     </Button>
@@ -332,7 +332,7 @@
                     {#if room.is_active}
                         <Button 
                             class="bg-[#577AB7] h-[39px] rounded-[3px] font-semibold text-[16px] text-white"
-                            on:click={handleJoinRoom}
+                            onclick={handleJoinRoom}
                             disabled={!room.is_active}
                     >
                             Join Room
@@ -343,7 +343,7 @@
                         <Tooltip.Root >
                             <Tooltip.Trigger> <Button 
                                 class="bg-[#577AB7] h-[39px] rounded-[3px] font-semibold text-[16px] text-white"
-                                on:click={handleJoinRoom}
+                                onclick={handleJoinRoom}
                                 disabled={!room.is_active}
                         >
                                 Join Room
@@ -877,7 +877,7 @@
                 {/if}
 
                 <Dialog.Footer>
-                    <Button type="button" variant="outline" on:click={() => showEditDialog = false}>
+                    <Button type="button" variant="outline" onclick={() => showEditDialog = false}>
                         Cancel
                     </Button>
                     <Button type="submit" disabled={!$form.valid}>Update Room</Button>
@@ -916,10 +916,10 @@
         {/if}
         
         <Dialog.Footer>
-            <Button variant="outline" on:click={() => showDeleteDialog = false}>
+            <Button variant="outline" onclick={() => showDeleteDialog = false}>
                 Cancel
             </Button>
-            <Button variant="destructive" on:click={deleteContent}>
+            <Button variant="destructive" onclick={deleteContent}>
                 Remove
             </Button>
         </Dialog.Footer>

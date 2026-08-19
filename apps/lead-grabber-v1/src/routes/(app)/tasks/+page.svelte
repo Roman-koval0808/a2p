@@ -298,17 +298,17 @@
 						</td>
 						<td class="px-4 py-3 text-center">
 							<DropdownMenu.Root>
-								<DropdownMenu.Trigger class="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-gray-100 text-gray-500" on:click={(e) => e.stopPropagation()}>
+								<DropdownMenu.Trigger class="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-gray-100 text-gray-500" onclick={(e) => e.stopPropagation()}>
 									<MoreHorizontal class="h-5 w-5" />
 								</DropdownMenu.Trigger>
 								<DropdownMenu.Content align="end">
 									{#if task._kind === 'scheduled_intent' && task.status === 'PENDING'}
-										<DropdownMenu.Item on:click={(e) => { e.stopPropagation(); quickCancel(task.id); }}>
+										<DropdownMenu.Item onclick={(e) => { e.stopPropagation(); quickCancel(task.id); }}>
 											<Trash2 class="mr-2 h-4 w-4" />
 											Delete
 										</DropdownMenu.Item>
 									{/if}
-									<DropdownMenu.Item on:click={(e) => { e.stopPropagation(); startEdit(task); }}>
+									<DropdownMenu.Item onclick={(e) => { e.stopPropagation(); startEdit(task); }}>
 										<Edit class="mr-2 h-4 w-4" />
 										Edit
 									</DropdownMenu.Item>
@@ -389,10 +389,10 @@
 													</div>
 												</div>
 												<div class="flex gap-2">
-													<Button size="sm" on:click={() => saveEdit(task.id)}>
+													<Button size="sm" onclick={() => saveEdit(task.id)}>
 														<Save class="mr-2 h-4 w-4" /> Save
 													</Button>
-													<Button size="sm" variant="ghost" on:click={cancelEdit}>
+													<Button size="sm" variant="ghost" onclick={cancelEdit}>
 														<X class="mr-2 h-4 w-4" /> Cancel
 													</Button>
 												</div>
@@ -423,7 +423,7 @@
 														<button class="hover:underline text-gray-700" on:click={(e) => { e.stopPropagation(); startEdit(task); }}>Edit</button>
 														<button class="hover:underline text-gray-700" on:click={(e) => { e.stopPropagation(); }}>Delete</button>
 													</div>
-													<Button class="bg-red-500 hover:bg-red-600 text-white font-semibold rounded text-sm px-6" on:click={(e) => { e.stopPropagation(); startEdit(task); }}>
+													<Button class="bg-red-500 hover:bg-red-600 text-white font-semibold rounded text-sm px-6" onclick={(e) => { e.stopPropagation(); startEdit(task); }}>
 														update task
 													</Button>
 												</div>

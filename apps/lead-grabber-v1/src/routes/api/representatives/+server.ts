@@ -18,6 +18,8 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	const members = await prisma.companyMember.findMany({
 		where: {
 			companyId,
+			role: 'member',
+			status: 'active',
 			...(search && {
 				user: {
 					OR: [

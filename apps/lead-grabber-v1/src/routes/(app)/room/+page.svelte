@@ -846,7 +846,7 @@
                                 <Button 
                                     variant="outline" 
                                     size="sm"
-                                    on:click={() => window.open(getFileUrl(content), '_blank')}
+                                    onclick={() => window.open(getFileUrl(content), '_blank')}
                                 >
                                     View {content.type}
                                 </Button>
@@ -857,7 +857,7 @@
             </div>
         </div>
         <Dialog.Footer>
-            <Button variant="outline" on:click={() => showContentDialog = false}>
+            <Button variant="outline" onclick={() => showContentDialog = false}>
                 Close
             </Button>
         </Dialog.Footer>

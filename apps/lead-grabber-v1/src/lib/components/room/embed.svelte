@@ -46,14 +46,14 @@
             readonly
         >{embedCode}</textarea>
     </div>
-    <Button on:click={copyEmbedCode} class="mt-4 w-full">
+    <Button onclick={copyEmbedCode} class="mt-4 w-full">
         Copy Embed Code <ClipboardCopy class="h-5 w-5 ml-2" />
     </Button>
     
     <!-- <h3 class="mt-4 font-bold">Alternative Embed Method</h3>
     <p class="mt-2">You can also use this script tag for a more flexible embed:</p>
     <textarea class="w-full mt-2 p-2 border rounded" rows="3" readonly>{scriptEmbedCode}</textarea>
-    <Button on:click={() => copyText(scriptEmbedCode)} class="mt-2">
+    <Button onclick={() => copyText(scriptEmbedCode)} class="mt-2">
         Copy Script Embed Code <ClipboardCopy class="h-5 w-5 ml-2" />
     </Button> -->
 </div>

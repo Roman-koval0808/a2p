@@ -311,14 +311,14 @@
     <!-- Zoom toolbar (controller only) -->
     {#if isController}
         <div class="flex items-center justify-center gap-2 p-2 bg-gray-100 border-b shrink-0">
-            <Button variant="outline" size="icon" on:click={handleZoomOut} disabled={zoomScale <= ZOOM_MIN}>
+            <Button variant="outline" size="icon" onclick={handleZoomOut} disabled={zoomScale <= ZOOM_MIN}>
                 <ZoomOut class="h-4 w-4" />
             </Button>
             <span class="min-w-[4rem] text-center text-sm">{Math.round(zoomScale * 100)}%</span>
-            <Button variant="outline" size="icon" on:click={handleZoomIn} disabled={zoomScale >= ZOOM_MAX}>
+            <Button variant="outline" size="icon" onclick={handleZoomIn} disabled={zoomScale >= ZOOM_MAX}>
                 <ZoomIn class="h-4 w-4" />
             </Button>
-            <Button variant="outline" size="icon" on:click={handleZoomReset} disabled={zoomScale === 1}>
+            <Button variant="outline" size="icon" onclick={handleZoomReset} disabled={zoomScale === 1}>
                 <RotateCcw class="h-4 w-4" />
             </Button>
         </div>
