@@ -647,7 +647,7 @@ export async function ingestTelemetryEvent(params: {
     } : undefined;
 
     // Trigger notification asynchronously for high-intent visitors
-    triggerTelemetryNotification(tenantSlug, updatedProfile, eventType, pageUrl);
+    void notifyTelemetry(tenantSlug, eventType, updatedProfile, pageUrl);
 
     return {
       status: 201,
