@@ -260,7 +260,7 @@
             <Button
                 variant="outline"
                 size="icon"
-                on:click={() => handleZoom('out')}
+                onclick={() => handleZoom('out')}
                 disabled={scale <= ZOOM_MIN}
             >
                 <ZoomOut class="h-4 w-4" />
@@ -273,7 +273,7 @@
             <Button
                 variant="outline"
                 size="icon"
-                on:click={() => handleZoom('in')}
+                onclick={() => handleZoom('in')}
                 disabled={scale >= ZOOM_MAX}
             >
                 <ZoomIn class="h-4 w-4" />
@@ -282,7 +282,7 @@
             <Button
                 variant="outline"
                 size="icon"
-                on:click={resetZoom}
+                onclick={resetZoom}
                 disabled={scale === 1}
             >
                 <RotateCcw class="h-4 w-4" />

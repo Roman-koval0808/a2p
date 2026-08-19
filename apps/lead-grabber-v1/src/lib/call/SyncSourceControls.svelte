@@ -25,14 +25,14 @@
         <Button
             variant={syncSource === 'host' ? 'default' : 'secondary'}
             size="sm"
-            on:click={() => dispatch('syncSourceChange', { source: 'host' })}
+            onclick={() => dispatch('syncSourceChange', { source: 'host' })}
         >
             Host Ctrl
         </Button>
         <Button
             variant={syncSource === 'representative' ? 'default' : 'secondary'}
             size="sm"
-            on:click={() => dispatch('syncSourceChange', { source: 'representative' })}
+            onclick={() => dispatch('syncSourceChange', { source: 'representative' })}
         >
             Rep Ctrl
         </Button>
@@ -40,7 +40,7 @@
             <Button
                 variant={isRepLive ? 'destructive' : 'secondary'}
                 size="sm"
-                on:click={() => dispatch('toggleDevLiveMode')}
+                onclick={() => dispatch('toggleDevLiveMode')}
             >
                 {isRepLive ? '⏹ Stop Live' : '🔴 Sim Go Live'}
             </Button>

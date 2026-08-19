@@ -254,7 +254,7 @@
                 <Button
                     variant="secondary"
                     size="icon"
-                    on:click={handleZoomOut}
+                    onclick={handleZoomOut}
                     disabled={currentZoom <= 0.1}
                 >
                     <ZoomOut class="h-4 w-4" />
@@ -262,7 +262,7 @@
                 <Button
                     variant="secondary"
                     size="icon"
-                    on:click={handleZoomIn}
+                    onclick={handleZoomIn}
                     disabled={currentZoom >= 5}
                 >
                     <ZoomIn class="h-4 w-4" />
@@ -270,7 +270,7 @@
                 <Button
                     variant="secondary"
                     size="icon"
-                    on:click={handleReset}
+                    onclick={handleReset}
                 >
                     <RotateCcw class="h-4 w-4" />
                 </Button>

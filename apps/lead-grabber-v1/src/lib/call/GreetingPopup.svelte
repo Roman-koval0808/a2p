@@ -297,10 +297,10 @@
 
     <Dialog.Footer class="mt-6 flex flex-col gap-3 lg:flex-row items-center">
       <Button class="w-full rounded-xl bg-primary py-3 text-base font-semibold text-white shadow hover:bg-primary/90"
-        on:click={() => step = 2}
+        onclick={() => step = 2}
       >Join Room</Button>
       <Button variant="outline" class=" w-full rounded-xl border border-primary/20 py-3 text-base font-semibold text-primary hover:bg-[#F3F6FC]"
-        on:click={() => dispatch("dismissed")}
+        onclick={() => dispatch("dismissed")}
       >Leave Room</Button>
     </Dialog.Footer>
     {/if}
@@ -316,10 +316,10 @@
       </Dialog.Description>
       <Dialog.Footer class="mt-6 flex flex-col gap-3 lg:flex-row items-center">
         <Button class="w-full  rounded-xl bg-primary py-3 text-base font-semibold text-white shadow hover:bg-primary/90"
-          on:click={startTour}
+          onclick={startTour}
         >Continue</Button>
         <Button class="w-full  rounded-xl border border-primary/20 bg-[#F3F6FC] py-3 text-base font-semibold text-primary hover:bg-[#E8F0FA]"
-          on:click={() => dispatch("dismissed")}
+          onclick={() => dispatch("dismissed")}
         >Skip</Button>
       </Dialog.Footer>
     {/if}

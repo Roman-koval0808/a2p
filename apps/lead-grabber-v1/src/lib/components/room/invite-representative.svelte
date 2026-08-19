@@ -186,7 +186,7 @@
 
 <!-- Comment out confirmation dialog -->
 <!-- <Dialog.Root bind:open={inviteConfirmed}>
-    <Dialog.Content>
+    <Dialog.Content class="sm:max-w-md">
         <div class="flex flex-col items-center p-6">
             <svg class="w-16 h-16 text-green-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
@@ -206,9 +206,9 @@
 
 {#if !showRepresentativeList && showInitialDialog}
     <!-- First Modal -->
-    <div class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
-        <div class="bg-white p-6 w-full text-gray-400">
-            <h2 class="text-lg font-semibold mb-4 text-[#464646]">Invite Representative</h2>
+    <div class="fixed inset-0 flex items-center justify-center bg-black/50 z-50 px-4">
+        <div class="bg-white p-6 w-full max-w-sm rounded-2xl text-gray-600 shadow-2xl">
+            <h2 class="text-xl font-semibold mb-4 text-[#1f2933]">Invite Representative</h2>
             <p class="text-sm mb-6">
                 Speak to a representative, you're gaining direct access to an expert who specializes in our services. They're here to guide you, answer your questions, and provide personalized assistance. Whether you're seeking advice, information, or a step-by-step walkthrough, our representatives are ready to help you. Click the 'CONTINUE' to start a conversation.
             </p>
@@ -300,7 +300,7 @@
                     <div class="mt-6 flex flex-col gap-3">
                         <Button
                             class="w-full bg-[#4B77BE] hover:bg-[#3f66a4] text-white"
-                            on:click={sendInvite}
+                            onclick={sendInvite}
                             disabled={!selectedRepresentative || isSendingInvite}
                         >
                             {#if isSendingInvite}
@@ -315,7 +315,7 @@
                                 type="button"
                                 variant="ghost"
                                 class="w-full bg-[#EEF2F7] text-[#4a5562] hover:bg-[#e2e8f0]"
-                                on:click={cancelDialog}
+                                onclick={cancelDialog}
                             >
                                 Cancel
                             </Button>
@@ -335,7 +335,7 @@
                     <Dialog.Close asChild>
                         <Button
                             class="w-full bg-[#4B77BE] hover:bg-[#3f66a4] text-white"
-                            on:click={handleClose}
+                            onclick={handleClose}
                         >
                             OK
                         </Button>

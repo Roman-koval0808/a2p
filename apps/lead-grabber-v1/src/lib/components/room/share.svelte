@@ -155,7 +155,7 @@
             variant="ghost"
             size="sm"
             class="text-[#34509f] hover:text-[#243670]"
-            on:click={() => {
+            onclick={() => {
                 copyText(inviteLink);
                 toast.success('Link copied to clipboard');
             }}

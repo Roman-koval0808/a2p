@@ -39,7 +39,7 @@
     <div class="flex justify-between items-center h-full w-[22rem] max-w-full p-4 border-b bg-[#202124] flex-col gap-3">
         <div class="flex items-center justify-between w-full bg-[#47484b] px-4 py-2 md:hidden">
             <div class="text-white text-lg font-semibold">Chat message</div>
-            <Button variant="ghost" size="icon" on:click={() => dispatch('togglePanel', { id: 'chatPanel' })}>
+            <Button variant="ghost" size="icon" onclick={() => dispatch('togglePanel', { id: 'chatPanel' })}>
                 <X scale={1.3} color="#fff" />
             </Button>
         </div>

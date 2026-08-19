@@ -54,7 +54,7 @@
             </Button>
         </Dialog.Trigger>
         
-        <Dialog.Content class="p-4 rounded-lg shadow-lg">
+        <Dialog.Content class="p-0 border-none bg-transparent shadow-none sm:max-w-md flex justify-center">
             <Share {joinURL} scale={1.3} color="#fff" />
         </Dialog.Content>
     </Dialog.Root> -->
@@ -85,7 +85,7 @@
                 />
             </Button>
         </Dialog.Trigger>
-        <Dialog.Content class="p-4 rounded-lg shadow-lg">
+        <Dialog.Content class="p-0 border-none bg-transparent shadow-none sm:max-w-md flex justify-center">
             <InviteRepresentative
                 representatives={videoRepresentatives}
                 shareURL={shareURL}

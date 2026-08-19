@@ -109,7 +109,7 @@ import Share from '$lib/components/room/share.svelte';
             <span class="font-medium text-sm leading-[21px]">Invite people</span>
           </button>
         </Dialog.Trigger>
-        <Dialog.Content class="p-4 rounded-lg shadow-lg">
+        <Dialog.Content class="p-0 border-none bg-transparent shadow-none sm:max-w-md flex justify-center">
           <Share {shareURL} representative={false} />
         </Dialog.Content>
       </Dialog.Root>

@@ -312,8 +312,8 @@
              
                 <input type="file" accept="video/*" onchange={playLocalVideoFile} class="mb-4" />
                 <div class="flex justify-between">
-                    <Button on:click={toggleVideoPicker}>Cancel</Button>
-                    <Button on:click={() => {
+                    <Button onclick={toggleVideoPicker}>Cancel</Button>
+                    <Button onclick={() => {
                         toggleVideoPicker();
                         shareVideo();
                     }}>Share Video</Button>

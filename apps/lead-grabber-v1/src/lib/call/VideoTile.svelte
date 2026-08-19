@@ -320,7 +320,7 @@
 
         <!-- {#if host && !$playVideoStore}
             <div class="play-button h-screen min-w-full absolute flex justify-center items-center z-[999]">
-                <button on:click={() => playVideoStore.set(true)}>
+                <button onclick={() => playVideoStore.set(true)}>
                     <PlayCircle size={48} class="cursor-pointer" />
                 </button>
             </div>
