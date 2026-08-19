@@ -1104,8 +1104,8 @@ function handleWebRTCCallback(info: string, obj: any) {
 
 let hasTrackedJoin = false;
 function trackViewroomJoin() {
-    // Only track for standard guests (not representatives or hosts)
-    if (hasTrackedJoin || isRepresentative || data?.representativeName || isHost) return;
+    // Track everyone who joins the room
+    if (hasTrackedJoin) return;
     hasTrackedJoin = true;
     
     try {
@@ -2080,36 +2080,34 @@ function handleNameSubmitted(event) {
     anonymousUser.set(submittedName);
     
     // Track the name submission to update their profile
-    if (!isRepresentative && !data?.representativeName && !isHost) {
-        try {
-            let fpId = $page.url.searchParams.get('fp');
-            if (!fpId && typeof localStorage !== 'undefined') {
-                fpId = localStorage.getItem('fingerprintId') || localStorage.getItem('fingerprint') || localStorage.getItem('fp') || '';
-            }
-            const tenantSlug = room?.companyId || data?.tenantId || data?.companyId || undefined;
-            
-            const eventPayload = {
-                tenantSlug,
-                eventType: 'name_provided',
-                name: submittedName,
-                fingerprintId: fpId,
-                sessionId: uniqueSessionId,
-                pageUrl: window.location.href,
-                referrer: document.referrer || '',
-                payload: {
-                    roomId: room?.id || baseRoomName,
-                    roomTitle: room?.title || baseRoomName
-                }
-            };
-            
-            fetch('/api/v1/telemetry/events', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(eventPayload)
-            }).catch(e => console.error('Failed to send name telemetry', e));
-        } catch (err) {
-            console.error('Error tracking name submission:', err);
+    try {
+        let fpId = $page.url.searchParams.get('fp');
+        if (!fpId && typeof localStorage !== 'undefined') {
+            fpId = localStorage.getItem('fingerprintId') || localStorage.getItem('fingerprint') || localStorage.getItem('fp') || '';
         }
+        const tenantSlug = room?.companyId || data?.tenantId || data?.companyId || undefined;
+        
+        const eventPayload = {
+            tenantSlug,
+            eventType: 'name_provided',
+            name: submittedName,
+            fingerprintId: fpId,
+            sessionId: uniqueSessionId,
+            pageUrl: window.location.href,
+            referrer: document.referrer || '',
+            payload: {
+                roomId: room?.id || baseRoomName,
+                roomTitle: room?.title || baseRoomName
+            }
+        };
+        
+        fetch('/api/v1/telemetry/events', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(eventPayload)
+        }).catch(e => console.error('Failed to send name telemetry', e));
+    } catch (err) {
+        console.error('Error tracking name submission:', err);
     }
     
     // Initialize WebRTC after name is set
