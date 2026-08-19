@@ -1114,7 +1114,7 @@ function trackViewroomJoin() {
             fpId = localStorage.getItem('fingerprintId') || localStorage.getItem('fingerprint') || localStorage.getItem('fp') || '';
         }
         
-        const tenantSlug = room?.companyId || data?.tenantId || data?.companyId || undefined;
+        const tenantSlug = room?.companyId || data?.owner_company || data?.user?.companyId || data?.tenantId || data?.companyId || 'default-tenant';
         
         const eventPayload = {
             tenantSlug,
@@ -2086,7 +2086,7 @@ function handleNameSubmitted(event) {
         if (!fpId && typeof localStorage !== 'undefined') {
             fpId = localStorage.getItem('fingerprintId') || localStorage.getItem('fingerprint') || localStorage.getItem('fp') || '';
         }
-        const tenantSlug = room?.companyId || data?.tenantId || data?.companyId || undefined;
+        const tenantSlug = room?.companyId || data?.owner_company || data?.user?.companyId || data?.tenantId || data?.companyId || 'default-tenant';
         
         const eventPayload = {
             tenantSlug,
