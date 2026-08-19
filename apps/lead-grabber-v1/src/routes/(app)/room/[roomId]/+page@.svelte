@@ -3,7 +3,6 @@
   import { run } from 'svelte/legacy';
 
 	import { dev } from '$app/environment';
-	import { toast } from 'svelte-sonner';
 import {
     PUBLIC_ANT_MEDIA_URL
 } from '$env/static/public';
@@ -57,6 +56,10 @@ import BottomBar from '$lib/components/layout/bottom-bar.svelte';
 interface VideoElement extends HTMLVideoElement {
     srcObject: MediaStream;
 }
+
+import { isCurrentUserMessage, extractAndNormalizeName, getInitials } from '$lib/utils/chat';
+
+let { data } = $props();
 
 interface AudioElement extends HTMLAudioElement {
     srcObject: MediaStream;
@@ -1149,8 +1152,6 @@ function handleWebRTCError(error: string, message: string) {
     }
 }
 
-import { isCurrentUserMessage, extractAndNormalizeName, getInitials } from '$lib/utils/chat';
-  let { data } = $props();
 
 // can't use await at top-level in Svelte component scripts, so use an async IIFE if you want to log this
 // (async () => {
@@ -2827,7 +2828,7 @@ run(() => {
                             <div class="h-full w-full absolute inset-0 z-40">
                                 {#if selectedVideo && selectedVideo.thumbnail}
                                     <img 
-                                        src={`/api/files/${selectedVideo.collectionId || selectedVideo.collection || 'content_library'}/${selectedVideo.id}/${selectedVideo.thumbnail}`} 
+                                        src={selectedVideo.thumbnail || selectedVideo.file} 
                                         alt={selectedVideo.title} 
                                         class="absolute w-full h-full object-cover"
                                     >
@@ -3293,7 +3294,7 @@ run(() => {
                             onclick={() => { handleVideoSelect({ detail: item }); fsContentPickerOpen = false; }}
                         >
                             <img
-                                src={`/api/files/${item.collectionId || item.collection || 'content_library'}/${item.id}/${item.thumbnail}`}
+                                src={item.thumbnail || item.file}
                                 alt={item.title || 'Content'}
                                 class="w-full h-full object-cover"
                             />
@@ -3310,7 +3311,7 @@ run(() => {
                             onclick={() => { handleVideoSelect({ detail: item }); fsContentPickerOpen = false; }}
                         >
                             <img
-                                src={`/api/files/${item.collectionId || item.collection || 'content_library'}/${item.id}/${item.thumbnail}`}
+                                src={item.thumbnail || item.file}
                                 alt={item.title || 'Content'}
                                 class="w-full h-full object-cover"
                             />
@@ -3331,7 +3332,7 @@ run(() => {
                             style="width: 5.5rem; height: 3.5rem; top: {i * -4}px; right: {i * 4}px; z-index: {3 - i}; opacity: {1 - i * 0.2}; transform: scale({1 - i * 0.04});"
                         >
                             <img
-                                src={`/api/files/${item.collectionId || item.collection || 'content_library'}/${item.id}/${item.thumbnail}`}
+                                src={item.thumbnail || item.file}
                                 alt={item.title || 'Content'}
                                 class="w-full h-full object-cover"
                             />
@@ -3339,7 +3340,7 @@ run(() => {
                     {/each}
                     {#if allContentItems.length === 0 && selectedVideo?.thumbnail}
                         <img
-                            src={`/api/files/${selectedVideo.collectionId || selectedVideo.collection || 'content_library'}/${selectedVideo.id}/${selectedVideo.thumbnail}`}
+                            src={selectedVideo.thumbnail || selectedVideo.file}
                             alt={selectedVideo.title}
                             class="h-14 w-[5.5rem] object-cover rounded-lg border-2 border-white/30"
                         />

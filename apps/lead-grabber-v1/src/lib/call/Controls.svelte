@@ -104,7 +104,7 @@
             <Clapperboard color="#fff" stroke-width="0.4" />
         </button>
     </div>
-    <Button class="leave" onclick={leaveCall} variant="destructive">Leave Call</Button>
+    <Button class="leave" on:click={leaveCall} variant="destructive">Leave Call</Button>
 </div>
 
 

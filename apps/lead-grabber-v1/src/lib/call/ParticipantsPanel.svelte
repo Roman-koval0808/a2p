@@ -43,7 +43,7 @@
     <div class="flex items-center h-full w-[22rem] max-w-full p-4 border-b bg-[#202124] flex-col gap-3">
         <div class="flex items-center justify-between w-full bg-[#47484b] px-4 py-2 md:hidden">
             <div class="text-white text-lg font-semibold">Participants</div>
-            <Button variant="ghost" size="icon" onclick={() => dispatch('togglePanel', { id: 'participantsPanel' })}>
+            <Button variant="ghost" size="icon" on:click={() => dispatch('togglePanel', { id: 'participantsPanel' })}>
                 <X scale={1.3} color="#fff" />
             </Button>
         </div>
