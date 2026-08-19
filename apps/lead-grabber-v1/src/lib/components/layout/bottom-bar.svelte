@@ -129,7 +129,7 @@
      <Button
          variant="destructive"
          class="hover:bg-red-700"
-         on:click={() => dispatch("leaveRoom")}
+         onclick={() => dispatch("leaveRoom")}
      >
          Leave Room
      </Button>

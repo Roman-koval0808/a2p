@@ -17,7 +17,7 @@
     </Button>
     <Button
         class="flex-1 min-w-0 rounded bg-bgdefault-light text-white shadow-lg hover:bg-primary hover:text-white flex items-center justify-center gap-2 px-3 py-2 max-w-40 "
-        on:click={()=>copyTextToClipboard(roomLink)}
+        onclick={()=>copyTextToClipboard(roomLink)}
     >
 <svg width="120" height="120" viewBox="0 0 20 19" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
     <rect width="19.319" height="19" fill="url(#pattern0_9432_1589)"/>

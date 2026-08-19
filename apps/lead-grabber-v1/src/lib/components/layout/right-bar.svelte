@@ -114,7 +114,7 @@
             size="icon"
             class="w-full hover:bg-red-700 relative"
             id="chat-button"
-            on:click={() => togglePanel("chatPanel")}
+            onclick={() => togglePanel("chatPanel")}
         >
             <img src="/icons/icon-chat.svg" alt="Chat" class="w-9 h-9" />
             {#if unreadCount > 0}
@@ -135,7 +135,7 @@
             size="icon"
             class="w-full hover:bg-red-700 relative"
             id="participants-button"
-            on:click={() => togglePanel("participantsPanel")}
+            onclick={() => togglePanel("participantsPanel")}
         >
             <div class="absolute -top-2 left-8 w-6 h-6 flex items-center justify-center bg-[#47484b] text-white rounded-full">
                 {participantCount}

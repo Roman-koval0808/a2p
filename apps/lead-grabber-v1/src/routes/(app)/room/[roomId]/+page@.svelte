@@ -2696,7 +2696,7 @@ run(() => {
   <NameInputModal on:nameSubmitted={handleNameSubmitted} roomName={room?.title} />
 {:else}
     <!-- Always render meeting room in the background -->
-    <div class="min-w-full bg-bgdefault relative overflow-hidden" style="height: 100vh; height: 100dvh;">
+    <div class="min-w-full bg-[#666669] relative overflow-hidden" style="height: 100vh; height: 100dvh;">
         {#if showGreetingPopup}
             <GreetingPopup name={data?.representativeName} host={isHost} on:dismissed={handleGreetingDismissed} />
         {/if}
