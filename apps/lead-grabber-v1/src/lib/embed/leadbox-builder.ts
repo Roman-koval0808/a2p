@@ -109,15 +109,30 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
         fingerprintId: fp,
         signals: list
       });
-      if (navigator.sendBeacon) {
-        navigator.sendBeacon(apiBase + '/api/v1/telemetry/signals', new Blob([body], { type: 'application/json' }));
-      } else {
-        fetch(apiBase + '/api/v1/telemetry/signals', {
+      /* Transport, and why it is NOT sendBeacon-with-JSON.
+         navigator.sendBeacon() forces the request's credentials mode to "include", and an
+         application/json body is not a CORS-safelisted content type. Together those make the
+         beacon a *credentialed* cross-origin preflight, which the intake's wildcard
+         Access-Control-Allow-Origin: * can never satisfy — the browser drops the request
+         while sendBeacon() still returns true, so every embed signal failed silently.
+         fetch(keepalive) is the transport the marketing-site client already uses against this
+         same endpoint, and keepalive survives page unload just as a beacon does. The beacon
+         is kept only as a fallback, with a text/plain body so it stays a "simple" request
+         (no-cors, no preflight) and is actually delivered. */
+      var endpoint = apiBase + '/api/v1/telemetry/signals';
+      if (typeof fetch === 'function') {
+        fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: body,
           keepalive: true
+        }).catch(function () {
+          if (navigator.sendBeacon) {
+            navigator.sendBeacon(endpoint, new Blob([body], { type: 'text/plain' }));
+          }
         });
+      } else if (navigator.sendBeacon) {
+        navigator.sendBeacon(endpoint, new Blob([body], { type: 'text/plain' }));
       }
     } catch (e) {
       /* telemetry must never break the widget */

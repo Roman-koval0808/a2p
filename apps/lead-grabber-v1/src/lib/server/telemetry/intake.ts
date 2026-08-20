@@ -283,76 +283,90 @@ async function upsertSessionCommLog(
 	// anonymous website batches would otherwise clobber the name the visitor gave in the viewroom.
 	const source = name || email || phone || fingerprint || undefined;
 
-	// Keep one thread per visitor so every signal shares the same COM id.
-	await prisma.communicationThread.upsert({
-		where: { id: threadId },
-		create: {
-			id: threadId,
-			companyId: company.id,
-			contactId: contact?.id ?? null,
-			status: 'open',
-			summary
-		},
-		update: { summary, contactId: contact?.id ?? undefined }
-	});
+	// The row's `metadata.signals` is a read-modify-write, so two batches for the SAME visitor
+	// arriving together (a form tab-through, or a site batch overlapping an embed request) would
+	// both read the pre-existing array and the second write would clobber the first. The signal
+	// stayed in pipeline_events but vanished from the comm log — which is what the sales inbox and
+	// the AI summary actually read, so it looked like the signal was never received at all.
+	// The advisory lock serialises per visitor thread only; it is released when the tx commits.
+	const { logId, content, shouldNotify } = await prisma.$transaction(async (tx: any) => {
+		await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${threadId}))`;
 
-	const existing = await prisma.communicationLog.findFirst({
-		where: { companyId: company.id, communicationThreadId: threadId },
-		orderBy: { created: 'desc' }
-	});
-
-	const meta = (existing?.metadata as Record<string, any>) || {};
-	const incomingSignals = eventIds.map((e) => e.name);
-
-	// Append every signal — repeats from later visits must be visible, not deduped away (a
-	// returning visitor's vr_entry/dwell would otherwise look like nothing was recorded).
-	const signals = Array.isArray(meta.signals) ? [...meta.signals, ...incomingSignals].slice(-80) : incomingSignals;
-	const content = `Signals: ${signals.map(humanizeSignal).join(' → ')} · Engagement score ${engagementScore}`;
-
-	// Notify once per session, the first time a high-intent signal arrives.
-	const shouldNotify = eventIds.some((ev) => isHighIntent(ev)) && !meta.notified;
-	const nextMeta = {
-		...meta,
-		name: name ?? meta.name ?? null,
-		latestSignal: latest.name,
-		signals,
-		scoreLive: engagementScore,
-		source_signal: type,
-		attribution: batch.attribution ?? meta.attribution,
-		notified: !!meta.notified || shouldNotify
-	};
-
-	let logId: string;
-	if (existing) {
-		await prisma.communicationLog.update({
-			where: { id: existing.id },
-			data: {
-				summary,
-				content,
-				source: source ?? existing.source,
-				customerId: contact?.id ?? existing.customerId,
-				metadata: nextMeta as any
-			}
-		});
-		logId = existing.id;
-	} else {
-		const created = await prisma.communicationLog.create({
-			data: {
-				type,
-				direction: 'inbound',
-				status: 'success',
-				source: source ?? null,
-				destination: null,
+		// Keep one thread per visitor so every signal shares the same COM id.
+		await tx.communicationThread.upsert({
+			where: { id: threadId },
+			create: {
+				id: threadId,
 				companyId: company.id,
-				customerId: contact?.id ?? null,
-				summary,
-				content,
-				communicationThreadId: threadId,
-				metadata: { ...nextMeta, profileId } as any
-			}
+				contactId: contact?.id ?? null,
+				status: 'open',
+				summary
+			},
+			update: { summary, contactId: contact?.id ?? undefined }
 		});
-		logId = created.id;
-	}
+
+		const existing = await tx.communicationLog.findFirst({
+			where: { companyId: company.id, communicationThreadId: threadId },
+			orderBy: { created: 'desc' }
+		});
+
+		const meta = (existing?.metadata as Record<string, any>) || {};
+		const incomingSignals = eventIds.map((e) => e.name);
+
+		// Append every signal — repeats from later visits must be visible, not deduped away (a
+		// returning visitor's vr_entry/dwell would otherwise look like nothing was recorded).
+		const signals = Array.isArray(meta.signals)
+			? [...meta.signals, ...incomingSignals].slice(-80)
+			: incomingSignals;
+		const nextContent = `Signals: ${signals.map(humanizeSignal).join(' → ')} · Engagement score ${engagementScore}`;
+
+		// Notify once per session, the first time a high-intent signal arrives.
+		const notify = eventIds.some((ev) => isHighIntent(ev)) && !meta.notified;
+		const nextMeta = {
+			...meta,
+			name: name ?? meta.name ?? null,
+			latestSignal: latest.name,
+			signals,
+			scoreLive: engagementScore,
+			source_signal: type,
+			attribution: batch.attribution ?? meta.attribution,
+			notified: !!meta.notified || notify
+		};
+
+		let id: string;
+		if (existing) {
+			await tx.communicationLog.update({
+				where: { id: existing.id },
+				data: {
+					summary,
+					content: nextContent,
+					source: source ?? existing.source,
+					customerId: contact?.id ?? existing.customerId,
+					metadata: nextMeta as any
+				}
+			});
+			id = existing.id;
+		} else {
+			const created = await tx.communicationLog.create({
+				data: {
+					type,
+					direction: 'inbound',
+					status: 'success',
+					source: source ?? null,
+					destination: null,
+					companyId: company.id,
+					customerId: contact?.id ?? null,
+					summary,
+					content: nextContent,
+					communicationThreadId: threadId,
+					metadata: { ...nextMeta, profileId } as any
+				}
+			});
+			id = created.id;
+		}
+
+		return { logId: id, content: nextContent, shouldNotify: notify };
+	});
 
 	if (shouldNotify) {
 		await createNotification({
