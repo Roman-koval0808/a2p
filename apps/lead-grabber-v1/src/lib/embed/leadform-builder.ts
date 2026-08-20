@@ -24,6 +24,88 @@ export function buildLeadformScript(config: LeadformConfig): string {
   const baseUrl = ${escapeForJs(baseUrl)};
   const formId = ${escapeForJs(id)};
 
+  /* --- telemetry -----------------------------------------------------------
+     Mirrors the a2p client + site client: same fingerprint resolution (?fp= →
+     localStorage → CDN-free local fallback, persisted) so embed signals merge
+     into the same visitor thread. Resolved lazily per signal so a fingerprint
+     written by the marketing site's client after page load is picked up. */
+  var sessionId = 'sess_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+
+  function localFingerprint() {
+    var parts = [
+      navigator.userAgent || '',
+      navigator.language || '',
+      (Array.isArray(navigator.languages) ? navigator.languages.join(',') : ''),
+      navigator.platform || '',
+      String(navigator.hardwareConcurrency || ''),
+      String(navigator.deviceMemory || ''),
+      String(window.screen ? window.screen.width : ''),
+      String(window.screen ? window.screen.height : ''),
+      String(window.screen ? window.screen.colorDepth : ''),
+      (typeof Intl !== 'undefined' && Intl.DateTimeFormat ? Intl.DateTimeFormat().resolvedOptions().timeZone || '' : ''),
+      String(new Date().getTimezoneOffset())
+    ];
+    var seed = parts.join('|');
+    var h1 = 0x811c9dc5, h2 = 0x01000193;
+    for (var i = 0; i < seed.length; i++) {
+      var c = seed.charCodeAt(i);
+      h1 ^= c; h1 = Math.imul(h1, 0x01000193);
+      h2 ^= c; h2 = Math.imul(h2, 0x85ebca6b);
+    }
+    var hex = (h1 >>> 0).toString(16) + (h2 >>> 0).toString(16);
+    while (hex.length < 16) hex = '0' + hex;
+    return hex.slice(0, 12);
+  }
+
+  function resolveFingerprint() {
+    try {
+      var urlFp = new URLSearchParams(window.location.search).get('fp');
+      if (urlFp) return urlFp;
+      var stored = window.localStorage.getItem('fingerprintId') || window.localStorage.getItem('fingerprint') || window.localStorage.getItem('fp');
+      if (stored) return stored;
+      var fp = localFingerprint();
+      window.localStorage.setItem('fingerprintId', fp);
+      return fp;
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function trackSignal(name, payload) {
+    try {
+      var fp = resolveFingerprint();
+      if (window.console) {
+        console.log('[clearsky-telemetry] signal fired', {
+          signal: name,
+          payload: payload || {},
+          fingerprintId: fp,
+          sessionId: sessionId,
+          tenantSlug: companyId
+        });
+      }
+      var apiBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+      var body = JSON.stringify({
+        tenantSlug: companyId,
+        sessionId: sessionId,
+        fingerprintId: fp,
+        signals: [{ name: name, occurredAt: new Date().toISOString(), payload: payload || {} }]
+      });
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon(apiBase + '/api/v1/telemetry/signals', new Blob([body], { type: 'application/json' }));
+      } else {
+        fetch(apiBase + '/api/v1/telemetry/signals', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: body,
+          keepalive: true
+        });
+      }
+    } catch (e) {
+      /* telemetry must never break the form */
+    }
+  }
+  /* --- end telemetry ------------------------------------------------------- */
+
   function addStyles() {
     if (document.getElementById('clearsky-form-styles')) return;
     const style = document.createElement('style');
@@ -83,6 +165,22 @@ export function buildLeadformScript(config: LeadformConfig): string {
       document.body.appendChild(container);
     }
     addStyles();
+
+    trackSignal('lg_open', { url: window.location.href });
+
+    var focusFired = {};
+    container.addEventListener('focusin', function (e) {
+      var el = e.target;
+      if (!el || !el.name) return;
+      var signal = null;
+      if (el.name === 'name') signal = 'form_name_focus';
+      else if (el.name === 'email' || el.getAttribute('type') === 'email') signal = 'form_email_focus';
+      else if (el.name === 'phone' || el.getAttribute('type') === 'phone') signal = 'form_phone_focus';
+      if (signal && !focusFired[el.name]) {
+        focusFired[el.name] = true;
+        trackSignal(signal);
+      }
+    }, true);
   }
 
   async function handleSubmit(event) {
@@ -98,6 +196,9 @@ export function buildLeadformScript(config: LeadformConfig): string {
 
     const formDataObj = new FormData(form);
     const data = Object.fromEntries(formDataObj);
+
+    trackSignal('lg_submit');
+    trackSignal('form_submit');
 
     try {
       const initials = data.name ? data.name.split(' ').map(n => n[0]).join('').toUpperCase() : '??';
@@ -147,5 +248,13 @@ export function buildLeadformScript(config: LeadformConfig): string {
 
   window.handleSubmit = handleSubmit;
   createForm();
+  if (window.console) {
+    console.log('[clearsky-leadform] script loaded v2 (telemetry wired)', {
+      fingerprintId: resolveFingerprint(),
+      sessionId: sessionId,
+      tenantSlug: companyId,
+      formId: formId
+    });
+  }
 })();`;
 }

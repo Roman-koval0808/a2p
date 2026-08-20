@@ -37,6 +37,94 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
 
   const DISCLAIMER = "By submitting, you agree to receive informational text messages. Consent is optional &amp; content may be automated. Msg/data rates apply, msg frequency varies. Text HELP for help. Text STOP to stop.";
 
+  /* --- telemetry -----------------------------------------------------------
+     Mirrors the a2p client + site client: same fingerprint resolution (?fp= →
+     localStorage → CDN-free local fallback, persisted) so embed signals merge
+     into the same visitor thread. Resolved lazily per signal so a fingerprint
+     written by the marketing site's client after page load is picked up. */
+  var sessionId = 'sess_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+
+  function localFingerprint() {
+    var parts = [
+      navigator.userAgent || '',
+      navigator.language || '',
+      (Array.isArray(navigator.languages) ? navigator.languages.join(',') : ''),
+      navigator.platform || '',
+      String(navigator.hardwareConcurrency || ''),
+      String(navigator.deviceMemory || ''),
+      String(window.screen ? window.screen.width : ''),
+      String(window.screen ? window.screen.height : ''),
+      String(window.screen ? window.screen.colorDepth : ''),
+      (typeof Intl !== 'undefined' && Intl.DateTimeFormat ? Intl.DateTimeFormat().resolvedOptions().timeZone || '' : ''),
+      String(new Date().getTimezoneOffset())
+    ];
+    var seed = parts.join('|');
+    var h1 = 0x811c9dc5, h2 = 0x01000193;
+    for (var i = 0; i < seed.length; i++) {
+      var c = seed.charCodeAt(i);
+      h1 ^= c; h1 = Math.imul(h1, 0x01000193);
+      h2 ^= c; h2 = Math.imul(h2, 0x85ebca6b);
+    }
+    var hex = (h1 >>> 0).toString(16) + (h2 >>> 0).toString(16);
+    while (hex.length < 16) hex = '0' + hex;
+    return hex.slice(0, 12);
+  }
+
+  function resolveFingerprint() {
+    try {
+      var urlFp = new URLSearchParams(window.location.search).get('fp');
+      if (urlFp) return urlFp;
+      var stored = window.localStorage.getItem('fingerprintId') || window.localStorage.getItem('fingerprint') || window.localStorage.getItem('fp');
+      if (stored) return stored;
+      var fp = localFingerprint();
+      window.localStorage.setItem('fingerprintId', fp);
+      return fp;
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function trackSignal(name, payload) {
+    trackSignals([{ name: name, payload: payload || {} }]);
+  }
+
+  function trackSignals(signals) {
+    try {
+      var fp = resolveFingerprint();
+      var list = signals.map(function (s) {
+        return { name: s.name, occurredAt: new Date().toISOString(), payload: s.payload || {} };
+      });
+      if (window.console) {
+        console.log('[clearsky-telemetry] signal fired', {
+          signal: list.map(function (s) { return s.name; }).join('+'),
+          fingerprintId: fp,
+          sessionId: sessionId,
+          tenantSlug: companyId
+        });
+      }
+      var apiBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+      var body = JSON.stringify({
+        tenantSlug: companyId,
+        sessionId: sessionId,
+        fingerprintId: fp,
+        signals: list
+      });
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon(apiBase + '/api/v1/telemetry/signals', new Blob([body], { type: 'application/json' }));
+      } else {
+        fetch(apiBase + '/api/v1/telemetry/signals', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: body,
+          keepalive: true
+        });
+      }
+    } catch (e) {
+      /* telemetry must never break the widget */
+    }
+  }
+  /* --- end telemetry ------------------------------------------------------- */
+
   /* The reference greys the button out until the form can actually be sent.
      checkValidity() covers the required fields without a second rule set. */
   function syncSubmitState(form) {
@@ -159,6 +247,10 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
     const formData = new FormData(form);
     const data = Object.fromEntries(formData);
 
+    if (formType === 'request_call') {
+      trackSignal('callback_submit', { preferredTime: data.preferred_time || 'ASAP' });
+    }
+
     try {
       const initials = data.name ? data.name.split(' ').map(n => n[0]).join('').toUpperCase() : '??';
       let messageContent = data.message || '';
@@ -216,6 +308,12 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
   }
 
   function switchLeadboxView(view) {
+    if (view === 'request_call') {
+      trackSignals([
+        { name: 'callback_open' },
+        { name: 'callback_form_open' }
+      ]);
+    }
     const container = document.getElementById('clearsky-leadbox-' + leadboxId);
     if (!container) return;
     const box = container.querySelector('.clearsky-box');
@@ -518,5 +616,13 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
   }
   
   createLeadbox();
+  if (window.console) {
+    console.log('[clearsky-leadbox] script loaded v2 (telemetry wired)', {
+      fingerprintId: resolveFingerprint(),
+      sessionId: sessionId,
+      tenantSlug: companyId,
+      leadboxId: leadboxId
+    });
+  }
 })();`;
 }

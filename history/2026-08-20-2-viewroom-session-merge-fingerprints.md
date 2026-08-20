@@ -161,3 +161,58 @@ batches and room batches, and room reloads keep the same thread.
 
 Verified: `vite build` passes in both apps; `tsc --noEmit` = 310 errors, identical with changes
 stashed (no new errors).
+
+## 2026-08-20 — Leadbox/leadform embed signal triggers (IMPLEMENTED)
+
+Signal audit result: all 102 catalog signals are registered in BOTH catalogs
+(site signals.js + a2p signals.ts), but only 16 had trigger code. Wired the next batch:
+
+- `apps/lead-grabber-v1/src/lib/embed/leadbox-builder.ts` (visitor widget, embedded on every
+  site page via +layout.svelte):
+  - `callback_open` + `callback_form_open` fired together when the "REQUEST A CALL" view opens
+    (switchLeadboxView → request_call).
+  - `callback_submit` fired on request-call form submit with payload { preferredTime }.
+- `apps/lead-grabber-v1/src/lib/embed/leadform-builder.ts` (contact page embed):
+  - `lg_open` on widget render.
+  - `form_name_focus` / `form_email_focus` / `form_phone_focus` via focusin delegation, once
+    per field (maps name/email/phone inputs).
+  - `lg_submit` + `form_submit` on submit.
+
+Both generated scripts embed a compact telemetry helper mirroring the site/a2p clients:
+same fingerprint resolution (?fp= → localStorage fingerprintId/fingerprint/fp → CDN-free
+FNV-1a local fallback, persisted), resolved LAZILY per signal so a fingerprint written by the
+site client after page load is picked up (no cross-thread race). Tenant = the widget's
+companyId. Sends via sendBeacon (fallback fetch+keepalive).
+
+NOT wired (no UI exists): apt_*, cta_book, spl_* — the site has no appointment form, booking
+CTA or special-offer claim; "Book a 15 Minute Consult" is decorative demo text in
+GuaranteeSection, not a form.
+
+Verified: embed tests 16/16 pass (generated scripts parse via new Function), vite build
+passes, tsc 310 (unchanged).
+
+## 2026-08-20 — Debug: embed signals not showing + console logging (IMPLEMENTED)
+
+Symptom: user opened localhost:5173, AI summary showed only site+room signals, no
+leadbox/leadform signals. Added console.log to every signal emission (site client.js,
+a2p client.ts, both embed trackSignal helpers) + `[clearsky-leadbox]/[clearsky-leadform]
+script loaded v2` markers. Verified served script via curl (11/6 trackSignal refs) and
+intake accepts all 8 embed signals (curl-tested each).
+
+Root causes found:
+1. `/contact` leadform embed src was HARDCODED to PRODUCTION
+   (`https://a2p.viewroom.ca/embed/leadform/...`) — the user's contact-page form ran OLD
+   code (which fires `leadform_submit`; that event landed at 18:27:00, traceId
+   trc_wtf4mtv). Fixed to use localhost:3005 in dev + fresh cache-buster (Date.now()),
+   mirroring the leadbox pattern.
+2. `callback_open` landed (18:28:45, profile cmt1utewg) but the second consecutive
+   sendBeacon (`callback_form_open`, fired microseconds later) was dropped by the browser
+   (known rapid-sendBeacon race). Fixed by batching both into ONE beacon via new
+   `trackSignals([...])` helper; single-signal `trackSignal()` now wraps it.
+
+No re-embedding required — embed scripts are fetched fresh from the a2p server on every
+page load (no-cache headers); the served script already contains the new code.
+
+Verified: embed tests 16/16, both apps build, tsc 310 unchanged. (Note: curl smoke-tests
+left synthetic rows in prod DB under fingerprints testfp12345678 / accepttest0001 + profile
+cmt1utewg001l5c1tpydf35bk — candidate for cleanup.)

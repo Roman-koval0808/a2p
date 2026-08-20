@@ -80,6 +80,15 @@ export class TelemetryClient {
 			if (typeof console !== 'undefined') console.warn(`[telemetry] Unknown signal dropped: ${name}`);
 			return;
 		}
+		if (typeof console !== 'undefined') {
+			console.log('[clearsky-telemetry] signal fired', {
+				signal: name,
+				payload: payload ?? {},
+				fingerprintId: this.fingerprintId,
+				sessionId: this.sessionId,
+				tenantSlug: this.tenantSlug
+			});
+		}
 		this.buffer.push({
 			name,
 			occurredAt: new Date().toISOString(),
