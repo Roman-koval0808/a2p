@@ -4,12 +4,19 @@
     import { enhance } from '$app/forms';
     import { toast } from 'svelte-sonner';
     import { Input } from '$lib/components/ui/input';   
+    import { getTelemetry } from '$lib/telemetry/client';
     let { data } = $props();
     const { room } = data;
 
     let anonymousUserId = $state('');
     let loading = $state(false);
     let errors: { anonymousUserId?: string } = $state({});
+    let nameFocusTracked = false;
+    const trackNameFocus = () => {
+        if (nameFocusTracked) return;
+        nameFocusTracked = true;
+        getTelemetry({ tenantSlug: room?.owner_company || null }).track('vr_name_focus');
+    };
 </script>
 
 <div class="container mx-auto mt-[1rem] p-8">
@@ -36,7 +43,8 @@
                         return;
                     }
                     
-                    const roomUrl = `/room/${roomId}?${hostParams}&anonymousUserId=${anonymousUserId}`;
+                    const fp = $page.url.searchParams.get('fp') || '';
+                    const roomUrl = `/room/${roomId}?${hostParams}&anonymousUserId=${anonymousUserId}${fp ? `&fp=${encodeURIComponent(fp)}` : ''}`;
                     window.open(roomUrl, '_blank');
                     
                     // Optionally close the current window
@@ -60,6 +68,7 @@
                 id="anonymousUserId"
                 name="anonymousUserId" 
                 bind:value={anonymousUserId}
+                onfocus={trackNameFocus}
                 class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
                 placeholder="Your name"
             />

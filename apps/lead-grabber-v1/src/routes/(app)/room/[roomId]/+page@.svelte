@@ -25,6 +25,7 @@ import BottomBar from '$lib/components/layout/bottom-bar.svelte';
     import { sendMessage } from '$lib/helpers/sendMessage';
     import { getStreamInfo } from '$lib/helpers/getStreamInfo';
 	import { anonymousUser } from '$lib/stores/anonymousUser.js';
+	import { getTelemetry } from '$lib/telemetry/client';
 	import NameInputModal from '$lib/components/name-input-modal.svelte';
 	import RepresentativeIndicator from '$lib/components/room/representative-indicator.svelte';
 	import { chatMessages } from '$lib/stores/chatMessages';
@@ -1109,32 +1110,11 @@ function trackViewroomJoin() {
     hasTrackedJoin = true;
     
     try {
-        let fpId = $page.url.searchParams.get('fp');
-        if (!fpId && typeof localStorage !== 'undefined') {
-            fpId = localStorage.getItem('fingerprintId') || localStorage.getItem('fingerprint') || localStorage.getItem('fp') || '';
-        }
-        
         const tenantSlug = room?.companyId || data?.owner_company || data?.user?.companyId || data?.tenantId || data?.companyId || 'default-tenant';
         
-        const eventPayload = {
-            tenantSlug,
-            eventType: 'viewroom_entered',
-            fingerprintId: fpId,
-            sessionId: uniqueSessionId,
-            name: name || $anonymousUser || '',
-            pageUrl: window.location.href,
-            referrer: document.referrer || '',
-            payload: {
-                roomId: room?.id || baseRoomName,
-                roomTitle: room?.title || baseRoomName
-            }
-        };
-        
-        fetch('/api/v1/telemetry/events', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(eventPayload)
-        }).catch(e => console.error('Failed to send viewroom telemetry', e));
+        const telemetry = getTelemetry({ tenantSlug });
+        if (name || $anonymousUser) telemetry.identify({ name: name || $anonymousUser });
+        telemetry.track('vr_entry', { roomId: room?.id || baseRoomName, roomTitle: room?.title || baseRoomName });
     } catch (err) {
         console.error('Error tracking viewroom join:', err);
     }
@@ -2083,31 +2063,11 @@ function handleNameSubmitted(event) {
     // Track the name submission to update their profile (skip for representatives)
     if (!isRepresentative && !data?.representativeName) {
         try {
-        let fpId = $page.url.searchParams.get('fp');
-        if (!fpId && typeof localStorage !== 'undefined') {
-            fpId = localStorage.getItem('fingerprintId') || localStorage.getItem('fingerprint') || localStorage.getItem('fp') || '';
-        }
         const tenantSlug = room?.companyId || data?.owner_company || data?.user?.companyId || data?.tenantId || data?.companyId || 'default-tenant';
-        
-        const eventPayload = {
-            tenantSlug,
-            eventType: 'name_provided',
-            name: submittedName,
-            fingerprintId: fpId,
-            sessionId: uniqueSessionId,
-            pageUrl: window.location.href,
-            referrer: document.referrer || '',
-            payload: {
-                roomId: room?.id || baseRoomName,
-                roomTitle: room?.title || baseRoomName
-            }
-        };
-        
-        fetch('/api/v1/telemetry/events', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(eventPayload)
-        }).catch(e => console.error('Failed to send name telemetry', e));
+
+        const telemetry = getTelemetry({ tenantSlug });
+        telemetry.identify({ name: submittedName });
+        telemetry.track('vr_guestname', { guestName: submittedName, roomId: room?.id || baseRoomName });
     } catch (err) {
         console.error('Error tracking name submission:', err);
     }

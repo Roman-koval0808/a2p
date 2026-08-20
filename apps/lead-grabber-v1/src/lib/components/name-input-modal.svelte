@@ -4,6 +4,7 @@
     import { createEventDispatcher, onMount } from 'svelte';
     import { page } from '$app/stores';
 	import { toast } from 'svelte-sonner';
+    import { getTelemetry } from '$lib/telemetry/client';
   
     const dispatch = createEventDispatcher();
     
@@ -13,6 +14,12 @@
     let anonymousUser = $page.url.searchParams.get('anonymousUserId') !== null;
     console.log('anonymousUser', anonymousUser);
     let submitBtn: HTMLButtonElement = $state();
+    let nameFocusTracked = false;
+    const trackNameFocus = () => {
+        if (nameFocusTracked) return;
+        nameFocusTracked = true;
+        getTelemetry().track('vr_name_focus');
+    };
   interface Props {
     isAuthenticated?: boolean;
     roomName: any;
@@ -64,6 +71,7 @@
                             bind:value={name} 
                             placeholder="e.g., John Doe" 
                             required
+                            onfocus={trackNameFocus}
                             class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
                         >
                     </div>

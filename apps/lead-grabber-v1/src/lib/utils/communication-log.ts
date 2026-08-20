@@ -33,6 +33,8 @@ export interface CommunicationLogEntry {
 	/** Optional: for A2P mirror (contact name/company) */
 	contact_name?: string;
 	contact_company?: string;
+	/** When false, skip the notification/email — still writes the log row (audit trails). */
+	notify?: boolean;
 }
 
 /**
@@ -145,8 +147,8 @@ export async function logCommunication(entry: CommunicationLogEntry) {
 			return newRecord;
 		});
 
-		// Show notification for every communication log
-		if (entry.company_id) {
+		// Show notification for every communication log (unless explicitly silenced for audit rows)
+		if (entry.company_id && entry.notify !== false) {
 			await createNotification({
 				company_id: entry.company_id,
 				type: entry.type,
