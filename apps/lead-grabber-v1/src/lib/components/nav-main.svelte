@@ -30,7 +30,8 @@
 		Globe,
 		Megaphone,
 		Share2,
-		ListTodo
+		ListTodo,
+		MonitorPlay
 	} from 'lucide-svelte';
 	import { page } from '$app/state';
 	import { Button } from '$lib/components/ui/button/index';
@@ -60,6 +61,7 @@
 			]
 		},
 		{ title: 'Representatives', url: '/representatives', icon: UserCheck, href: '/representatives' },
+
 		{ title: 'Dialer', url: '/dialer', icon: Phone, href: '/dialer' },
 		{ title: 'SMS Drafter', url: '/sms', icon: MessageCircle, href: '/sms' },
 		{ title: 'Orchestrator', url: '/orchestrator', icon: Activity, href: '/orchestrator' },
@@ -75,6 +77,16 @@
 			]
 		},
 		{ title: 'IVR', url: '/ivr', icon: Headphones, href: '/ivr' },
+		{
+			title: 'Viewroom',
+			url: '/room',
+			icon: MonitorPlay,
+			href: '/room',
+			subItems: [
+				{ title: 'Content Library', url: '/content-library', icon: FileText, href: '/content-library' },
+				{ title: 'View Room List', url: '/room', icon: MonitorPlay, href: '/room' }
+			]
+		},
 		{ title: 'Locations', url: '/locations', icon: MapPin, href: '/locations' },
 		{ title: 'Analytics', url: '/analytics', icon: ChartLineIcon, href: '/analytics' },
 		{ title: 'AI Summaries', url: '/ai-summaries', icon: Sparkles, href: '/ai-summaries' },
@@ -120,6 +132,7 @@
 			]
 		},
 		{ title: 'Representatives', url: '/representatives', icon: UserCheck, href: '/representatives' },
+
 		{ title: 'Dialer', url: '/dialer', icon: Phone, href: '/dialer' },
 		{ title: 'SMS Drafter', url: '/sms', icon: MessageCircle, href: '/sms' },
 		{ title: 'Orchestrator', url: '/orchestrator', icon: Activity, href: '/orchestrator' },
@@ -135,6 +148,16 @@
 			]
 		},
 		{ title: 'IVR', url: '/ivr', icon: Headphones, href: '/ivr' },
+		{
+			title: 'Viewroom',
+			url: '/room',
+			icon: MonitorPlay,
+			href: '/room',
+			subItems: [
+				{ title: 'Content Library', url: '/content-library', icon: FileText, href: '/content-library' },
+				{ title: 'View Room List', url: '/room', icon: MonitorPlay, href: '/room' }
+			]
+		},
 		{ title: 'Locations', url: '/locations', icon: MapPin, href: '/locations' },
 		{ title: 'Analytics', url: '/analytics', icon: ChartLineIcon, href: '/analytics' },
 		{ title: 'AI Summaries', url: '/ai-summaries', icon: Sparkles, href: '/ai-summaries' },

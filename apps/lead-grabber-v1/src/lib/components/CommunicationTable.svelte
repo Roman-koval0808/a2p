@@ -10,6 +10,7 @@
 		Bot,
 		FileText,
 		MessageCircle,
+		Video,
 		Reply,
 		ChevronUp,
 		ChevronDown
@@ -20,7 +21,7 @@
 		id: string;
 		date: string;
 		time: string;
-		type?: 'email' | 'sms' | 'voice' | 'web' | 'facebook' | 'chatbot' | 'leadform' | 'leadbox';
+		type?: 'email' | 'sms' | 'voice' | 'web' | 'facebook' | 'chatbot' | 'leadform' | 'leadbox' | 'viewroom';
 		typeIcon?: string;
 		direction: 'In' | 'Out';
 		source: string;
@@ -64,7 +65,8 @@
 			'Facebook',
 			'Chatbot',
 			'Leadform',
-			'Leadbox'
+			'Leadbox',
+			'Viewroom'
 		]),
 		searchQuery = $bindable(''),
 		selectedAgentName = null,
@@ -241,6 +243,8 @@
 				return FileText;
 			case 'leadbox':
 				return MessageCircle;
+			case 'viewroom':
+				return Video;
 			default:
 				return Mail;
 		}

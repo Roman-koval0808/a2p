@@ -132,7 +132,10 @@ export const handle: Handle = async ({ event, resolve }) => {
 		'/api/telnyx/webhook',
 		'/api/telnyx/call-webhook',
 		'/api/webhooks/telnyx/incoming-call',
-		'/api/webhooks/telnyx/incoming-sms'
+		'/api/webhooks/telnyx/incoming-sms',
+		'/room/[roomId]',
+		'/room/[roomId]/embed',
+		'/room/[roomId]/representative'
 	];
 
 	// Skip auth refresh for API routes (they're stateless)

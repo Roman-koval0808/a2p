@@ -7,8 +7,13 @@ export const load: PageServerLoad = async ({ locals }) => {
 		throw redirect(302, '/login');
 	}
 
-	try {
-		const representatives = await prisma.companyMember.findMany({
+try {
+			const rooms = await prisma.viewRoom.findMany({
+				where: { ownerCompanyId: locals.user.company.id },
+				orderBy: { created: 'desc' }
+			});
+
+			const representatives = await prisma.companyMember.findMany({
 			where: {
 				companyId: locals.user.company.id,
 				role: 'member', // Fetch only members, treating them as Representatives
@@ -57,7 +62,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 				location: profileData.location,
 				schedule: profileData.schedule,
 				avatar: rep.user?.avatar,
-				rooms: [] // Mocked rooms for now
+				rooms: rooms
+					.filter(room => room.representative.includes(rep.id))
+					.map(room => ({ id: room.id, title: room.title, created: room.created }))
 			};
 		});
 

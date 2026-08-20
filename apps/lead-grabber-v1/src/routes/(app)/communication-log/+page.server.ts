@@ -80,7 +80,8 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 				communicationThread: {
 					include: { contact: true }
 				},
-				customer: true
+				customer: true,
+				company: { select: { name: true } }
 			},
 			orderBy: { created: 'desc' },
 			take: maxTake
@@ -151,7 +152,10 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 			const realName =
 				rawContactName && !GENERIC_NAMES.includes(rawContactName) ? rawContactName : '';
 			const customerNameOrPhone = realName || customerValue || '—';
-			const companyNameOrPhone = companyValue || companyId;
+			// For inbound rows with no destination recorded (leadbox / leadform), the endpoint is the
+			// business itself — use the company NAME, never the raw company id. That id was leaking
+			// into the Endpoint column as "cmkw…" on every leadbox row.
+			const companyNameOrPhone = companyValue || log.company?.name || 'Inbox';
 
 			// If inbound: customer sent it (source), company received it (destination)
 			// If outbound: company sent it (source), customer received it (destination)

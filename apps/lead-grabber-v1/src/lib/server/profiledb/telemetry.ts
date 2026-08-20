@@ -647,7 +647,7 @@ export async function ingestTelemetryEvent(params: {
     } : undefined;
 
     // Trigger notification asynchronously for high-intent visitors
-    triggerTelemetryNotification(tenantSlug, updatedProfile, eventType, pageUrl);
+    void notifyTelemetry(tenantSlug, eventType, updatedProfile, pageUrl, { name, email, phone });
 
     return {
       status: 201,
@@ -990,19 +990,55 @@ export async function sendSmsController(params: {
 }
 
 /**
- * Asynchronously checks if visitor is high-intent, builds notification, and POSTs to CMS Backend.
+ * Records a high-intent viewroom visit as a communication log in the main CRM DB.
+ *
+ * This is the viewroom's own signal (`type: 'viewroom'`, not `web`). It resolves the company,
+ * creates/updates a Contact from whatever identifiers the visitor supplied — so the log's
+ * source column shows a real profile rather than "Viewroom / Telemetry" — links the log to a
+ * communication thread (so the COM id resolves), and hands it to the orchestrator for the same
+ * downstream processing every other inbound communication gets. Anonymous visitors with no
+ * name/email/phone still get a log; there is simply no identifier to attach a profile to.
  */
-async function triggerTelemetryNotification(
+export async function notifyTelemetry(
   tenantSlug: string,
-  profile: { id: string; name: string | null; scoreLive: number; intentBucket: string },
   eventType: string,
-  pageUrl: string | null
+  profile: any,
+  pageUrl?: string,
+  identifiers?: { name?: string | null; email?: string | null; phone?: string | null }
 ) {
   try {
     const isHighIntent = profile.intentBucket === 'emergency' || profile.intentBucket === 'active' || profile.scoreLive >= 80;
     if (!isHighIntent) return;
 
-    const nameStr = profile.name || 'Anonymous Visitor';
+    const { prisma: mainPrisma } = await import('$lib/db');
+    const { logCommunication } = await import('$lib/utils/communication-log');
+    const { createOrUpdateContact } = await import('$lib/utils/contacts');
+
+    // tenantSlug arrives as the Company.id (viewroom sends data.owner_company). Resolve it
+    // defensively in case a caller sends a slug, so the FK always points at a real company.
+    const company = await mainPrisma.company.findFirst({
+      where: { OR: [{ id: tenantSlug }, { emailSlug: tenantSlug }] },
+      select: { id: true, name: true }
+    });
+    if (!company) {
+      console.warn(`[Telemetry Notification] No company resolved for tenant ${tenantSlug} — skipping comm log`);
+      return;
+    }
+
+    const name = identifiers?.name?.trim() || null;
+    const email = identifiers?.email?.trim() || null;
+    const phone = identifiers?.phone?.trim() || null;
+
+    const contact = (name || email || phone)
+      ? await createOrUpdateContact({
+          company_id: company.id,
+          name: name || undefined,
+          email: email || undefined,
+          phone: phone || undefined
+        })
+      : null;
+
+    const nameStr = name || profile.name || 'Anonymous Visitor';
     let title = '⚡ High Interest Visitor Alert';
     let message = `Visitor "${nameStr}" (Score: ${profile.scoreLive}) is active on page: ${pageUrl || 'unknown'}`;
 
@@ -1014,52 +1050,40 @@ async function triggerTelemetryNotification(
       message = `Visitor "${nameStr}" entered Active Project bucket! Action: ${eventType} on ${pageUrl || 'unknown'}`;
     }
 
-    const postData = JSON.stringify({
-      tenantSlug,
-      title,
-      message,
+    const log = await logCommunication({
+      type: 'viewroom',
+      direction: 'inbound',
+      status: 'success',
+      source: name || email || phone || undefined,
+      destination: undefined,
+      company_id: company.id,
+      customer_id: contact?.id ?? undefined,
+      summary: title,
+      content: message,
       metadata: {
         profileId: profile.id,
         eventType,
         pageUrl,
         scoreLive: profile.scoreLive,
         intentBucket: profile.intentBucket,
-      },
+        source_signal: 'viewroom'
+      }
     });
 
-    const cmsUrl = process.env.CMS_BACKEND_URL || 'http://localhost:5100';
-    const url = new URL(`${cmsUrl}/api/v1/notifications/telemetry`);
+    console.log(
+      `[Telemetry Notification Logged] viewroom comm log ${log?.id ?? '(failed)'} for tenant ${tenantSlug}` +
+        (contact ? ` (contact ${contact.id})` : '')
+    );
 
-    const options = {
-      hostname: url.hostname,
-      port: url.port || (url.protocol === 'https:' ? '443' : '80'),
-      path: url.pathname,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(postData),
-      },
-    };
-
-    const makeRequest = url.protocol === 'https:' ? httpsRequest : httpRequest;
-    const req = makeRequest(options, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
-        if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-          console.log(`[Telemetry Notification Sent] for tenant ${tenantSlug}`);
-        } else {
-          console.error(`[Telemetry Notification Failed] Status: ${res.statusCode}, Response: ${data}`);
-        }
+    // Run the same downstream pipeline as every other inbound communication so the comm id
+    // resolves and a profile is created/classified. The orchestrator aborts harmlessly when the
+    // visitor is anonymous (no customerId) — there is nothing to route there.
+    if (log?.id) {
+      const { process_orchestrator } = await import('$lib/server/orchestrator');
+      process_orchestrator(log.id, 'viewroom_entered').catch((err: any) => {
+        console.error('[Telemetry Notification] Orchestrator run failed:', err?.message || err);
       });
-    });
-
-    req.on('error', (err) => {
-      console.error('[Telemetry Notification Connection Error]:', err.message);
-    });
-
-    req.write(postData);
-    req.end();
+    }
   } catch (error: any) {
     console.error('[Telemetry Notification Trigger Error]:', error.message);
   }

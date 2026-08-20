@@ -10,7 +10,8 @@ export type CommunicationType =
 	| 'facebook'
 	| 'chatbot'
 	| 'leadform'
-	| 'leadbox';
+	| 'leadbox'
+	| 'viewroom';
 export type CommunicationDirection = 'inbound' | 'outbound';
 export type CommunicationStatus = 'success' | 'failed' | 'pending' | 'missed' | 'completed' | 'pending_approval';
 

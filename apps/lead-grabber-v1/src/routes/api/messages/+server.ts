@@ -209,7 +209,6 @@ export const POST: RequestHandler = async ({ request }) => {
 									...((latestLog.metadata as object) || {}),
 									urgency: aiData.urgency,
 									sentiment: aiData.sentiment,
-									orchestrator_processed: true,
 									actionItems: pipelineResult?.ai_protocol?.raw_response?.topics || undefined
 								}
 							}
@@ -267,6 +266,35 @@ export const POST: RequestHandler = async ({ request }) => {
 									` | rota: ${tx.rota?.length ? tx.rota.map((r) => r.name).join(' → ') : 'NOBODY ON DUTY'}` +
 									(tx.routed === 'after_hours' ? ` | ack sms: ${tx.ackSent ? 'sent' : 'not sent'}` : '')
 							);
+
+							// Run the SAME pipeline inbound SMS uses (extract intent → orchestrator) so
+							// emergency detection, reply drafting and dispatch all fire for a Text Us
+							// message, not just the clock-based routing above.
+							if (inboundLog?.id) {
+								try {
+									const { analyzeCallLog } = await import('$lib/server/openai');
+									const analysis = await analyzeCallLog(messageContent);
+									await prisma.communicationLog.update({
+										where: { id: inboundLog.id },
+										data: {
+											summary: analysis.summary || inboundLog.summary,
+											metadata: {
+												...((inboundLog.metadata as Record<string, any>) || {}),
+												intent: analysis.intent,
+												sub_intent: analysis.sub_intent,
+												datetime: analysis.datetime,
+												ai_extracted_email: analysis.ai_extracted_email,
+												urgency: analysis.urgency,
+												sentiment: analysis.sentiment
+											}
+										}
+									});
+									const { process_orchestrator } = await import('$lib/server/orchestrator');
+									await process_orchestrator(inboundLog.id, 'sms_ai_ready');
+								} catch (err) {
+									console.error('[TextMessage Orchestrator] Error:', err);
+								}
+							}
 						}
 					} catch (err) {
 						console.error('[TextMessage Dispatch Error]', err);
