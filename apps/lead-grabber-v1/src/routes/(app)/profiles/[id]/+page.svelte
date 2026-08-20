@@ -169,6 +169,8 @@
 		rows.push(['Engagement score', String(data.engagementScore ?? 0)]);
 		rows.push(['Account balance', data.accountBalance != null ? `$${data.accountBalance}` : '—']);
 		rows.push(['Communications', String((data.communications || []).length)]);
+		const fps: string[] = (data as any).fingerprints || [];
+		if (fps.length > 0) rows.push(['Fingerprints', fps.join(', ')]);
 		const latest: any = (data.communications || [])[0];
 		const md = latest?.raw?.metadata || {};
 		if (md.message_category) rows.push(['Latest category', md.message_category]);

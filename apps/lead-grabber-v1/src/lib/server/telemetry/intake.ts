@@ -87,7 +87,18 @@ async function resolveProfile(
 		const existing = await db.pipelineCustomerProfile.findFirst({
 			where: { companyId, externalId: fingerprintId }
 		});
-		if (existing) return existing;
+		if (existing) {
+			// Returning visitor recognised by fingerprint: adopt the name they gave in the
+			// viewroom when the profile does not have one yet.
+			const nameVal = input.name?.trim() || null;
+			if (nameVal && !existing.displayName) {
+				return db.pipelineCustomerProfile.update({
+					where: { id: existing.id },
+					data: { displayName: nameVal }
+				});
+			}
+			return existing;
+		}
 	}
 
 	const attrs: Record<string, unknown> = { engagementScore: 0 };
@@ -253,6 +264,19 @@ async function upsertSessionCommLog(
 				phone: phone || undefined
 			})
 		: null;
+
+	// Persist the fingerprint(s) that resolved into this contact so the profile page can
+	// show them and future visits can be recognised/merged by fingerprint.
+	if (contact?.id && fingerprint) {
+		const cMeta = ((contact as any).metadata as Record<string, any>) || {};
+		const fps = Array.isArray(cMeta.fingerprints) ? cMeta.fingerprints : [];
+		if (!fps.includes(fingerprint)) {
+			await prisma.contact.update({
+				where: { id: contact.id },
+				data: { metadata: { ...cMeta, fingerprints: [...fps, fingerprint] } }
+			});
+		}
+	}
 
 	// Stable grouping key: the fingerprint identifies the user across page loads; fall back to the
 	// session id when a visitor has no fingerprint.

@@ -55,6 +55,13 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			throw error(404, 'Profile not found');
 		}
 
+		// Fingerprints that resolved into this contact (telemetry persists them on the
+		// contact when a session is attributed to it).
+		const contactMeta = (dbContact.metadata as Record<string, any>) || {};
+		const fingerprints: string[] = Array.isArray(contactMeta.fingerprints)
+			? contactMeta.fingerprints
+			: [];
+
 		// The communication log IS this profile's history in the main database.
 		const historySource = await prisma.communicationLog.findMany({
 			where: { companyId, customerId: dbContact.id },
@@ -382,6 +389,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				clearEmail,
 				past_names: identityHistory.filter((h) => h.field === 'Name').map((h) => h.newValue)
 			},
+			fingerprints,
 			accountBalance: dbContact?.accountBalance ?? null,
 			engagementScore: dbContact.engagementScore ?? 0,
 			communications: comms,

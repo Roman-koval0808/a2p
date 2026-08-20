@@ -320,6 +320,7 @@ model Contact {
   cell                 String?
   smsPermission        Boolean               @default(false)
   pastNames            Json?
+  metadata             Json                 @default("{}")
   created              DateTime              @default(now())
   updated              DateTime              @updatedAt
   companyName          String?

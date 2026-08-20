@@ -2679,6 +2679,12 @@ run(() => {
     if (searchParams.get('anonymousUserId')) {
         cleanParams.set('anonymousUserId', searchParams.get('anonymousUserId'));
     }
+    // The fingerprint travels with the visitor (embed -> room). It MUST survive the
+    // URL cleanup or the telemetry client falls back to a random session id and the
+    // visitor's signals fork into a second profile/comm log.
+    if (searchParams.get('fp')) {
+        cleanParams.set('fp', searchParams.get('fp'));
+    }
     
     // Update URL if parameters are not clean
     if (cleanParams.toString() !== searchParams.toString()) {
