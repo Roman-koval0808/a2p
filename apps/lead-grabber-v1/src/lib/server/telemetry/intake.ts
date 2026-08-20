@@ -256,27 +256,18 @@ async function upsertSessionCommLog(
 	const fingerprint = batch.fingerprintId?.trim() || null;
 	const sessionId = batch.sessionId?.trim() || null;
 
-	const contact = (name || email || phone)
+	// The contact util matches by phone → email → fingerprint (metadata.fingerprints) and records
+	// the fingerprint on the contact itself, so a returning device lands on the SAME contact even
+	// when no name/email/phone is known yet.
+	const contact = (name || email || phone || fingerprint)
 		? await createOrUpdateContact({
 				company_id: company.id,
 				name: name || undefined,
 				email: email || undefined,
-				phone: phone || undefined
+				phone: phone || undefined,
+				fingerprint: fingerprint || undefined
 			})
 		: null;
-
-	// Persist the fingerprint(s) that resolved into this contact so the profile page can
-	// show them and future visits can be recognised/merged by fingerprint.
-	if (contact?.id && fingerprint) {
-		const cMeta = ((contact as any).metadata as Record<string, any>) || {};
-		const fps = Array.isArray(cMeta.fingerprints) ? cMeta.fingerprints : [];
-		if (!fps.includes(fingerprint)) {
-			await prisma.contact.update({
-				where: { id: contact.id },
-				data: { metadata: { ...cMeta, fingerprints: [...fps, fingerprint] } }
-			});
-		}
-	}
 
 	// Stable grouping key: the fingerprint identifies the user across page loads; fall back to the
 	// session id when a visitor has no fingerprint.
@@ -287,7 +278,10 @@ async function upsertSessionCommLog(
 	const latest = eventIds[eventIds.length - 1];
 	const type = latest.category === 'viewroom' ? 'viewroom' : 'web';
 	const summary = humanizeSignal(latest.name);
-	const source = name || fingerprint || email || phone || undefined;
+	// The fingerprint is a last-resort source for a brand-new row (so an anonymous visitor is
+	// still visible as "a24c60d6c9c2"), but it must NEVER overwrite a name on an existing row —
+	// anonymous website batches would otherwise clobber the name the visitor gave in the viewroom.
+	const source = name || email || phone || fingerprint || undefined;
 
 	// Keep one thread per visitor so every signal shares the same COM id.
 	await prisma.communicationThread.upsert({
@@ -307,17 +301,19 @@ async function upsertSessionCommLog(
 		orderBy: { created: 'desc' }
 	});
 
-	const incomingSignals = eventIds.map((e) => e.name);
 	const meta = (existing?.metadata as Record<string, any>) || {};
-	const signals = Array.isArray(meta.signals)
-		? [...new Set([...meta.signals, ...incomingSignals])]
-		: incomingSignals;
+	const incomingSignals = eventIds.map((e) => e.name);
+
+	// Append every signal — repeats from later visits must be visible, not deduped away (a
+	// returning visitor's vr_entry/dwell would otherwise look like nothing was recorded).
+	const signals = Array.isArray(meta.signals) ? [...meta.signals, ...incomingSignals].slice(-80) : incomingSignals;
 	const content = `Signals: ${signals.map(humanizeSignal).join(' → ')} · Engagement score ${engagementScore}`;
 
 	// Notify once per session, the first time a high-intent signal arrives.
 	const shouldNotify = eventIds.some((ev) => isHighIntent(ev)) && !meta.notified;
 	const nextMeta = {
 		...meta,
+		name: name ?? meta.name ?? null,
 		latestSignal: latest.name,
 		signals,
 		scoreLive: engagementScore,

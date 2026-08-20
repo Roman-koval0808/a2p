@@ -73,12 +73,15 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		const historyEvents: any[] = historySource.map((log) => {
 			const md = (log.metadata as Record<string, any>) || {};
 			const isEmail = log.type === 'email';
+			// Telemetry rows (web/viewroom) are device signals, not phone calls/emails — their
+			// source is a fingerprint, so they must never render as a phone number.
+			const isTelemetry = Array.isArray(md.signals) || md.source_signal === 'web' || md.source_signal === 'viewroom';
 			return {
 				eventType: `${log.type}.${log.direction}`,
 				occurredAt: log.created,
 				pageUrl: md.pageUrl ?? null,
-				name: md.callerName ?? dbContact.name ?? null,
-				phone: isEmail ? null : log.direction === 'inbound' ? log.source : log.destination,
+				name: md.name ?? md.callerName ?? dbContact.name ?? null,
+				phone: isEmail || isTelemetry ? null : log.direction === 'inbound' ? log.source : log.destination,
 				email: isEmail
 					? log.direction === 'inbound'
 						? log.source

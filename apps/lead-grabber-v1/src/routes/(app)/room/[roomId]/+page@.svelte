@@ -261,21 +261,16 @@ onMount(() => {
     
     // Listen for cross-origin messages to grab fingerprint/session ID from a parent frame
     if (typeof window !== 'undefined') {
-        // Attempt to auto-generate identical Fingerprint natively using browser hardware
+        // Resolve a stable fingerprint synchronously: ?fp= → localStorage → CDN-free local
+        // fallback (persisted). No FingerprintJS CDN, so this works on Firefox (ETP blocks
+        // openfpcdn.io). Persist it into the URL so reloads/shareURL keep the identity.
         const existingFp = localStorage.getItem('fingerprintId') || localStorage.getItem('fingerprint') || localStorage.getItem('fp');
-        if (!existingFp && !$page.url.searchParams.get('fp')) {
-            import("https://openfpcdn.io/fingerprintjs/v4")
-                .then(m => (m.default || m).load())
-                .then(agent => agent.get())
-                .then(r => {
-                    const generatedFp = r.visitorId.slice(0, 12);
-                    localStorage.setItem('fingerprintId', generatedFp);
-                    const url = new URL(window.location.href);
-                    url.searchParams.set('fp', generatedFp);
-                    window.history.replaceState({}, '', url.toString());
-                    shareURL = url.toString();
-                })
-                .catch(e => console.warn('Fingerprint auto-generation failed', e));
+        const urlFp = $page.url.searchParams.get('fp');
+        if (existingFp && !urlFp) {
+            const url = new URL(window.location.href);
+            url.searchParams.set('fp', existingFp);
+            window.history.replaceState({}, '', url.toString());
+            shareURL = url.toString();
         }
 
         window.addEventListener('message', (event) => {

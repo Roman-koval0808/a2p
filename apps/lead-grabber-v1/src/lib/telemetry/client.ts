@@ -5,6 +5,7 @@
 
 import { isKnownSignal, type SignalPayload, type TelemetrySignal } from './signals';
 import { captureBrowserAttribution, type Attribution } from './attribution';
+import { readFingerprint } from './fingerprint';
 
 export interface TelemetryOptions {
 	endpoint?: string;
@@ -23,22 +24,6 @@ function randomSessionId(): string {
 	const t = Date.now().toString(36);
 	const r = Math.random().toString(36).slice(2, 8);
 	return `sess_${t}${r}`;
-}
-
-function readFingerprint(): string | null {
-	if (typeof window === 'undefined') return null;
-	try {
-		const qs = new URLSearchParams(window.location.search);
-		return (
-			qs.get('fp') ||
-			window.localStorage.getItem('fingerprintId') ||
-			window.localStorage.getItem('fingerprint') ||
-			window.localStorage.getItem('fp') ||
-			null
-		);
-	} catch {
-		return null;
-	}
 }
 
 export class TelemetryClient {
