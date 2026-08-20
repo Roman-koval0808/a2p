@@ -9,6 +9,7 @@ import { randomUUID } from 'crypto';
 import { toE164 } from '$lib/utils/phone';
 import { SIGNAL_CATALOG, humanizeSignal, type TelemetrySignal } from '$lib/telemetry/signals';
 import type { Attribution } from '$lib/telemetry/attribution';
+import { recordMergeCandidate } from '$lib/server/identity/merge-service';
 
 // ── Comm-log visibility ─────────────────────────────────────────────────────
 // Which signals surface as a communication-log row (the a2p comm log / sales inbox).
@@ -62,59 +63,126 @@ async function resolveCompany(tenantSlug?: string | null, companyId?: string | n
 	});
 }
 
+/**
+ * Follow a merge tombstone to the record that survived. Merging is point-and-retire, never
+ * delete, so a retired id stays resolvable — a lookup that lands on one must not return the
+ * tombstone as if it were live.
+ */
+async function followMerges(db: any, profile: any) {
+	let current = profile;
+	for (let hops = 0; current?.mergedInto && hops < 10; hops++) {
+		current = await db.pipelineCustomerProfile.findUnique({ where: { id: current.mergedInto } });
+	}
+	return current;
+}
+
+/**
+ * Resolve the visitor to ONE profile, layering whatever identity this batch carries onto it.
+ *
+ * The rule this implements is identity-tiers §4.3: fingerprint + session are the identity thread
+ * for the real-individual tiers, and they are never discarded on upgrade — a 2B/2 record
+ * promoting to Tier 1 keeps its fingerprint and history, and the identifier is layered on top.
+ * Previously this returned the fingerprint's profile but wrote only `displayName` onto it, so a
+ * visitor who submitted a form stayed unreachable by phone, and the next phone-keyed touch forked
+ * a second profile for the same person.
+ *
+ * Returns the profile plus, when two live records look like one person, an unresolved `conflict`
+ * for the caller to raise as a merge candidate.
+ */
 async function resolveProfile(
 	db: any,
 	companyId: string,
 	input: { fingerprintId?: string | null; name?: string | null; email?: string | null; phone?: string | null }
-) {
+): Promise<{ profile: any; conflict?: { survivorId: string; duplicateId: string } }> {
 	const email = normalizeEmail(input.email);
 	const phone = input.phone ? toE164(input.phone) : null;
 	const fingerprintId = input.fingerprintId?.trim() || null;
+	const name = input.name?.trim() || null;
 
+	// An exclusive identifier outranks the device: phone first, then email.
+	let identified = null;
 	if (phone) {
-		const existing = await db.pipelineCustomerProfile.findUnique({
-			where: { companyId_phoneNumber: { companyId, phoneNumber: phone } }
-		});
-		if (existing) return existing;
+		identified = await followMerges(
+			db,
+			await db.pipelineCustomerProfile.findUnique({
+				where: { companyId_phoneNumber: { companyId, phoneNumber: phone } }
+			})
+		);
 	}
-	if (email) {
-		const existing = await db.pipelineCustomerProfile.findUnique({
-			where: { companyId_email: { companyId, email } }
-		});
-		if (existing) return existing;
+	if (!identified && email) {
+		identified = await followMerges(
+			db,
+			await db.pipelineCustomerProfile.findUnique({
+				where: { companyId_email: { companyId, email } }
+			})
+		);
 	}
-	if (fingerprintId) {
-		const existing = await db.pipelineCustomerProfile.findFirst({
-			where: { companyId, externalId: fingerprintId }
-		});
-		if (existing) {
-			// Returning visitor recognised by fingerprint: adopt the name they gave in the
-			// viewroom when the profile does not have one yet.
-			const nameVal = input.name?.trim() || null;
-			if (nameVal && !existing.displayName) {
-				return db.pipelineCustomerProfile.update({
-					where: { id: existing.id },
-					data: { displayName: nameVal }
-				});
-			}
-			return existing;
+
+	// The device thread. `mergedInto: null` belongs in the WHERE, not an `if` above it, so a
+	// retired tombstone can never surface as a live match.
+	const byFingerprint = fingerprintId
+		? await db.pipelineCustomerProfile.findFirst({
+				where: { companyId, externalId: fingerprintId, mergedInto: null }
+			})
+		: null;
+
+	if (identified) {
+		const updates: Record<string, unknown> = {};
+		// Fill blanks only. A profile has one canonical name/phone/email; overwriting a known
+		// value with a newer form submission is how one person's record absorbs another's.
+		if (name && !identified.displayName) updates.displayName = name;
+		if (phone && !identified.phoneNumber) updates.phoneNumber = phone;
+		if (email && !identified.email) updates.email = email;
+		// Carry the device thread onto the identified record when it has none, so the visitor's
+		// next anonymous batch lands here instead of starting a fresh anonymous profile.
+		if (fingerprintId && !identified.externalId && (!byFingerprint || byFingerprint.id === identified.id)) {
+			updates.externalId = fingerprintId;
 		}
+		const profile = Object.keys(updates).length
+			? await db.pipelineCustomerProfile.update({ where: { id: identified.id }, data: updates })
+			: identified;
+
+		// Two live records that look like one person. Do NOT fuse them here: a device can be
+		// shared, and merge-service is explicit that identity resolution raises candidates for a
+		// human rather than auto-merging, because a bad merge silently fuses two customers'
+		// histories. Return the record the exclusive identifier points at and flag the pair.
+		const conflict =
+			byFingerprint && byFingerprint.id !== profile.id
+				? { survivorId: profile.id, duplicateId: byFingerprint.id }
+				: undefined;
+		return { profile, conflict };
+	}
+
+	if (byFingerprint) {
+		// Promotion in place. No profile holds this phone/email — the lookups above found none —
+		// so claiming them here cannot violate the (companyId, phoneNumber)/(companyId, email)
+		// uniques.
+		const updates: Record<string, unknown> = {};
+		if (name && !byFingerprint.displayName) updates.displayName = name;
+		if (phone && !byFingerprint.phoneNumber) updates.phoneNumber = phone;
+		if (email && !byFingerprint.email) updates.email = email;
+		const profile = Object.keys(updates).length
+			? await db.pipelineCustomerProfile.update({ where: { id: byFingerprint.id }, data: updates })
+			: byFingerprint;
+		return { profile };
 	}
 
 	const attrs: Record<string, unknown> = { engagementScore: 0 };
 	if (fingerprintId) attrs.fingerprintId = fingerprintId;
 
-	return db.pipelineCustomerProfile.create({
-		data: {
-			companyId,
-			externalId: fingerprintId,
-			displayName: input.name?.trim() || null,
-			email,
-			phoneNumber: phone,
-			attributes: attrs as any,
-			status: 'unknown'
-		}
-	});
+	return {
+		profile: await db.pipelineCustomerProfile.create({
+			data: {
+				companyId,
+				externalId: fingerprintId,
+				displayName: name,
+				email,
+				phoneNumber: phone,
+				attributes: attrs as any,
+				status: 'unknown'
+			}
+		})
+	};
 }
 
 export async function ingestSignalBatch(batch: SignalBatch): Promise<{ status: number; body: any }> {
@@ -153,8 +221,8 @@ export async function ingestSignalBatch(batch: SignalBatch): Promise<{ status: n
 
 	// Resolve the profile and persist events in ONE transaction so the profile the events
 	// reference is always committed by the same connection that creates them.
-	const { profileId, newEngagementScore } = await prisma.$transaction(async (tx: any) => {
-		const profile = await resolveProfile(tx, company.id, {
+	const { profileId, newEngagementScore, mergeConflict } = await prisma.$transaction(async (tx: any) => {
+		const { profile, conflict } = await resolveProfile(tx, company.id, {
 			fingerprintId: batch.fingerprintId,
 			name: batch.name,
 			email: batch.email,
@@ -213,12 +281,35 @@ export async function ingestSignalBatch(batch: SignalBatch): Promise<{ status: n
 			});
 		}
 
-		return { profileId: profile.id, newEngagementScore: newScore };
+		return { profileId: profile.id, newEngagementScore: newScore, mergeConflict: conflict };
 	});
+
+	// Raised after the transaction commits: candidate bookkeeping uses its own connection and
+	// must never extend or fail the ingest transaction that noticed the pair.
+	if (mergeConflict) {
+		await recordMergeCandidate({
+			companyId: company.id,
+			primaryProfileId: mergeConflict.survivorId,
+			duplicateProfileId: mergeConflict.duplicateId,
+			reason: 'Telemetry: device fingerprint matches a different profile than the submitted phone/email'
+		});
+	}
+
+	// The contact is resolved here, NOT inside upsertSessionCommLog, because the engagement score
+	// must not depend on how chatty the comm log is configured to be — COMM_LOG_MODE 'off' means
+	// "no comm-log rows", it has never meant "stop scoring".
+	const contact = await resolveContact(company.id, batch);
+
+	// The profiles page reads Contact.engagementScore; the pipeline profile's score lives in
+	// PipelineCustomerProfile.attributes and nothing ever copied it across, so a visitor whose
+	// score came entirely from telemetry showed 0/100 no matter how many signals they fired.
+	if (contact && scoreDelta !== 0) {
+		await applyContactScore(contact.id, scoreDelta);
+	}
 
 	const shouldLog = shouldLogBatch(eventIds);
 	if (shouldLog) {
-		await upsertSessionCommLog(company, profileId, batch, eventIds, newEngagementScore).catch(
+		await upsertSessionCommLog(company, profileId, batch, eventIds, newEngagementScore, contact).catch(
 			(err: any) => console.error('[telemetry] comm log write failed:', err?.message || err)
 		);
 	}
@@ -237,6 +328,47 @@ export async function ingestSignalBatch(batch: SignalBatch): Promise<{ status: n
 	};
 }
 
+/**
+ * Resolve the visitor's Contact. The contact util matches by phone → email → fingerprint
+ * (metadata.fingerprints) and records the fingerprint on the contact itself, so a returning device
+ * lands on the SAME contact even when no name/email/phone is known yet.
+ */
+async function resolveContact(companyId: string, batch: SignalBatch) {
+	const name = batch.name?.trim() || null;
+	const email = batch.email?.trim() || null;
+	const phone = batch.phone?.trim() || null;
+	const fingerprint = batch.fingerprintId?.trim() || null;
+	if (!name && !email && !phone && !fingerprint) return null;
+
+	const { createOrUpdateContact } = await import('$lib/utils/contacts');
+	return createOrUpdateContact({
+		company_id: companyId,
+		name: name || undefined,
+		email: email || undefined,
+		phone: phone || undefined,
+		fingerprint: fingerprint || undefined
+	}).catch((err: any) => {
+		console.error('[telemetry] contact resolution failed:', err?.message || err);
+		return null;
+	});
+}
+
+/**
+ * Add this batch's delta to the contact's engagement score, capped at the 100 the UI renders it
+ * against. Done in SQL rather than read-modify-write so two batches landing together both count —
+ * the same lost-update trap that silently dropped signals from the comm log.
+ */
+async function applyContactScore(contactId: string, delta: number) {
+	try {
+		await prisma.$executeRaw`
+			UPDATE contacts
+			SET "engagementScore" = LEAST(100, GREATEST(0, COALESCE("engagementScore", 0) + ${delta}))
+			WHERE id = ${contactId}`;
+	} catch (err: any) {
+		console.error('[telemetry] contact score update failed:', err?.message || err);
+	}
+}
+
 // One comm-log row per visitor session. All of a visitor's signals fold into a single
 // communication thread (so they share one COM id), the row's summary is the latest signal,
 // and the source is the fingerprint (or the profile name once they're recognised).
@@ -245,9 +377,9 @@ async function upsertSessionCommLog(
 	profileId: string,
 	batch: SignalBatch,
 	eventIds: { name: string; category: string; delta: number }[],
-	engagementScore: number
+	engagementScore: number,
+	contact: { id: string } | null
 ) {
-	const { createOrUpdateContact } = await import('$lib/utils/contacts');
 	const { createNotification } = await import('$lib/utils/notifications');
 
 	const name = batch.name?.trim() || null;
@@ -255,19 +387,6 @@ async function upsertSessionCommLog(
 	const phone = batch.phone?.trim() || null;
 	const fingerprint = batch.fingerprintId?.trim() || null;
 	const sessionId = batch.sessionId?.trim() || null;
-
-	// The contact util matches by phone → email → fingerprint (metadata.fingerprints) and records
-	// the fingerprint on the contact itself, so a returning device lands on the SAME contact even
-	// when no name/email/phone is known yet.
-	const contact = (name || email || phone || fingerprint)
-		? await createOrUpdateContact({
-				company_id: company.id,
-				name: name || undefined,
-				email: email || undefined,
-				phone: phone || undefined,
-				fingerprint: fingerprint || undefined
-			})
-		: null;
 
 	// Stable grouping key: the fingerprint identifies the user across page loads; fall back to the
 	// session id when a visitor has no fingerprint.

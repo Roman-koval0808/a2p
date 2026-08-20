@@ -157,3 +157,130 @@ Driven through real Chrome (Playwright, `channel: 'chrome'`) against the running
 - The `svelte-check` baseline in `CLAUDE.md` says ~330 errors; the tree reports 938 both with and
   without this session's changes. The documented number is stale and should be updated so the next
   agent's comparison means something.
+
+---
+
+# Part 2 — a submit must promote the fingerprint's profile, not fork a new one
+
+## Goal
+
+> "before we send anything from the leadbox or leadform it checks fingerprints and merges profiles,
+> so it uses that same profile but just updates their name or phone etc with what they submitted
+> from the leadbox/leadform. currently it uses a new profile for submits"
+
+## Root cause
+
+The symptom is real but the mechanism is narrower than "submits create a new profile", and getting
+it wrong sends you to the wrong file. Reproduced against the running intake:
+
+1. anonymous `page_load` with fingerprint `F` → profile `P` created
+2. submit carrying identity **+ the same `F`** → resolved to **`P`** (correct!) and adopted the name
+3. later touch keyed by that phone → **new profile** ✗
+
+So `resolveProfile` already returned the fingerprint's profile — it just wrote **only
+`displayName`** onto it and silently dropped the phone and email. `P` stayed unreachable by phone,
+so the next phone-keyed touch matched nothing and forked a second record. The split surfaced one
+step *after* the submit that caused it.
+
+On top of that, in practice step 2 never even happened: **the embeds never sent identity at all.**
+Their telemetry batches carried only `tenantSlug`/`sessionId`/`fingerprintId`/`signals`, and their
+`/api/messages` submit carried no fingerprint — so the Contact side matched on phone/email only and
+forked there too. Two independent halves of the same bug.
+
+This is a spec requirement, not a preference — identity-tiers §4.3:
+
+> Fingerprint + session ID are the identity thread for Tier 1, 2, and 2B … They are never discarded
+> on upgrade: a 2B or 2 promoting to Tier 1 keeps its fingerprint, session ID, and full history;
+> **the identifier is layered on top.**
+
+## Changed
+
+- **`src/lib/server/telemetry/intake.ts`** — `resolveProfile` rewritten to layer identity onto the
+  record the fingerprint already resolved (promotion in place), and to return an unresolved
+  `conflict` alongside the profile. Blanks are filled, never overwritten: a profile has one
+  canonical name/phone/email, and clobbering a known value with a newer form submission is exactly
+  how one person's record absorbs another's. Added `followMerges` so a lookup landing on a
+  tombstone resolves to the survivor. The `mergedInto: null` guard is in the fingerprint query's
+  `WHERE`, not an `if` above it.
+- **`src/lib/embed/leadbox-builder.ts`**, **`src/lib/embed/leadform-builder.ts`** — gained
+  `identity` + `identify()`, mirroring the site client, and every batch now carries
+  `name`/`email`/`phone`. `identify()` is called **before** the submit signal fires, so the submit
+  batch itself carries the identity rather than the batch after it. All four `/api/messages`
+  payloads (leadbox subform, leadbox main form, leadbox channel-click, leadform) now include
+  `fingerprint: resolveFingerprint()`.
+- **`src/routes/api/messages/+server.ts`** — reads `body.fingerprint` and passes it to
+  `createOrUpdateContact`, which already had fingerprint matching (Priority 3) and
+  `persistFingerprint` — it was simply never given the value. The contact is now also resolved when
+  a fingerprint is the *only* thing known, so an anonymous channel-click attaches to the visitor's
+  existing contact instead of nothing.
+
+## Rejected
+
+- **Auto-merging the two profiles when a fingerprint profile and a phone/email profile both exist.**
+  `merge-service.ts` is explicit that identity resolution never merges on its own — a device can be
+  shared, and a bad auto-merge silently fuses two customers' histories irreversibly. The exclusive
+  identifier wins the lookup, both records stay live, and `recordMergeCandidate` raises the pair for
+  a human. `recordMergeCandidate` swallows its own errors by design, so candidate bookkeeping cannot
+  break ingest.
+- **Reusing `mergeProfiles()` from merge-service for the promotion path.** Promotion is not a merge —
+  there is only ever one record involved. Calling a merge here would have created a tombstone for a
+  profile that never existed separately.
+- **Raising the merge candidate inside the ingest transaction.** It uses the global `prisma` client
+  on its own connection; doing it inside would extend the transaction and risk it failing the ingest
+  that noticed the pair. It runs after commit.
+- **Setting a `status` on promotion** (e.g. `unknown` → identified). No consumer of
+  `PipelineCustomerProfile.status` exists in `src/`, and the only value written anywhere is
+  `'merged'`. Inventing a tier value without a reader is speculative; left alone deliberately.
+
+## Verified
+
+Against the running intake, then read back from the database.
+
+- The original 3-step repro now holds one record throughout: anonymous → submit → **phone-keyed
+  touch → same profile** → email-keyed touch → same profile → anonymous-again → same profile.
+  One `pipeline_customer_profile`, not two.
+- **Conflict case** (a phone profile and a *separate* fingerprint profile both pre-exist, then a
+  submit arrives carrying both): resolves to the phone profile, the fingerprint profile stays live
+  and untouched (not merged, not deleted), and a `ProfileMergeCandidate` is raised `status=pending`.
+- **Adoption case**: a profile identified by phone with no fingerprint adopts the device thread on
+  the next batch, and a later anonymous fingerprint-only touch then lands on it.
+- **Tombstone case**: a phone lookup landing on a `mergedInto` tombstone resolves to the survivor.
+- **Full browser run** (Chrome, real leadbox REQUEST A CALL submit then leadform submit on
+  `/contact`, same `?fp=`): the anonymous profile created at `page_load` ends with the submitted
+  name, phone *and* email; the Contact matched by fingerprint carries the same three; and there is
+  exactly **1** pipeline profile, **1** contact and **1** visitor thread for that person.
+  `/api/messages` was observed sending the fingerprint on both submits.
+- **Baseline unchanged**: vitest 28 failed / 752 passed; `svelte-check` 938 errors / 223 warnings.
+  The three `api/messages` lines svelte-check reports are pre-existing (`destination: null`,
+  `contact_company`) and shifted down by the three lines I added — the total is identical.
+
+## Not verified
+
+- **No automated test covers any of this.** The promotion, conflict, adoption and tombstone cases
+  were each verified by throwaway scripts against the live dev intake, not by anything in `vitest`.
+  `resolveProfile` is now the most consequential function in the file and has no spec test — this is
+  the single biggest gap left, and `merge-service.test.ts` shows the pattern to follow.
+- **Concurrency of the promotion itself.** Two simultaneous first-time submits carrying the same new
+  phone could both pass the "no profile holds this phone" check and race on the
+  `(companyId, phoneNumber)` unique. The comm-log advisory lock from Part 1 does not cover this — it
+  is taken later and keyed on the thread, not the phone. I did not reproduce it and there is no
+  retry/catch on `P2002` in the promotion path.
+- **The `handleFormSubmit` (legacy `#clearsky-form`) path** got `identify()` and a fingerprint but
+  fires no telemetry signal of its own, so its identity only reaches the intake if some *other*
+  signal follows in the same session. I did not exercise that form in a browser at all.
+- **Channel-click contacts.** Passing a fingerprint means `handleChannelClick` can now create a
+  contact for a visitor who has given no name/phone/email, where previously it created none. That is
+  intended, but I did not check what the sales inbox looks like with anonymous fingerprint-only
+  contacts in it.
+- Nothing here was run against production, and no existing production data was migrated — profiles
+  already split by this bug stay split until someone merges them.
+
+## Open decisions
+
+- **Split profiles already in the database.** The fix is forward-only. Existing duplicate pairs
+  (anonymous-with-fingerprint + identified-by-phone, same person) are not detected retroactively —
+  no backfill raises merge candidates for them. Someone should decide whether to run one.
+- **Fingerprint conflicts are now raised as merge candidates**, so if two people genuinely share a
+  device the candidate queue will collect pairs that a human must dismiss. If that queue is not
+  actually being worked, this change makes noise rather than value — worth confirming before it
+  ships.

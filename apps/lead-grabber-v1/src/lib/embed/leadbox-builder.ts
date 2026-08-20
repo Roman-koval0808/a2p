@@ -44,6 +44,19 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
      written by the marketing site's client after page load is picked up. */
   var sessionId = 'sess_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
+  /* Identity the visitor has given us in this session. Attached to every batch from the moment
+     they submit, so the intake can layer it onto the profile the fingerprint already resolved
+     instead of forking a second record for the same person. Mirrors the site client's
+     identify(). */
+  var identity = { name: null, email: null, phone: null };
+
+  function identify(d) {
+    if (!d) return;
+    if (d.name) identity.name = d.name;
+    if (d.email) identity.email = d.email;
+    if (d.phone) identity.phone = d.phone;
+  }
+
   function localFingerprint() {
     var parts = [
       navigator.userAgent || '',
@@ -107,6 +120,9 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
         tenantSlug: companyId,
         sessionId: sessionId,
         fingerprintId: fp,
+        name: identity.name,
+        email: identity.email,
+        phone: identity.phone,
         signals: list
       });
       /* Transport, and why it is NOT sendBeacon-with-JSON.
@@ -262,6 +278,9 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
     const formData = new FormData(form);
     const data = Object.fromEntries(formData);
 
+    /* Identify BEFORE the signal fires so the submit batch itself carries the identity and the
+       intake can promote the fingerprint's existing profile in place. */
+    identify({ name: data.name, phone: data.mobile });
     if (formType === 'request_call') {
       trackSignal('callback_submit', { preferredTime: data.preferred_time || 'ASAP' });
     }
@@ -288,7 +307,8 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
         created: new Date().toISOString(),
         initials: initials,
         color: "bg-primary",
-        scenario_key: formType === 'request_call' ? 's2' : 's1'
+        scenario_key: formType === 'request_call' ? 's2' : 's1',
+        fingerprint: resolveFingerprint()
       };
 
       const controller = new AbortController();
@@ -369,6 +389,8 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
       const messageContent = data.message || '';
       const normalizedPhone = data.mobile ? data.mobile.replace(/[^+\\d]/g, '') : "";
 
+      identify({ name: data.name, phone: data.mobile });
+
       const messageData = {
         customer_name: data.name || "Anonymous",
         customer_email: "",
@@ -382,7 +404,8 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
         created: new Date().toISOString(),
         initials: initials,
         color: "bg-primary",
-        company: { id: companyId }
+        company: { id: companyId },
+        fingerprint: resolveFingerprint()
       };
 
       const controller = new AbortController();
@@ -587,7 +610,8 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
         status: "new",
         thread_id: crypto.randomUUID(),
         source_url: window.location.href,
-        company_id: companyId
+        company_id: companyId,
+        fingerprint: resolveFingerprint()
       };
 
       const controller = new AbortController();

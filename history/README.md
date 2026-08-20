@@ -44,4 +44,4 @@ Keep it honest and short. A wrong entry is worse than none.
 - Do not paste large diffs or logs. Reference file and line.
 - [2026-08-11](2026-08-11-revert-scenario-2.md) — reverting the scenario 2 callback loop
 - [2026-08-11 (2)](2026-08-11-scenario-2-callback-loop-2.md) — scenario 2 rebuilt: Joe's two clauses, the daily call, the comm id
-- [2026-08-20 (3)](2026-08-20-3-embed-telemetry-cors-and-commlog-race.md) — embed signals: sendBeacon credentialed preflight, and a comm-log lost update
+- [2026-08-20 (3)](2026-08-20-3-embed-telemetry-cors-and-commlog-race.md) — embed signals: sendBeacon credentialed preflight, a comm-log lost update, and promoting the fingerprint's profile on submit
