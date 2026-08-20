@@ -10,6 +10,7 @@ import { toE164 } from '$lib/utils/phone';
 import { SIGNAL_CATALOG, humanizeSignal, type TelemetrySignal } from '$lib/telemetry/signals';
 import type { Attribution } from '$lib/telemetry/attribution';
 import { recordMergeCandidate } from '$lib/server/identity/merge-service';
+import { getNextBucket } from '$lib/server/profiledb/scoring.service';
 
 // ── Comm-log visibility ─────────────────────────────────────────────────────
 // Which signals surface as a communication-log row (the a2p comm log / sales inbox).
@@ -201,7 +202,13 @@ export async function ingestSignalBatch(batch: SignalBatch): Promise<{ status: n
 	const rejected: string[] = [];
 	let scoreDelta = 0;
 
-	const eventIds: { id: string; name: string; category: string; delta: number }[] = [];
+	const eventIds: {
+		id: string;
+		name: string;
+		category: string;
+		delta: number;
+		bucketSignal?: string;
+	}[] = [];
 
 	for (const sig of signals) {
 		const def = SIGNAL_CATALOG[sig.name];
@@ -210,7 +217,13 @@ export async function ingestSignalBatch(batch: SignalBatch): Promise<{ status: n
 			continue;
 		}
 		const id = randomUUID();
-		eventIds.push({ id, name: def.name, category: def.category, delta: def.scoreDelta });
+		eventIds.push({
+			id,
+			name: def.name,
+			category: def.category,
+			delta: def.scoreDelta,
+			bucketSignal: def.bucketSignal
+		});
 		scoreDelta += def.scoreDelta;
 		accepted.push(def.name);
 	}
@@ -307,6 +320,20 @@ export async function ingestSignalBatch(batch: SignalBatch): Promise<{ status: n
 		await applyContactScore(contact.id, scoreDelta);
 	}
 
+	// Intent bucket. Promotion is ESCALATE-ONLY and driven by the signal's own bucketSignal, never
+	// recomputed from a score band (developer brief P1.3 / Four Intent Buckets §4.1 no-downgrade).
+	// Folding from 'unclassified' gives the highest bucket THIS batch argues for; the stored value
+	// is only overwritten when the new one ranks strictly higher, which is enforced in SQL below.
+	if (contact) {
+		const target = eventIds.reduce(
+			(acc, ev) => getNextBucket(acc, ev.bucketSignal),
+			'unclassified'
+		);
+		if (target !== 'unclassified') {
+			await applyContactBucket(contact.id, target);
+		}
+	}
+
 	const shouldLog = shouldLogBatch(eventIds);
 	if (shouldLog) {
 		await upsertSessionCommLog(company, profileId, batch, eventIds, newEngagementScore, contact).catch(
@@ -366,6 +393,33 @@ async function applyContactScore(contactId: string, delta: number) {
 			WHERE id = ${contactId}`;
 	} catch (err: any) {
 		console.error('[telemetry] contact score update failed:', err?.message || err);
+	}
+}
+
+/**
+ * Persist the visitor's intent bucket, escalate-only.
+ *
+ * The ladder comparison is done in SQL so two batches landing together cannot demote each other:
+ * the row is written only when the incoming bucket ranks strictly higher than the stored one. The
+ * array mirrors BUCKET_ORDER in scoring.service — keep them in step.
+ */
+async function applyContactBucket(contactId: string, bucket: string) {
+	try {
+		await prisma.$executeRaw`
+			UPDATE contacts
+			SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{intentBucket}', to_jsonb(${bucket}::text), true)
+			WHERE id = ${contactId}
+			  AND COALESCE(
+			        array_position(
+			          ARRAY['unclassified','research','comparison','active','emergency'],
+			          NULLIF(metadata->>'intentBucket', '')
+			        ), 0)
+			      < array_position(
+			          ARRAY['unclassified','research','comparison','active','emergency'],
+			          ${bucket}::text
+			        )`;
+	} catch (err: any) {
+		console.error('[telemetry] contact bucket update failed:', err?.message || err);
 	}
 }
 

@@ -94,7 +94,15 @@ export const load: PageServerLoad = async ({ locals }) => {
 				// canonical bands (research 9-34 / comparison 35-49 / active 50-74) and could never
 				// produce 'emergency', so a flooded-basement caller on score 25 was shown as an
 				// Active Project.
-				intentBucket: latestByContact.get(c.id) === 'emergency' ? 'emergency' : 'unclassified',
+				// The bucket the telemetry pipeline assigned, escalate-only, from each signal's own
+				// bucketSignal (Four Intent Buckets §3.5) — NOT recomputed from a score band here.
+				// The orchestrator's emergency classification still overrides it at any score, per
+				// §3.1: an emergency signal beats every other bucket. A visitor with no promoting
+				// signal yet stays `unclassified` rather than being guessed at.
+				intentBucket:
+					latestByContact.get(c.id) === 'emergency'
+						? 'emergency'
+						: ((c.metadata as Record<string, any> | null)?.intentBucket ?? 'unclassified'),
 				lastSeen: c.updated ?? c.created ?? null
 			};
 		});

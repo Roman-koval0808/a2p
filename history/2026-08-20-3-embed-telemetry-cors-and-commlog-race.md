@@ -284,3 +284,168 @@ Against the running intake, then read back from the database.
   device the candidate queue will collect pairs that a human must dismiss. If that queue is not
   actually being worked, this change makes noise rather than value — worth confirming before it
   ships.
+
+---
+
+# Part 3 — score and intent bucket on the profiles page
+
+## Goal
+
+> "in profiles page `0 /100` is score, those signals should add up to the scores"
+> "but intent bucket is also unclassified, is there any reference for those signals we implemented
+> and how they affect intent bucket? check the app and total-trades-solutions-site 2"
+
+## Root causes
+
+Two separate disconnections, both "the value was written somewhere the page doesn't read".
+
+### Score — written to a different table
+
+Telemetry writes the engagement score to `PipelineCustomerProfile.attributes.engagementScore`. The
+profiles page reads `Contact.engagementScore` — a different table. Nothing ever copied one to the
+other, so a visitor whose score came entirely from telemetry showed `0 /100` no matter how many
+signals they fired. Confirmed on live data: contact "Davis Mcmahon" sat at `engagementScore = 0`
+while their comm log carried `scoreLive = 60`.
+
+`Contact.engagementScore` has four existing writers — `orchestrator.ts:650`,
+`orchestrator/command-registry.ts:218`, `api/track/click`, `api/track/open` — and telemetry was
+simply not one of them.
+
+### Intent bucket — never wired into this pipeline at all
+
+There are **three** reference layers for buckets, and none of them were connected to the telemetry
+path:
+
+1. **Spec** — `ClearSky_Section5_Four_Intent_Buckets_Report__1_.md` §3.5: Research 9–34 ·
+   Comparison 35–49 · Active Project 50–74 · Emergency = signal override at any score. §4.1 is the
+   no-downgrade rule within a session.
+2. **Reference site** — `total-trades-solutions-site 2` (`_SIGNAL-INVENTORY.md`, 98 signals). Every
+   call is `firePixel(event, label, delta, bkt)`, so the site carries a bucket per signal, for all
+   nine of the signals we wired. It is a local HUD though — it keeps `_score`/`_bucket` in page
+   variables and only `console.log`s them. It is a specification by example, not an integration.
+3. **App** — `profiledb/eventRegistry.ts` holds `bucketSignal` per event and
+   `profiledb/scoring.service.ts` has `getNextBucket()`, an escalate-only ladder that deliberately
+   never consults the score ("getNextBucket must read the event's own bucketSignal and climb the
+   fixed ladder — never recompute from a score band", developer brief P1.3).
+
+The gaps: `SIGNAL_CATALOG` had **no bucket field at all**; `intake.ts` never called `getNextBucket`
+or touched `intentBucket`; `intentBucket` lives on `CustomerProfile` in the **separate profiledb
+database** while telemetry writes the main DB; and only 11 of the catalog's 102 signals exist in
+`eventRegistry` (of our nine, only `form_submit`). The profiles page hardcoded
+`emergency | unclassified` — its own comment says the real CDP bucket "is not stored in this
+database". So `unclassified` was not a bug in what we built; the bucket dimension was never wired
+in, and nothing we implemented could have set it.
+
+## Changed
+
+- **`src/lib/telemetry/signals.ts`** — added `BucketSignal` type and a `bucketSignal` field, and
+  populated all 102 entries. **No `scoreDelta` changed** (verified mechanically against HEAD: 102
+  signals, zero delta changes, none lost).
+- **`src/lib/server/telemetry/intake.ts`** — `resolveContact` hoisted out of `upsertSessionCommLog`
+  into the main path, because the score must not depend on `COMM_LOG_MODE` ('off' has always meant
+  "no comm-log rows", never "stop scoring"). Added `applyContactScore` and `applyContactBucket`.
+- **`src/routes/(app)/profiles/+page.server.ts`** — reads the stored bucket instead of hardcoding
+  `unclassified`. The orchestrator's emergency classification still overrides at any score (§3.1).
+
+Both writes are done in SQL rather than read-modify-write, for the same reason Part 1 needed a lock:
+`applyContactScore` uses `LEAST(100, GREATEST(0, COALESCE(...) + delta))`, and `applyContactBucket`
+does the ladder comparison in the `WHERE` with `array_position`, so a row is only ever overwritten
+by a strictly higher bucket. Two batches landing together cannot demote each other.
+
+## How the bucket mapping was derived
+
+Extracted every `firePixel(...)` call from the reference site (115 distinct signal/bucket pairs),
+then:
+
+- **The site's bucket is page-context dependent, not a property of the signal.** `page_load` is
+  tagged with all five buckets across the site; `dwell_30` with three. A static table in the catalog
+  cannot reproduce that, so where the site disagrees with itself the **lowest-priority** value is
+  used: promotion is escalate-only and self-corrects upward, whereas over-classifying is sticky
+  (no downgrade in-session, and Emergency never demotes at all).
+- **`page_load` is deliberately left untagged** so it cannot promote. Its delta is 0 and a bounce
+  must stay `unclassified` rather than being promoted to `research` by merely loading a page.
+- **`callback_open` / `callback_form_open` / `callback_submit` are mapped `active`, not `emergency`,
+  and this is a deliberate deviation from a naive reading of the site.** Those three fire on only
+  two pages in the entire site — `rightflush-emergency.html` and `rightflush-burst-pipe-flooding.html`
+  — so their `emergency` tag belongs to *those pages*, not to "a visitor requested a callback". On
+  the ClearSky marketing site the leadbox "REQUEST A CALL" is a sales callback on ordinary pages;
+  tagging it `emergency` would put every such visitor on a 15-minute A2P SLA in a bucket that never
+  demotes. `hero_call_click` and `cta_call_click` were deviated for the same reason.
+- Only **two** signals map to `emergency` — `nav_emergency` and `emergency_cta` — the two the site
+  tags unambiguously. Note the site tags even `emg_call` ("Emergency band: call") as `active`.
+- Where the app's own `eventRegistry` already had an opinion it wins over my derivation: three
+  signals were realigned to it (`dwell_60`, `dwell_120` → `comparison`; `form_submit` →
+  `conversion`). The other seven overlapping signals already agreed.
+
+Final distribution: 53 active · 29 research · 17 comparison · 2 emergency · 1 untagged.
+
+## Verified
+
+- **Ladder, against the running intake**: bare `page_load` leaves the visitor `unclassified`;
+  `scroll_25` → research; `svc_click` → active; `nav_emergency` → emergency.
+- **No-downgrade**: after reaching `active`, firing `scroll_25` and `dwell_30` (both research)
+  leaves the bucket at `active`.
+- **Score**: accumulates in step with the telemetry score (3 → 7 → 22 across three signals); 8
+  concurrent batches for one visitor sum to exactly 97 with no lost updates; 180 points of signal
+  caps at 100.
+- **Full browser run** (real leadbox REQUEST A CALL submit): the visitor the page renders now shows
+  name "Bucket Verify", **55/100**, bucket **active**, from
+  `page_load → callback_open → callback_form_open → callback_submit`. Before this change the same
+  flow produced `0/100` and `unclassified`.
+- **Baseline unchanged**: vitest 28 failed / 752 passed (three consecutive runs);
+  `svelte-check` 938 errors / 223 warnings; none of the three changed files produce any
+  svelte-check output.
+
+## Rejected
+
+- **Wiring the main pipeline into profiledb** so `CustomerProfile.intentBucket` becomes the real
+  source of truth. Architecturally the "right" answer and what the page's original comment implies,
+  but it is a cross-database change with an identity-mapping and migration problem attached. Raised
+  with the user, who chose the contained option.
+- **Aligning our score deltas to the reference site.** Five of the nine disagree (`callback_open`
+  15 vs 12, `callback_submit` 25 vs 20, `form_name_focus` 6 vs 8, `form_email_focus` 8 vs 12,
+  `form_phone_focus` 10 vs 12). Deltas are a locked product decision and changing them shifts every
+  existing visitor's score. Raised with the user, who chose to leave them.
+- **Deriving the bucket from the score band** (e.g. `score >= 50 → active`). Explicitly forbidden by
+  the developer brief P1.3 and by `getNextBucket`'s own contract. The page had already been burned
+  by a `score >= 20 ? 'active' : 'research'` mapping, which is why it was left `unclassified`.
+- **Setting the bucket on the pipeline profile as well as the Contact.** The page reads the Contact;
+  writing both invites them to disagree with no rule about which wins.
+
+## Not verified
+
+- **No automated test covers any of Part 3** — the ladder, no-downgrade, score accumulation,
+  concurrency and cap were all verified by throwaway scripts against the live dev intake. The
+  bucket mapping in `signals.ts` is 102 hand-derived values with nothing asserting any of them.
+- **The profiles page was never rendered in a browser.** It requires a logged-in session; I verified
+  the data layer it reads (`Contact.engagementScore`, `Contact.metadata.intentBucket`) rather than
+  the rendered page. The detail page at `profiles/[id]` reads the same two fields and was not
+  exercised at all.
+- **Emergency will rarely fire from telemetry.** The reference site derives Emergency mostly from
+  *which page* the visitor is on, and the catalog has no page dimension — so in practice only
+  `nav_emergency` and `emergency_cta` can promote to it. The orchestrator's `message_category`
+  override remains the real emergency path. Whether that is acceptable is a product question I did
+  not resolve.
+- **Existing contacts are not backfilled.** Everyone already in the database keeps `0 /100` and
+  `unclassified` until their next signal. The scores exist in comm-log `metadata.scoreLive` and
+  could be backfilled; I did not, and did not ask.
+- **Cross-session demotion is not implemented here.** `evaluateDemotion`/`DEMOTION_RULES` exist in
+  `scoring.service` and operate on profiledb; nothing decays or demotes the Contact-side bucket, so
+  a visitor who reaches `active` stays there indefinitely.
+- **A misdiagnosis worth recording**: mid-session the suite showed 29 failures instead of 28, with
+  `debug.test.ts` failing, and reverting my changes appeared to fix it — I said it was confirmed to
+  be my change. It was not. The error was
+  `Too many database connections opened: FATAL: remaining connection slots are reserved`, i.e. the
+  shared Aiven instance exhausted by my own browser and script runs. Three consecutive clean runs
+  with the changes in place confirmed 28/752. The lesson: read the failure text before trusting a
+  revert/restore correlation on a shared database.
+
+## Open decisions
+
+- Whether `callback_*` should be `emergency` after all. For a plumbing tenant the reference site
+  says yes; for ClearSky's own marketing site it would put every "Request a Call" visitor on a
+  15-minute SLA in a bucket that never demotes. It is currently `active` — a one-word change in
+  `signals.ts` if the product decision goes the other way. **This is per-vertical, and the catalog
+  has no per-tenant dimension**, which is the deeper issue.
+- Whether the bucket belongs on the Contact at all, or whether profiledb should own it and the main
+  DB read through. The current state means two systems can hold different buckets for one person.
