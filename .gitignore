@@ -128,3 +128,5 @@ Thumbs.db
 apps/lead-grabber-v1/profiledb-client/
 
 clearsky-full-project-reference-2026-07-20
+# Reference-only demo site (not part of the app)
+apps/lead-grabber-v1/total-trades-solutions-site 2/

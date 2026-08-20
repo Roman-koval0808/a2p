@@ -185,7 +185,7 @@ export function humanizeSignal(name: string): string {
 		dwell_30: 'dwell 30s',
 		dwell_60: 'dwell 60s',
 		dwell_120: 'dwell 2m',
-		vr_entry: 'viewroom entry',
+		vr_entry: 'vr entry',
 		vr_name_focus: 'vr name focus',
 		vr_phone_focus: 'vr phone focus',
 		vr_interest_select: 'vr interest',

@@ -43,7 +43,7 @@
                         return;
                     }
                     
-                    const fp = $page.url.searchParams.get('fp') || '';
+                    const fp = new URLSearchParams(window.location.search).get('fp') || '';
                     const roomUrl = `/room/${roomId}?${hostParams}&anonymousUserId=${anonymousUserId}${fp ? `&fp=${encodeURIComponent(fp)}` : ''}`;
                     window.open(roomUrl, '_blank');
                     
