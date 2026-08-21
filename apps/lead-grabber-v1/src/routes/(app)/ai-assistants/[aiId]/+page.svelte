@@ -43,6 +43,8 @@
     let assistantName = $state('');
     let systemPrompt = $state('');
     let isSaving = $state(false);
+    let fileToDelete = $state<string | null>(null);
+    let isDeletingFile = $state(false);
 
     $effect(() => {
         selectedViewrooms = normalizeViewroomIds(aiAssistant.viewroomConnections);
@@ -128,6 +130,42 @@
             toast.error('Failed to save settings');
         } finally {
             isSaving = false;
+        }
+    }
+
+    async function confirmDeleteFile() {
+        if (!fileToDelete) return;
+        isDeletingFile = true;
+        
+        try {
+            const formData = new FormData();
+            formData.append('fileId', fileToDelete);
+            
+            const response = await fetch(`/ai-assistants/${aiAssistant.id}?/deleteFile`, {
+                method: 'POST',
+                body: formData
+            });
+            
+            let result;
+            try {
+                result = JSON.parse(await response.text());
+            } catch (e) {
+                // Ignore parse errors, just assume failure if not handled
+            }
+
+            if (result?.type === 'success') {
+                toast.success('File deleted completely');
+                selectedTrainingFiles = selectedTrainingFiles.filter(id => id !== fileToDelete);
+                fileToDelete = null;
+                invalidateAll();
+            } else {
+                toast.error(result?.data?.message || 'Failed to delete file');
+            }
+        } catch (error) {
+            console.error('Error deleting file:', error);
+            toast.error('Failed to delete file');
+        } finally {
+            isDeletingFile = false;
         }
     }
 </script>
@@ -267,30 +305,44 @@
                 <div class="space-y-3 border-t border-gray-100 pt-6">
                     {#if allTrainingFiles && allTrainingFiles.length > 0}
                         {#each allTrainingFiles as file, index}
-                            <label class="flex items-center gap-3 p-3 border border-gray-100 rounded-md hover:bg-gray-50 cursor-pointer transition-colors w-full group">
-                                <input 
-                                    type="checkbox"
-                                    value={file.id}
-                                    class="w-4 h-4 text-[#577AB7] border-gray-300 rounded focus:ring-[#577AB7] mt-0.5"
-                                    checked={selectedTrainingFiles.includes(file.id)}
-                                    onchange={(e) => {
-                                        if (e.currentTarget.checked) {
-                                            selectedTrainingFiles = [...selectedTrainingFiles, file.id];
-                                        } else {
-                                            selectedTrainingFiles = selectedTrainingFiles.filter(id => id !== file.id);
-                                        }
-                                    }}
-                                />
-                                <div class="flex-1 flex justify-between items-center">
-                                    <div>
-                                        <div class="text-sm text-slate-800 font-medium font-['Poppins']">{file.title}</div>
-                                        <div class="text-[11px] text-slate-500 font-semibold mt-0.5">{formatFileType(file.type)}</div>
+                            <div class="flex items-center gap-3 p-3 border border-gray-100 rounded-md hover:bg-gray-50 transition-colors w-full group relative">
+                                <label class="flex-1 flex items-center gap-3 cursor-pointer">
+                                    <input 
+                                        type="checkbox"
+                                        value={file.id}
+                                        class="w-4 h-4 text-[#577AB7] border-gray-300 rounded focus:ring-[#577AB7] mt-0.5"
+                                        checked={selectedTrainingFiles.includes(file.id)}
+                                        onchange={(e) => {
+                                            if (e.currentTarget.checked) {
+                                                selectedTrainingFiles = [...selectedTrainingFiles, file.id];
+                                            } else {
+                                                selectedTrainingFiles = selectedTrainingFiles.filter(id => id !== file.id);
+                                            }
+                                        }}
+                                    />
+                                    <div class="flex-1 flex justify-between items-center pr-2">
+                                        <div>
+                                            <div class="text-sm text-slate-800 font-medium font-['Poppins']">{file.title}</div>
+                                            <div class="text-[11px] text-slate-500 font-semibold mt-0.5">{formatFileType(file.type)}</div>
+                                        </div>
+                                        {#if selectedTrainingFiles.includes(file.id)}
+                                            <span class="text-[10px] font-semibold text-[#577AB7] uppercase tracking-wider bg-blue-50 px-2 py-1 rounded-sm">Attached</span>
+                                        {/if}
                                     </div>
-                                    {#if selectedTrainingFiles.includes(file.id)}
-                                        <span class="text-[10px] font-semibold text-[#577AB7] uppercase tracking-wider bg-blue-50 px-2 py-1 rounded-sm">Attached</span>
-                                    {/if}
-                                </div>
-                            </label>
+                                </label>
+                                <button 
+                                    type="button"
+                                    class="ml-2 text-red-400 hover:text-red-600 p-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    title="Delete file permanently"
+                                    onclick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        fileToDelete = file.id;
+                                    }}
+                                >
+                                    <Trash2 class="h-4 w-4" />
+                                </button>
+                            </div>
                         {/each}
                     {:else}
                         <div class="p-6 text-center text-sm text-slate-500 italic border border-gray-100 rounded-md">
@@ -303,3 +355,35 @@
         </div>
     </div>
 </div>
+
+<Dialog.Root open={!!fileToDelete} onOpenChange={(v) => { if (!v && !isDeletingFile) fileToDelete = null; }}>
+    <Dialog.Content class="sm:max-w-[425px]">
+        <Dialog.Header>
+            <Dialog.Title>Delete Training File</Dialog.Title>
+            <Dialog.Description>
+                Are you sure you want to permanently delete this file? It will be removed from your company's knowledge base and detached from any AI assistants using it. This action cannot be undone.
+            </Dialog.Description>
+        </Dialog.Header>
+        <Dialog.Footer class="mt-6 flex justify-end gap-2">
+            <Button 
+                variant="outline" 
+                onclick={() => fileToDelete = null}
+                disabled={isDeletingFile}
+            >
+                Cancel
+            </Button>
+            <Button 
+                variant="destructive" 
+                onclick={confirmDeleteFile}
+                disabled={isDeletingFile}
+            >
+                {#if isDeletingFile}
+                    <Loader2 class="h-4 w-4 mr-2 animate-spin" />
+                    Deleting...
+                {:else}
+                    Delete File
+                {/if}
+            </Button>
+        </Dialog.Footer>
+    </Dialog.Content>
+</Dialog.Root>

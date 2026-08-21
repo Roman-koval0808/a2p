@@ -176,5 +176,44 @@ export const actions: Actions = {
 				message: err instanceof Error ? err.message : 'Failed to remove file'
 			});
 		}
+	},
+
+	deleteFile: async ({ request, locals }) => {
+		const companyId = locals.user ? resolveCompanyId(locals.user) : null;
+		if (!companyId) return fail(401, { success: false, message: 'Unauthorized' });
+
+		try {
+			const formData = await request.formData();
+			const fileId = formData.get('fileId')?.toString();
+			if (!fileId) return fail(400, { success: false, message: 'File ID is required' });
+
+			// Delete from the content library
+			await prisma.contentLibraryItem.deleteMany({
+				where: { id: fileId, ownerCompanyId: companyId }
+			});
+
+			// Cleanup the file ID from any assistants that had it attached
+			const assistants = await prisma.aiAssistant.findMany({
+				where: { companyId }
+			});
+			for (const assistant of assistants) {
+				if (assistant.trainingFiles.includes(fileId)) {
+					await prisma.aiAssistant.update({
+						where: { id: assistant.id },
+						data: {
+							trainingFiles: assistant.trainingFiles.filter(id => id !== fileId)
+						}
+					});
+				}
+			}
+
+			return { success: true, message: 'File deleted completely' };
+		} catch (err) {
+			console.error('Error deleting file:', err);
+			return fail(400, {
+				success: false,
+				message: err instanceof Error ? err.message : 'Failed to delete file'
+			});
+		}
 	}
 };
