@@ -26,6 +26,17 @@ import { getNextBucket } from '$lib/server/profiledb/scoring.service';
 const COMM_LOG_MODE: 'all' | 'high_intent' | 'off' =
 	(process.env.TELEMETRY_COMM_LOG_MODE as 'all' | 'high_intent' | 'off') || 'all';
 const COMM_LOG_MIN_DELTA = 15;
+
+// ── Visit boundary ──────────────────────────────────────────────────────────
+// A visit is ONE BROWSER TAB. Every ClearSky emitter (site tracker, leadbox, leadform, viewroom)
+// resolves its `sessionId` from the same sessionStorage key, so they agree within a page and the
+// id survives navigation and reload — but sessionStorage dies with the tab, so closing and
+// reopening starts a new session and therefore a new comm-log row.
+//
+// The inactivity gap below is only a FALLBACK, for batches that arrive with no session id at all
+// (a cached pre-sessionStorage script, or storage blocked in private mode). Without it those
+// batches would all collapse into one endless row again.
+const VISIT_GAP_MINUTES = Number(process.env.TELEMETRY_VISIT_GAP_MINUTES) || 30;
 const COMM_LOG_CATEGORIES = new Set(['call_emergency', 'lead_form', 'reviews', 'viewroom']);
 
 function isHighIntent(ev: { category: string; delta: number }): boolean {
@@ -37,6 +48,13 @@ function shouldLogBatch(eventIds: { category: string; delta: number }[]): boolea
 	if (COMM_LOG_MODE === 'all') return true;
 	return eventIds.some((ev) => isHighIntent(ev));
 }
+
+// Prisma's interactive transactions default to a 5s limit. That is not enough here: the database
+// is ~150ms away, each transaction runs six or more statements, and a batch may also wait on the
+// pool and on the per-visitor advisory lock. Exceeding it aborts the transaction, and because the
+// comm-log write is deliberately non-fatal the signal then vanishes from the comm log while
+// staying in pipeline_events — the exact "signal went missing" symptom, but intermittent.
+const TX_OPTS = { timeout: 20_000, maxWait: 15_000 };
 
 export interface SignalBatch {
 	tenantSlug?: string | null;
@@ -295,7 +313,7 @@ export async function ingestSignalBatch(batch: SignalBatch): Promise<{ status: n
 		}
 
 		return { profileId: profile.id, newEngagementScore: newScore, mergeConflict: conflict };
-	});
+	}, TX_OPTS);
 
 	// Raised after the transaction commits: candidate bookkeeping uses its own connection and
 	// must never extend or fail the ingest transaction that noticed the pair.
@@ -442,12 +460,20 @@ async function upsertSessionCommLog(
 	const fingerprint = batch.fingerprintId?.trim() || null;
 	const sessionId = batch.sessionId?.trim() || null;
 
-	// Stable grouping key: the fingerprint identifies the user across page loads; fall back to the
-	// session id when a visitor has no fingerprint.
-	const sessionKey = fingerprint || sessionId;
-	if (!sessionKey) return;
+	// Identifies the person across page loads and visits; the visit is carved out of it below.
+	const visitorKey = fingerprint || sessionId;
+	if (!visitorKey) return;
 
-	const threadId = `vt_${sessionKey}`;
+	// Every thread this visitor has ever had is `vt_<key>` (rows written before visits were split)
+	// or `vt_<key>_<visit>`. Matching both keeps old rows reachable instead of orphaning them.
+	const threadPrefix = `vt_${visitorKey}`;
+	const visitorThreadWhere = {
+		companyId: company.id,
+		OR: [
+			{ communicationThreadId: threadPrefix },
+			{ communicationThreadId: { startsWith: `${threadPrefix}_` } }
+		]
+	};
 	const latest = eventIds[eventIds.length - 1];
 	const type = latest.category === 'viewroom' ? 'viewroom' : 'web';
 	const summary = humanizeSignal(latest.name);
@@ -462,10 +488,38 @@ async function upsertSessionCommLog(
 	// stayed in pipeline_events but vanished from the comm log — which is what the sales inbox and
 	// the AI summary actually read, so it looked like the signal was never received at all.
 	// The advisory lock serialises per visitor thread only; it is released when the tx commits.
-	const { logId, content, shouldNotify } = await prisma.$transaction(async (tx: any) => {
-		await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${threadId}))`;
+	const { logId, content, shouldNotify, threadId } = await prisma.$transaction(async (tx: any) => {
+		// The lock is taken on the VISITOR, not the thread, because which thread this batch belongs
+		// to is decided inside the lock — two batches racing here would otherwise each decide the
+		// visit had lapsed and open two rows for one visit.
+		await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${threadPrefix}))`;
 
-		// Keep one thread per visitor so every signal shares the same COM id.
+		let threadId: string;
+		let existing: any = null;
+
+		if (sessionId) {
+			// The browser tab IS the visit. Deterministic: no lookup, no clock, and reopening the
+			// tab produces a different id and therefore a different row on the very next signal.
+			threadId = `${threadPrefix}_${sessionId}`;
+			existing = await tx.communicationLog.findFirst({
+				where: { companyId: company.id, communicationThreadId: threadId },
+				orderBy: { updated: 'desc' }
+			});
+		} else {
+			// Fallback for batches with no session id: treat a gap in activity as a new visit.
+			const previous = await tx.communicationLog.findFirst({
+				where: visitorThreadWhere,
+				orderBy: { updated: 'desc' }
+			});
+			const lastSeen = previous?.updated?.getTime() ?? 0;
+			const sameVisit = !!previous && Date.now() - lastSeen <= VISIT_GAP_MINUTES * 60_000;
+			threadId = sameVisit
+				? (previous.communicationThreadId as string)
+				: `${threadPrefix}_${Date.now().toString(36)}`;
+			existing = sameVisit ? previous : null;
+		}
+
+		// One thread per visit, so all of a visit's signals share one COM id.
 		await tx.communicationThread.upsert({
 			where: { id: threadId },
 			create: {
@@ -476,11 +530,6 @@ async function upsertSessionCommLog(
 				summary
 			},
 			update: { summary, contactId: contact?.id ?? undefined }
-		});
-
-		const existing = await tx.communicationLog.findFirst({
-			where: { companyId: company.id, communicationThreadId: threadId },
-			orderBy: { created: 'desc' }
 		});
 
 		const meta = (existing?.metadata as Record<string, any>) || {};
@@ -538,8 +587,8 @@ async function upsertSessionCommLog(
 			id = created.id;
 		}
 
-		return { logId: id, content: nextContent, shouldNotify: notify };
-	});
+		return { logId: id, content: nextContent, shouldNotify: notify, threadId };
+	}, TX_OPTS);
 
 	if (shouldNotify) {
 		await createNotification({

@@ -29,7 +29,23 @@ export function buildLeadformScript(config: LeadformConfig): string {
      localStorage → CDN-free local fallback, persisted) so embed signals merge
      into the same visitor thread. Resolved lazily per signal so a fingerprint
      written by the marketing site's client after page load is picked up. */
-  var sessionId = 'sess_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  /* One session id per BROWSER TAB, shared by every ClearSky script on the page.
+     sessionStorage is per-tab and is cleared when the tab closes, which is exactly the visit
+     boundary we want: close the tab and reopen and this is a new session, so the backend opens a
+     new comm log. A plain per-script variable could not do this — the site tracker, the leadbox
+     and the leadform each load separately, so they would mint three different ids on one page. */
+  function resolveSessionId() {
+    var fresh = 'sess_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    try {
+      var existing = window.sessionStorage.getItem('clearsky_session');
+      if (existing) return existing;
+      window.sessionStorage.setItem('clearsky_session', fresh);
+      return fresh;
+    } catch (e) {
+      return fresh; /* private mode / storage blocked — fall back to a per-load id */
+    }
+  }
+  var sessionId = resolveSessionId();
 
   /* Identity the visitor has given us in this session. Attached to every batch from the moment
      they submit, so the intake can layer it onto the profile the fingerprint already resolved

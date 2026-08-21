@@ -20,10 +20,25 @@ export interface TelemetryOptions {
 
 const DEFAULT_ENDPOINT = '/api/v1/telemetry/signals';
 
+/**
+ * One session id per BROWSER TAB, under the same sessionStorage key the marketing-site client and
+ * the leadbox/leadform embeds use. sessionStorage is per-tab and is cleared when the tab closes,
+ * which is the visit boundary: reopening the tab starts a new session and the backend opens a new
+ * comm log.
+ */
 function randomSessionId(): string {
 	const t = Date.now().toString(36);
 	const r = Math.random().toString(36).slice(2, 8);
-	return `sess_${t}${r}`;
+	const fresh = `sess_${t}${r}`;
+	if (typeof window === 'undefined') return fresh;
+	try {
+		const existing = window.sessionStorage.getItem('clearsky_session');
+		if (existing) return existing;
+		window.sessionStorage.setItem('clearsky_session', fresh);
+		return fresh;
+	} catch {
+		return fresh; // private mode / storage blocked
+	}
 }
 
 export class TelemetryClient {

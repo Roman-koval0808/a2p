@@ -449,3 +449,163 @@ Final distribution: 53 active · 29 research · 17 comparison · 2 emergency · 
   has no per-tenant dimension**, which is the deeper issue.
 - Whether the bucket belongs on the Contact at all, or whether profiledb should own it and the main
   DB read through. The current state means two systems can hold different buckets for one person.
+
+---
+
+# Part 4 — one log per visit, and a regression from Part 1
+
+## Goal
+
+> "It bunches all signals in one, when user leaves a websiste, and comes back, split in both logs"
+
+## Changed — visit splitting
+
+`upsertSessionCommLog` keyed the thread on `vt_${fingerprint}`, so every visit a device ever made
+grew the same row forever. It now opens a new row when the visitor returns after a gap.
+
+**The boundary is server-side inactivity, not the client's `sessionId`.** That was the trap: the
+sessionId is regenerated on every *script load*, and three separate scripts run on one page — the
+site tracker, the leadbox and the leadform each mint their own. Observed on production in one page
+view: `sess_mt2x79w8npbkhd`, `sess_mt2x7bmtixo8px`, `sess_mt2x7bnf2gjogb`. Keying on it would have
+produced three rows per page view instead of one row per visit.
+
+So a visit is "same visitor, last seen within `VISIT_GAP_MINUTES`" (default 30, the usual
+web-analytics gap, overridable by env). `updated` is `@updatedAt`, so it tracks the last signal
+rather than the row's birth — a visitor active for an hour stays in one visit.
+
+Thread ids are now `vt_<key>_<visit>`; the lookup matches both that and the bare legacy `vt_<key>`
+so rows written before this change stay reachable instead of being orphaned.
+
+**The advisory lock moved from the thread to the visitor.** Which thread a batch belongs to is now
+decided *inside* the lock; locking on the thread would have let two concurrent batches each decide
+the visit had lapsed and open two rows for one visit.
+
+Identity is untouched: one profile and one contact across visits, with the score and bucket
+carrying over. Only the comm log splits — which is the intended separation, one person with many
+visits.
+
+## Root cause — a regression I introduced in Part 1
+
+While testing the split I found signals going missing from the comm log again, **intermittently**:
+one run in three dropped a signal, always a different one, while `pipeline_events` kept all of them.
+
+Part 1 wrapped the comm-log read-modify-write in an interactive transaction to take the advisory
+lock. **Prisma's interactive transactions default to a 5-second limit.** That is not enough here:
+the database is ~155ms away, the transaction runs six or more statements, and a batch may also wait
+on the connection pool and on the advisory lock. When it overruns, Prisma aborts the transaction —
+and because the comm-log write is deliberately non-fatal (`.catch` → `console.error`), the signal
+silently vanishes from the comm log while still being in `pipeline_events`.
+
+That is the same *symptom* Part 1 set out to fix, reintroduced by the mechanism of the fix, and
+made intermittent rather than deterministic — which is worse, because it looks like flakiness.
+
+Both interactive transactions now pass `TX_OPTS = { timeout: 20_000, maxWait: 15_000 }`.
+
+## Verified
+
+- **No drops**: 4 consecutive runs of a 5-signal sequence, all 5 present every time. Before the
+  timeout fix the same test dropped a signal in 1 of 3 runs.
+- **Visit split**: three signals with three different sessionIds land in one row; after ageing the
+  row past the gap, two further signals open a second row. Two rows, correct contents.
+- **Identity unaffected**: 1 profile, 1 contact across both visits; score and bucket carry over.
+- **Baseline unchanged**: vitest 28 failed / 752 passed; `svelte-check` reports nothing for
+  `intake.ts`.
+
+## Not verified
+
+- **The 30-minute gap is a guess at the product intent.** It is the analytics convention and is
+  env-overridable, but nobody has confirmed it is the right boundary for this business.
+- **No automated test covers visit splitting or the timeout.** Both were verified by scripts against
+  the live dev intake. Nothing stops the timeout being dropped again, and a 20s ceiling is still a
+  ceiling — under heavier load the same silent drop returns.
+- **Existing rows are not migrated.** Every visitor's history to date stays in its one bare
+  `vt_<key>` row; the split only applies from the next visit onward.
+- **The underlying slowness is untouched.** The intake makes ~30 sequential round trips at ~155ms
+  each, so a signal takes 4–7s against the dev server. Raising the timeout stops the abort but does
+  not make it fast, and the earlier finding stands: a submit fired just before the visitor leaves
+  can still be lost. Making the route respond before doing its database work is the real fix and was
+  not done.
+- The `.catch` that swallows comm-log failures is still there. It is correct that telemetry must not
+  break the request, but it means the next failure of this class will also be silent — only a
+  `console.error` on the server marks it.
+
+---
+
+# Part 5 — the visit boundary is the browser tab, not a timer
+
+## Goal
+
+> "it should happen the exact moment the user closes and reopens. I tried, closed a tab and opened
+> and they still got grouped"
+
+Part 4 split visits on a 30-minute inactivity gap. That was the wrong boundary: closing and
+reopening a tab takes seconds, so it stayed inside the window and kept appending to the same row.
+
+## Changed
+
+**A visit is now one browser tab**, expressed with `sessionStorage` — it is per-tab, survives
+navigation and reload, and is destroyed when the tab closes. That is exactly the requested
+semantics, and unlike a timer it is deterministic: reopening produces a different id and the next
+signal opens a new row immediately, with no clock involved.
+
+All four emitters now resolve their `sessionId` from the same `sessionStorage` key
+(`clearsky_session`), first one to run creating it:
+
+- `clearsky-website/src/lib/telemetry/client.js` (site tracker)
+- `a2p/src/lib/telemetry/client.ts` (viewroom)
+- `a2p/src/lib/embed/leadbox-builder.ts`
+- `a2p/src/lib/embed/leadform-builder.ts`
+
+Sharing the key matters as much as the storage choice. Three ClearSky scripts load separately on a
+single page and each previously minted its own id — observed on production in one page view:
+`sess_mt2x79w8npbkhd`, `sess_mt2x7bmtixo8px`, `sess_mt2x7bnf2gjogb`. Keying the comm log on a
+per-script id would produce three rows per page view.
+
+`intake.ts` now keys the thread on `vt_<visitor>_<sessionId>` when a session id is present. The
+Part 4 inactivity gap survives only as a fallback for batches that arrive **without** one (storage
+blocked in private mode, or a cached pre-sessionStorage script); without it those would collapse
+into one endless row again.
+
+## Deployment hazard — both repos must ship together
+
+The server now trusts `sessionId` as the visit key. If the a2p embeds ship with tab-scoped ids
+while the marketing site still runs the old per-load `randomSessionId()`, the site tracker will send
+a **new id on every page load** and the visitor will get a new comm-log row per page view — worse
+fragmentation than the bug being fixed. Deploy `clearsky-website` and `a2p` together. The embed
+scripts are served `no-store` with a cache-buster so they refresh immediately; the site client is
+bundled, so the site build is the atomic unit.
+
+## NOT VERIFIED — this is the important part of this entry
+
+**The tab-split behaviour was never confirmed end to end.** The signals were posted through the
+running intake, but every attempt to read the comm log back failed with
+
+```
+Too many database connections opened: FATAL: remaining connection slots are reserved
+```
+
+The shared Aiven instance has `max_connections = 20`; the dev server's pool alone is capped at 10
+(`withPoolLimits` in `src/lib/db.ts`), and the remaining slots stayed exhausted across six retries
+over ~50 seconds and several later attempts. So for Part 5 there is:
+
+- no confirmation that two tabs produce two rows,
+- no confirmation that one tab's signals still group into one row,
+- no confirmation that returning to the first tab rejoins its original row.
+
+What *is* confirmed: the code typechecks, `svelte-check` reports nothing for any of the four changed
+files, and the tree baseline is unchanged (938 errors / 223 warnings). The Part 4 gap-based split
+*was* verified before this change, so the thread-creation machinery around it works; only the new
+key selection is untested.
+
+Anyone picking this up should re-run the check: post signals with two different `sessionId`s and the
+same `fingerprintId`, then confirm two `vt_<fp>_<sessionId>` rows exist and that reusing the first
+session id appends to the first row rather than creating a third.
+
+## Also unresolved
+
+- **Connection-slot exhaustion is now a recurring blocker**, not a one-off. It has interrupted work
+  three times today and previously produced a phantom test failure that I misdiagnosed as a code
+  regression. 20 slots against a dev server holding 10 leaves almost no headroom for scripts, and
+  Vite hot-reloads appear to accumulate clients despite the `globalForPrisma` cache. Restarting the
+  dev server releases its pool; the real fix is a smaller `connection_limit` or a pooler.
+- The intake is still ~30 sequential round trips at ~155ms. Nothing in Part 5 changes that.
