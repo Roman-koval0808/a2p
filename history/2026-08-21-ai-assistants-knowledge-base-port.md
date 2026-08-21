@@ -98,3 +98,94 @@ These are not tidying; each fixes something that would have been a bug in a2p.
 - `BUNNY_STORAGE_ZONE_NAME` / `BUNNY_ACCESS_KEY` / `BUNNY_REGION` must be set in a2p's environment;
   `storeTrainingFile` logs and returns null without them rather than failing the request, so a
   misconfiguration shows up as "the file silently didn't attach".
+
+---
+
+## Second pass — making the viewroom picker actually work
+
+> "select viewroom in ai assistants should return the viewrooms in view room list and should work
+> perfectly in the room"
+
+Four defects, three of them mine.
+
+**1. I edited the wrong schema file.** `apps/lead-grabber-v1` has two: `prisma/schema.prisma` is the
+source, and `clearsky-db-client/schema.prisma` is generator *output* (`output = "../clearsky-db-client"`).
+`AiAssistant` went into the generated copy, so `prisma migrate` would not have seen the model and the
+next `prisma generate` would have silently erased it. Now in the source; both agree; `validate`
+passes. Cross-checked the hand-written migration against
+`prisma migrate diff --from-empty --to-schema-datamodel`: identical columns, index and cascade FK.
+
+**2. My snake_case→camelCase rename broke the forms.** Porting the pages replaced
+`viewrooom_connections` → `viewroomConnections` and `training_files` → `trainingFiles` *everywhere*,
+including `formData.append(...)` calls and `name="..."` attributes — but the API routes I had
+written by hand still read the old names. Every connection save and file upload would have silently
+stored nothing: the form posts fields the server never looks at, so it succeeds and writes an empty
+array. Routes now read the camelCase names the pages actually send.
+
+**3. `?/updateViewrooms` did not exist.** The detail page's picker posts to it; I had only ported
+`uploadFiles` and `removeFile`. Added — and it validates the submitted room ids against
+`ViewRoom.ownerCompanyId` before storing, because the ids come from hidden form inputs and a crafted
+post could otherwise attach an assistant to another tenant's room. An empty selection is stored as
+an empty array: "disconnect everything" is a real instruction, not a no-op.
+
+**4. `<Select.Root>` replaced with the list page's dropdown.** a2p is on `bits-ui@1.0.0-next.71`,
+the viewroom on `^0.21.16`, and the Select API changed. The control was only ever a shell around a
+checkbox list, so it is now the same plain dropdown the list page already used — same UX, no
+version dependency. This cleared the last 2 errors: **svelte-check is back to the 938 baseline**
+(warnings 225 vs 223).
+
+Also removed a dead `handleSubmit()` that posted to a `?/create` action which does not exist here —
+it was never bound to a form (the dialog posts to `POST /api/ai-assistants`), so it was a trap.
+
+### The room side was already wired
+
+`src/lib/call/Chat.svelte` came across in the original migration and already calls
+`/api/ai/chat` with `{ messages, roomId, roomName }`, reading `data.content`. It has been calling a
+route that did not exist. The ported endpoint returns `{ role, content }`, so it matches, and the
+assistant lookup matches on room id **or** name — the picker stores ids, the room sends both.
+
+### Still not verified
+
+The migration is still unapplied, so none of this has run. In particular the full path — pick a
+room, save, join that room, ask a question, get an answer grounded in an uploaded file — has never
+been executed end to end. The two remaining warnings and the `pdfjs-dist` shape are also untested.
+
+---
+
+## Third pass — the empty ViewRoom picker
+
+> "viewroom connection is still empty"
+
+**My loader was hiding the cause.** It ran both queries in one `Promise.all` inside a single
+try/catch:
+
+```ts
+try {
+  const [aiAssistants, viewrooms] = await Promise.all([...]);
+  return { aiAssistants, viewrooms };
+} catch { return { aiAssistants: [], viewrooms: [] }; }
+```
+
+The `ai_assistants` table does not exist yet — the migration is still unapplied — so
+`prisma.aiAssistant.findMany` throws `P2021`, the catch fires, and **both** come back empty. The
+visible symptom was an empty *ViewRoom* picker, which points at entirely the wrong subsystem: the
+room query was fine and was never even reached.
+
+Fixed: the two queries now run and fail independently, `P2021` logs "run the
+20260821000000_add_ai_assistants migration" by name, and an empty room list logs
+`no viewrooms found for company <id>` so the next person can tell "query failed" from "this company
+genuinely has no rooms". Verified the where-clause matches the app's existing room query in
+`(app)/representatives/+page.server.ts` (`ownerCompanyId: <company id>`).
+
+Also fixed a markup imbalance introduced by the Select→dropdown conversion in the second pass: the
+dialog's wrapper divs were implicitly closed by `</form>`. svelte-check is back to the **938 error
+baseline** with one warning above it (a Svelte 5 `data`-capture nit at `[aiId]/+page.svelte:21`).
+
+### Still not verified
+
+Nothing has been run — the database has been out of connection slots for this entire session, so I
+could not confirm that `ai_assistants` is in fact missing, nor that this company has ViewRooms. The
+reasoning above is from the code, not from the database. If the picker is still empty after the
+migration, the server log now distinguishes the two remaining causes; the other candidate is a
+mismatch between `resolveCompanyId(user)` (`user.companyId ?? user.company?.id`) and the
+`ownerCompanyId` the rooms were actually created under.

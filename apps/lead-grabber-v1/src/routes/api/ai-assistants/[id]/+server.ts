@@ -32,8 +32,8 @@ export const PUT: RequestHandler = async ({ request, locals, params }) => {
 		const name = (formData.get('name') as string)?.trim();
 		if (name) data.name = name;
 
-		if (formData.has('system_prompt')) {
-			data.systemPrompt = (formData.get('system_prompt') as string)?.trim() || null;
+		if (formData.has('systemPrompt')) {
+			data.systemPrompt = (formData.get('systemPrompt') as string)?.trim() || null;
 		}
 
 		if (formData.has('status')) {
@@ -41,11 +41,11 @@ export const PUT: RequestHandler = async ({ request, locals, params }) => {
 			data.status = raw === 'true' || raw === '1' || raw === 'on';
 		}
 
-		if (formData.has('viewrooom_connections')) {
+		if (formData.has('viewroomConnections')) {
 			data.viewroomConnections = [
 				...new Set(
 					formData
-						.getAll('viewrooom_connections')
+						.getAll('viewroomConnections')
 						.filter((v): v is string => typeof v === 'string' && v.length > 0)
 				)
 			];
@@ -55,7 +55,7 @@ export const PUT: RequestHandler = async ({ request, locals, params }) => {
 		// File objects into the column here, which could never round-trip — files have to be
 		// uploaded and recorded in the content library first, same as on create.
 		const incoming = formData
-			.getAll('training_files')
+			.getAll('trainingFiles')
 			.filter((v): v is File => v instanceof File && v.size > 0);
 		if (incoming.length) {
 			const added: string[] = [];

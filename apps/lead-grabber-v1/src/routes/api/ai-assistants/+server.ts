@@ -31,13 +31,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		const viewroomIds = [
 			...new Set(
 				formData
-					.getAll('viewrooom_connections')
+					.getAll('viewroomConnections')
 					.filter((v): v is string => typeof v === 'string' && v.length > 0)
 			)
 		];
 
 		const trainingFileList = formData
-			.getAll('training_files')
+			.getAll('trainingFiles')
 			.filter((v): v is File => v instanceof File && v.size > 0);
 
 		// A file that fails to upload is skipped, not fatal — the assistant is still worth creating
@@ -48,7 +48,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			if (id) trainingFileIds.push(id);
 		}
 
-		const systemPrompt = (formData.get('system_prompt') as string)?.trim() || null;
+		const systemPrompt = (formData.get('systemPrompt') as string)?.trim() || null;
 
 		const assistant = await prisma.aiAssistant.create({
 			data: {

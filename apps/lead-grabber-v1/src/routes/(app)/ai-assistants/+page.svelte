@@ -30,6 +30,7 @@
     let selectedAiId = $state('');
     let selectedAiName = $state('');
     let activeMenuId = $state('');
+    let viewroomDropdownOpen = $state(false);
     
     function formatDate(date: string | Date) {
         return new Date(date).toLocaleDateString('en-US', {
@@ -51,6 +52,9 @@
     function handleWindowClick(event: MouseEvent) {
         if (activeMenuId && !(event.target as HTMLElement).closest('.menu-trigger, .menu-content')) {
             activeMenuId = '';
+        }
+        if (viewroomDropdownOpen && !(event.target as HTMLElement).closest('.viewroom-dropdown')) {
+            viewroomDropdownOpen = false;
         }
     }
 
@@ -110,49 +114,8 @@
         selectedFiles = event.target.files;
     }
 
-    function handleSubmit(event: any) {
-        const form = event.target;
-        const formData = new FormData(form);
-
-        // Add viewroom connections to formData
-        selectedViewrooms.forEach((id: any) => {
-            formData.append('viewroomConnections', id);
-        });
-
-        console.log("Submitting form with viewroomConnections:", selectedViewrooms);
-
-        // Submit the form programmatically
-        fetch('?/create', {
-            method: 'POST',
-            body: formData
-        }).then(async response => {
-            const result = await response.json();
-            console.log("Form fetch result:", result);
-            
-            if (result.success || result.type === 'success' || 
-                (typeof result.data === 'string' && result.data.includes('success'))) {
-                showAddDialog = false;
-                newAssistantName = '';
-                selectedViewrooms = [];
-                selectedFiles = null;
-                toast.success('AI assistant created successfully');
-            } else {
-                toast.error(result.message || 'Failed to create AI assistant');
-            }
-            
-            // Always invalidate regardless of success/failure
-            await invalidateAll();
-        }).catch(error => {
-            console.error('Error creating AI assistant:', error);
-            toast.error('An error occurred');
-            
-            // Always invalidate even after errors
-            invalidateAll();
-        });
-
-        // Prevent default form submission
-        event.preventDefault();
-    }
+    // NOTE: the viewroom's handleSubmit() posted to a `?/create` form action and was removed here —
+    // it was never bound to a form, and this page creates assistants via POST /api/ai-assistants.
     // Use data from the server
     let aiAssistants = $derived(data.aiAssistants || []);
 </script>
@@ -365,8 +328,12 @@
                 
                 <div class="space-y-1">
                     <div class="text-sm text-[#808080]">ViewRoom Connection (Optional)</div>
-                    <Select.Root>
-                        <Select.Trigger class="w-full">
+                    <div class="relative w-full viewroom-dropdown">
+                        <button 
+                            type="button" 
+                            class="w-full flex justify-between items-center border border-gray-300 px-3 py-1.5 rounded text-sm bg-white"
+                            onclick={() => viewroomDropdownOpen = !viewroomDropdownOpen}
+                        >
                             <div class="w-full flex justify-between items-center">
                                 {#if selectedViewrooms.length > 0}
                                     <span class="truncate flex items-center gap-1 flex-wrap">
@@ -385,9 +352,10 @@
                                     <span class="text-muted-foreground">Select ViewRoom(s)...</span>
                                 {/if}
                             </div>
-                        </Select.Trigger>
-                        <Select.Content class="w-full">
-                            <div class="bg-[#ECEFF3] p-4 rounded-md max-h-[225px] overflow-y-auto">
+                        </button>
+                        
+                        {#if viewroomDropdownOpen}
+                            <div class="absolute left-0 w-full mt-1 bg-[#ECEFF3] p-4 rounded-md shadow-lg max-h-[225px] overflow-y-auto z-50">
                                 {#each data.viewrooms || [] as viewroom}
                                     <div class="flex items-center justify-between gap-3 mb-3">
                                         <div class="flex items-center gap-2">
@@ -426,8 +394,8 @@
                                     </div>
                                 {/each}
                             </div>
-                        </Select.Content>
-                    </Select.Root>
+                        {/if}
+                    </div>
                 </div>
                 
                 <div class="space-y-1">

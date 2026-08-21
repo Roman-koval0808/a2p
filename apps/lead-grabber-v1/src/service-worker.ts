@@ -84,8 +84,10 @@ self.addEventListener('fetch', (event: FetchEvent) => {
 			if (response) {
 				return response;
 			}
-
-			throw new Error(`Service worker could not fetch ${url.pathname}`);
+			return new Response(`Service worker could not fetch ${url.pathname}`, {
+				status: 503,
+				statusText: 'Service Unavailable'
+			});
 		}
 	}
 

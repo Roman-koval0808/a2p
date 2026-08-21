@@ -91,12 +91,14 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
 				.catch(() => null)
 		: null;
 
-	const roomKey = roomName || roomId;
-	if (roomKey) {
+	if (roomId || roomName) {
 		const assistant = await prisma.aiAssistant.findFirst({
 			where: {
 				status: true,
-				viewroomConnections: { has: roomKey },
+				OR: [
+					...(roomId ? [{ viewroomConnections: { has: roomId } }] : []),
+					...(roomName ? [{ viewroomConnections: { has: roomName } }] : [])
+				],
 				...(room?.ownerCompanyId ? { companyId: room.ownerCompanyId } : {})
 			}
 		});

@@ -3,6 +3,7 @@
      camelCase Prisma columns (trainingFiles, viewroomConnections, systemPrompt) rather than
      the viewroom's snake_case PocketBase fields. -->
 <script lang="ts">
+    import { onMount } from 'svelte';
     import { run, preventDefault } from 'svelte/legacy';
 
     import { Button } from "$lib/components/ui/button";
@@ -15,7 +16,6 @@
     import { Upload, Link2, Archive, RotateCcw, Trash2, Loader2 } from 'lucide-svelte';
     import * as Tabs from "$lib/components/ui/tabs";
     import * as Dialog from "$lib/components/ui/dialog";
-    import * as Select from "$lib/components/ui/select";
 
     let { data } = $props();
     const { aiAssistant, viewrooms, trainingFilesResolved = [] } = data;
@@ -40,6 +40,22 @@
     let showConnectViewroomDialog = $state(false);
     /** Always string[] (viewroom IDs). Normalize from expanded PB relation or raw array. */
     let selectedViewrooms: string[] = $state(normalizeViewroomIds(aiAssistant.viewroomConnections));
+
+    // The viewroom picker is a plain dropdown, matching the list page. It was a <Select.Root>
+    // in the viewroom app, but that was bits-ui 0.21 and a2p is on 1.0 where the Select API
+    // differs — and the control was only ever a shell around this checkbox list anyway.
+    let viewroomDropdownOpen = $state(false);
+
+    function handleViewroomWindowClick(event: MouseEvent) {
+        if (viewroomDropdownOpen && !(event.target as HTMLElement).closest('.viewroom-dropdown')) {
+            viewroomDropdownOpen = false;
+        }
+    }
+
+    onMount(() => {
+        window.addEventListener('click', handleViewroomWindowClick);
+        return () => window.removeEventListener('click', handleViewroomWindowClick);
+    });
 
 
     function normalizeViewroomIds(conn: unknown): string[] {
@@ -370,8 +386,12 @@
                 
                 <div class="space-y-1">
                     <div class="text-sm text-[#808080]">ViewRoom Connections</div>
-                    <Select.Root>
-                        <Select.Trigger class="w-full">
+                    <div class="relative w-full viewroom-dropdown">
+                        <button
+                            type="button"
+                            class="w-full flex justify-between items-center border border-gray-300 px-3 py-1.5 rounded text-sm bg-white"
+                            onclick={() => (viewroomDropdownOpen = !viewroomDropdownOpen)}
+                        >
                             <div class="w-full flex justify-between items-center">
                                 {#if selectedViewrooms.length > 0}
                                     <span class="truncate flex items-center gap-1 flex-wrap">
@@ -390,8 +410,10 @@
                                     <span class="text-muted-foreground">Select ViewRoom(s)...</span>
                                 {/if}
                             </div>
-                        </Select.Trigger>
-                        <Select.Content class="w-full">
+                        </button>
+
+                        {#if viewroomDropdownOpen}
+                        <div class="absolute left-0 w-full mt-1 z-50 shadow-lg rounded-md">
                             <div class="bg-[#ECEFF3] p-4 rounded-md max-h-[225px] overflow-y-auto">
                                 {#each viewrooms || [] as viewroom}
                                     <div class="flex items-center justify-between gap-3 mb-3">
@@ -431,8 +453,10 @@
                             </div>
                         {/each}
                             </div>
-                        </Select.Content>
-                    </Select.Root>
+                        </div>
+                        {/if}
+                    </div>
+                </div>
                 
                 <div class="flex justify-end pt-1">
                     <button 

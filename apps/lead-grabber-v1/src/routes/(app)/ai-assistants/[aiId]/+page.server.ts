@@ -56,7 +56,7 @@ export const actions: Actions = {
 			if (!assistant) return fail(404, { success: false, message: 'AI assistant not found' });
 
 			const files = formData
-				.getAll('training_files')
+				.getAll('trainingFiles')
 				.filter((f): f is File => f instanceof File && f.size > 0);
 			if (!files.length) return fail(400, { success: false, message: 'No files provided' });
 
@@ -80,6 +80,54 @@ export const actions: Actions = {
 			return fail(400, {
 				success: false,
 				message: err instanceof Error ? err.message : 'Failed to upload files'
+			});
+		}
+	},
+
+	/**
+	 * Save the viewroom picker. The form posts one hidden `viewroomConnections` input per selected
+	 * room, so an empty selection posts none — which is a real "disconnect everything", not a
+	 * no-op, and is stored as such.
+	 */
+	updateViewrooms: async ({ request, locals }) => {
+		const companyId = locals.user ? resolveCompanyId(locals.user) : null;
+		if (!companyId) return fail(401, { success: false, message: 'Unauthorized' });
+
+		try {
+			const formData = await request.formData();
+			const id = formData.get('id')?.toString();
+			if (!id) return fail(400, { success: false, message: 'AI assistant ID is required' });
+
+			const assistant = await getAssistantForCompany(id, companyId);
+			if (!assistant) return fail(404, { success: false, message: 'AI assistant not found' });
+
+			const submitted = [
+				...new Set(
+					formData
+						.getAll('viewroomConnections')
+						.filter((v): v is string => typeof v === 'string' && v.length > 0)
+				)
+			];
+
+			// Only rooms this company owns. The ids come from a form, so a crafted post could
+			// otherwise attach an assistant to another tenant's room.
+			const owned = await prisma.viewRoom.findMany({
+				where: { id: { in: submitted }, ownerCompanyId: companyId },
+				select: { id: true }
+			});
+			const viewroomConnections = owned.map((r) => r.id);
+
+			await prisma.aiAssistant.update({
+				where: { id: assistant.id },
+				data: { viewroomConnections }
+			});
+
+			return { success: true, message: 'ViewRoom connections updated successfully' };
+		} catch (err) {
+			console.error('Error updating viewroom connections:', err);
+			return fail(400, {
+				success: false,
+				message: err instanceof Error ? err.message : 'Failed to update connections'
 			});
 		}
 	},
