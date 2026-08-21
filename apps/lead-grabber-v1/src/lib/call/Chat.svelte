@@ -7,8 +7,9 @@
     import send from './assets/send.svg';
     import { SendHorizontal, X } from 'lucide-svelte';
     import { sendMessage } from '$lib/helpers/sendMessage';
-	import { anonymousUser } from '$lib/stores/anonymousUser';
+    import { anonymousUser } from '$lib/stores/anonymousUser';
     import { isCurrentUserMessage, extractAndNormalizeName, getInitials } from '$lib/utils/chat';
+    import { parseMarkdown } from '$lib/utils/markdown';
     
     interface Props {
         roomId: string;
@@ -258,9 +259,9 @@
                         <div class="text-base font-semibold text-[#36525e]">
                             {formatDisplayName(message.name)}
                         </div>
-                        <p class="mt-1 text-sm text-[#798892]">
-                            {message.text}
-                        </p>
+                        <div class="mt-1 text-sm text-[#798892] markdown-content">
+                            {@html parseMarkdown(message.text)}
+                        </div>
                         {#if message.link}
                             <a href={message.link} class="mt-2 inline-block text-sm font-medium text-[#2c6dfa]">
                                 {message.link}
@@ -399,8 +400,8 @@
                     {#if isCurrentUserMessage(message.name, name || $anonymousUser, message.senderId, userId)}
                         <!-- User Message (right aligned) -->
                         <div class="flex gap-3 w-full justify-end">
-                            <div class="max-w-[80%] bg-white text-black rounded-lg p-3 text-sm">
-                                <p>{message.text}</p>
+                            <div class="max-w-[80%] bg-white text-black rounded-lg p-3 text-sm markdown-content">
+                                {@html parseMarkdown(message.text)}
                             </div>
                             <div class="w-[40px] h-[40px] rounded-full bg-[#47484B] flex items-center justify-center">
                                 <span class="text-white font-medium">{getInitials(message.name)}</span>
@@ -412,8 +413,8 @@
                             <div class="w-[40px] h-[40px] rounded-full bg-[#47484B] flex items-center justify-center">
                                 <span class="text-white font-medium">{getInitials(message.name)}</span>
                             </div>
-                            <div class="max-w-[80%] bg-[#7b7b7b] text-white rounded-lg p-3 text-sm">
-                                <p>{message.text}</p>
+                            <div class="max-w-[80%] bg-[#7b7b7b] text-white rounded-lg p-3 text-sm markdown-content">
+                                {@html parseMarkdown(message.text)}
                                 {#if message.link}
                                     <a href={message.link} class="text-blue-400 underline mt-2 block">{message.link}</a>
                                 {/if}

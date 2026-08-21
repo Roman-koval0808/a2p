@@ -63,3 +63,12 @@ export async function getTrainingFiles(fileIds: string[], companyId: string) {
 		select: { id: true, title: true, type: true, file: true, created: true }
 	});
 }
+
+/** All content-library rows marked as ai_training for the company. */
+export async function getAllTrainingFilesForCompany(companyId: string) {
+	return prisma.contentLibraryItem.findMany({
+		where: { ownerCompanyId: companyId, libraryType: { has: AI_TRAINING_LIBRARY_TYPE } },
+		select: { id: true, title: true, type: true, file: true, created: true },
+		orderBy: { created: 'desc' }
+	});
+}

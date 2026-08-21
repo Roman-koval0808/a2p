@@ -51,9 +51,18 @@ export const PUT: RequestHandler = async ({ request, locals, params }) => {
 			];
 		}
 
-		// New uploads are APPENDED to the existing knowledge base. The viewroom version wrote raw
-		// File objects into the column here, which could never round-trip — files have to be
-		// uploaded and recorded in the content library first, same as on create.
+		// If explicit file IDs are provided, set the training files to those IDs.
+		if (formData.has('trainingFileIds')) {
+			data.trainingFiles = [
+				...new Set(
+					formData
+						.getAll('trainingFileIds')
+						.filter((v): v is string => typeof v === 'string' && v.length > 0)
+				)
+			];
+		}
+
+		// New uploads are APPENDED to the existing knowledge base, or the explicitly provided IDs.
 		const incoming = formData
 			.getAll('trainingFiles')
 			.filter((v): v is File => v instanceof File && v.size > 0);
@@ -63,7 +72,10 @@ export const PUT: RequestHandler = async ({ request, locals, params }) => {
 				const id = await storeTrainingFile(file, companyId);
 				if (id) added.push(id);
 			}
-			if (added.length) data.trainingFiles = [...existing.trainingFiles, ...added];
+			if (added.length) {
+				const baseFiles = data.trainingFiles ?? existing.trainingFiles;
+				data.trainingFiles = [...(baseFiles as string[]), ...added];
+			}
 		}
 
 		const assistant = await prisma.aiAssistant.update({

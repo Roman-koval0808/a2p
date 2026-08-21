@@ -14,7 +14,10 @@
     import * as Dialog from "$lib/components/ui/dialog";
 
     let { data } = $props();
-    const { aiAssistant, viewrooms, trainingFilesResolved = [] } = data;
+    const { viewrooms } = data;
+    let aiAssistant = $derived(data.aiAssistant);
+    let trainingFilesResolved = $derived(data.trainingFilesResolved || []);
+    let allTrainingFiles = $derived(data.allTrainingFiles || []);
 
     function formatFileType(type: string): string {
         if (!type) return '—';
@@ -35,10 +38,18 @@
     let uploading = $state(false);
 
     /** Always string[] (viewroom IDs). Normalize from expanded PB relation or raw array. */
-    let selectedViewrooms: string[] = $state(normalizeViewroomIds(aiAssistant.viewroomConnections));
-    let assistantName = $state(aiAssistant.name);
-    let systemPrompt = $state(aiAssistant.systemPrompt || '');
+    let selectedViewrooms: string[] = $state([]);
+    let selectedTrainingFiles: string[] = $state([]);
+    let assistantName = $state('');
+    let systemPrompt = $state('');
     let isSaving = $state(false);
+
+    $effect(() => {
+        selectedViewrooms = normalizeViewroomIds(aiAssistant.viewroomConnections);
+        selectedTrainingFiles = [...(aiAssistant.trainingFiles || [])];
+        assistantName = aiAssistant.name || '';
+        systemPrompt = aiAssistant.systemPrompt || '';
+    });
 
     function normalizeViewroomIds(conn: unknown): string[] {
         if (!conn || !Array.isArray(conn)) return [];
@@ -96,6 +107,10 @@
             // Ensure viewroomConnections is always sent, even if empty
             formData.append('viewroomConnections', ''); 
             selectedViewrooms.filter(Boolean).forEach(id => formData.append('viewroomConnections', id));
+            
+            // Ensure trainingFileIds is sent, even if empty
+            formData.append('trainingFileIds', '');
+            selectedTrainingFiles.filter(Boolean).forEach(id => formData.append('trainingFileIds', id));
             
             const response = await fetch(`/api/ai-assistants/${aiAssistant.id}`, {
                 method: 'PUT',
@@ -249,54 +264,37 @@
                     {/if}
                 </Button>
 
-                <div class="space-y-0 border-t border-gray-100">
-                    {#if trainingFilesResolved && trainingFilesResolved.length > 0}
-                        {#each trainingFilesResolved as file, index}
-                            <div class="flex items-center justify-between p-4 border-b border-gray-100 hover:bg-gray-50 transition-colors group">
-                                <div class="flex items-start gap-3">
-                                    <div class="mt-1 w-3 h-3 bg-[#577AB7] rounded-sm flex-shrink-0"></div>
+                <div class="space-y-3 border-t border-gray-100 pt-6">
+                    {#if allTrainingFiles && allTrainingFiles.length > 0}
+                        {#each allTrainingFiles as file, index}
+                            <label class="flex items-center gap-3 p-3 border border-gray-100 rounded-md hover:bg-gray-50 cursor-pointer transition-colors w-full group">
+                                <input 
+                                    type="checkbox"
+                                    value={file.id}
+                                    class="w-4 h-4 text-[#577AB7] border-gray-300 rounded focus:ring-[#577AB7] mt-0.5"
+                                    checked={selectedTrainingFiles.includes(file.id)}
+                                    onchange={(e) => {
+                                        if (e.currentTarget.checked) {
+                                            selectedTrainingFiles = [...selectedTrainingFiles, file.id];
+                                        } else {
+                                            selectedTrainingFiles = selectedTrainingFiles.filter(id => id !== file.id);
+                                        }
+                                    }}
+                                />
+                                <div class="flex-1 flex justify-between items-center">
                                     <div>
                                         <div class="text-sm text-slate-800 font-medium font-['Poppins']">{file.title}</div>
                                         <div class="text-[11px] text-slate-500 font-semibold mt-0.5">{formatFileType(file.type)}</div>
                                     </div>
+                                    {#if selectedTrainingFiles.includes(file.id)}
+                                        <span class="text-[10px] font-semibold text-[#577AB7] uppercase tracking-wider bg-blue-50 px-2 py-1 rounded-sm">Attached</span>
+                                    {/if}
                                 </div>
-                                
-                                <form
-                                    method="POST"
-                                    onsubmit={preventDefault(async (e) => {
-                                        const formData = new FormData(e.target as HTMLFormElement);
-                                        try {
-                                            const response = await fetch(`/api/ai-assistants/${aiAssistant.id}/remove-file`, {
-                                                method: 'POST',
-                                                body: formData
-                                            });
-                                            const result = await response.json();
-                                            if (result.success) {
-                                                toast.success('File removed');
-                                                invalidateAll();
-                                            } else {
-                                                toast.error(result.message || 'Failed to remove file');
-                                            }
-                                        } catch (error) {
-                                            console.error('Error removing file:', error);
-                                            toast.error('Failed to remove file');
-                                        }
-                                    })}
-                                >
-                                    <input type="hidden" name="fileIndex" value={index} />
-                                    <button 
-                                        type="submit"
-                                        class="text-red-400 hover:text-red-600 p-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                                        title="Remove file"
-                                    >
-                                        <Trash2 class="h-4 w-4" />
-                                    </button>
-                                </form>
-                            </div>
+                            </label>
                         {/each}
                     {:else}
-                        <div class="p-6 text-center text-sm text-slate-500 italic border-b border-gray-100">
-                            No training files uploaded
+                        <div class="p-6 text-center text-sm text-slate-500 italic border border-gray-100 rounded-md">
+                            No training files uploaded. Upload a file above to add to your company library.
                         </div>
                     {/if}
                 </div>

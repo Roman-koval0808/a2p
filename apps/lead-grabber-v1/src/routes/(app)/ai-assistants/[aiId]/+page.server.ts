@@ -2,7 +2,7 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { prisma } from '$lib/db';
 import { resolveCompanyId } from '$lib/server/viewroom';
-import { getAssistantForCompany, getTrainingFiles, storeTrainingFile } from '$lib/server/ai-assistants';
+import { getAssistantForCompany, getTrainingFiles, getAllTrainingFilesForCompany, storeTrainingFile } from '$lib/server/ai-assistants';
 
 /**
  * AI assistant detail, ported from the standalone viewroom app.
@@ -39,7 +39,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const viewroomMap: Record<string, string> = {};
 	for (const room of viewrooms) viewroomMap[room.id] = room.title;
 
-	return { aiAssistant, trainingFilesResolved, viewrooms, viewroomMap };
+	const allTrainingFiles = await getAllTrainingFilesForCompany(companyId);
+
+	return { aiAssistant, trainingFilesResolved, allTrainingFiles, viewrooms, viewroomMap };
 };
 
 export const actions: Actions = {
