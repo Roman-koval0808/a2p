@@ -1,7 +1,3 @@
-<!-- Ported from the standalone viewroom app. Two adaptations: a2p's (app) layout already
-     renders the sidebar, so the viewroom's <Sidenav> is dropped; and the record fields are
-     camelCase Prisma columns (trainingFiles, viewroomConnections, systemPrompt) rather than
-     the viewroom's snake_case PocketBase fields. -->
 <script lang="ts">
     import { onMount } from 'svelte';
     import { run, preventDefault } from 'svelte/legacy';
@@ -13,7 +9,7 @@
     import { toast } from "svelte-sonner";
     import { page } from '$app/stores';
     import { invalidateAll } from "$app/navigation";
-    import { Upload, Link2, Archive, RotateCcw, Trash2, Loader2 } from 'lucide-svelte';
+    import { Upload, Link2, Archive, RotateCcw, Trash2, Loader2, ArrowLeft, Bot, Globe, FileText, Save } from 'lucide-svelte';
     import * as Tabs from "$lib/components/ui/tabs";
     import * as Dialog from "$lib/components/ui/dialog";
 
@@ -37,32 +33,17 @@
 
     let fileInput = $state<HTMLInputElement | undefined>();
     let uploading = $state(false);
-    let showConnectViewroomDialog = $state(false);
+
     /** Always string[] (viewroom IDs). Normalize from expanded PB relation or raw array. */
     let selectedViewrooms: string[] = $state(normalizeViewroomIds(aiAssistant.viewroomConnections));
-
-    // The viewroom picker is a plain dropdown, matching the list page. It was a <Select.Root>
-    // in the viewroom app, but that was bits-ui 0.21 and a2p is on 1.0 where the Select API
-    // differs — and the control was only ever a shell around this checkbox list anyway.
-    let viewroomDropdownOpen = $state(false);
-
-    function handleViewroomWindowClick(event: MouseEvent) {
-        if (viewroomDropdownOpen && !(event.target as HTMLElement).closest('.viewroom-dropdown')) {
-            viewroomDropdownOpen = false;
-        }
-    }
-
-    onMount(() => {
-        window.addEventListener('click', handleViewroomWindowClick);
-        return () => window.removeEventListener('click', handleViewroomWindowClick);
-    });
-
+    let assistantName = $state(aiAssistant.name);
+    let systemPrompt = $state(aiAssistant.systemPrompt || '');
+    let isSaving = $state(false);
 
     function normalizeViewroomIds(conn: unknown): string[] {
         if (!conn || !Array.isArray(conn)) return [];
         return conn.map((c) => (typeof c === 'string' ? c : (c as { id: string })?.id)).filter(Boolean);
     }
-    let showArchiveDialog = $state(false);
 
     function handleFileUpload() {
         if (fileInput?.files?.length) {
@@ -104,436 +85,223 @@
             await invalidateAll();
         }
     }
-    run(() => {
-        if (showConnectViewroomDialog) {
-            selectedViewrooms = normalizeViewroomIds(aiAssistant.viewroomConnections);
+
+    async function saveChanges() {
+        isSaving = true;
+        try {
+            const formData = new FormData();
+            formData.append('name', assistantName);
+            formData.append('systemPrompt', systemPrompt);
+            
+            // Ensure viewroomConnections is always sent, even if empty
+            formData.append('viewroomConnections', ''); 
+            selectedViewrooms.filter(Boolean).forEach(id => formData.append('viewroomConnections', id));
+            
+            const response = await fetch(`/api/ai-assistants/${aiAssistant.id}`, {
+                method: 'PUT',
+                body: formData
+            });
+            const result = await response.json();
+            if (result.success) {
+                toast.success('Settings saved successfully');
+                invalidateAll();
+            } else {
+                toast.error(result.message || 'Failed to save settings');
+            }
+        } catch (e) {
+            console.error(e);
+            toast.error('Failed to save settings');
+        } finally {
+            isSaving = false;
         }
-    });
+    }
 </script>
 
 <div class="flex h-screen bg-[#eceef3]">
-    
     <div class="flex-1 overflow-auto p-4 sm:p-6 mt-[6rem]">
-        <div class="mx-auto space-y-6">
-            <!-- Header with AI Assistant name and Add to Knowledge Base button -->
-            <div class="bg-white rounded-[8px] min-h-[69px] flex flex-col gap-3 py-4 px-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-0">
-                <div class="flex flex-wrap items-center gap-2 gap-y-3 min-w-0">
-                    <h1 class="text-lg font-bold leading-[118%] text-[#808080] font-['Poppins'] sm:text-[24px] break-words">{aiAssistant.name}</h1>
-                    <span class={`px-2 py-1 text-xs rounded-full flex-shrink-0 ${aiAssistant.status ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                        {aiAssistant.status ? 'Active' : 'Archived'}
-                    </span>
+        <div class="mx-auto max-w-5xl space-y-6 pb-20">
+            <!-- Header -->
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div class="flex items-center gap-4">
+                    <a href="/ai-assistants" class="p-2 hover:bg-gray-200 rounded-full transition-colors">
+                        <ArrowLeft class="h-6 w-6 text-slate-600" />
+                    </a>
+                    <div>
+                        <h1 class="text-[28px] font-bold text-slate-800 font-['Poppins']">Assistant Settings</h1>
+                        <p class="text-sm text-slate-500 font-['Poppins']">Configure your AI knowledge and behavior</p>
+                    </div>
                 </div>
-                <div class="flex flex-wrap gap-2 flex-shrink-0">
-                    {#if aiAssistant.status}
-                        <Button 
-                            class="bg-gray-200 text-gray-700 h-[39px] rounded-[3px] font-semibold text-[16px] flex items-center gap-2"
-                            onclick={() => showArchiveDialog = true}
-                        >
-                            <Archive class="h-4 w-4" />
-                            Archive
-                        </Button>
+                <Button 
+                    class="bg-[#577AB7] hover:bg-[#466699] text-white flex items-center gap-2 rounded-md"
+                    onclick={saveChanges}
+                    disabled={isSaving}
+                >
+                    {#if isSaving}
+                        <Loader2 class="h-4 w-4 animate-spin" />
                     {:else}
-                        <form
-                            method="POST"
-                            onsubmit={preventDefault(async (e) => {
-                                const formData = new FormData(e.target as HTMLFormElement);
-                                
-                                try {
-                                    const response = await fetch(`/api/ai-assistants/${aiAssistant.id}`, {
-                                        method: 'PUT',
-                                        body: formData
-                                    });
-                                    
-                                    const result = await response.json();
-                                    
-                                    if (result.success) {
-                                        toast.success('AI assistant restored successfully');
-                                    } else {
-                                        toast.error(result.message || 'Failed to restore AI assistant');
-                                    }
-                                } catch (error) {
-                                    console.error('Error restoring:', error);
-                                    toast.error('Failed to restore AI assistant');
-                                } finally {
-                                    await invalidateAll();
-                                }
-                            })}
-                        >
-                            <input type="hidden" name="status" value="true" />
-                            <Button 
-                                type="submit"
-                                class="bg-blue-200 text-blue-700 h-[39px] rounded-[3px] font-semibold text-[16px] flex items-center gap-2"
-                            >
-                                <RotateCcw class="h-4 w-4" />
-                                Restore
-                            </Button>
-                        </form>
+                        <Save class="h-4 w-4" />
                     {/if}
-                </div>
+                    Save Changes
+                </Button>
             </div>
-            
-            <!-- ViewRoom Connections -->
-            <div class="space-y-2">
-                <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <h2 class="text-lg font-semibold text-[#737373] ml-2 font-['Poppins']">ViewRoom Connections</h2>
-                    <Button 
-                        variant="outline" 
-                        class="text-[#577AB7] border-[#577AB7] h-9"
-                        onclick={() => showConnectViewroomDialog = true}
-                    >
-                        <Link2 class="h-4 w-4 mr-2" />
-                        Manage Connections
-                    </Button>
+
+            <!-- Basic Configuration Panel -->
+            <div class="bg-white rounded-lg p-6 shadow-sm border border-gray-100">
+                <div class="flex items-center gap-2 mb-6">
+                    <Bot class="h-5 w-5 text-[#577AB7]" />
+                    <h2 class="text-lg font-bold text-slate-800 font-['Poppins']">Basic Configuration</h2>
                 </div>
                 
-                <div class="bg-white rounded-[8px] p-4">
-                    {#if normalizeViewroomIds(aiAssistant.viewroomConnections).length === 0}
-                        <div class="text-gray-500 italic">No ViewRoom connections</div>
-                    {:else}
-                        <div class="flex flex-wrap gap-2">
-                            {#each normalizeViewroomIds(aiAssistant.viewroomConnections) as connectionId}
-                                {#if data.viewroomMap && data.viewroomMap[connectionId]}
-                                    <div class="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm">
-                                        {data.viewroomMap[connectionId]}
-                                    </div>
-                                {:else}
-                                    <div class="bg-gray-100 text-gray-800 px-3 py-1 rounded-full text-sm">
-                                        Unknown ViewRoom
-                                    </div>
-                                {/if}
-                            {/each}
-                        </div>
-                    {/if}
-                </div>
-            </div>
-            
-            <!-- Knowledge Base section -->
-            <div class="space-y-2">
-                <h2 class="text-lg font-semibold text-[#737373] ml-2 font-['Poppins']">Knowledge Base</h2>
-                
-                <!-- Knowledge Base Table -->
-                <div class="rounded-[8px] overflow-hidden flex flex-col gap-4">
-                    <!-- Table Header -->
-                    <div class="bg-white h-[48px] flex items-center px-6 border-b border-gray-100">
-                        <div class="grid grid-cols-4 w-full gap-4">
-                            <div class="text-[16px] font-semibold text-[#737373] flex items-center font-['Poppins']">Create Date</div>
-                            <div class="text-[16px] font-semibold text-[#737373] flex items-center font-['Poppins']">File Name</div>
-                            <div class="text-[16px] font-semibold text-[#737373] flex items-center font-['Poppins']">File Type</div>
-                            <div class="text-[16px] font-semibold text-[#737373] flex items-center font-['Poppins']">Actions</div>
+                <div class="space-y-4">
+                    <div>
+                        <Label class="text-sm text-slate-600 mb-1.5 block">Assistant Name</Label>
+                        <Input 
+                            bind:value={assistantName}
+                            class="w-full text-slate-800 font-['Poppins'] border-gray-200 focus:border-[#577AB7] focus:ring-[#577AB7]" 
+                            placeholder="e.g. AI Visualizer"
+                        />
+                    </div>
+                    
+                    <div>
+                        <Label class="text-sm text-slate-600 mb-1.5 block">System Prompt (Instructions)</Label>
+                        <textarea 
+                            bind:value={systemPrompt}
+                            class="w-full min-h-[120px] p-3 text-sm text-slate-800 font-['Poppins'] border border-gray-200 rounded-md focus:border-[#577AB7] focus:ring-[#577AB7] resize-y" 
+                            placeholder="Tell AI how it will respond"
+                        ></textarea>
+                        <div class="flex items-center gap-1.5 mt-2">
+                            <span class="text-xs text-slate-400 font-['Poppins'] flex items-center gap-1">
+                                <span class="flex items-center justify-center border border-slate-400 rounded-full w-3.5 h-3.5 text-[9px]">i</span>
+                                This prompt defines the persona and basic behavior of your AI.
+                            </span>
                         </div>
                     </div>
+                </div>
+            </div>
 
-                    <!-- Table Rows - Files from trainingFilesResolved -->
+            <!-- ViewRoom Connections Panel -->
+            <div class="bg-white rounded-lg p-6 shadow-sm border border-gray-100">
+                <div class="flex items-center gap-2 mb-2">
+                    <Globe class="h-5 w-5 text-[#577AB7]" />
+                    <h2 class="text-lg font-bold text-slate-800 font-['Poppins']">ViewRoom Connections</h2>
+                </div>
+                <p class="text-sm text-slate-500 font-['Poppins'] mb-6 leading-relaxed">
+                    Same ViewRooms as on /viewroom. When someone uses AI chat inside a ViewRoom, the server picks an assistant whose connections include that room's title. Each ViewRoom can only be linked to one knowledge base at a time.
+                </p>
+                
+                <div class="space-y-3">
+                    {#each viewrooms as viewroom}
+                        <label class="flex items-center gap-3 p-3 border border-gray-100 rounded-md hover:bg-gray-50 cursor-pointer transition-colors max-w-xl">
+                            <input 
+                                type="checkbox"
+                                value={viewroom.id}
+                                class="w-4 h-4 text-[#577AB7] border-gray-300 rounded focus:ring-[#577AB7]"
+                                checked={selectedViewrooms.includes(viewroom.id)}
+                                onchange={(e) => {
+                                    if (e.currentTarget.checked) {
+                                        selectedViewrooms = [...selectedViewrooms, viewroom.id];
+                                    } else {
+                                        selectedViewrooms = selectedViewrooms.filter(id => id !== viewroom.id);
+                                    }
+                                }}
+                            />
+                            <span class="text-sm text-slate-800 font-medium font-['Poppins']">{viewroom.title}</span>
+                        </label>
+                    {/each}
+                    {#if viewrooms.length === 0}
+                        <div class="text-sm text-slate-500 italic">No ViewRooms available in this company.</div>
+                    {/if}
+                </div>
+            </div>
+
+            <!-- Knowledge Base Panel -->
+            <div class="bg-white rounded-lg p-6 shadow-sm border border-gray-100">
+                <div class="flex items-center gap-2 mb-2">
+                    <FileText class="h-5 w-5 text-[#577AB7]" />
+                    <h2 class="text-lg font-bold text-slate-800 font-['Poppins']">Knowledge Base (Training Files)</h2>
+                </div>
+                <p class="text-sm text-slate-500 font-['Poppins'] mb-6 leading-relaxed">
+                    Upload a PDF or Word file here (no need to open the content library dashboard), or select documents you already have in the library. You can also attach PDFs when editing a ViewRoom on /viewroom; those files appear below once they exist in your library.
+                </p>
+                
+                <input 
+                    type="file" 
+                    class="hidden" 
+                    bind:this={fileInput}
+                    onchange={handleFileUpload}
+                    multiple
+                    accept=".pdf,.docx,.doc"
+                    disabled={uploading}
+                />
+                
+                <Button 
+                    variant="outline"
+                    class="mb-6 flex items-center gap-2 text-slate-700 border-gray-300"
+                    onclick={() => !uploading && fileInput?.click()}
+                    disabled={uploading}
+                >
+                    {#if uploading}
+                        <Loader2 class="h-4 w-4 animate-spin text-[#577AB7]" />
+                        Uploading...
+                    {:else}
+                        <Upload class="h-4 w-4 text-[#577AB7]" />
+                        Upload PDF or Word
+                    {/if}
+                </Button>
+
+                <div class="space-y-0 border-t border-gray-100">
                     {#if trainingFilesResolved && trainingFilesResolved.length > 0}
                         {#each trainingFilesResolved as file, index}
-                            <div class="bg-white h-[64px] flex items-center px-6 border-t border-gray-100">
-                                <div class="grid grid-cols-4 w-full gap-4">
-                                    <div class="text-[16px] font-normal text-[#808080] flex items-center font-['Poppins']">
-                                        {formatDate(aiAssistant.updated)}
-                                    </div>
-                                    <div class="text-[16px] font-normal text-[#808080] flex items-center font-['Poppins']">
-                                        {file.title}
-                                    </div>
-                                    <div class="text-[16px] font-normal text-[#808080] flex items-center font-['Poppins']">
-                                        {formatFileType(file.type)}
-                                    </div>
-                                    <div class="flex items-center">
-                                        <form
-                                            method="POST"
-                                            onsubmit={preventDefault(async (e) => {
-                                                const formData = new FormData(e.target as HTMLFormElement);
-                                                
-                                                try {
-                                                    const response = await fetch(`/api/ai-assistants/${aiAssistant.id}/remove-file`, {
-                                                        method: 'POST',
-                                                        body: formData
-                                                    });
-                                                    
-                                                    const result = await response.json();
-                                                    
-                                                    if (result.success) {
-                                                        toast.success('File removed successfully');
-                                                    } else {
-                                                        toast.error(result.message || 'Failed to remove file');
-                                                    }
-                                                } catch (error) {
-                                                    console.error('Error removing file:', error);
-                                                    toast.error('Failed to remove file');
-                                                } finally {
-                                                    await invalidateAll();
-                                                }
-                                            })}
-                                        >
-                                            <input type="hidden" name="fileIndex" value={index} />
-                                            <Button 
-                                                type="submit"
-                                                variant="ghost" 
-                                                size="sm"
-                                                class="text-red-500 hover:text-red-700"
-                                            >
-                                                Delete
-                                            </Button>
-                                        </form>
+                            <div class="flex items-center justify-between p-4 border-b border-gray-100 hover:bg-gray-50 transition-colors group">
+                                <div class="flex items-start gap-3">
+                                    <div class="mt-1 w-3 h-3 bg-[#577AB7] rounded-sm flex-shrink-0"></div>
+                                    <div>
+                                        <div class="text-sm text-slate-800 font-medium font-['Poppins']">{file.title}</div>
+                                        <div class="text-[11px] text-slate-500 font-semibold mt-0.5">{formatFileType(file.type)}</div>
                                     </div>
                                 </div>
+                                
+                                <form
+                                    method="POST"
+                                    onsubmit={preventDefault(async (e) => {
+                                        const formData = new FormData(e.target as HTMLFormElement);
+                                        try {
+                                            const response = await fetch(`/api/ai-assistants/${aiAssistant.id}/remove-file`, {
+                                                method: 'POST',
+                                                body: formData
+                                            });
+                                            const result = await response.json();
+                                            if (result.success) {
+                                                toast.success('File removed');
+                                                invalidateAll();
+                                            } else {
+                                                toast.error(result.message || 'Failed to remove file');
+                                            }
+                                        } catch (error) {
+                                            console.error('Error removing file:', error);
+                                            toast.error('Failed to remove file');
+                                        }
+                                    })}
+                                >
+                                    <input type="hidden" name="fileIndex" value={index} />
+                                    <button 
+                                        type="submit"
+                                        class="text-red-400 hover:text-red-600 p-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                                        title="Remove file"
+                                    >
+                                        <Trash2 class="h-4 w-4" />
+                                    </button>
+                                </form>
                             </div>
                         {/each}
                     {:else}
-                        <div class="bg-white h-[100px] flex items-center justify-center text-gray-500 italic">
+                        <div class="p-6 text-center text-sm text-slate-500 italic border-b border-gray-100">
                             No training files uploaded
                         </div>
                     {/if}
-                    
-                    <!-- Upload new file -->
-                    <div class="bg-white p-6">
-                        <input 
-                            type="file" 
-                            class="hidden" 
-                            bind:this={fileInput}
-                            onchange={handleFileUpload}
-                            multiple
-                            accept=".pdf,.docx,.doc"
-                            disabled={uploading}
-                        />
-                        <Button 
-                            variant="outline" 
-                            class="w-full h-16 border-dashed border-2"
-                            onclick={() => !uploading && fileInput?.click()}
-                            disabled={uploading}
-                        >
-                            <div class="flex flex-col items-center justify-center">
-                                {#if uploading}
-                                    <Loader2 class="h-5 w-5 mb-1 text-gray-500 animate-spin" />
-                                    <div class="text-sm text-gray-600">Uploading...</div>
-                                {:else}
-                                    <Upload class="h-5 w-5 mb-1 text-gray-500" />
-                                    <div class="text-sm text-gray-600">Upload Training Files (PDF, Word)</div>
-                                {/if}
-                            </div>
-                        </Button>
-                    </div>
                 </div>
             </div>
             
-            <!-- Engagement section -->
-            <div class="space-y-2">
-                <h2 class="text-lg font-semibold text-[#737373] ml-2 font-['Poppins']">Engagement</h2>
-                
-                <!-- Engagement Table -->
-                <div class="rounded-[8px] overflow-hidden flex flex-col gap-4">
-                    <!-- Table Header -->
-                    <div class="bg-white h-[48px] flex items-center px-6 border-b border-gray-100">
-                        <div class="grid grid-cols-3 w-full gap-4">
-                            <div class="text-[16px] font-semibold text-[#737373] flex items-center font-['Poppins']">Date</div>
-                            <div class="text-[16px] font-semibold text-[#737373] flex items-center font-['Poppins']">First Prompt</div>
-                            <div class="text-[16px] font-semibold text-[#737373] flex items-center font-['Poppins']">Interactions</div>
-                        </div>
-                    </div>
-
-                    <!-- Engagements Table Content -->
-                    {#if aiAssistant.engagements}
-                        {#each typeof aiAssistant.engagements === 'string' ? JSON.parse(aiAssistant.engagements) : aiAssistant.engagements as engagement}
-                            <div class="bg-white py-4 px-6 border-t border-gray-100">
-                                <div class="grid grid-cols-3 w-full gap-4">
-                                    <div class="text-[16px] font-normal text-[#808080] flex items-start font-['Poppins']">
-                                        {formatDate(engagement.date)}
-                                    </div>
-                                    <div class="text-[16px] font-normal text-[#808080] font-['Poppins'] bg-[#ECEFF3] p-4 rounded-[3px]">
-                                        {engagement.first_prompt || 'No prompt recorded'}
-                                    </div>
-                                    <div class="text-[16px] font-normal text-[#808080] font-['Poppins']">
-                                        {engagement.interaction_count || 0} interactions
-                                    </div>
-                                </div>
-                            </div>
-                        {/each}
-                    {:else}
-                        <div class="bg-white h-[100px] flex items-center justify-center text-gray-500 italic">
-                            No engagements recorded
-                        </div>
-                    {/if}
-                </div>
-            </div>
         </div>
     </div>
 </div>
-
-<!-- Connect ViewRoom Dialog -->
-<Dialog.Root bind:open={showConnectViewroomDialog}>
-    <Dialog.Content class="max-w-md bg-white rounded-lg p-5 shadow-lg">
-        <form
-            method="POST"
-            action="?/updateViewrooms"
-            use:enhance={() => {
-                return async ({ result, update }) => {
-                    await update();
-                    if (result.type === 'success') {
-                        showConnectViewroomDialog = false;
-                        toast.success('ViewRoom connections updated successfully');
-                        invalidateAll(); // This is the key to refreshing the data
-                    } else if (result.type === 'failure') {
-                        toast.error(String(result.data?.message ?? 'Failed to update connections'));
-                    }
-                };
-            }}
-        >
-            <input type="hidden" name="id" value={aiAssistant.id} />
-            {#each selectedViewrooms as viewroomId}
-                <input type="hidden" name="viewroomConnections" value={viewroomId} />
-            {/each}
-            <div class="space-y-4">
-                <h2 class="text-lg font-semibold text-[#808080]">Manage ViewRoom Connections</h2>
-                
-                <div class="space-y-1">
-                    <div class="text-sm text-[#808080]">ViewRoom Connections</div>
-                    <div class="relative w-full viewroom-dropdown">
-                        <button
-                            type="button"
-                            class="w-full flex justify-between items-center border border-gray-300 px-3 py-1.5 rounded text-sm bg-white"
-                            onclick={() => (viewroomDropdownOpen = !viewroomDropdownOpen)}
-                        >
-                            <div class="w-full flex justify-between items-center">
-                                {#if selectedViewrooms.length > 0}
-                                    <span class="truncate flex items-center gap-1 flex-wrap">
-                                        {#each selectedViewrooms.slice(0, 6) as viewroomId, i}
-                                            <span class="inline-flex items-center gap-1">
-                                                <Link2 class="h-3 w-3" />
-                                                {data.viewroomMap && data.viewroomMap[viewroomId] ? data.viewroomMap[viewroomId] : viewroomId}
-                                                {i < Math.min(selectedViewrooms.slice(0, 6).length - 1, 5) ? ', ' : ''}
-                                            </span>
-                                        {/each}
-                                        {#if selectedViewrooms.length > 6}
-                                            <span class="text-muted-foreground">...</span>
-                                        {/if}
-                                    </span>
-                                {:else}
-                                    <span class="text-muted-foreground">Select ViewRoom(s)...</span>
-                                {/if}
-                            </div>
-                        </button>
-
-                        {#if viewroomDropdownOpen}
-                        <div class="absolute left-0 w-full mt-1 z-50 shadow-lg rounded-md">
-                            <div class="bg-[#ECEFF3] p-4 rounded-md max-h-[225px] overflow-y-auto">
-                                {#each viewrooms || [] as viewroom}
-                                    <div class="flex items-center justify-between gap-3 mb-3">
-                                        <div class="flex items-center gap-2">
-                                            <Link2 class="h-4 w-4 text-[#577AB7]" />
-                                            <span class="font-[Poppins] text-[16px] leading-[118%] text-[#808080]">
-                                                {viewroom.title}
-                                            </span>
-                                        </div>
-                                        <div class="relative">
-                                            <input 
-                                                type="checkbox" 
-                                                id="viewroom_{viewroom.id}" 
-                                                value={viewroom.id}
-                                                class="hidden peer"
-                                                onchange={(e) => {
-                                                    const checkbox = e.currentTarget;
-                                                    if (checkbox.checked) {
-                                                        selectedViewrooms = [...selectedViewrooms, viewroom.id];
-                                                    } else {
-                                                        selectedViewrooms = selectedViewrooms.filter((id: any) => id !== viewroom.id);
-                                                    }
-                                                }}
-                                                checked={selectedViewrooms.includes(viewroom.id)}
-                                            />
-                                            <label 
-                                                for="viewroom_{viewroom.id}" 
-                                                class="box-border w-[23px] h-[22px] bg-white border-2 border-[#808080] rounded-[2px] inline-block cursor-pointer peer-checked:bg-[#66A73B] peer-checked:border-[#66A73B] relative"
-                                            >
-                                                {#if selectedViewrooms.includes(viewroom.id)}
-                                                    <svg class="absolute inset-0 w-full h-full text-white" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                                        <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z" fill="white"/>
-                                                    </svg>
-                                                {/if}
-                                            </label>
-                                </div>
-                            </div>
-                        {/each}
-                            </div>
-                        </div>
-                        {/if}
-                    </div>
-                </div>
-                
-                <div class="flex justify-end pt-1">
-                    <button 
-                        type="button"
-                        class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-1 text-sm rounded mr-2"
-                        onclick={() => showConnectViewroomDialog = false}
-                    >
-                        Cancel
-                    </button>
-                    <button 
-                        type="submit"
-                        class="bg-[#C2D1E8] hover:bg-[#A4B8D9] text-[#000000] px-4 py-1 text-sm rounded"
-                    >
-                        Save
-                    </button>
-                </div>
-            </div>
-        </form>
-    </Dialog.Content>
-</Dialog.Root>
-
-<!-- Archive Dialog -->
-<Dialog.Root bind:open={showArchiveDialog}>
-    <Dialog.Content class="max-w-md bg-white rounded-lg p-5 shadow-lg">
-        <form
-            method="POST"
-            onsubmit={preventDefault(async (e) => {
-                const formData = new FormData(e.target as HTMLFormElement);
-                
-                try {
-                    const response = await fetch(`/api/ai-assistants/${aiAssistant.id}`, {
-                        method: 'PUT',
-                        body: formData
-                    });
-                    
-                    const result = await response.json();
-                    
-                    if (result.success) {
-                        showArchiveDialog = false;
-                        toast.success('AI assistant archived successfully');
-                        invalidateAll();
-                    } else {
-                        toast.error(result.message || 'Failed to archive AI assistant');
-                    }
-                } catch (error) {
-                    console.error('Error archiving:', error);
-                    toast.error('Failed to archive AI assistant');
-                } finally {
-                    invalidateAll();
-                }
-            })}
-        >
-            <div class="space-y-4">
-                <h2 class="text-lg font-semibold text-red-500">Archive AI Assistant</h2>
-                <p class="text-gray-700">
-                    Are you sure you want to archive this AI assistant? It will be moved to the "Archived" tab and won't be active anymore.
-                </p>
-                
-                <input type="hidden" name="id" value={aiAssistant.id} />
-                
-                <div class="flex justify-end pt-1">
-                    <button 
-                        type="button"
-                        class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-1 text-sm rounded mr-2"
-                        onclick={() => showArchiveDialog = false}
-                    >
-                        Cancel
-                    </button>
-                    <button 
-                        type="submit"
-                        class="bg-red-100 hover:bg-red-200 text-red-700 px-4 py-1 text-sm rounded flex items-center gap-1"
-                    >
-                        <Archive class="h-4 w-4" />
-                        Archive
-                    </button>
-                </div>
-            </div>
-        </form>
-    </Dialog.Content>
-</Dialog.Root>

@@ -6,7 +6,7 @@
     import { stopPropagation, preventDefault } from 'svelte/legacy';
 
     import { Button } from "$lib/components/ui/button";
-    import { MoreHorizontal, Upload, Link2, Eye, Archive, Trash2 } from 'lucide-svelte';
+    import { MoreHorizontal, Upload, Link2, Eye, Archive, Trash2, Plus, Bot, FileText, Clock, Edit } from 'lucide-svelte';
     import * as Dialog from "$lib/components/ui/dialog";
     import { Label } from "$lib/components/ui/label";
     import { Input } from "$lib/components/ui/input";
@@ -123,152 +123,60 @@
 <div class="flex h-screen bg-[#eceef3]">
     
     <div class="flex-1 overflow-auto p-4 sm:p-6 mt-[6rem]">
-        <div class="mx-auto space-y-6">
-            <!-- Header with title and Add New AI button -->
-            <div class="bg-white rounded-[8px] min-h-[69px] flex flex-col gap-3 py-4 px-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-0">
-                <h1 class="text-lg font-bold leading-[118%] text-[#808080] sm:text-[24px] min-w-0">AI Assistant List</h1>
+        <div class="mx-auto space-y-6 max-w-7xl">
+            <!-- Header -->
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                    <h1 class="text-[28px] font-bold text-slate-800 font-['Poppins']">AI Assistants</h1>
+                    <p class="text-sm text-slate-500 font-['Poppins']">Manage AI knowledge base for your ViewRooms</p>
+                </div>
                 <Button 
-                    class="bg-[#577AB7] h-[39px] rounded-[3px] font-semibold text-[16px] text-white w-full sm:w-auto flex-shrink-0"
+                    class="bg-[#577AB7] hover:bg-[#466699] text-white flex items-center gap-2 rounded-md"
                     onclick={() => showAddDialog = true}
                 >
-                    Add New AI
+                    <Plus class="h-4 w-4" />
+                    Create Assistant
                 </Button>
             </div>
 
-            <!-- AI Names section -->
-            <div class="space-y-1">
-                <h2 class="text-lg font-medium text-[#737373] ml-2">AI Names</h2>
-                
-                <!-- Table Header -->
-                <div class="bg-white rounded-t-[8px] h-[55px] flex items-center px-6">
-                    <div class="grid grid-cols-6 w-full gap-4">
-                        <div class="text-[16px] font-semibold text-[#737373] flex items-center">Date</div>
-                        <div class="text-[16px] font-semibold text-[#737373] flex items-center">AI Name</div>
-                        <div class="text-[16px] font-semibold text-[#737373] flex items-center">Last Update</div>
-                        <div class="text-[16px] font-semibold text-[#737373] flex items-center">Viewroom Connection</div>
-                        <div class="text-[16px] font-semibold text-[#737373] flex items-center">Engagement</div>
-                        <div class="text-[16px] font-semibold text-[#737373] flex items-center"></div>
-                    </div>
-                </div>
+            <!-- Cards Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {#each aiAssistants as ai}
+                    <div class="bg-white rounded-lg p-5 shadow-sm border border-gray-100 flex flex-col h-full">
+                        <div class="flex justify-between items-start mb-4">
+                            <h3 class="text-[17px] font-semibold text-[#577AB7] font-['Poppins']">{ai.name}</h3>
+                            <Bot class="h-5 w-5 text-[#577AB7]" />
+                        </div>
+                        
+                        <div class="space-y-3 mb-6 flex-grow">
+                            <div class="flex items-center gap-2 text-[14px] text-slate-500 font-['Poppins']">
+                                <Link2 class="h-4 w-4" />
+                                <span>{Array.isArray(ai.viewroomConnections) ? ai.viewroomConnections.length : (typeof ai.viewroomConnections === 'string' ? JSON.parse(ai.viewroomConnections || '[]').length : 0)} ViewRooms connected</span>
+                            </div>
+                            <div class="flex items-center gap-2 text-[14px] text-slate-500 font-['Poppins']">
+                                <FileText class="h-4 w-4" />
+                                <span>{Array.isArray(ai.trainingFiles) ? ai.trainingFiles.length : (typeof ai.trainingFiles === 'string' ? JSON.parse(ai.trainingFiles || '[]').length : 0)} Training files</span>
+                            </div>
+                            <div class="flex items-center gap-2 text-[14px] text-slate-500 font-['Poppins']">
+                                <Clock class="h-4 w-4" />
+                                <span>Created {formatDate(ai.created)}</span>
+                            </div>
+                        </div>
 
-                <!-- Table Rows -->
-                {#each aiAssistants as ai, i}
-                    <div class="bg-white {i === aiAssistants.length-1 ? 'rounded-b-[8px]' : ''} h-[73px] flex items-center px-6 border-t border-gray-100">
-                        <div class="grid grid-cols-6 w-full gap-4">
-                            <div class="text-[16px] font-normal text-[#808080] flex items-center">
-                                {formatDate(ai.created)}
-                            </div>
-                            <div class="text-[16px] font-medium text-[#7798D2] flex items-center">
-                                <a 
-                                    href={`/ai-assistants/${ai.id}`}
-                                    class="hover:underline"
-                                >
-                                    {ai.name}
-                                </a>
-                            </div>
-                            <div class="text-[16px] font-normal text-[#808080] flex items-center">
-                                {formatDate(ai.updated)}
-                            </div>
-                            <div class="flex items-center">
-                                <button 
-                                    class="text-[16px] font-normal text-[#808080] flex items-center gap-2"
-                                    onclick={() => showViewroomConnections(ai)}
-                                >
-                                    show
-                                </button>
-                            </div>
-                            <div class="flex items-center">
-                                <button 
-                                    class="text-[16px] font-normal text-[#808080] flex items-center gap-2"
-                                    onclick={() => showEngagements(ai)}
-                                >
-                                    show
-                                </button>
-                            </div>
-                            <div class="flex items-center justify-end relative">
-                                <button 
-                                    class="p-2 rounded-full hover:bg-gray-100 menu-trigger"
-                                    onclick={stopPropagation(() => toggleMenu(ai.id))}
-                                >
-                                    <MoreHorizontal class="h-4 w-4" />
-                                </button>
-                                
-                                {#if activeMenuId === ai.id}
-                                    <div class="absolute right-0 top-8 w-[180px] bg-white rounded-md shadow-md border p-2 z-[100] menu-content">
-                                        <div class="space-y-1">
-                                            <form
-                                                method="POST"
-                                                onsubmit={preventDefault(async (e) => {
-                                                    const formData = new FormData(e.target as HTMLFormElement);
-                                                    
-                                                    try {
-                                                        const response = await fetch(`/api/ai-assistants/${ai.id}`, {
-                                                            method: 'PUT',
-                                                            body: formData
-                                                        });
-                                                        
-                                                        const result = await response.json();
-                                                        
-                                                        if (result.success) {
-                                                            toast.success('AI assistant archived successfully');
-                                                        } else {
-                                                            toast.error(result.message || 'Failed to archive AI assistant');
-                                                        }
-                                                    } catch (error) {
-                                                        console.error('Error archiving:', error);
-                                                        toast.error('Failed to archive AI assistant');
-                                                    } finally {
-                                                        await invalidateAll();
-                                                    }
-                                                })}
-                                            >
-                                                <input type="hidden" name="status" value="false" />
-                                                <button 
-                                                    type="submit"
-                                                    class="w-full flex items-center px-2 py-1 text-left text-amber-600 hover:text-amber-700 hover:bg-amber-50 rounded"
-                                                >
-                                                    <Archive class="h-4 w-4 mr-2" />
-                                                    Archive
-                                                </button>
-                                            </form>
-                                            <form
-                                                method="POST"
-                                                onsubmit={preventDefault(async (e) => {
-                                                    const formData = new FormData(e.target as HTMLFormElement);
-                                                    
-                                                    try {
-                                                        const response = await fetch(`/api/ai-assistants/${ai.id}`, {
-                                                            method: 'DELETE',
-                                                            body: formData
-                                                        });
-                                                        
-                                                        const result = await response.json();
-                                                        
-                                                        if (result.success) {
-                                                            toast.success('AI assistant deleted successfully');
-                                                        } else {
-                                                            toast.error(result.message || 'Failed to delete AI assistant');
-                                                        }
-                                                    } catch (error) {
-                                                        console.error('Error deleting:', error);
-                                                        toast.error('Failed to delete AI assistant');
-                                                    } finally {
-                                                        await invalidateAll();
-                                                    }
-                                                })}
-                                            >
-                                                <button
-                                                    type="submit"
-                                                    class="w-full flex items-center px-2 py-1 text-left text-red-600 hover:text-red-700 hover:bg-red-50 rounded"
-                                                >
-                                                    <Trash2 class="h-4 w-4 mr-2" />
-                                                    Delete
-                                                </button>
-                                            </form>
-                                        </div>
-                                    </div>
-                                {/if}
-                            </div>
+                        <div class="flex gap-2 mt-auto">
+                            <a 
+                                href={`/ai-assistants/${ai.id}`}
+                                class="flex-1 bg-[#577AB7] hover:bg-[#466699] text-white text-sm font-medium py-2 px-4 rounded-[4px] flex items-center justify-center gap-2 transition-colors font-['Poppins']"
+                            >
+                                <Edit class="h-4 w-4" />
+                                Knowledge Base
+                            </a>
+                            <button 
+                                class="bg-red-50 hover:bg-red-100 text-red-500 p-2 rounded-[4px] flex items-center justify-center transition-colors border border-red-100"
+                                onclick={() => showDeleteConfirmation(ai)}
+                            >
+                                <Trash2 class="h-4 w-4" />
+                            </button>
                         </div>
                     </div>
                 {/each}
