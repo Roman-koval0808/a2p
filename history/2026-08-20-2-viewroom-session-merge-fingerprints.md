@@ -132,7 +132,7 @@ the room fell back to session ids. Result: no site↔room merge in Firefox.
 
 Real site (correction): the demo HUD at `total-trades-solutions-site 2/_clearsky-hud.js` is a
 demo-only overlay (console + toast, no network). The REAL tracking lives in the repo OUTSIDE a2p:
-`/Users/n3rd/code/clearsky-website/src/lib/telemetry/client.js` + `TradesFeaturesSection.svelte`
+`/Users/{user}/code/clearsky-website/src/lib/telemetry/client.js` + `TradesFeaturesSection.svelte`
 (`withFp()` appends `?fp=` from `localStorage.fingerprintId` to the room embed iframe URL, port
 5173).
 

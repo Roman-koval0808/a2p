@@ -2,7 +2,7 @@
 
 ## Goal
 
-"write all signals I provided, the clearsky website is at /Users/n3rd/code/clearsky-website, so
+"write all signals I provided, the clearsky website is at /Users/{user}/code/clearsky-website, so
 using these should work as signals that show up in a2p communication logs with all scores and
 signals correct … remember though, we tracked viewroom joining, but viewroom is in a2p itself, so
 use these too: vr_entry · vr_name_focus · vr_phone_focus · vr_interest_select · vr_guestname ·

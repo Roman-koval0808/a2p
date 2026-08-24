@@ -2,7 +2,7 @@
 
 ## Goal
 
-> "so we moved /Users/n3rd/code/viewroom here, but we didnt move the knowledge base functionality
+> "so we moved /Users/{user}/code/viewroom here, but we didnt move the knowledge base functionality
 > and the ai chat, check, we need those"
 
 Confirmed: the in-call chat (`ChatPanel`, `Chat.svelte`, `chatMessages` store, `mobile-chat-sheet`)

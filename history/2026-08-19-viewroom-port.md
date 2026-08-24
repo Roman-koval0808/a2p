@@ -2,7 +2,7 @@
 
 ## Goal
 
-Port the viewroom app (`/Users/n3rd/code/viewroom`) into a2p
+Port the viewroom app (`/Users/{user}/code/viewroom`) into a2p
 (`apps/lead-grabber-v1`) on a2p's Prisma/Postgres stack with the exact same UI.
 Explicit user rules: exact same UI; **no separate reps page** — use a2p's existing
 reps page, add "invite rep to room" + "add rep content" to it; no locations /
