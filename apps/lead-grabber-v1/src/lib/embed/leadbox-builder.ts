@@ -37,6 +37,141 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
 
   const DISCLAIMER = "By submitting, you agree to receive informational text messages. Consent is optional &amp; content may be automated. Msg/data rates apply, msg frequency varies. Text HELP for help. Text STOP to stop.";
 
+  /* --- telemetry -----------------------------------------------------------
+     Mirrors the a2p client + site client: same fingerprint resolution (?fp= →
+     localStorage → CDN-free local fallback, persisted) so embed signals merge
+     into the same visitor thread. Resolved lazily per signal so a fingerprint
+     written by the marketing site's client after page load is picked up. */
+  /* One session id per BROWSER TAB, shared by every ClearSky script on the page.
+     sessionStorage is per-tab and is cleared when the tab closes, which is exactly the visit
+     boundary we want: close the tab and reopen and this is a new session, so the backend opens a
+     new comm log. A plain per-script variable could not do this — the site tracker, the leadbox
+     and the leadform each load separately, so they would mint three different ids on one page. */
+  function resolveSessionId() {
+    var fresh = 'sess_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    try {
+      var existing = window.sessionStorage.getItem('clearsky_session');
+      if (existing) return existing;
+      window.sessionStorage.setItem('clearsky_session', fresh);
+      return fresh;
+    } catch (e) {
+      return fresh; /* private mode / storage blocked — fall back to a per-load id */
+    }
+  }
+  var sessionId = resolveSessionId();
+
+  /* Identity the visitor has given us in this session. Attached to every batch from the moment
+     they submit, so the intake can layer it onto the profile the fingerprint already resolved
+     instead of forking a second record for the same person. Mirrors the site client's
+     identify(). */
+  var identity = { name: null, email: null, phone: null };
+
+  function identify(d) {
+    if (!d) return;
+    if (d.name) identity.name = d.name;
+    if (d.email) identity.email = d.email;
+    if (d.phone) identity.phone = d.phone;
+  }
+
+  function localFingerprint() {
+    var parts = [
+      navigator.userAgent || '',
+      navigator.language || '',
+      (Array.isArray(navigator.languages) ? navigator.languages.join(',') : ''),
+      navigator.platform || '',
+      String(navigator.hardwareConcurrency || ''),
+      String(navigator.deviceMemory || ''),
+      String(window.screen ? window.screen.width : ''),
+      String(window.screen ? window.screen.height : ''),
+      String(window.screen ? window.screen.colorDepth : ''),
+      (typeof Intl !== 'undefined' && Intl.DateTimeFormat ? Intl.DateTimeFormat().resolvedOptions().timeZone || '' : ''),
+      String(new Date().getTimezoneOffset())
+    ];
+    var seed = parts.join('|');
+    var h1 = 0x811c9dc5, h2 = 0x01000193;
+    for (var i = 0; i < seed.length; i++) {
+      var c = seed.charCodeAt(i);
+      h1 ^= c; h1 = Math.imul(h1, 0x01000193);
+      h2 ^= c; h2 = Math.imul(h2, 0x85ebca6b);
+    }
+    var hex = (h1 >>> 0).toString(16) + (h2 >>> 0).toString(16);
+    while (hex.length < 16) hex = '0' + hex;
+    return hex.slice(0, 12);
+  }
+
+  function resolveFingerprint() {
+    try {
+      var urlFp = new URLSearchParams(window.location.search).get('fp');
+      if (urlFp) return urlFp;
+      var stored = window.localStorage.getItem('fingerprintId') || window.localStorage.getItem('fingerprint') || window.localStorage.getItem('fp');
+      if (stored) return stored;
+      var fp = localFingerprint();
+      window.localStorage.setItem('fingerprintId', fp);
+      return fp;
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function trackSignal(name, payload) {
+    trackSignals([{ name: name, payload: payload || {} }]);
+  }
+
+  function trackSignals(signals) {
+    try {
+      var fp = resolveFingerprint();
+      var list = signals.map(function (s) {
+        return { name: s.name, occurredAt: new Date().toISOString(), payload: s.payload || {} };
+      });
+      if (window.console) {
+        console.log('[clearsky-telemetry] signal fired', {
+          signal: list.map(function (s) { return s.name; }).join('+'),
+          fingerprintId: fp,
+          sessionId: sessionId,
+          tenantSlug: companyId
+        });
+      }
+      var apiBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+      var body = JSON.stringify({
+        tenantSlug: companyId,
+        sessionId: sessionId,
+        fingerprintId: fp,
+        name: identity.name,
+        email: identity.email,
+        phone: identity.phone,
+        signals: list
+      });
+      /* Transport, and why it is NOT sendBeacon-with-JSON.
+         navigator.sendBeacon() forces the request's credentials mode to "include", and an
+         application/json body is not a CORS-safelisted content type. Together those make the
+         beacon a *credentialed* cross-origin preflight, which the intake's wildcard
+         Access-Control-Allow-Origin: * can never satisfy — the browser drops the request
+         while sendBeacon() still returns true, so every embed signal failed silently.
+         fetch(keepalive) is the transport the marketing-site client already uses against this
+         same endpoint, and keepalive survives page unload just as a beacon does. The beacon
+         is kept only as a fallback, with a text/plain body so it stays a "simple" request
+         (no-cors, no preflight) and is actually delivered. */
+      var endpoint = apiBase + '/api/v1/telemetry/signals';
+      if (typeof fetch === 'function') {
+        fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: body,
+          keepalive: true
+        }).catch(function () {
+          if (navigator.sendBeacon) {
+            navigator.sendBeacon(endpoint, new Blob([body], { type: 'text/plain' }));
+          }
+        });
+      } else if (navigator.sendBeacon) {
+        navigator.sendBeacon(endpoint, new Blob([body], { type: 'text/plain' }));
+      }
+    } catch (e) {
+      /* telemetry must never break the widget */
+    }
+  }
+  /* --- end telemetry ------------------------------------------------------- */
+
   /* The reference greys the button out until the form can actually be sent.
      checkValidity() covers the required fields without a second rule set. */
   function syncSubmitState(form) {
@@ -159,6 +294,13 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
     const formData = new FormData(form);
     const data = Object.fromEntries(formData);
 
+    /* Identify BEFORE the signal fires so the submit batch itself carries the identity and the
+       intake can promote the fingerprint's existing profile in place. */
+    identify({ name: data.name, phone: data.mobile });
+    if (formType === 'request_call') {
+      trackSignal('callback_submit', { preferredTime: data.preferred_time || 'ASAP' });
+    }
+
     try {
       const initials = data.name ? data.name.split(' ').map(n => n[0]).join('').toUpperCase() : '??';
       let messageContent = data.message || '';
@@ -181,7 +323,8 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
         created: new Date().toISOString(),
         initials: initials,
         color: "bg-primary",
-        scenario_key: formType === 'request_call' ? 's2' : 's1'
+        scenario_key: formType === 'request_call' ? 's2' : 's1',
+        fingerprint: resolveFingerprint()
       };
 
       const controller = new AbortController();
@@ -216,6 +359,12 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
   }
 
   function switchLeadboxView(view) {
+    if (view === 'request_call') {
+      trackSignals([
+        { name: 'callback_open' },
+        { name: 'callback_form_open' }
+      ]);
+    }
     const container = document.getElementById('clearsky-leadbox-' + leadboxId);
     if (!container) return;
     const box = container.querySelector('.clearsky-box');
@@ -256,6 +405,8 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
       const messageContent = data.message || '';
       const normalizedPhone = data.mobile ? data.mobile.replace(/[^+\\d]/g, '') : "";
 
+      identify({ name: data.name, phone: data.mobile });
+
       const messageData = {
         customer_name: data.name || "Anonymous",
         customer_email: "",
@@ -269,7 +420,8 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
         created: new Date().toISOString(),
         initials: initials,
         color: "bg-primary",
-        company: { id: companyId }
+        company: { id: companyId },
+        fingerprint: resolveFingerprint()
       };
 
       const controller = new AbortController();
@@ -474,7 +626,8 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
         status: "new",
         thread_id: crypto.randomUUID(),
         source_url: window.location.href,
-        company_id: companyId
+        company_id: companyId,
+        fingerprint: resolveFingerprint()
       };
 
       const controller = new AbortController();
@@ -518,5 +671,13 @@ export function buildLeadboxScript(config: LeadboxConfig): string {
   }
   
   createLeadbox();
+  if (window.console) {
+    console.log('[clearsky-leadbox] script loaded v2 (telemetry wired)', {
+      fingerprintId: resolveFingerprint(),
+      sessionId: sessionId,
+      tenantSlug: companyId,
+      leadboxId: leadboxId
+    });
+  }
 })();`;
 }

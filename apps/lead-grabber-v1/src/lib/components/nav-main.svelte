@@ -31,7 +31,8 @@
 		Megaphone,
 		Share2,
 		ListTodo,
-		MonitorPlay
+		MonitorPlay,
+		Bot
 	} from 'lucide-svelte';
 	import { page } from '$app/state';
 	import { Button } from '$lib/components/ui/button/index';
@@ -84,7 +85,8 @@
 			href: '/room',
 			subItems: [
 				{ title: 'Content Library', url: '/content-library', icon: FileText, href: '/content-library' },
-				{ title: 'View Room List', url: '/room', icon: MonitorPlay, href: '/room' }
+				{ title: 'View Room List', url: '/room', icon: MonitorPlay, href: '/room' },
+				{ title: 'AI Assistants', url: '/ai-assistants', icon: Bot, href: '/ai-assistants' }
 			]
 		},
 		{ title: 'Locations', url: '/locations', icon: MapPin, href: '/locations' },
@@ -155,7 +157,8 @@
 			href: '/room',
 			subItems: [
 				{ title: 'Content Library', url: '/content-library', icon: FileText, href: '/content-library' },
-				{ title: 'View Room List', url: '/room', icon: MonitorPlay, href: '/room' }
+				{ title: 'View Room List', url: '/room', icon: MonitorPlay, href: '/room' },
+				{ title: 'AI Assistants', url: '/ai-assistants', icon: Bot, href: '/ai-assistants' }
 			]
 		},
 		{ title: 'Locations', url: '/locations', icon: MapPin, href: '/locations' },

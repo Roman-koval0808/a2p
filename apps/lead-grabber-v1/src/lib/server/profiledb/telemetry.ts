@@ -1054,7 +1054,7 @@ export async function notifyTelemetry(
       type: 'viewroom',
       direction: 'inbound',
       status: 'success',
-      source: name || email || phone || undefined,
+      source: email || phone || undefined,
       destination: undefined,
       company_id: company.id,
       customer_id: contact?.id ?? undefined,

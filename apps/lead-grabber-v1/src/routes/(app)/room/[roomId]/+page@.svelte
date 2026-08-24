@@ -25,6 +25,7 @@ import BottomBar from '$lib/components/layout/bottom-bar.svelte';
     import { sendMessage } from '$lib/helpers/sendMessage';
     import { getStreamInfo } from '$lib/helpers/getStreamInfo';
 	import { anonymousUser } from '$lib/stores/anonymousUser.js';
+	import { getTelemetry } from '$lib/telemetry/client';
 	import NameInputModal from '$lib/components/name-input-modal.svelte';
 	import RepresentativeIndicator from '$lib/components/room/representative-indicator.svelte';
 	import { chatMessages } from '$lib/stores/chatMessages';
@@ -260,21 +261,16 @@ onMount(() => {
     
     // Listen for cross-origin messages to grab fingerprint/session ID from a parent frame
     if (typeof window !== 'undefined') {
-        // Attempt to auto-generate identical Fingerprint natively using browser hardware
+        // Resolve a stable fingerprint synchronously: ?fp= → localStorage → CDN-free local
+        // fallback (persisted). No FingerprintJS CDN, so this works on Firefox (ETP blocks
+        // openfpcdn.io). Persist it into the URL so reloads/shareURL keep the identity.
         const existingFp = localStorage.getItem('fingerprintId') || localStorage.getItem('fingerprint') || localStorage.getItem('fp');
-        if (!existingFp && !$page.url.searchParams.get('fp')) {
-            import("https://openfpcdn.io/fingerprintjs/v4")
-                .then(m => (m.default || m).load())
-                .then(agent => agent.get())
-                .then(r => {
-                    const generatedFp = r.visitorId.slice(0, 12);
-                    localStorage.setItem('fingerprintId', generatedFp);
-                    const url = new URL(window.location.href);
-                    url.searchParams.set('fp', generatedFp);
-                    window.history.replaceState({}, '', url.toString());
-                    shareURL = url.toString();
-                })
-                .catch(e => console.warn('Fingerprint auto-generation failed', e));
+        const urlFp = $page.url.searchParams.get('fp');
+        if (existingFp && !urlFp) {
+            const url = new URL(window.location.href);
+            url.searchParams.set('fp', existingFp);
+            window.history.replaceState({}, '', url.toString());
+            shareURL = url.toString();
         }
 
         window.addEventListener('message', (event) => {
@@ -1109,32 +1105,11 @@ function trackViewroomJoin() {
     hasTrackedJoin = true;
     
     try {
-        let fpId = $page.url.searchParams.get('fp');
-        if (!fpId && typeof localStorage !== 'undefined') {
-            fpId = localStorage.getItem('fingerprintId') || localStorage.getItem('fingerprint') || localStorage.getItem('fp') || '';
-        }
-        
         const tenantSlug = room?.companyId || data?.owner_company || data?.user?.companyId || data?.tenantId || data?.companyId || 'default-tenant';
         
-        const eventPayload = {
-            tenantSlug,
-            eventType: 'viewroom_entered',
-            fingerprintId: fpId,
-            sessionId: uniqueSessionId,
-            name: name || $anonymousUser || '',
-            pageUrl: window.location.href,
-            referrer: document.referrer || '',
-            payload: {
-                roomId: room?.id || baseRoomName,
-                roomTitle: room?.title || baseRoomName
-            }
-        };
-        
-        fetch('/api/v1/telemetry/events', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(eventPayload)
-        }).catch(e => console.error('Failed to send viewroom telemetry', e));
+        const telemetry = getTelemetry({ tenantSlug });
+        if (name || $anonymousUser) telemetry.identify({ name: name || $anonymousUser });
+        telemetry.track('vr_entry', { roomId: room?.id || baseRoomName, roomTitle: room?.title || baseRoomName });
     } catch (err) {
         console.error('Error tracking viewroom join:', err);
     }
@@ -2083,31 +2058,11 @@ function handleNameSubmitted(event) {
     // Track the name submission to update their profile (skip for representatives)
     if (!isRepresentative && !data?.representativeName) {
         try {
-        let fpId = $page.url.searchParams.get('fp');
-        if (!fpId && typeof localStorage !== 'undefined') {
-            fpId = localStorage.getItem('fingerprintId') || localStorage.getItem('fingerprint') || localStorage.getItem('fp') || '';
-        }
         const tenantSlug = room?.companyId || data?.owner_company || data?.user?.companyId || data?.tenantId || data?.companyId || 'default-tenant';
-        
-        const eventPayload = {
-            tenantSlug,
-            eventType: 'name_provided',
-            name: submittedName,
-            fingerprintId: fpId,
-            sessionId: uniqueSessionId,
-            pageUrl: window.location.href,
-            referrer: document.referrer || '',
-            payload: {
-                roomId: room?.id || baseRoomName,
-                roomTitle: room?.title || baseRoomName
-            }
-        };
-        
-        fetch('/api/v1/telemetry/events', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(eventPayload)
-        }).catch(e => console.error('Failed to send name telemetry', e));
+
+        const telemetry = getTelemetry({ tenantSlug });
+        telemetry.identify({ name: submittedName });
+        telemetry.track('vr_guestname', { guestName: submittedName, roomId: room?.id || baseRoomName });
     } catch (err) {
         console.error('Error tracking name submission:', err);
     }
@@ -2718,6 +2673,12 @@ run(() => {
     }
     if (searchParams.get('anonymousUserId')) {
         cleanParams.set('anonymousUserId', searchParams.get('anonymousUserId'));
+    }
+    // The fingerprint travels with the visitor (embed -> room). It MUST survive the
+    // URL cleanup or the telemetry client falls back to a random session id and the
+    // visitor's signals fork into a second profile/comm log.
+    if (searchParams.get('fp')) {
+        cleanParams.set('fp', searchParams.get('fp'));
     }
     
     // Update URL if parameters are not clean

@@ -7,6 +7,7 @@
 	import { enhance } from "$app/forms";
 	import Share from "./share.svelte";
 	import { page } from '$app/stores';
+	import { getTelemetry } from '$lib/telemetry/client';
     import { Button } from "$lib/components/ui/button";
     import { ClipboardCopy, Send, Mail, X } from "lucide-svelte";
     import { Select, SelectContent, SelectItem, SelectTrigger } from "$lib/components/ui/select";
@@ -163,6 +164,11 @@
                 });
                 invitedRepresentative = selectedRepresentative.name;
                 inviteStep = "success";
+
+                getTelemetry({ tenantSlug: companyId || null }).track('vr_repinvite', {
+                    repId: selectedRepresentative.id,
+                    repName: selectedRepresentative.name || ''
+                });
             } else {
                 toast.error('Failed to send invite', {
                     description: result.error || 'Unknown error occurred'

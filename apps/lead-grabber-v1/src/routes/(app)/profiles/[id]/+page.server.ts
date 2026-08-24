@@ -55,6 +55,13 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			throw error(404, 'Profile not found');
 		}
 
+		// Fingerprints that resolved into this contact (telemetry persists them on the
+		// contact when a session is attributed to it).
+		const contactMeta = (dbContact.metadata as Record<string, any>) || {};
+		const fingerprints: string[] = Array.isArray(contactMeta.fingerprints)
+			? contactMeta.fingerprints
+			: [];
+
 		// The communication log IS this profile's history in the main database.
 		const historySource = await prisma.communicationLog.findMany({
 			where: { companyId, customerId: dbContact.id },
@@ -66,12 +73,15 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		const historyEvents: any[] = historySource.map((log) => {
 			const md = (log.metadata as Record<string, any>) || {};
 			const isEmail = log.type === 'email';
+			// Telemetry rows (web/viewroom) are device signals, not phone calls/emails — their
+			// source is a fingerprint, so they must never render as a phone number.
+			const isTelemetry = Array.isArray(md.signals) || md.source_signal === 'web' || md.source_signal === 'viewroom';
 			return {
 				eventType: `${log.type}.${log.direction}`,
 				occurredAt: log.created,
 				pageUrl: md.pageUrl ?? null,
-				name: md.callerName ?? dbContact.name ?? null,
-				phone: isEmail ? null : log.direction === 'inbound' ? log.source : log.destination,
+				name: md.name ?? md.callerName ?? dbContact.name ?? null,
+				phone: isEmail || isTelemetry ? null : log.direction === 'inbound' ? log.source : log.destination,
 				email: isEmail
 					? log.direction === 'inbound'
 						? log.source
@@ -382,6 +392,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				clearEmail,
 				past_names: identityHistory.filter((h) => h.field === 'Name').map((h) => h.newValue)
 			},
+			fingerprints,
 			accountBalance: dbContact?.accountBalance ?? null,
 			engagementScore: dbContact.engagementScore ?? 0,
 			communications: comms,

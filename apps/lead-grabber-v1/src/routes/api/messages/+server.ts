@@ -37,6 +37,9 @@ export const POST: RequestHandler = async ({ request }) => {
 		const customerName = body.customer_name ?? 'Anonymous';
 		const customerPhone = body.customer_phone ?? null;
 		const customerEmail = body.customer_email ?? null;
+		// The device fingerprint the embed resolved. Without it a submit matches only on
+		// phone/email and forks a second contact for a visitor already known by their device.
+		const fingerprint = typeof body.fingerprint === 'string' ? body.fingerprint.trim() || null : null;
 		const messageContent = typeof body.message === 'string' ? body.message : '';
 		const source = body.source ?? 'leadbox';
 		let threadId = String(body.thread_id ?? '').trim();
@@ -109,12 +112,13 @@ export const POST: RequestHandler = async ({ request }) => {
 		const logSummaryFallback = messageContent.slice(0, 80) + (messageContent.length > 80 ? '...' : '');
 
 		const contact =
-			customerPhone || customerEmail || customerName !== 'Anonymous'
+			customerPhone || customerEmail || customerName !== 'Anonymous' || fingerprint
 				? await createOrUpdateContact({
 						company_id: companyId,
 						name: customerName !== 'Anonymous' ? customerName : undefined,
 						phone: customerPhone ?? undefined,
-						email: customerEmail ?? undefined
+						email: customerEmail ?? undefined,
+						fingerprint: fingerprint ?? undefined
 					})
 				: null;
 

@@ -20,6 +20,37 @@ interface ContactData {
 	name?: string;
 	email?: string;
 	phone?: string;
+	/** Device fingerprint (telemetry). A returning device is the same person even before any phone/email is known. */
+	fingerprint?: string;
+}
+
+async function contactFingerprints(contact: any): Promise<string[]> {
+	try {
+		const meta = (contact.metadata ?? {}) as Record<string, unknown>;
+		return Array.isArray(meta.fingerprints) ? (meta.fingerprints as string[]) : [];
+	} catch {
+		return [];
+	}
+}
+
+/**
+ * Appends a device fingerprint to a contact's metadata (deduped). Call after a contact is found or
+ * created so every device the person uses ends up recorded on the same contact.
+ */
+async function persistFingerprint(contactId: string, fingerprint: string): Promise<void> {
+	try {
+		const contact = await prisma.contact.findUnique({ where: { id: contactId } });
+		if (!contact) return;
+		const fps = await contactFingerprints(contact);
+		if (fps.includes(fingerprint)) return;
+		const meta = (contact.metadata ?? {}) as Record<string, unknown>;
+		await prisma.contact.update({
+			where: { id: contactId },
+			data: { metadata: { ...meta, fingerprints: [...fps, fingerprint] } }
+		});
+	} catch (err) {
+		console.error('Error persisting fingerprint on contact:', err);
+	}
 }
 
 /**
@@ -53,7 +84,7 @@ export async function createOrUpdateContact(data: ContactData) {
 		data = { ...data, name: undefined };
 	}
 
-	if (!data.name && !data.email && !data.phone) {
+	if (!data.name && !data.email && !data.phone && !data.fingerprint) {
 		return null;
 	}
 
@@ -111,6 +142,22 @@ export async function createOrUpdateContact(data: ContactData) {
 			}
 		}
 
+		// Priority 3: Match by device fingerprint (telemetry). A returning device is the same
+		// person — the phone/email may never be known, but the website and viewroom visits
+		// share the fingerprint, so the contact must too.
+		if (!contact && data.fingerprint) {
+			try {
+				contact = await prisma.contact.findFirst({
+					where: {
+						companyId: data.company_id,
+						metadata: { path: ['fingerprints'], array_contains: [data.fingerprint] }
+					}
+				});
+			} catch (err) {
+				// metadata column missing in some envs — fall through
+			}
+		}
+
 		// Update existing or create new contact
 		if (contact) {
 			// Merge into existing contact - keep original name, add new name to past_names
@@ -156,26 +203,36 @@ export async function createOrUpdateContact(data: ContactData) {
 			}
 
 			if (Object.keys(updates).length > 0) {
-				return await prisma.contact.update({
+				contact = await prisma.contact.update({
 					where: { id: contact.id },
 					data: updates
 				});
 			}
-			return contact;
 		} else {
 			// Create new contact
-			const contactData = {
+			const contactData: any = {
 				companyId: data.company_id,
 				name: data.name || 'Anonymous',
 				email: normalizedEmail,
 				phone: normalizedPhone || data.phone || null
 			};
+			if (data.fingerprint) {
+				contactData.metadata = { fingerprints: [data.fingerprint] };
+			}
 
 			console.log('Creating new contact:', contactData);
-			return await prisma.contact.create({
+			contact = await prisma.contact.create({
 				data: contactData
 			});
 		}
+
+		// Record the device fingerprint on the contact (deduped) so later batches from the same
+		// device resolve to this contact via Priority 3 — one person, one contact, one comm log.
+		if (contact && data.fingerprint) {
+			await persistFingerprint(contact.id, data.fingerprint);
+		}
+
+		return contact;
 	} catch (err) {
 		console.error('Error in createOrUpdateContact:', err);
 		throw err;
