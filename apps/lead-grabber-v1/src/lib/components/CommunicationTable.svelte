@@ -32,6 +32,7 @@
 		intentConfidence?: string | null;
 		threadSubtopics?: string[];
 		isProcessing?: boolean;
+		journey?: { segments: { text: string; bold: boolean }[]; full: string };
 		threadSubtopicScores?: Record<string, number> | null;
 		threadEngagementScore?: number | null;
 	}
@@ -556,7 +557,14 @@
 								{/if}
 							</td>
 							<td class="jrn">
-								{#if signals.length > 0}
+								{#if comm.journey?.segments?.length}
+									<div>
+										{#each comm.journey.segments as s}{#if s.bold}<b>{s.text}</b>{:else}{s.text}{/if}{/each}
+									</div>
+									{#if comm.journey.full}
+										<div class="fade">{comm.journey.full}</div>
+									{/if}
+								{:else if signals.length > 0}
 									{signals.slice(0, 6).join(' → ')}{signals.length > 6 ? ' …' : ''}
 								{:else if comm.summary}
 									{comm.summary}
