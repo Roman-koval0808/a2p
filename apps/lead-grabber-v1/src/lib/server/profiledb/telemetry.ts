@@ -33,6 +33,30 @@ function decodeJWT(token: string) {
  * POST /api/v1/telemetry/events
  * Ingests a new telemetry event, runs identity resolution, updates score and intent bucket.
  */
+/**
+ * The channel a bucket-promotion notification belongs to.
+ *
+ * This notification fires whenever a profile crosses into a higher intent bucket, and the crossing
+ * can be caused by ANY channel — a voicemail, a leadbox submit, a page view. It used to be logged
+ * as `viewroom` unconditionally, so an emergency voicemail that promoted the profile to Active
+ * appeared in the log as "Viewroom IN" and the orchestrator was re-triggered with
+ * `viewroom_entered` for a caller who had never opened a viewroom.
+ */
+export function channelForEventType(
+	eventType: string | null | undefined
+): 'voice' | 'viewroom' | 'leadbox' | 'leadform' | 'sms' | 'email' | 'chatbot' | 'web' {
+	const e = (eventType ?? '').toLowerCase();
+	// `call` must be a whole word: `callback_submit` is a leadbox event, not a phone call.
+	if (/voicemail|dtmf|ivr|(^|[._])calls?([._]|$)/.test(e)) return 'voice';
+	if (/^vr_|viewroom/.test(e)) return 'viewroom';
+	if (/leadbox|callback_/.test(e)) return 'leadbox';
+	if (/^lg_|form_|leadform/.test(e)) return 'leadform';
+	if (/sms|text_/.test(e)) return 'sms';
+	if (/email/.test(e)) return 'email';
+	if (/chat/.test(e)) return 'chatbot';
+	return 'web';
+}
+
 export async function ingestTelemetryEvent(params: {
   body: any;
   headers?: Record<string, any>;
@@ -1050,8 +1074,11 @@ export async function notifyTelemetry(
       message = `Visitor "${nameStr}" entered Active Project bucket! Action: ${eventType} on ${pageUrl || 'unknown'}`;
     }
 
+    // The channel that actually caused the promotion — not a hardcoded 'viewroom'.
+    const channel = channelForEventType(eventType);
+
     const log = await logCommunication({
-      type: 'viewroom',
+      type: channel,
       direction: 'inbound',
       status: 'success',
       source: email || phone || undefined,
@@ -1066,12 +1093,21 @@ export async function notifyTelemetry(
         pageUrl,
         scoreLive: profile.scoreLive,
         intentBucket: profile.intentBucket,
-        source_signal: 'viewroom'
+        source_signal: channel,
+        // Marks the row as DETERMINISTIC telemetry regardless of which channel triggered it, so
+        // the log surface does not mistake it for something the AI interpreted.
+        telemetry: true,
+        // Internal bookkeeping, not a conversation. This row records that a profile crossed into a
+        // higher intent bucket — the customer did not contact us again. It is kept for the audit
+        // trail and for the notification it raises, but the communication log filters it out:
+        // otherwise every score threshold produced a fake "🔥 Active Lead Detected" entry sitting
+        // alongside the real call it was derived from. Same treatment as scheduled_intent_note.
+        bucket_promotion: true
       }
     });
 
     console.log(
-      `[Telemetry Notification Logged] viewroom comm log ${log?.id ?? '(failed)'} for tenant ${tenantSlug}` +
+      `[Telemetry Notification Logged] ${channel} comm log ${log?.id ?? '(failed)'} for tenant ${tenantSlug}` +
         (contact ? ` (contact ${contact.id})` : '')
     );
 

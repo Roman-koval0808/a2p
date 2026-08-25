@@ -1989,7 +1989,22 @@ export async function process_orchestrator(commId: string, trigger: string) {
 	// nothing else. Texting the number would be writing to whichever colleague or family member
 	// picks the handset up next, about a matter that isn't theirs. The reply is dropped rather
 	// than re-routed, and the call still surfaces to a human through the normal queue.
-	else if (draftedResponse && sameChannelOnly && arrivalChannel === 'voice') {
+	//
+	// EMERGENCIES ARE EXCLUDED FROM THIS BRANCH ON PURPOSE. §4.3 governs how we REPLY to the
+	// customer; it says nothing about whether we dispatch a technician. This is an else-if chain,
+	// and the emergency dial-ladder dispatch lives in the NEXT branch — so a Tier 2 caller with a
+	// burst pipe was caught here, had their draft suppressed (correctly), and then never reached
+	// the dispatch at all. The rule that exists because we can only phone them back was the very
+	// thing stopping anyone from phoning them back.
+	//
+	// Letting an emergency fall through does not send the customer an SMS: the next branch guards
+	// its drafting with `if (!isEmergency)`, so §4.3 still holds — it only gains the rota dispatch.
+	else if (
+		draftedResponse &&
+		sameChannelOnly &&
+		arrivalChannel === 'voice' &&
+		messageCategory !== 'emergency'
+	) {
 		olog(
 			`[Orchestrator] SMS draft suppressed — ${callerTier} caller reached us by voice, so the ` +
 				`only permitted reply is a call back to that line (§4.3). Capture a mobile or an ` +
@@ -2046,6 +2061,16 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		// 'Support', so it drafted a "Confirm call" card instead of dispatching.
 		const routing = decideRouting({ messageCategory, isOffHours: shouldDefer });
 		const isEmergency = routing.dispatchToTech;
+
+		// An emergency that reached here via the §4.3 fall-through still gets no customer-facing
+		// SMS — record why, so the audit trail matches the non-emergency suppression above.
+		if (isEmergency && sameChannelOnly && arrivalChannel === 'voice') {
+			olog(
+				`[Orchestrator] EMERGENCY on a ${callerTier} shared line — no customer SMS (§4.3), ` +
+					`dispatching the on-call rota instead.`
+			);
+			metadata.suppressed_cross_channel_draft = 'voice_shared_line';
+		}
 
 		try {
 			// Only draft a customer-facing response if it's NOT an emergency, preventing the

@@ -145,6 +145,14 @@ export async function logCommunication(entry: CommunicationLogEntry) {
 				});
 			}
 			return newRecord;
+		}, {
+			// Prisma's interactive transactions default to a 5s ceiling. This one runs several
+			// statements against a database ~150ms away, and it is called from the dial-ladder path
+			// while a bridge is being placed — under that load it overran, Prisma closed the
+			// transaction, and the next statement failed with P2028 ("Transaction not found"), losing
+			// the log row for a call that had actually been made. Same ceiling raised in intake.ts.
+			timeout: 20_000,
+			maxWait: 15_000
 		});
 
 		// Show notification for every communication log (unless explicitly silenced for audit rows)

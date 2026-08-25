@@ -99,7 +99,10 @@ export function isStillProcessing(log: {
 
 	// Telemetry rows are deterministic — they are never "interpreted" and so never pending.
 	const isTelemetry =
-		Array.isArray(meta.signals) || meta.source_signal === 'web' || meta.source_signal === 'viewroom';
+		meta.telemetry === true ||
+		Array.isArray(meta.signals) ||
+		meta.source_signal === 'web' ||
+		meta.source_signal === 'viewroom';
 	if (isTelemetry) return false;
 
 	// A system-generated row (a dispatch record, a bridge leg) is not a customer message either.
@@ -152,7 +155,10 @@ function readIntent(log: any, meta: Record<string, any>) {
 	// interpreted row put "declared · low confidence" on a viewroom entry, which claims the visitor
 	// told us something and that we were unsure about it. Neither happened.
 	const isTelemetry =
-		Array.isArray(meta.signals) || meta.source_signal === 'web' || meta.source_signal === 'viewroom';
+		meta.telemetry === true ||
+		Array.isArray(meta.signals) ||
+		meta.source_signal === 'web' ||
+		meta.source_signal === 'viewroom';
 
 	const rawBucket = isTelemetry
 		? ((meta.intentBucket as string) ?? null)
@@ -234,6 +240,23 @@ export function recordingUrlFor(log: any): string | null {
 	return typeof meta.voicemail_url === 'string' ? meta.voicemail_url : null;
 }
 
+/**
+ * Rows that are internal bookkeeping rather than a communication with the customer.
+ *
+ * They stay in the database — they carry the audit trail and raise the notification — but the
+ * communication log is a record of conversations, and these are not conversations. A bucket
+ * promotion in particular is derived FROM a real interaction, so leaving it in showed the same
+ * event twice: once as the call, once as "🔥 Active Lead Detected".
+ */
+export function isInternalNotice(log: any): boolean {
+	const meta = (log?.metadata as Record<string, any>) || {};
+	return (
+		meta.bucket_promotion === true ||
+		meta.scheduled_intent_note === true ||
+		meta.scheduled_intent_ack === true
+	);
+}
+
 export interface CommunicationSurface {
 	channelSource: string | null;
 	channelSourceDetail: string | null;
@@ -253,6 +276,7 @@ export interface CommunicationSurface {
 	intentEmergency: boolean;
 	recordingUrl: string | null;
 	isProcessing: boolean;
+	isInternalNotice: boolean;
 	journey: JourneyActivity;
 }
 
@@ -287,6 +311,7 @@ export function communicationSurface(log: any): CommunicationSurface {
 		...readIntent(log, meta),
 		recordingUrl: recordingUrlFor(log),
 		isProcessing: isStillProcessing(log),
+		isInternalNotice: isInternalNotice(log),
 		journey: journeyActivity(log)
 	};
 }
@@ -440,5 +465,8 @@ export function journeyActivity(log: any): JourneyActivity {
 		};
 	}
 
-	return { segments: [seg(log.summary ? String(log.summary).slice(0, 60) : '—')], full: '' };
+	// No truncation. The cell is the record of what happened in the session; clipping it mid-word
+	// ("Hi +15556655443, good news — you have no…") hides the part that matters. Let the column
+	// wrap instead.
+	return { segments: [seg(log.summary ? String(log.summary) : '—')], full: '' };
 }

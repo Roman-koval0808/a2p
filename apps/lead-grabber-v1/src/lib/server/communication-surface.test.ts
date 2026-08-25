@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { communicationSurface, isStillProcessing, journeyActivity, recordingUrlFor } from './communication-surface';
+import { communicationSurface, isStillProcessing, journeyActivity, recordingUrlFor, isInternalNotice } from './communication-surface';
 
 describe('isStillProcessing', () => {
 	it('holds back a leadbox row until the AI pipeline has written its read', () => {
@@ -255,5 +255,36 @@ describe('outbound and system rows are never held back', () => {
 		expect(
 			isStillProcessing({ id: 'v', type: 'voice', direction: 'inbound', metadata: { message_category: 'emergency' } })
 		).toBe(false);
+	});
+});
+
+describe('internal notices stay out of the conversation log', () => {
+	it('filters a bucket promotion — it is derived from a real call, not a new contact', () => {
+		const promo = {
+			id: 'p1', type: 'voice', direction: 'inbound',
+			metadata: { telemetry: true, bucket_promotion: true, source_signal: 'voice', intentBucket: 'active' }
+		};
+		expect(isInternalNotice(promo)).toBe(true);
+		expect(communicationSurface(promo).isInternalNotice).toBe(true);
+	});
+
+	it('filters scheduled-intent bookkeeping', () => {
+		expect(isInternalNotice({ metadata: { scheduled_intent_note: true } })).toBe(true);
+		expect(isInternalNotice({ metadata: { scheduled_intent_ack: true } })).toBe(true);
+	});
+
+	it('leaves real communications alone', () => {
+		expect(isInternalNotice({ id: 'v', type: 'voice', metadata: { message_category: 'emergency' } })).toBe(false);
+		expect(isInternalNotice({ id: 'w', type: 'web', metadata: { signals: ['page_load'] } })).toBe(false);
+		expect(isInternalNotice({ metadata: {} })).toBe(false);
+	});
+});
+
+describe('journey text is not truncated', () => {
+	it('keeps the whole summary', () => {
+		const long =
+			'Hi +15556655443, good news — you have no outstanding balance on your account at this time.';
+		const j = journeyActivity({ type: 'unknown-channel', direction: 'outbound', summary: long, metadata: {} });
+		expect(j.segments.map((s) => s.text).join('')).toBe(long);
 	});
 });

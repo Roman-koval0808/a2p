@@ -32,6 +32,7 @@
 		intentConfidence?: string | null;
 		threadSubtopics?: string[];
 		isProcessing?: boolean;
+		isInternalNotice?: boolean;
 		journey?: { segments: { text: string; bold: boolean }[]; full: string };
 		threadSubtopicScores?: Record<string, number> | null;
 		threadEngagementScore?: number | null;
@@ -140,7 +141,9 @@
 		// status that is about to change. An emergency leadbox first rendered green (the row's own
 		// delivery status) and flipped to red seconds later when the pipeline set the urgency — the
 		// row was not wrong, it was incomplete, and showing it as settled was the bug.
-		let filtered = communications.filter((comm) => !comm.isProcessing);
+		let filtered = communications.filter(
+			(comm) => !comm.isProcessing && !comm.isInternalNotice
+		);
 		if (activeFilter !== 'All') {
 			const filterType = activeFilter.toLowerCase();
 			filtered = filtered.filter((comm) => {

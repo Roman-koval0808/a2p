@@ -333,6 +333,7 @@
 			// Held back by CommunicationTable until the AI pipeline has written its read.
 			isProcessing: c.isProcessing ?? c.raw?.isProcessing ?? false,
 			recordingUrl: c.recordingUrl ?? c.raw?.recordingUrl ?? null,
+			isInternalNotice: c.isInternalNotice ?? c.raw?.isInternalNotice ?? false,
 			journey: c.journey ?? c.raw?.journey ?? null,
 			raw: c.raw
 		}))
