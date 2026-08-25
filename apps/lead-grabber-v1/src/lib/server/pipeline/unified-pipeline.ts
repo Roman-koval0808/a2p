@@ -502,10 +502,13 @@ export class UnifiedPipeline {
 				finalTrace = pipelineSteps.join('\n');
 			}
 
-			// Persist logs to Event for historical replay
+			// Persist logs to Event for historical replay.
+			// Keyed on `event.id`, NOT `eventInternalId`: when the duplicate-providerEventId race in
+			// step 6 fires, the row we minted was never inserted and `event` is the row that won, so
+			// `eventInternalId` names nothing and this update dies with P2025.
 			try {
 				await prisma.pipelineEvent.update({
-					where: { id: eventInternalId },
+					where: { id: event.id },
 					data: {
 						unstructuredText:
 							(payload.metadata ? JSON.stringify(payload.metadata) : payload.textContent) +

@@ -295,6 +295,9 @@ export async function ingestSignalBatch(batch: SignalBatch): Promise<{ status: n
 					provider: 'clearsky_pixel',
 					providerEventName: ev.name,
 					eventType: ev.name,
+					// The subject this interaction was about, resolved from its own page/payload.
+					// Null = nothing identified a subject; scored separately as `unknown`.
+					subtopic: ev.subtopic ?? null,
 					networkCategory: ev.category === 'viewroom' ? 'Viewroom' : 'Web',
 					companyId: company.id,
 					customerProfileId: profile.id,

@@ -148,8 +148,17 @@ export async function sweepTimers(now = new Date()): Promise<{ due: number; fire
 				textContent: `Synthetic escalation event triggered: timer ${timer.type} for container ${container.commRef}`
 			};
 
-			await UnifiedPipeline.process(payload);
-
+			// Claim the timer BEFORE processing, not after.
+			//
+			// This used to run the pipeline first and mark `fired` only once it returned. Any
+			// pipeline failure therefore left the timer `registered`, so the next sweep fired it
+			// again — with the same `fireEventKey`, so the same `externalId`, so the same
+			// providerEventId collision, forever. That is the `tmr_…` constraint error repeating in
+			// the logs every sweep.
+			//
+			// Claiming first means a failure loses one synthetic event instead of looping. The
+			// event is synthetic and re-derivable from the container; an unbounded retry storm
+			// against the database is the worse outcome.
 			await prisma.pipelineTimer.update({
 				where: { id: timer.id },
 				data: {
@@ -157,6 +166,15 @@ export async function sweepTimers(now = new Date()): Promise<{ due: number; fire
 					firedAt: now
 				}
 			});
+
+			try {
+				await UnifiedPipeline.process(payload);
+			} catch (err: any) {
+				console.error(
+					`[timer] pipeline failed for timer ${timer.id} (${timer.type}) — timer stays fired, not retried:`,
+					err?.message || err
+				);
+			}
 			
 			// The customer promised to come back and hasn't. Turn the parked promise
 			// into work someone will actually see: the hold task is closed out and a

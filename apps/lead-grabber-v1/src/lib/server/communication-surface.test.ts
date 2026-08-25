@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { communicationSurface, isStillProcessing, journeyActivity } from './communication-surface';
+import { communicationSurface, isStillProcessing, journeyActivity, recordingUrlFor } from './communication-surface';
 
 describe('isStillProcessing', () => {
 	it('holds back a leadbox row until the AI pipeline has written its read', () => {
@@ -100,5 +100,160 @@ describe('journeyActivity — prototype shapes', () => {
 	it('formats durations the way the prototype does', () => {
 		expect(render({ type: 'voice', direction: 'inbound', metadata: { duration: 40 } })).toBe('call · 40s');
 		expect(render({ type: 'voice', direction: 'inbound', metadata: { duration: 72 } })).toBe('call · 1m 12s');
+	});
+});
+
+describe('intent — the two axes, read from what writers actually store', () => {
+	// Shape taken verbatim from a real voice row (cmt8za3jn001d2ssflfxskhjd).
+	const voiceEmergency = {
+		id: 'l1',
+		type: 'voice',
+		metadata: {
+			message_category: 'emergency',
+			emergency_type: 'roof_leak',
+			urgency: 'high',
+			intent: 'Support',
+			sub_intent: 'Emergency - Active Water Damage',
+			ai_intent: { intent_bucket: 'emergency', purpose: 'emergency', urgency: 'critical', confidence: 0.99 }
+		}
+	};
+
+	it('fills the cells that used to render as em-dashes', () => {
+		const s = communicationSurface(voiceEmergency);
+		expect(s.intentStage).toBe('active');
+		expect(s.intentEmergency).toBe(true);
+		expect(s.intentStatus).toBe('declared');
+		expect(s.intentConfidence).toBe('high');
+		expect(s.intentSubtopic).toBe('roof');
+	});
+
+	it('keeps emergency as urgency, never as the stage', () => {
+		expect(communicationSurface(voiceEmergency).intentStage).not.toBe('emergency');
+	});
+
+	it('still reads the telemetry key names', () => {
+		const s = communicationSurface({
+			id: 'l2', type: 'web',
+			metadata: { intentBucket: 'comparison', intentStatus: 'behaviour_inferred', signals: ['scroll_50'] }
+		});
+		expect(s.intentStage).toBe('comparison');
+		expect(s.intentStatus).toBe('behaviour_inferred');
+		expect(s.intentEmergency).toBe(false);
+	});
+
+	it('turns a numeric model confidence into a band', () => {
+		const band = (c: number) =>
+			communicationSurface({ id: 'x', type: 'voice', metadata: { ai_intent: { confidence: c } } }).intentConfidence;
+		expect(band(0.99)).toBe('high');
+		expect(band(0.6)).toBe('medium');
+		expect(band(0.2)).toBe('low');
+	});
+
+	it('says nothing when nothing has interpreted the row', () => {
+		const s = communicationSurface({ id: 'l3', type: 'voice', metadata: {} });
+		expect(s.intentStage).toBeNull();
+		expect(s.intentStatus).toBeNull();
+		expect(s.intentConfidence).toBeNull();
+	});
+});
+
+describe('telemetry rows are deterministic, never "declared"', () => {
+	// Shape from a real viewroom row: the orchestrator set message_category for routing, which is
+	// not the visitor declaring anything.
+	const viewroom = {
+		id: 'v1',
+		type: 'viewroom',
+		metadata: {
+			source_signal: 'viewroom',
+			message_category: 'support',
+			intentBucket: 'active',
+			confidence: 0.3
+		}
+	};
+
+	it('does not claim the visitor declared their intent', () => {
+		expect(communicationSurface(viewroom).intentStatus).toBeNull();
+	});
+
+	it('does not invent a confidence for a deterministic row', () => {
+		expect(communicationSurface(viewroom).intentConfidence).toBeNull();
+	});
+
+	it('still shows the stage telemetry itself assigned', () => {
+		expect(communicationSurface(viewroom).intentStage).toBe('active');
+	});
+
+	it('does not treat the orchestrator routing label as an emergency', () => {
+		const routed = { id: 'v2', type: 'web', metadata: { signals: ['page_load'], message_category: 'emergency' } };
+		expect(communicationSurface(routed).intentEmergency).toBe(false);
+	});
+
+	it('keeps a status telemetry did write', () => {
+		const s = communicationSurface({
+			id: 'v3', type: 'web',
+			metadata: { signals: ['scroll_50'], intentStatus: 'behaviour_inferred', intentBucket: 'comparison' }
+		});
+		expect(s.intentStatus).toBe('behaviour_inferred');
+	});
+});
+
+describe('recordingUrlFor — the three shapes a call leaves behind', () => {
+	it('uses our proxy when Telnyx left a recording_id', () => {
+		expect(recordingUrlFor({ id: 'log9', type: 'voice', metadata: { recording_id: 'rec_1' } }))
+			.toBe('/api/recording/log9');
+	});
+
+	it('prefers mp3 from a direct recording_urls object', () => {
+		expect(
+			recordingUrlFor({ id: 'l', type: 'voice', metadata: { recording_urls: { m4a: 'https://x/a.m4a', mp3: 'https://x/a.mp3' } } })
+		).toBe('https://x/a.mp3');
+	});
+
+	it('falls back to any http url in that object', () => {
+		expect(recordingUrlFor({ id: 'l', type: 'voice', metadata: { recording_urls: { wav: 'https://x/a.wav' } } }))
+			.toBe('https://x/a.wav');
+	});
+
+	it('falls back to the older voicemail_url field', () => {
+		expect(recordingUrlFor({ id: 'l', type: 'voice', metadata: { voicemail_url: 'https://x/vm.mp3' } }))
+			.toBe('https://x/vm.mp3');
+	});
+
+	it('is null when the call has no audio, and for non-voice rows', () => {
+		expect(recordingUrlFor({ id: 'l', type: 'voice', metadata: {} })).toBeNull();
+		expect(recordingUrlFor({ id: 'l', type: 'web', metadata: { recording_id: 'rec_1' } })).toBeNull();
+	});
+});
+
+describe('outbound and system rows are never held back', () => {
+	// Verbatim shape of the callback-router row (cmt90yvwt00942ssfwloqo4ul). Relabelling it from
+	// `web` to `voice` put it inside the AI-interpreted set, and the table then hid it — the rep's
+	// dial vanished from the log.
+	const callbackDispatch = {
+		id: 'cb1',
+		type: 'voice',
+		direction: 'outbound',
+		metadata: { callback_request: true, preference: 'ASAP', decision: 'bridge_now', rota: [{ name: 'Carter Adams' }] }
+	};
+
+	it('shows the callback dispatch immediately', () => {
+		expect(isStillProcessing(callbackDispatch)).toBe(false);
+		expect(communicationSurface(callbackDispatch).isProcessing).toBe(false);
+	});
+
+	it('shows the bridge leg to the rep', () => {
+		expect(
+			isStillProcessing({ id: 'cb2', type: 'voice', direction: 'outbound', metadata: {} })
+		).toBe(false);
+	});
+
+	it('still holds back an INBOUND voice call awaiting its AI read', () => {
+		expect(isStillProcessing({ id: 'v', type: 'voice', direction: 'inbound', metadata: {} })).toBe(true);
+	});
+
+	it('releases that inbound call once the read lands', () => {
+		expect(
+			isStillProcessing({ id: 'v', type: 'voice', direction: 'inbound', metadata: { message_category: 'emergency' } })
+		).toBe(false);
 	});
 });

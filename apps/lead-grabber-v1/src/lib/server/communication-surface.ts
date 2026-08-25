@@ -79,7 +79,9 @@ export function profileWho(tier: string, fingerprint: string | null): string {
  * bug. Callers hide or mark these rather than showing a status that is about to change.
  */
 export function isStillProcessing(log: {
+	id?: string;
 	type?: string | null;
+	direction?: string | null;
 	metadata?: unknown;
 	communicationThread?: { summary?: string | null } | null;
 }): boolean {
@@ -89,10 +91,19 @@ export function isStillProcessing(log: {
 	if (meta.processing === true || meta.ai_processing === true) return true;
 	if (meta.processingStatus && meta.processingStatus !== 'complete') return true;
 
+	// OUTBOUND rows are things WE did — a callback dispatch, a bridge leg, a sent SMS. They are
+	// complete the moment they are written; no interpreter runs over them afterwards, so they can
+	// never be "pending". Without this guard the callback-router's own voice rows were held back
+	// forever and the rep's dial simply never appeared in the log.
+	if (String(log.direction ?? '').toLowerCase().startsWith('out')) return false;
+
 	// Telemetry rows are deterministic — they are never "interpreted" and so never pending.
 	const isTelemetry =
 		Array.isArray(meta.signals) || meta.source_signal === 'web' || meta.source_signal === 'viewroom';
 	if (isTelemetry) return false;
+
+	// A system-generated row (a dispatch record, a bridge leg) is not a customer message either.
+	if (meta.callback_request || meta.system_action || meta.dial_ladder) return false;
 
 	// Channels that go through the AI pipeline are pending until it has left its read behind.
 	const aiInterpreted = ['leadbox', 'leadform', 'sms', 'email', 'voice', 'call'];
@@ -107,6 +118,120 @@ export function isStillProcessing(log: {
 		meta.orchestrator_processed === true;
 
 	return !hasAiRead;
+}
+
+// ── Intent, as the two axes the model requires ──────────────────────────────
+//
+// Two writers populate this and they use different key names:
+//   telemetry  — `metadata.intentBucket` (the escalate-only ladder), `metadata.intentStatus`
+//   AI/voice   — `metadata.ai_intent.intent_bucket`, `.confidence` (a NUMBER), `message_category`
+//
+// The surface previously read only the telemetry names, which is why an AI-interpreted voice call
+// showed Stage —, Status — and Confidence — while its metadata was full of exactly that data.
+//
+// `emergency` is the urgency axis, NOT a stage. A burst-pipe caller is Active *and* Emergency, so
+// an incoming bucket of "emergency" sets the flag and resolves the stage to `active` rather than
+// overwriting it — collapsing the two loses the urgent half.
+
+const STAGES = new Set(['research', 'comparison', 'active']);
+
+/** A numeric model confidence (0.99) becomes the band the column renders. */
+function confidenceBand(value: unknown): string | null {
+	if (typeof value === 'string' && value) return value;
+	if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+	if (value >= 0.8) return 'high';
+	if (value >= 0.5) return 'medium';
+	return 'low';
+}
+
+function readIntent(log: any, meta: Record<string, any>) {
+	const ai = (meta.ai_intent as Record<string, any> | undefined) ?? {};
+
+	// Telemetry rows are DETERMINISTIC — signals fired, a table was consulted, nothing was
+	// interpreted. They must only ever show what telemetry itself wrote. Treating them like an
+	// interpreted row put "declared · low confidence" on a viewroom entry, which claims the visitor
+	// told us something and that we were unsure about it. Neither happened.
+	const isTelemetry =
+		Array.isArray(meta.signals) || meta.source_signal === 'web' || meta.source_signal === 'viewroom';
+
+	const rawBucket = isTelemetry
+		? ((meta.intentBucket as string) ?? null)
+		: ((meta.intentBucket as string) ??
+			(ai.intent_bucket as string) ??
+			(meta.message_category as string) ??
+			null);
+
+	// `message_category` is the ORCHESTRATOR's routing label. On a telemetry row it is set by
+	// downstream routing, not by the visitor, so it says nothing about their intent.
+	const emergency = isTelemetry
+		? rawBucket === 'emergency'
+		: rawBucket === 'emergency' ||
+			meta.message_category === 'emergency' ||
+			ai.purpose === 'emergency' ||
+			ai.urgency === 'critical' ||
+			!!meta.emergency_type;
+
+	// Emergency is not a stage. Keep an explicit stage if we have one; otherwise an emergency
+	// caller is by definition acting now.
+	const stage = STAGES.has(rawBucket as string) ? (rawBucket as string) : emergency ? 'active' : null;
+
+	// A voicemail, SMS or form message is the customer telling us — that is `declared`
+	// (Bug A's table). Telemetry never declares: it keeps the status telemetry gave it, or none.
+	const status = isTelemetry
+		? ((meta.intentStatus as string) ?? null)
+		: ((meta.intentStatus as string) ??
+			(Object.keys(ai).length || meta.message_category ? 'declared' : null));
+
+	// Only a model reports a confidence. A deterministic row has nothing to be confident about.
+	const confidence = isTelemetry
+		? confidenceBand(meta.confidenceBand)
+		: confidenceBand(meta.confidence ?? ai.confidence ?? ai.confidence_band);
+
+	return {
+		intentStage: stage,
+		intentEmergency: emergency,
+		intentStatus: status,
+		intentConfidence: confidence,
+		intentSubtopic:
+			(log.subtopic as string) ??
+			(meta.subtopic as string) ??
+			// The orchestrator already classified the emergency ("roof_leak"); its first word is
+			// the trade. Free, and better than showing nothing.
+			(!isTelemetry && typeof meta.emergency_type === 'string'
+				? meta.emergency_type.split('_')[0]
+				: null)
+	};
+}
+
+/**
+ * Playback URL for a call recording, if this row has one.
+ *
+ * The three shapes Telnyx and our webhook leave behind, in the order the old summary dialog
+ * already resolved them (`communication-log/+page.svelte`) — lifted here so the Session Summary
+ * drawer and the old dialog cannot disagree about whether a call has audio:
+ *
+ *   1. `metadata.recording_id`   → our own proxy at /api/recording/{logId}, which is what a real
+ *                                  Telnyx call leaves; the proxy holds the credentials.
+ *   2. `metadata.recording_urls` → a direct object of {mp3, m4a, …} on some webhook payloads.
+ *   3. `metadata.voicemail_url`  → the older single-URL voicemail field.
+ */
+export function recordingUrlFor(log: any): string | null {
+	const meta = (log?.metadata as Record<string, any>) || {};
+
+	if (log?.type === 'voice' && meta.recording_id) {
+		return `/api/recording/${log.id}`;
+	}
+
+	const urls = meta.recording_urls;
+	if (urls && typeof urls === 'object') {
+		const direct =
+			urls.mp3 ??
+			urls.m4a ??
+			Object.values(urls).find((v) => typeof v === 'string' && v.startsWith('http'));
+		if (typeof direct === 'string') return direct;
+	}
+
+	return typeof meta.voicemail_url === 'string' ? meta.voicemail_url : null;
 }
 
 export interface CommunicationSurface {
@@ -125,6 +250,8 @@ export interface CommunicationSurface {
 	intentStage: string | null;
 	intentSubtopic: string | null;
 	intentConfidence: string | null;
+	intentEmergency: boolean;
+	recordingUrl: string | null;
 	isProcessing: boolean;
 	journey: JourneyActivity;
 }
@@ -157,11 +284,8 @@ export function communicationSurface(log: any): CommunicationSurface {
 				? (thread.subtopicScores as Record<string, number>)
 				: null,
 		threadEngagementScore: thread?.engagementScore ?? null,
-		intentStatus: (meta.intentStatus as string) ?? null,
-		intentStage: (meta.intentBucket as string) ?? (meta.ai_intent?.stage as string) ?? null,
-		intentSubtopic: (meta.subtopic as string) ?? (log.subtopic as string) ?? null,
-		intentConfidence:
-			(meta.confidence as string) ?? (meta.ai_intent?.confidence_band as string) ?? null,
+		...readIntent(log, meta),
+		recordingUrl: recordingUrlFor(log),
 		isProcessing: isStillProcessing(log),
 		journey: journeyActivity(log)
 	};

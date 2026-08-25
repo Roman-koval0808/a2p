@@ -5,6 +5,7 @@ import { getLogsForMessage } from '$lib/utils/inbox-log-link';
 import { logCommunication } from '$lib/utils/communication-log';
 import { createNotification } from '$lib/utils/notifications';
 import { createOrUpdateContact } from '$lib/utils/contacts';
+import { resolveSubtopic } from '$lib/server/telemetry/subtopic-classifier';
 import { analyzeIncomingMessage } from '$lib/ai/openai';
 import { UnifiedPipeline } from '$lib/server/pipeline/unified-pipeline';
 import { getProfileDetails, getProfileHistory } from '$lib/server/profiledb/profiles';
@@ -122,6 +123,25 @@ export const POST: RequestHandler = async ({ request }) => {
 					})
 				: null;
 
+		// What service is this about? The page/payload path already ran on the telemetry side; a form
+		// submission carries the customer's own words, which is the one thing only the model can read.
+		// Failure here must never block the submission — an unknown subtopic is scored separately.
+		let submissionSubtopic: string | null = null;
+		try {
+			const resolved = await resolveSubtopic({
+				companyId,
+				callTrackingCategory: null,
+				text: messageContent,
+				hints: [source, body.source_url].filter(Boolean) as string[]
+			});
+			submissionSubtopic = resolved.subtopic;
+			if (resolved.subtopic) {
+				console.log(`[messages] subtopic "${resolved.subtopic}" via ${resolved.source}`);
+			}
+		} catch (err: any) {
+			console.error('[messages] subtopic classification failed:', err?.message || err);
+		}
+
 		// Initial communication log without AI summary. The id is kept: the callback dispatcher
 		// uses it as the work order's commId, which is what the Telnyx webhook keys the bridge
 		// RECORDING off — without it the recording of the callback attaches to nothing.
@@ -135,7 +155,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			customer_id: contact?.id ?? undefined,
 			summary: logSummaryFallback,
 			content: messageContent,
-			metadata: { thread_id: threadId, intent: initialAiData.intent },
+			metadata: { thread_id: threadId, intent: initialAiData.intent, subtopic: submissionSubtopic },
 			contact_name: customerName !== 'Anonymous' ? customerName : undefined,
 			contact_company: company?.name
 		});

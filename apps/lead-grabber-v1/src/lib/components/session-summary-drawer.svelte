@@ -105,6 +105,16 @@
 			<div class="sec">Journey &amp; Activity</div>
 			<div class="narr">{journey(comm) || '—'}</div>
 
+			<!-- The call itself. The old summary dialog already played this; the drawer replaced that
+			     view without carrying it over, so a voice session lost its audio. Same three
+			     metadata shapes, resolved once in communicationSurface so the two agree. -->
+			{#if comm.recordingUrl}
+				<div class="sec">Call recording</div>
+				<audio controls preload="metadata" src={comm.recordingUrl} class="rec">
+					Your browser does not support audio playback.
+				</audio>
+			{/if}
+
 			<div class="sec">Status &amp; next step</div>
 			<div class="status-bar">
 				<div class="s">Current status</div>
@@ -116,6 +126,7 @@
 {/if}
 
 <style>
+	.rec{width:100%;max-width:420px;height:36px;margin-top:6px;}
 	:global(.ss-ov) {
 		position: fixed;
 		inset: 0;

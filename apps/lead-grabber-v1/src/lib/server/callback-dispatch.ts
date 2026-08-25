@@ -473,7 +473,12 @@ async function recordRepInstruction(input: {
 
 	try {
 		await logCommunication({
-			type: 'web',
+			// A callback dispatch is a VOICE action — the rota gets rung, and on `bridge_now` the
+			// dial ladder bridges the customer to whoever answers. It was logged as `web`, so the
+			// log showed "Web OUT" for an outbound phone call and it landed under the wrong channel
+			// tab. The request may arrive from the leadbox, but the channel is what we DO, not where
+			// the ask came from.
+			type: 'voice',
 			direction: 'outbound',
 			status: 'success',
 			source: 'callback-router',
