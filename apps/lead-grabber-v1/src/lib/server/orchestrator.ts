@@ -1854,7 +1854,7 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						}
 					});
 
-					await linkCommunicationLogToContainer(
+					const relinked = await linkCommunicationLogToContainer(
 						commId,
 						{ id: cand.id, commRef: cand.commRef },
 						mergeReason,
@@ -1872,7 +1872,13 @@ export async function process_orchestrator(commId: string, trigger: string) {
 						reason: mergeReason,
 						mergedAt: new Date().toISOString()
 					};
-					commLog.communicationThreadId = cand.id;
+					// The link refuses to move a log off an engagement the engagement rule assigned
+					// (see linkCommunicationLogToContainer). Mirror whatever it actually did rather
+					// than assuming the move happened — otherwise the persist below writes the
+					// container id back over the engagement and the ENG code splits again.
+					if (relinked?.communicationThreadId) {
+						commLog.communicationThreadId = relinked.communicationThreadId;
+					}
 					mergedContainerId = cand.id;
 
 					olog(

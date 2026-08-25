@@ -19,7 +19,7 @@ const { mockPrisma } = vi.hoisted(() => ({
 		pipelineCustomerProfile: { findMany: vi.fn() },
 		commEntry: { create: vi.fn() },
 		communicationLog: { findUnique: vi.fn(), update: vi.fn() },
-		communicationThread: { upsert: vi.fn() }
+		communicationThread: { upsert: vi.fn(), findUnique: vi.fn().mockResolvedValue(null) }
 	}
 }));
 
@@ -487,6 +487,39 @@ describe('linkCommunicationLogToContainer', () => {
 		expect(update.data.metadata.commRef).toBe('#1001');
 		expect(update.data.metadata.thread_merge.mergedInto).toBe('c_email_1');
 	});
+
+	// Regression: a container is a SESSION, one per arriving message. `communicationThreadId` is
+	// the ENGAGEMENT, and the ENG code the comm log shows. Letting the container overwrite it made
+	// every message its own engagement — one customer's two texts came back as two ENG codes
+	// minutes apart. A thread carrying `rulesVersion` was assigned by the engagement rule and is
+	// off limits; the COM id still gets stamped in metadata either way.
+	it('leaves a thread the engagement rule assigned where it is', async () => {
+		mockPrisma.communicationLog.findUnique.mockResolvedValue({
+			id: 'log_sms_2',
+			companyId: 'comp_1',
+			customerId: 'contact_1',
+			communicationThreadId: 'eng_thread_1',
+			summary: 'blocked drain',
+			metadata: {}
+		});
+		mockPrisma.communicationThread.findUnique.mockResolvedValue({
+			rulesVersion: 'engagement_resolution_v1'
+		});
+		mockPrisma.communicationLog.update.mockResolvedValue({});
+
+		await linkCommunicationLogToContainer(
+			'log_sms_2',
+			{ id: 'cnt_own', commRef: '#7825' },
+			'context_continuation',
+			{ companyId: 'comp_1', contactId: 'contact_1' }
+		);
+
+		const update = mockPrisma.communicationLog.update.mock.calls[0][0];
+		expect(update.data.communicationThreadId).toBeUndefined();
+		// The COM id the function exists to share is still recorded.
+		expect(update.data.metadata.commRef).toBe('#7825');
+		expect(update.data.metadata.commContainerId).toBe('cnt_own');
+	});
 });
 
 describe('resolveContextContainer — self-match guard', () => {
@@ -525,6 +558,39 @@ describe('resolveContextContainer — self-match guard', () => {
 		);
 		expect(result.matched).toBe(false);
 		expect(result.reason).toBe('no_open_candidates');
+		expect(ai).not.toHaveBeenCalled();
+	});
+
+	// Regression: the window was one-sided ("opened after the message"). On SMS the ProfileDB
+	// pipeline opens the container on `sms_received`, ~20s BEFORE logCommunication writes the row,
+	// so the self-container sat on the wrong side of the cutoff and was matched as a real
+	// conversation. The echo test is what identifies a self-container; the window is only there to
+	// spare a customer who repeats themselves verbatim weeks later.
+	it('ignores its own container even when opened BEFORE the log row (SMS ordering)', async () => {
+		mockPrisma.pipelineCustomerProfile.findMany.mockResolvedValue([]);
+		mockPrisma.commContainer.findMany.mockResolvedValue([
+			candidate({
+				id: 'cnt_own_early',
+				commRef: '#7825',
+				subject: null,
+				openedAt: new Date('2026-08-03T17:49:39Z'),
+				lastActivityAt: new Date('2026-08-03T17:49:39Z'),
+				entries: [{ transcript: message }]
+			})
+		]);
+		const ai = vi.fn();
+		const result = await resolveContextContainer(
+			{
+				companyId: 'comp_1',
+				contactId: 'contact_1',
+				channel: 'sms',
+				direction: 'inbound',
+				content: message,
+				occurredAt: arrivedAt
+			},
+			{ ai }
+		);
+		expect(result.matched).toBe(false);
 		expect(ai).not.toHaveBeenCalled();
 	});
 

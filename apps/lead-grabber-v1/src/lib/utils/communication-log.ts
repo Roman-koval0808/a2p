@@ -1,4 +1,8 @@
 import { prisma } from '$lib/db';
+import {
+	resolveEngagementThread,
+	ENGAGEMENT_RULES_VERSION
+} from '$lib/server/telemetry/engagement';
 import { createNotification } from '$lib/utils/notifications';
 import { isA2pDbEnabled, mirrorToA2p } from '$lib/server/a2p-db';
 
@@ -76,6 +80,25 @@ export async function logCommunication(entry: CommunicationLogEntry) {
 				}
 			}
 
+			// A caller-supplied id is only an ENGAGEMENT reference if it actually names one of this
+			// contact's threads. The SMS webhook passes the customer's phone number as `thread_id`,
+			// and Gmail passes its own thread key — those are CHANNEL identifiers, not engagements.
+			// Honouring them verbatim opened a new engagement per channel key, which is why one
+			// customer's SMS exchange split across two ENG ids minutes apart.
+			//
+			// Roadmap rule #1 is "explicit engagement/project/quote/case reference -> use it". A
+			// phone number is not that. So: keep the id when it names an existing thread of theirs,
+			// otherwise drop it and let the engagement rule below decide.
+			if (threadId && entry.company_id && entry.customer_id) {
+				const named = await tx.communicationThread.findUnique({
+					where: { id: threadId },
+					select: { id: true, contactId: true }
+				});
+				if (!named || (named.contactId && named.contactId !== entry.customer_id)) {
+					threadId = undefined;
+				}
+			}
+
 			if (threadId && entry.company_id) {
 				// Ensure thread exists if an ID was passed in
 				await tx.communicationThread.upsert({
@@ -91,13 +114,69 @@ export async function logCommunication(entry: CommunicationLogEntry) {
 				});
 			}
 
+			// No thread handed in — apply the ENGAGEMENT rule before opening a new one.
+			//
+			// An engagement is one stretch of doing business with a customer, not one job. A furnace
+			// call and a roof call from the same person belong to the same episode. This used to
+			// create a brand-new thread for every log that arrived without an explicit id, so the
+			// same contact's second email three minutes later opened a second engagement — the rule
+			// was only ever wired into the telemetry intake, and email/SMS/voice/leadbox all come
+			// through here instead.
+			//
+			// Same rule, same order as `resolveEngagementThread`: the contact's open thread wins
+			// whatever the subject, then a recent one inside its inactivity window, then a new one.
+			if (!threadId && entry.company_id && entry.customer_id) {
+				// The same lock key the telemetry path uses, so both serialise against each other —
+				// otherwise a page view and an email arriving together each open an engagement.
+				const lockKey = `eng_${entry.company_id}_contact_${entry.customer_id}`;
+				await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+
+				const where = { companyId: entry.company_id, contactId: entry.customer_id };
+				const [openThread, recentThread] = await Promise.all([
+					tx.communicationThread.findFirst({
+						where: { ...where, status: { not: 'closed' } },
+						orderBy: { updated: 'desc' }
+					}),
+					tx.communicationThread.findFirst({ where, orderBy: { updated: 'desc' } })
+				]);
+
+				const toOpen = (t: any) =>
+					t
+						? {
+								id: t.id,
+								status: t.status,
+								subtopics: Array.isArray(t.subtopics) ? t.subtopics : [],
+								updated: new Date(t.updated)
+							}
+						: null;
+
+				const decision = resolveEngagementThread({
+					openThread: toOpen(openThread),
+					recentThread: toOpen(recentThread)
+				});
+
+				if (decision.decision !== 'new' && decision.threadId) {
+					threadId = decision.threadId;
+					await tx.communicationThread.update({
+						where: { id: threadId },
+						data: {
+							assignReason: decision.reason,
+							rulesVersion: ENGAGEMENT_RULES_VERSION,
+							...(entry.summary ? { summary: entry.summary } : {})
+						}
+					});
+				}
+			}
+
 			if (!threadId && entry.company_id) {
 				const newThread = await tx.communicationThread.create({
 					data: {
 						companyId: entry.company_id,
 						contactId: entry.customer_id || null,
 						status: 'open',
-						summary: entry.summary || null
+						summary: entry.summary || null,
+						assignReason: 'new_engagement',
+						rulesVersion: ENGAGEMENT_RULES_VERSION
 					}
 				});
 				threadId = newThread.id;

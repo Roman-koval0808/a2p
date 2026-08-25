@@ -465,8 +465,10 @@ export function journeyActivity(log: any): JourneyActivity {
 		};
 	}
 
-	// No truncation. The cell is the record of what happened in the session; clipping it mid-word
-	// ("Hi +15556655443, good news — you have no…") hides the part that matters. Let the column
-	// wrap instead.
-	return { segments: [seg(log.summary ? String(log.summary) : '—')], full: '' };
+	// Prefer `content` over `summary`. `summary` is a short LABEL — the orchestrator stores it as
+	// `draftedResponse.substring(0, 40) + '...'` — so rendering it shows "Hi Elise, thanks for
+	// reaching out to Tot...". The untruncated text is in `content`; the ellipsis was in the data,
+	// not in this cell. No clipping here either: let the column wrap.
+	const body = (log.content ?? '').toString().trim() || (log.summary ?? '').toString().trim();
+	return { segments: [seg(body || '—')], full: '' };
 }

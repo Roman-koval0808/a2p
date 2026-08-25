@@ -76,6 +76,13 @@ export interface ResolverResult {
 const MAX_CANDIDATES = 15;
 const MIN_CONFIDENCE = 0.6;
 
+/**
+ * How far either side of a message a container may have been opened and still count as the
+ * container the pipeline pre-created for THAT message. Generous on purpose: the gap is intake
+ * latency (seconds), not conversation time.
+ */
+const SELF_ECHO_WINDOW_MS = 10 * 60 * 1000;
+
 /** Loose comparison key for "is this container just my own message echoed back?". */
 function normalizeForEcho(text: string): string {
 	return (text || '')
@@ -366,14 +373,26 @@ export async function resolveContextContainer(
 	// Both conditions are required. Time alone is not enough: a comm log's `created` is when the
 	// ROW was written — for a voicemail that is the start of the call, which can predate a
 	// container opened while the caller was still talking. Filtering on time alone therefore threw
-	// away legitimate earlier conversations. A self-container is specifically one opened after the
+	// away legitimate earlier conversations. A self-container is specifically one opened NEAR this
 	// message AND whose content is this same message echoed back.
+	//
+	// "Near" has to be a window on BOTH sides, not just "opened after". The window is which side of
+	// the comm log row the pipeline happens to open the container on, and that differs per channel:
+	// on voice the container is opened during the call, AFTER the row; on SMS the ProfileDB
+	// pipeline opens it on `sms_received`, ~20s BEFORE `logCommunication` writes the row. A
+	// one-sided test therefore caught voice and missed SMS entirely — an SMS matched its own
+	// container ("exact match to the snippet") and was moved off its engagement onto a fresh id,
+	// which is how one customer's two texts came back as two ENG codes minutes apart.
+	//
+	// The echo test is what actually identifies a self-container; the window only keeps a customer
+	// who repeats themselves verbatim weeks later from being treated as an echo.
 	const selfEchoed = normalizeForEcho(input.content || '');
 	if (input.occurredAt && selfEchoed.length >= 12) {
-		const cutoff = input.occurredAt.getTime();
+		const arrivedAt = input.occurredAt.getTime();
 		candidates = candidates.filter((c) => {
-			const openedAfter = new Date(c.openedAt).getTime() >= cutoff;
-			if (!openedAfter) return true;
+			const openedNear =
+				Math.abs(new Date(c.openedAt).getTime() - arrivedAt) <= SELF_ECHO_WINDOW_MS;
+			if (!openedNear) return true;
 			return !normalizeForEcho(c.snippet).includes(selfEchoed);
 		});
 	}
@@ -511,9 +530,32 @@ export async function linkCommunicationLogToContainer(
 	const previousThreadId = existing.communicationThreadId || meta.commId || null;
 	const companyId = opts?.companyId || existing.companyId;
 
+	// --- Never move a log off its ENGAGEMENT ------------------------------------------------
+	//
+	// `communicationThreadId` is the ENGAGEMENT — the stretch of doing business with a customer,
+	// and the ENG code the comm log renders. A container is one level down: a session, opened per
+	// arriving message. Overwriting the engagement with the container id made every message its
+	// own engagement, which is why the same customer's two texts showed two ENG codes.
+	//
+	// The COM id this function exists to share lives in `metadata.commRef`, and is still stamped
+	// below either way — so the cross-channel grouping keeps working without the engagement paying
+	// for it.
+	//
+	// A thread carrying `rulesVersion` was assigned by the engagement rule (intake.ts and
+	// logCommunication both stamp it). Anything else is a legacy or container-bridged thread and
+	// may still be re-pointed, which is what the older callers rely on.
+	let keepThreadId = false;
+	if (existing.communicationThreadId && existing.communicationThreadId !== container.id) {
+		const currentThread = await db.communicationThread.findUnique({
+			where: { id: existing.communicationThreadId },
+			select: { rulesVersion: true }
+		});
+		keepThreadId = !!currentThread?.rulesVersion;
+	}
+
 	// Bridge the legacy thread so the comm-log UI (hashed thread id) and any thread-keyed
 	// consumers see the container's id as the conversation anchor.
-	if (companyId) {
+	if (companyId && !keepThreadId) {
 		await db.communicationThread.upsert({
 			where: { id: container.id },
 			create: {
@@ -530,7 +572,7 @@ export async function linkCommunicationLogToContainer(
 	return db.communicationLog.update({
 		where: { id: logId },
 		data: {
-			communicationThreadId: container.id,
+			...(keepThreadId ? {} : { communicationThreadId: container.id }),
 			metadata: {
 				...meta,
 				commContainerId: container.id,
