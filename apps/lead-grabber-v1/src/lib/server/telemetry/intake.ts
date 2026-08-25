@@ -185,9 +185,8 @@ async function resolveProfile(
 	}
 
 	if (byFingerprint) {
-		// Promotion in place. No profile holds this phone/email — the lookups above found none —
-		// so claiming them here cannot violate the (companyId, phoneNumber)/(companyId, email)
-		// uniques.
+		// Promotion in place. The lookups above found no profile holding this phone/email — but
+		// "found none" was true when we read, not necessarily when we write. See claimOrReread.
 		const updates: Record<string, unknown> = {};
 		if (name && !byFingerprint.displayName) updates.displayName = name;
 		if (phone && !byFingerprint.phoneNumber) updates.phoneNumber = phone;
@@ -215,6 +214,7 @@ async function resolveProfile(
 		})
 	};
 }
+
 
 export async function ingestSignalBatch(batch: SignalBatch): Promise<{ status: number; body: any }> {
 	const { signals, attribution } = batch;
@@ -274,7 +274,19 @@ export async function ingestSignalBatch(batch: SignalBatch): Promise<{ status: n
 
 	// Resolve the profile and persist events in ONE transaction so the profile the events
 	// reference is always committed by the same connection that creates them.
-	const { profileId, newEngagementScore, mergeConflict } = await prisma.$transaction(async (tx: any) => {
+	// Retry the whole transaction once if another batch claimed this phone/email first.
+	//
+	// `(companyId, phoneNumber)` and `(companyId, email)` are unique, and resolveProfile decides
+	// "nobody holds this" by READING. Two batches for one person arriving together — a page view
+	// under a web fingerprint and a leadbox submit under `leadbox-<phone>` — both read "nobody" and
+	// both write; the loser's P2002 aborted its transaction and the intake returned a 500, losing
+	// those signals outright.
+	//
+	// This must be a retry of the TRANSACTION, not a catch inside it: Postgres aborts a transaction
+	// on the first failed statement, so recovering in place is impossible — the re-read fails too.
+	// On the second attempt the winner is committed, so the lookups find it and take the
+	// `identified` path instead.
+	const runIngest = () => prisma.$transaction(async (tx: any) => {
 		const { profile, conflict } = await resolveProfile(tx, company.id, {
 			fingerprintId: batch.fingerprintId,
 			name: batch.name,
@@ -340,6 +352,20 @@ export async function ingestSignalBatch(batch: SignalBatch): Promise<{ status: n
 
 		return { profileId: profile.id, newEngagementScore: newScore, mergeConflict: conflict };
 	}, TX_OPTS);
+
+	const isIdentityClash = (err: any) =>
+		err?.code === 'P2002' &&
+		/phoneNumber|email/.test(String(err?.meta?.target ?? ''));
+
+	let ingested;
+	try {
+		ingested = await runIngest();
+	} catch (err: any) {
+		if (!isIdentityClash(err)) throw err;
+		console.warn('[telemetry] identity claimed concurrently — retrying the batch once');
+		ingested = await runIngest();
+	}
+	const { profileId, newEngagementScore, mergeConflict } = ingested;
 
 	// Raised after the transaction commits: candidate bookkeeping uses its own connection and
 	// must never extend or fail the ingest transaction that noticed the pair.
@@ -525,7 +551,21 @@ async function upsertSessionCommLog(
 	// serialises per visitor, and thread choice happens inside it, so the read-modify-write is safe.
 	const { logId, content, shouldNotify, threadId, sessionRef } = await prisma.$transaction(
 		async (tx: any) => {
-			const lockKey = `eng_${company.id}_${visitorKey}`;
+			// The lock must cover the same rows the lookup below reads, or it protects nothing.
+			//
+			// It used to be keyed on `visitorKey` (the fingerprint) while the lookup keys on the
+			// CONTACT. One person arrives under several visitor keys — a web fingerprint for
+			// browsing, `leadbox-+1555…` for a widget submit — so those batches took DIFFERENT
+			// locks, ran concurrently, both saw no open thread for that contact, and both opened
+			// one. That is how a single visitor ended up with two engagement ids in the same
+			// minute, one of them sharing a session id with the other.
+			//
+			// Keyed on the contact, every batch that resolves to the same person serialises no
+			// matter which key it arrived under. Anonymous visitors still fall back to the visitor
+			// key, which is the only identity they have.
+			const lockKey = contact
+				? `eng_${company.id}_contact_${contact.id}`
+				: `eng_${company.id}_${visitorKey}`;
 			await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
 
 			// Resolve the engagement thread: contact's open thread first, else most-recent within
