@@ -1,4 +1,5 @@
 import { prisma } from '$lib/db';
+import { communicationSurface, COMMUNICATION_SURFACE_INCLUDE } from '$lib/server/communication-surface';
 import { redirect, error } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { commCode } from '$lib/utils/comm-id';
@@ -257,7 +258,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 					...(clearEmail !== '—' ? [{ source: clearEmail }, { destination: clearEmail }] : [])
 				]
 			},
-			orderBy: { created: 'desc' }
+			orderBy: { created: 'desc' },
+			include: COMMUNICATION_SURFACE_INCLUDE
 		});
 
 		// Our own scheduled-intent rows (the §10 CRM note and the old ack log) are internal
@@ -287,6 +289,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			.sort((a, b) => b.created.localeCompare(a.created));
 
 		const comms = conversationLogs.map((log) => {
+			// Same surface the communication-log page renders, from the same helper, so the shared
+			// CommunicationTable shows identical cells on both pages.
+			const surface = communicationSurface(log);
 			const dateObj = new Date(log.created);
 			const date = dateObj.toLocaleDateString('en-US', {
 				month: 'short',
@@ -361,7 +366,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				status,
 				emailOpenedAt: log.emailOpenedAt?.toISOString() ?? null,
 				emailClickedAt: log.emailClickedAt?.toISOString() ?? null,
-				raw: log
+				raw: log,
+				...surface
 			};
 		});
 

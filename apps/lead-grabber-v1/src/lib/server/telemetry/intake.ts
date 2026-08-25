@@ -11,6 +11,18 @@ import { SIGNAL_CATALOG, humanizeSignal, type TelemetrySignal } from '$lib/telem
 import type { Attribution } from '$lib/telemetry/attribution';
 import { recordMergeCandidate } from '$lib/server/identity/merge-service';
 import { getNextBucket } from '$lib/server/profiledb/scoring.service';
+import {
+	resolveEngagementThread,
+	resolveBatchSubtopic,
+	subtopicForSignal,
+	UNKNOWN_SUBTOPIC,
+	deriveIntentStatus,
+	isPaidAdChannel,
+	accumulateSubtopicScores,
+	rollupScore,
+	capTotal,
+	ENGAGEMENT_RULES_VERSION
+} from './engagement';
 
 // ── Comm-log visibility ─────────────────────────────────────────────────────
 // Which signals surface as a communication-log row (the a2p comm log / sales inbox).
@@ -226,6 +238,9 @@ export async function ingestSignalBatch(batch: SignalBatch): Promise<{ status: n
 		category: string;
 		delta: number;
 		bucketSignal?: string;
+		payload?: Record<string, unknown> | null;
+		/** Resolved once here, then reused for the interaction row AND the score rollup. */
+		subtopic?: string | null;
 	}[] = [];
 
 	for (const sig of signals) {
@@ -240,7 +255,14 @@ export async function ingestSignalBatch(batch: SignalBatch): Promise<{ status: n
 			name: def.name,
 			category: def.category,
 			delta: def.scoreDelta,
-			bucketSignal: def.bucketSignal
+			bucketSignal: def.bucketSignal,
+			payload: sig.payload ?? null,
+			// Attributed from THIS signal's own page/payload, falling back to the session's landing
+			// page. Null means no identifiable subject — recorded as UNKNOWN_SUBTOPIC downstream.
+			subtopic: subtopicForSignal(
+				{ name: def.name, payload: sig.payload ?? null },
+				batch.attribution?.landingUrl
+			)
 		});
 		scoreDelta += def.scoreDelta;
 		accepted.push(def.name);
@@ -286,6 +308,7 @@ export async function ingestSignalBatch(batch: SignalBatch): Promise<{ status: n
 						fingerprintId: batch.fingerprintId,
 						attribution
 					}),
+					payload: (ev.payload ?? undefined) as any,
 					requiresAiExtraction: false,
 					aiExtractionCompleted: false,
 					processingStatus: 'received',
@@ -441,14 +464,20 @@ async function applyContactBucket(contactId: string, bucket: string) {
 	}
 }
 
-// One comm-log row per visitor session. All of a visitor's signals fold into a single
-// communication thread (so they share one COM id), the row's summary is the latest signal,
-// and the source is the fingerprint (or the profile name once they're recognised).
+// One CommunicationThread per ENGAGEMENT (a business episode — spans visits and months), and one
+// CommunicationLog row per SESSION (a visit/call) inside it. Thread selection is evidence-before-time
+// (see resolveEngagementThread); the 30-minute visit gap only decides the SESSION boundary below.
 async function upsertSessionCommLog(
 	company: { id: string; name: string | null },
 	profileId: string,
 	batch: SignalBatch,
-	eventIds: { name: string; category: string; delta: number }[],
+	eventIds: {
+		name: string;
+		category: string;
+		delta: number;
+		payload?: Record<string, unknown> | null;
+		subtopic?: string | null;
+	}[],
 	engagementScore: number,
 	contact: { id: string } | null
 ) {
@@ -460,20 +489,11 @@ async function upsertSessionCommLog(
 	const fingerprint = batch.fingerprintId?.trim() || null;
 	const sessionId = batch.sessionId?.trim() || null;
 
-	// Identifies the person across page loads and visits; the visit is carved out of it below.
+	// Identifies the person across page loads and visits. For an anonymous visitor the fingerprint
+	// is the identity thread; once a contact exists, thread resolution goes by contact.
 	const visitorKey = fingerprint || sessionId;
 	if (!visitorKey) return;
 
-	// Every thread this visitor has ever had is `vt_<key>` (rows written before visits were split)
-	// or `vt_<key>_<visit>`. Matching both keeps old rows reachable instead of orphaning them.
-	const threadPrefix = `vt_${visitorKey}`;
-	const visitorThreadWhere = {
-		companyId: company.id,
-		OR: [
-			{ communicationThreadId: threadPrefix },
-			{ communicationThreadId: { startsWith: `${threadPrefix}_` } }
-		]
-	};
 	const latest = eventIds[eventIds.length - 1];
 	const type = latest.category === 'viewroom' ? 'viewroom' : 'web';
 	const summary = humanizeSignal(latest.name);
@@ -482,113 +502,222 @@ async function upsertSessionCommLog(
 	// anonymous website batches would otherwise clobber the name the visitor gave in the viewroom.
 	const source = name || email || phone || fingerprint || undefined;
 
-	// The row's `metadata.signals` is a read-modify-write, so two batches for the SAME visitor
-	// arriving together (a form tab-through, or a site batch overlapping an embed request) would
-	// both read the pre-existing array and the second write would clobber the first. The signal
-	// stayed in pipeline_events but vanished from the comm log — which is what the sales inbox and
-	// the AI summary actually read, so it looked like the signal was never received at all.
-	// The advisory lock serialises per visitor thread only; it is released when the tx commits.
-	const { logId, content, shouldNotify, threadId } = await prisma.$transaction(async (tx: any) => {
-		// The lock is taken on the VISITOR, not the thread, because which thread this batch belongs
-		// to is decided inside the lock — two batches racing here would otherwise each decide the
-		// visit had lapsed and open two rows for one visit.
-		await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${threadPrefix}))`;
+	// The type of business for THIS session, from the landing URL and any service/problem payloads.
+	const subtopic = resolveBatchSubtopic({
+		landingUrl: batch.attribution?.landingUrl,
+		signals: eventIds.map((e) => ({ name: e.name, payload: e.payload }))
+	});
 
-		let threadId: string;
-		let existing: any = null;
+	// Source-aware intent status (Bug A): `ad_indicated` only for a real paid-ad click.
+	const intentStatus = deriveIntentStatus({
+		direction: 'inbound',
+		declaredIdentifier: Boolean(name || email || phone),
+		isPaidAd: isPaidAdChannel(batch.attribution?.channel),
+		hasBehaviour: eventIds.some((e) => e.name !== 'page_load')
+	});
 
-		if (sessionId) {
-			// The browser tab IS the visit. Deterministic: no lookup, no clock, and reopening the
-			// tab produces a different id and therefore a different row on the very next signal.
-			threadId = `${threadPrefix}_${sessionId}`;
-			existing = await tx.communicationLog.findFirst({
-				where: { companyId: company.id, communicationThreadId: threadId },
+	// The row's `metadata.signals` and the thread's `subtopicScores` are read-modify-writes, so two
+	// batches for the SAME visitor arriving together would both read the pre-existing value and the
+	// second write would clobber the first (the 2026-08-20 comm-log lost-update). The advisory lock
+	// serialises per visitor, and thread choice happens inside it, so the read-modify-write is safe.
+	const { logId, content, shouldNotify, threadId, sessionRef } = await prisma.$transaction(
+		async (tx: any) => {
+			const lockKey = `eng_${company.id}_${visitorKey}`;
+			await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+
+			// Resolve the engagement thread: contact's open thread first, else most-recent within
+			// window, else a fresh episode. Anonymous visitors resolve by their vt_ id prefix.
+			const threadWhere = contact
+				? { companyId: company.id, contactId: contact.id }
+				: { companyId: company.id, id: { startsWith: `vt_${visitorKey}` } };
+
+			const openThread = await tx.communicationThread.findFirst({
+				where: { ...threadWhere, status: { not: 'closed' } },
 				orderBy: { updated: 'desc' }
 			});
-		} else {
-			// Fallback for batches with no session id: treat a gap in activity as a new visit.
-			const previous = await tx.communicationLog.findFirst({
-				where: visitorThreadWhere,
+			const recentThread = await tx.communicationThread.findFirst({
+				where: threadWhere,
 				orderBy: { updated: 'desc' }
 			});
-			const lastSeen = previous?.updated?.getTime() ?? 0;
-			const sameVisit = !!previous && Date.now() - lastSeen <= VISIT_GAP_MINUTES * 60_000;
-			threadId = sameVisit
-				? (previous.communicationThreadId as string)
-				: `${threadPrefix}_${Date.now().toString(36)}`;
-			existing = sameVisit ? previous : null;
-		}
 
-		// One thread per visit, so all of a visit's signals share one COM id.
-		await tx.communicationThread.upsert({
-			where: { id: threadId },
-			create: {
-				id: threadId,
-				companyId: company.id,
-				contactId: contact?.id ?? null,
-				status: 'open',
-				summary
-			},
-			update: { summary, contactId: contact?.id ?? undefined }
-		});
+			const toOpen = (t: any) =>
+				t
+					? {
+							id: t.id,
+							status: t.status,
+							subtopics: Array.isArray(t.subtopics) ? t.subtopics : [],
+							updated: new Date(t.updated)
+						}
+					: null;
 
-		const meta = (existing?.metadata as Record<string, any>) || {};
-		const incomingSignals = eventIds.map((e) => e.name);
-
-		// Append every signal — repeats from later visits must be visible, not deduped away (a
-		// returning visitor's vr_entry/dwell would otherwise look like nothing was recorded).
-		const signals = Array.isArray(meta.signals)
-			? [...meta.signals, ...incomingSignals].slice(-80)
-			: incomingSignals;
-		const nextContent = `Signals: ${signals.map(humanizeSignal).join(' → ')} · Engagement score ${engagementScore}`;
-
-		// Notify once per session, the first time a high-intent signal arrives.
-		const notify = eventIds.some((ev) => isHighIntent(ev)) && !meta.notified;
-		const nextMeta = {
-			...meta,
-			name: name ?? meta.name ?? null,
-			latestSignal: latest.name,
-			signals,
-			scoreLive: engagementScore,
-			source_signal: type,
-			attribution: batch.attribution ?? meta.attribution,
-			notified: !!meta.notified || notify
-		};
-
-		let id: string;
-		if (existing) {
-			await tx.communicationLog.update({
-				where: { id: existing.id },
-				data: {
-					summary,
-					content: nextContent,
-					source: source ?? existing.source,
-					customerId: contact?.id ?? existing.customerId,
-					metadata: nextMeta as any
-				}
+			// Rule #1 (explicit engagement/project/quote/case/work-order ref) is not wired here: the
+			// web SignalBatch carries no such field. When explicit refs arrive (project/quote/case
+			// records), pass them into resolveEngagementThread and they'll take priority.
+			const decision = resolveEngagementThread({
+				openThread: toOpen(openThread),
+				recentThread: toOpen(recentThread)
 			});
-			id = existing.id;
-		} else {
-			const created = await tx.communicationLog.create({
-				data: {
-					type,
-					direction: 'inbound',
-					status: 'success',
-					source: source ?? null,
-					destination: null,
-					companyId: company.id,
-					customerId: contact?.id ?? null,
-					summary,
-					content: nextContent,
-					communicationThreadId: threadId,
-					metadata: { ...nextMeta, profileId } as any
-				}
-			});
-			id = created.id;
-		}
 
-		return { logId: id, content: nextContent, shouldNotify: notify, threadId };
-	}, TX_OPTS);
+			let threadId: string;
+			let threadIsNew = false;
+			if (decision.decision === 'new' || !decision.threadId) {
+				// New engagement (or an explicit ref that resolved to no thread yet — safe to fall
+				// through to a fresh episode rather than feed `undefined` into the next writes).
+				threadId = `vt_${visitorKey}_${Date.now().toString(36)}${Math.random()
+					.toString(36)
+					.slice(2, 6)}`;
+				threadIsNew = true;
+			} else {
+				threadId = decision.threadId;
+			}
+
+			// The session boundary: a browser tab (sessionId) is a session; without one, a gap in
+			// activity starts a new session. The 30-minute logic moved down from thread to log row.
+			let sessionRef: string;
+			let existing: any = null;
+			if (sessionId) {
+				sessionRef = `SES-WEB-${sessionId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase()}`;
+				existing = await tx.communicationLog.findFirst({
+					where: { companyId: company.id, communicationThreadId: threadId, sessionRef },
+					orderBy: { updated: 'desc' }
+				});
+			} else {
+				const previous = await tx.communicationLog.findFirst({
+					where: { companyId: company.id, communicationThreadId: threadId },
+					orderBy: { updated: 'desc' }
+				});
+				const lastSeen = previous?.updated?.getTime() ?? 0;
+				const sameVisit = !!previous && Date.now() - lastSeen <= VISIT_GAP_MINUTES * 60_000;
+				sessionRef = sameVisit
+					? previous.sessionRef
+					: `SES-WEB-${Date.now().toString(36).toUpperCase()}`;
+				existing = sameVisit ? previous : null;
+			}
+
+			// Per-signal subtopic deltas, using the subtopic each event already resolved. A signal
+			// with no identifiable subject is recorded separately under UNKNOWN_SUBTOPIC.
+			const deltasBySubtopic: Record<string, number> = {};
+			for (const ev of eventIds) {
+				const st = ev.subtopic ?? UNKNOWN_SUBTOPIC;
+				deltasBySubtopic[st] = (deltasBySubtopic[st] ?? 0) + ev.delta;
+			}
+
+			// Read the thread's current rollup state, then fold this batch in.
+			const currentThread = threadIsNew
+				? null
+				: await tx.communicationThread.findUnique({ where: { id: threadId } });
+			const currentSubtopics: string[] = Array.isArray(currentThread?.subtopics)
+				? currentThread.subtopics
+				: [];
+			const currentScores: Record<string, number> =
+				currentThread?.subtopicScores && typeof currentThread.subtopicScores === 'object'
+					? (currentThread.subtopicScores as Record<string, number>)
+					: {};
+
+			// Roll up EVERY subtopic this batch touched, not just the session-level one — a single
+			// session can span subjects (kitchen pages then a bathroom quote), and the array has to
+			// agree with the keys in subtopicScores. UNKNOWN is scored but never listed as a subject.
+			const newSubtopics = [...currentSubtopics];
+			for (const key of Object.keys(deltasBySubtopic)) {
+				if (key !== UNKNOWN_SUBTOPIC && !newSubtopics.includes(key)) newSubtopics.push(key);
+			}
+			const newScores = accumulateSubtopicScores(currentScores, deltasBySubtopic);
+			const newEngagementScore = capTotal(rollupScore(newScores));
+
+			if (threadIsNew) {
+				await tx.communicationThread.create({
+					data: {
+						id: threadId,
+						companyId: company.id,
+						contactId: contact?.id ?? null,
+						status: 'open',
+						summary,
+						subtopics: newSubtopics,
+						subtopicScores: newScores,
+						engagementScore: newEngagementScore,
+						assignReason: decision.reason,
+						rulesVersion: decision.rulesVersion
+					}
+				});
+			} else {
+				await tx.communicationThread.update({
+					where: { id: threadId },
+					data: {
+						summary,
+						contactId: contact?.id ?? undefined,
+						subtopics: newSubtopics,
+						subtopicScores: newScores,
+						engagementScore: newEngagementScore,
+						assignReason: decision.reason,
+						rulesVersion: decision.rulesVersion
+					}
+				});
+			}
+
+			const meta = (existing?.metadata as Record<string, any>) || {};
+			const incomingSignals = eventIds.map((e) => e.name);
+
+			// Append every signal — repeats from later visits must be visible, not deduped away (a
+			// returning visitor's vr_entry/dwell would otherwise look like nothing was recorded).
+			const signals = Array.isArray(meta.signals)
+				? [...meta.signals, ...incomingSignals].slice(-80)
+				: incomingSignals;
+			const nextContent = `Signals: ${signals.map(humanizeSignal).join(' → ')} · Engagement score ${newEngagementScore}`;
+
+			// Notify once per session, the first time a high-intent signal arrives.
+			const notify = eventIds.some((ev) => isHighIntent(ev)) && !meta.notified;
+			const nextMeta = {
+				...meta,
+				name: name ?? meta.name ?? null,
+				latestSignal: latest.name,
+				signals,
+				scoreLive: newEngagementScore,
+				source_signal: type,
+				attribution: batch.attribution ?? meta.attribution,
+				intentStatus,
+				subtopic,
+				notified: !!meta.notified || notify
+			};
+
+			let id: string;
+			if (existing) {
+				await tx.communicationLog.update({
+					where: { id: existing.id },
+					data: {
+						summary,
+						content: nextContent,
+						source: source ?? existing.source,
+						customerId: contact?.id ?? existing.customerId,
+						subtopic: subtopic ?? existing.subtopic,
+						metadata: nextMeta as any
+					}
+				});
+				id = existing.id;
+			} else {
+				const created = await tx.communicationLog.create({
+					data: {
+						type,
+						direction: 'inbound',
+						status: 'success',
+						source: source ?? null,
+						destination: null,
+						companyId: company.id,
+						customerId: contact?.id ?? null,
+						summary,
+						content: nextContent,
+						communicationThreadId: threadId,
+						subtopic,
+						sessionRef,
+						metadata: { ...nextMeta, profileId } as any
+					}
+				});
+				id = created.id;
+			}
+
+			return { logId: id, content: nextContent, shouldNotify: notify, threadId, sessionRef };
+		},
+		TX_OPTS
+	);
 
 	if (shouldNotify) {
 		await createNotification({

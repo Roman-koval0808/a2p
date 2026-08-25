@@ -354,6 +354,8 @@ model CommunicationLog {
   content                String?
   duration               Float?
   metadata               Json?
+  subtopic               String?
+  sessionRef             String?
   created                DateTime                         @default(now())
   updated                DateTime                         @updatedAt
   callTrackingCategoryId String?
@@ -377,19 +379,25 @@ model CommunicationLog {
 }
 
 model CommunicationThread {
-  id            String             @id @default(cuid())
-  companyId     String
-  contactId     String?
-  status        String             @default("open")
-  urgency       String?
-  summary       String?
-  created       DateTime           @default(now())
-  updated       DateTime           @updatedAt
-  logs          CommunicationLog[]
-  company       Company            @relation(fields: [companyId], references: [id])
-  contact       Contact?           @relation(fields: [contactId], references: [id])
-  notifications Notification[]
-  tasks         Task[]
+  id              String             @id @default(cuid())
+  companyId       String
+  contactId       String?
+  status          String             @default("open")
+  urgency         String?
+  summary         String?
+  subtopics       Json               @default("[]")
+  subtopicScores  Json               @default("{}")
+  engagementScore Int                @default(0)
+  closedAt        DateTime?
+  assignReason    String?
+  rulesVersion    String?
+  created         DateTime           @default(now())
+  updated         DateTime           @updatedAt
+  logs            CommunicationLog[]
+  company         Company            @relation(fields: [companyId], references: [id])
+  contact         Contact?           @relation(fields: [contactId], references: [id])
+  notifications   Notification[]
+  tasks           Task[]
 
   @@index([companyId])
   @@index([contactId])
@@ -651,6 +659,8 @@ model PipelineEvent {
   occurredAt            DateTime?                   @default(now())
   receivedAt            DateTime?                   @default(now())
   unstructuredText      String?
+  payload               Json?
+  subtopic              String?
   isDuplicate           Boolean                     @default(false)
   requiresAiExtraction  Boolean                     @default(false)
   aiExtractionCompleted Boolean                     @default(false)

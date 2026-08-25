@@ -1,11 +1,20 @@
 import { prisma } from '$lib/db';
+import { communicationSurface, COMMUNICATION_SURFACE_INCLUDE } from '$lib/server/communication-surface';
 import type { PageServerLoad } from './$types';
 import { isA2pCommLogEnabled } from '$lib/server/a2p-client';
-import { commCode } from '$lib/utils/comm-id';
+import { commCode, engCode, sesCode, prfCode } from '$lib/utils/comm-id';
 import { getBookingUrl } from '$lib/utils/booking';
 import { getConnectionInfo } from '$lib/server/google-calendar';
 
 const PAGE_SIZES = [10, 20, 50, 100] as const;
+
+// Canonical attribution channels → human labels. The Source column shows WHERE the interaction
+// came from (a provider channel / campaign), never the person — the person is the Profile column.
+
+
+// The sub-line beneath the source: the keyword/query/referrer that narrows where it came from.
+
+// The Profile column's "who" line, at current resolution. Mirrors the prototype's tier notes.
 
 export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 	depends('app:communication-log');
@@ -81,6 +90,7 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 					include: { contact: true }
 				},
 				customer: true,
+				callTrackingCategory: true,
 				company: { select: { name: true } }
 			},
 			orderBy: { created: 'desc' },
@@ -185,6 +195,10 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 			// the container's commRef as the shared code (cross-channel threading).
 			const convoCode = commCode(log.communicationThreadId, meta.commRef, log.created, Date.now(), log.id);
 
+			// Four-level model surface (Profile → Engagement → Session → Interaction). The thread is
+			// the engagement; the log row is the session. Identifiers are stable display codes.
+			const surface = communicationSurface(log);
+
 			return {
 				id: log.id,
 				type: log.type,
@@ -204,7 +218,8 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 				threadSummary: log.communicationThread?.summary,
 				assignedMemberNames,
 				raw: log,
-				isDropCall: false
+				isDropCall: false,
+				...surface
 			};
 		});
 

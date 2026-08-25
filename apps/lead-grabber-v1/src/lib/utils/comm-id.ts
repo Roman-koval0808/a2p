@@ -79,3 +79,23 @@ export function isCommCodePending(
 ): boolean {
 	return !commCode(threadId, containerRef, createdAt, now, logId);
 }
+
+/**
+ * Short, stable, human-facing identifier for the four-level model
+ * (specs/clearsky-communication-log-id-model.md):
+ *   PRF-####  profile (who)       — from the contact id
+ *   ENG-####  engagement (episode) — from the thread id
+ *   SES-####  session (visit/call) — from the log's sessionRef
+ *
+ * Same FNV-1a hash as the legacy COM code, so the same underlying id always renders the same code.
+ * Display-only; a rare collision is harmless.
+ */
+export function idCode(prefix: 'PRF' | 'ENG' | 'SES', key: string | null | undefined): string | null {
+	const k = (key || '').trim();
+	if (!k) return null;
+	return `${prefix}-${hash(k)}`;
+}
+
+export const prfCode = (contactId: string | null | undefined) => idCode('PRF', contactId);
+export const engCode = (threadId: string | null | undefined) => idCode('ENG', threadId);
+export const sesCode = (sessionRef: string | null | undefined) => idCode('SES', sessionRef);

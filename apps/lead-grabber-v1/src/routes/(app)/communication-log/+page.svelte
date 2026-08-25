@@ -4,6 +4,7 @@
 	import CommunicationTable from '$lib/components/CommunicationTable.svelte';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index';
 	import CommunicationSummaryDialog from '$lib/components/communication-summary-dialog.svelte';
+	import SessionSummaryDrawer from '$lib/components/session-summary-drawer.svelte';
 	import NotificationsDialog from '$lib/components/notifications/notifications-dialog.svelte';
 	import PipelineModal from '$lib/components/PipelineModal.svelte';
 	import OrchestratorLogModal from '$lib/components/orchestrator-log-modal.svelte';
@@ -75,6 +76,9 @@
 	let selectedAgentName = $state<string | null>(null);
 
 	let summaryDialogOpen = $state(false);
+	// Prototype-style Session Summary drawer (the primary Summary view).
+	let sessionDrawerOpen = $state(false);
+	let sessionDrawerComm = $state<any>(null);
 	// The selected comm is derived from its id + the freshest page data, so an open dialog
 	// keeps updating (e.g. "Analyzing…" → resolved tasks) without effectfully writing state
 	// — writing $state inside an $effect would re-trigger it (state is deep-proxied, so a
@@ -311,12 +315,35 @@
 			assignedMemberNames: c.assignedMemberNames,
 			emailOpenedAt: c.emailOpenedAt,
 			emailClickedAt: c.emailClickedAt,
+			channelSource: c.channelSource ?? c.raw?.channelSource ?? null,
+			channelSourceDetail: c.channelSourceDetail ?? c.raw?.channelSourceDetail ?? null,
+			engagementId: c.engagementId ?? c.raw?.engagementId ?? null,
+			sessionId: c.sessionId ?? c.raw?.sessionId ?? null,
+			profileId: c.profileId ?? c.raw?.profileId ?? null,
+			profileName: c.profileName ?? c.raw?.profileName ?? null,
+			profileTier: c.profileTier ?? c.raw?.profileTier ?? null,
+			profileWho: c.profileWho ?? c.raw?.profileWho ?? null,
+			intentStatus: c.intentStatus ?? c.raw?.intentStatus ?? null,
+			intentStage: c.intentStage ?? c.raw?.intentStage ?? null,
+			intentSubtopic: c.intentSubtopic ?? c.raw?.intentSubtopic ?? null,
+			intentConfidence: c.intentConfidence ?? c.raw?.intentConfidence ?? null,
+			threadSubtopics: c.threadSubtopics ?? c.raw?.threadSubtopics ?? [],
+			threadSubtopicScores: c.threadSubtopicScores ?? c.raw?.threadSubtopicScores ?? null,
+			threadEngagementScore: c.threadEngagementScore ?? c.raw?.threadEngagementScore ?? null,
+			// Held back by CommunicationTable until the AI pipeline has written its read.
+			isProcessing: c.isProcessing ?? c.raw?.isProcessing ?? false,
 			raw: c.raw
 		}))
 	);
 
 	function handleSummaryClick(comm: any) {
-		// Use the transformed comm object, not raw, so we have all the formatted fields
+		// The primary Summary view is the prototype-style Session Summary drawer.
+		sessionDrawerComm = comm;
+		sessionDrawerOpen = true;
+	}
+
+	// The a2p operational summary (recording, tasks, drafts, confirm email) for the ••• "View Details".
+	function showOperationalDetails(comm: any) {
 		lastSelectedComm = comm;
 		summaryCommId = comm.id || comm.raw?.id || null;
 		summaryDialogOpen = true;
@@ -366,7 +393,7 @@
 				toast.error('No phone number available');
 			}
 		} else if (action === 'view') {
-			handleSummaryClick(comm);
+			showOperationalDetails(comm);
 		} else {
 			console.log('Action:', action, 'for comm:', comm);
 		}
@@ -693,6 +720,10 @@
 {/if}
 
 <NotificationsDialog bind:open={notificationsDialogOpen} />
+
+{#if sessionDrawerOpen && sessionDrawerComm}
+	<SessionSummaryDrawer comm={sessionDrawerComm} onClose={() => (sessionDrawerOpen = false)} />
+{/if}
 
 <BookingCalendarDialog
 	bind:open={bookingDialogOpen}

@@ -176,6 +176,14 @@ export class UnifiedPipeline {
 				suppressionReason = 'duplicate_provider_id';
 			}
 
+			// This lookup and the insert in step 6 are not atomic — the read happens here, on the
+			// global client, and the write happens later inside a transaction. Two deliveries of the
+			// same provider event (a webhook retry, or the provider sending twice) both read null
+			// and both try to insert, and the second dies on the `providerEventId` unique index.
+			// Step 6 therefore also catches that violation and treats it as what it is: a duplicate.
+			// Do not remove one guard because the other exists — the pre-check keeps the common case
+			// cheap, the catch makes it correct.
+
 			if (!isDuplicate && customerProfile) {
 				// Content-based Duplicacy Check (window: 24 hours for similar content)
 				if (payload.textContent && payload.textContent.length > 3) {
@@ -257,85 +265,104 @@ export class UnifiedPipeline {
 			log(`[Step 6] Storage: Saving event and marking as "Handoff Eligible"`);
 			const eventInternalId = crypto.randomUUID();
 
-			const event = await prisma.$transaction(async (tx: any) => {
-				const evt = await tx.pipelineEvent.create({
-					data: {
-						id: eventInternalId,
-						eventId: `evt_${randomUUID()}`,
-						traceId: traceId,
-						provider: payload.provider,
-						providerEventName: payload.eventType,
-						providerEventId:
-							suppressionReason === 'duplicate_provider_id'
-								? `${payload.externalId}_dup_${Date.now()}`
-								: isSimulation
-									? `${payload.externalId}_sim_${crypto.randomUUID()}`
-									: payload.externalId,
-						eventType: payload.eventType,
-						networkCategory: payload.provider.includes('telnyx') ? 'Communication' : 'Trust',
-						companyId: company?.id,
-						customerProfileId: customerProfile?.id,
-						authorName: payload.customerName || customerProfile?.displayName || null,
-						reviewRatingNumeric: payload.rating || null,
-						reviewText: payload.textContent,
-						occurredAt: payload.occurredAt || receivedAt,
-						receivedAt: receivedAt,
-						unstructuredText: payload.metadata
-							? JSON.stringify(payload.metadata)
-							: payload.textContent,
-						requiresAiExtraction: !!aiResult,
-						aiExtractionCompleted: !!aiResult,
-						isDuplicate: isDuplicate,
-						processingStatus: isDuplicate
-							? 'duplicate_blocked'
-							: isSuppressed
-								? 'identity_suppressed'
-								: 'handoff_eligible',
-						handoffEligible: !isDuplicate && !isSuppressed
-					}
-				});
-
-				if (aiResult) {
-					await tx.pipelineEnrichment.create({
+			let event: any;
+			try {
+				event = await prisma.$transaction(async (tx: any) => {
+					const evt = await tx.pipelineEvent.create({
 						data: {
-							id: crypto.randomUUID(),
-							eventId: eventInternalId,
-							aiSentiment: aiResult.sentiment,
-							aiSentimentScore: aiResult.confidence_score,
-							aiPraiseDetected: aiResult.praise_topics.length > 0,
-							aiComplaintDetected: aiResult.complaint_topics.length > 0,
-							aiPraiseTopics: aiResult.praise_topics,
-							aiComplaintTopics: aiResult.complaint_topics,
-							aiPrimaryPraiseTopic: aiResult.praise_topics[0] || null,
-							aiPrimaryComplaintTopic: aiResult.complaint_topics[0] || null,
-							aiServiceMentioned: aiResult.service_requested,
-							aiCustomerExperienceIssue: aiResult.contains_problem ? 'problem_detected' : null,
-							aiUrgencyLevel: aiResult.urgency_level,
-							aiEmergencyType: aiResult.emergency_type ?? null,
-							aiSummary: aiResult.summary,
-							aiConfidenceScore: aiResult.confidence_score,
-							aiCustomerName: aiResult.customer_name,
-							aiHasName: aiResult.has_name,
-
-							// New Deterministic Facts
-							aiContainsProblem: aiResult.contains_problem,
-							aiContainsQuoteRequest: aiResult.contains_quote_request,
-							aiContainsCallbackRequest: aiResult.contains_callback_request,
-							aiContainsEmergencyKeywords: aiResult.contains_emergency_keywords,
-							aiRequestedContactMethod: aiResult.requested_contact_method,
-							aiRequestedAction: aiResult.requested_action,
-							aiDetectedKeywords: aiResult.detected_keywords,
-
-							sentiment: aiResult.sentiment,
-							summary: aiResult.summary,
-							urgencyLevel: aiResult.urgency_level,
-							serviceRequested: aiResult.service_requested,
-							confidenceScore: aiResult.confidence_score
+							id: eventInternalId,
+							eventId: `evt_${randomUUID()}`,
+							traceId: traceId,
+							provider: payload.provider,
+							providerEventName: payload.eventType,
+							providerEventId:
+								suppressionReason === 'duplicate_provider_id'
+									? `${payload.externalId}_dup_${Date.now()}`
+									: isSimulation
+										? `${payload.externalId}_sim_${crypto.randomUUID()}`
+										: payload.externalId,
+							eventType: payload.eventType,
+							networkCategory: payload.provider.includes('telnyx') ? 'Communication' : 'Trust',
+							companyId: company?.id,
+							customerProfileId: customerProfile?.id,
+							authorName: payload.customerName || customerProfile?.displayName || null,
+							reviewRatingNumeric: payload.rating || null,
+							reviewText: payload.textContent,
+							occurredAt: payload.occurredAt || receivedAt,
+							receivedAt: receivedAt,
+							unstructuredText: payload.metadata
+								? JSON.stringify(payload.metadata)
+								: payload.textContent,
+							requiresAiExtraction: !!aiResult,
+							aiExtractionCompleted: !!aiResult,
+							isDuplicate: isDuplicate,
+							processingStatus: isDuplicate
+								? 'duplicate_blocked'
+								: isSuppressed
+									? 'identity_suppressed'
+									: 'handoff_eligible',
+							handoffEligible: !isDuplicate && !isSuppressed
 						}
 					});
-				}
-				return evt;
-			});
+
+					if (aiResult) {
+						await tx.pipelineEnrichment.create({
+							data: {
+								id: crypto.randomUUID(),
+								eventId: eventInternalId,
+								aiSentiment: aiResult.sentiment,
+								aiSentimentScore: aiResult.confidence_score,
+								aiPraiseDetected: aiResult.praise_topics.length > 0,
+								aiComplaintDetected: aiResult.complaint_topics.length > 0,
+								aiPraiseTopics: aiResult.praise_topics,
+								aiComplaintTopics: aiResult.complaint_topics,
+								aiPrimaryPraiseTopic: aiResult.praise_topics[0] || null,
+								aiPrimaryComplaintTopic: aiResult.complaint_topics[0] || null,
+								aiServiceMentioned: aiResult.service_requested,
+								aiCustomerExperienceIssue: aiResult.contains_problem ? 'problem_detected' : null,
+								aiUrgencyLevel: aiResult.urgency_level,
+								aiEmergencyType: aiResult.emergency_type ?? null,
+								aiSummary: aiResult.summary,
+								aiConfidenceScore: aiResult.confidence_score,
+								aiCustomerName: aiResult.customer_name,
+								aiHasName: aiResult.has_name,
+
+								// New Deterministic Facts
+								aiContainsProblem: aiResult.contains_problem,
+								aiContainsQuoteRequest: aiResult.contains_quote_request,
+								aiContainsCallbackRequest: aiResult.contains_callback_request,
+								aiContainsEmergencyKeywords: aiResult.contains_emergency_keywords,
+								aiRequestedContactMethod: aiResult.requested_contact_method,
+								aiRequestedAction: aiResult.requested_action,
+								aiDetectedKeywords: aiResult.detected_keywords,
+
+								sentiment: aiResult.sentiment,
+								summary: aiResult.summary,
+								urgencyLevel: aiResult.urgency_level,
+								serviceRequested: aiResult.service_requested,
+								confidenceScore: aiResult.confidence_score
+							}
+						});
+					}
+					return evt;
+				});
+			} catch (err: any) {
+				// The pre-check in step 4 lost the race: another delivery of this same provider event
+				// inserted first. That is a duplicate, not a failure — carry on against the row that
+				// won instead of dying on the constraint. try/catch rather than .catch() on the
+				// transaction, because a non-promise return (mocked $transaction) would break that.
+				const isProviderIdClash =
+					err?.code === 'P2002' &&
+					String(err?.meta?.target ?? '').includes('providerEventId');
+				if (!isProviderIdClash) throw err;
+
+				log(`[Step 6] Storage: duplicate providerEventId ${providerEventId} — another delivery won the race`);
+				isDuplicate = true;
+				suppressionReason = 'duplicate_provider_id';
+				const winner = await prisma.pipelineEvent.findUnique({ where: { providerEventId } });
+				if (!winner) throw err;
+				event = winner;
+			}
 
 			// STEP 7-16: Downstream Processing
 			let finalTrace = pipelineSteps.join('\n');

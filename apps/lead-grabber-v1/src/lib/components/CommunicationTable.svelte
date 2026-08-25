@@ -1,20 +1,4 @@
 <script lang="ts">
-	import {
-		Search,
-		Mic,
-		Mail,
-		MessageSquare,
-		Phone,
-		Globe,
-		Facebook,
-		Bot,
-		FileText,
-		MessageCircle,
-		Video,
-		Reply,
-		ChevronUp,
-		ChevronDown
-	} from 'lucide-svelte';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
 
 	export interface Communication {
@@ -34,6 +18,22 @@
 		raw?: any;
 		emailOpenedAt?: string | null;
 		emailClickedAt?: string | null;
+		channelSource?: string | null;
+		channelSourceDetail?: string | null;
+		engagementId?: string | null;
+		sessionId?: string | null;
+		profileId?: string | null;
+		profileName?: string | null;
+		profileTier?: string | null;
+		profileWho?: string | null;
+		intentStatus?: string | null;
+		intentStage?: string | null;
+		intentSubtopic?: string | null;
+		intentConfidence?: string | null;
+		threadSubtopics?: string[];
+		isProcessing?: boolean;
+		threadSubtopicScores?: Record<string, number> | null;
+		threadEngagementScore?: number | null;
 	}
 
 	interface Props {
@@ -58,10 +58,10 @@
 		communications = $bindable(),
 		filters = $bindable([
 			'All',
-			'Email',
-			'SMS',
-			'Voice',
 			'Web',
+			'Voice',
+			'SMS',
+			'Email',
 			'Facebook',
 			'Chatbot',
 			'Leadform',
@@ -84,11 +84,13 @@
 	}: Props = $props();
 
 	let activeFilter = $state('All');
-	let openOptionsMenu = $state<string | null>(null);
 	let openDropdownId = $state<string | null>(null);
 
 	let sortColumn = $state<string | null>('date');
 	let sortDirection = $state<'asc' | 'desc'>('desc');
+
+	// Column-protocol drawer (the ⓘ on each header).
+	let openColKey = $state<string | null>(null);
 
 	function handleSort(column: string) {
 		if (sortColumn === column) {
@@ -106,48 +108,38 @@
 		return () => clearInterval(t);
 	});
 
-	/**
-	 * SLA badge state for an emergency-dispatch row. null when the row has no SLA.
-	 * `met` — a callback was placed in time · `breached` — past due, no callback · `pending` — counting down.
-	 */
 	function slaBadge(comm: any): { label: string; tone: string } | null {
 		const m = comm?.raw?.metadata;
 		if (!m?.is_emergency_dispatch || !m?.sla_due_at) return null;
-		if (m.sla_status === 'met')
-			return { label: 'SLA met', tone: 'bg-emerald-100 text-emerald-700' };
+		if (m.sla_status === 'met') return { label: 'SLA met', tone: 'done' };
 		const dueMs = new Date(m.sla_due_at).getTime();
 		const remaining = dueMs - nowMs;
-		if (remaining <= 0) return { label: 'SLA BREACHED', tone: 'bg-red-100 text-red-700' };
+		if (remaining <= 0) return { label: 'SLA BREACHED', tone: 'block' };
 		const mm = Math.floor(remaining / 60000);
 		const ss = Math.floor((remaining % 60000) / 1000);
 		return {
 			label: `SLA ${mm}:${String(ss).padStart(2, '0')}`,
-			tone: remaining <= 120000 ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'
+			tone: remaining <= 120000 ? 'wait' : 'sched'
 		};
 	}
 
-	/**
-	 * Calendar Grace Period badge state for an in-progress verification.
-	 */
 	function calendarGraceBadge(comm: any): { label: string; tone: string } | null {
 		const m = comm?.raw?.metadata;
 		if (!m?.waiting_for_calendar || !m?.timer_due_at) return null;
-		
 		const dueMs = new Date(m.timer_due_at).getTime();
 		const remaining = dueMs - nowMs;
-		
-		if (remaining <= 0) return { label: 'Verification Failed', tone: 'bg-red-100 text-red-700' };
-		
+		if (remaining <= 0) return { label: 'Verification Failed', tone: 'block' };
 		const mm = Math.floor(remaining / 60000);
 		const ss = Math.floor((remaining % 60000) / 1000);
-		return {
-			label: `Verifying... ${mm}:${String(ss).padStart(2, '0')}`,
-			tone: 'bg-indigo-100 text-indigo-700 border border-indigo-200'
-		};
+		return { label: `Verifying... ${mm}:${String(ss).padStart(2, '0')}`, tone: 'prog' };
 	}
 
 	const filteredCommunications = $derived.by(() => {
-		let filtered = communications;
+		// Rows the AI pipeline has not finished interpreting are held back rather than shown with a
+		// status that is about to change. An emergency leadbox first rendered green (the row's own
+		// delivery status) and flipped to red seconds later when the pipeline set the urgency — the
+		// row was not wrong, it was incomplete, and showing it as settled was the bug.
+		let filtered = communications.filter((comm) => !comm.isProcessing);
 		if (activeFilter !== 'All') {
 			const filterType = activeFilter.toLowerCase();
 			filtered = filtered.filter((comm) => {
@@ -186,8 +178,8 @@
 						bVal = bTime;
 					}
 				} else if (sortColumn === 'type') {
-					aVal = getTypeDisplay(a).toLowerCase();
-					bVal = getTypeDisplay(b).toLowerCase();
+					aVal = channelLabel(a).toLowerCase();
+					bVal = channelLabel(b).toLowerCase();
 				}
 
 				if (aVal === null || aVal === undefined) aVal = '';
@@ -207,51 +199,98 @@
 		return filtered;
 	});
 
-	function getStatusColor(status: string) {
+	const CHANNEL_ICONS: Record<string, string> = {
+		email: '✉️',
+		sms: '💬',
+		voice: '📞',
+		web: '🌐',
+		facebook: '📘',
+		chatbot: '🤖',
+		leadform: '📝',
+		leadbox: '💬',
+		viewroom: '▶️'
+	};
+
+	const CHANNEL_LABELS: Record<string, string> = {
+		email: 'Email',
+		sms: 'SMS',
+		voice: 'Voice',
+		web: 'Web',
+		facebook: 'Facebook',
+		chatbot: 'Chatbot',
+		leadform: 'Leadform',
+		leadbox: 'Leadbox',
+		viewroom: 'Viewroom'
+	};
+
+	function channelIcon(comm: Communication): string {
+		const t = (comm.type || comm.typeIcon || '').toLowerCase();
+		return CHANNEL_ICONS[t] || '🌐';
+	}
+
+	function channelLabel(comm: Communication): string {
+		const t = (comm.type || comm.typeIcon || '').toLowerCase();
+		return CHANNEL_LABELS[t] || comm.type || 'Web';
+	}
+
+	function statusDotClass(status: string): string {
 		switch (status) {
 			case 'red':
-				return 'bg-[#FB2C36]';
+				return 'dot red';
 			case 'green':
-				return 'bg-[#00C951]';
+				return 'dot green';
 			case 'blue':
-				return 'bg-[#0077FE]';
+				return 'dot blue';
 			case 'in':
-				return 'bg-[#00C951]';
+				return 'dot green';
 			case 'out':
-				return 'bg-[#FB2C36]';
+				return 'dot red';
 			default:
-				return 'bg-gray-400';
+				return 'dot';
 		}
 	}
 
-	function getTypeIcon(type: string | undefined) {
-		const t = type?.toLowerCase();
-		switch (t) {
-			case 'email':
-				return Mail;
-			case 'sms':
-				return MessageSquare;
-			case 'voice':
-				return Phone;
-			case 'web':
-				return Globe;
-			case 'facebook':
-				return Facebook;
-			case 'chatbot':
-				return Bot;
-			case 'leadform':
-				return FileText;
-			case 'leadbox':
-				return MessageCircle;
-			case 'viewroom':
-				return Video;
+	function tierClass(tier: string | null | undefined): string {
+		const t = (tier ?? '').replace(/\s/g, '').toUpperCase();
+		if (t === 'T1' || t === 'TIER1') return 't1';
+		if (t === 'T2' || t === 'TIER2') return 't2';
+		return 't2b';
+	}
+
+	function tierLabel(tier: string | null | undefined): string {
+		const t = (tier ?? '').replace(/\s/g, '').toUpperCase();
+		if (t === 'T1' || t === 'TIER1') return 'T1';
+		if (t === 'T2' || t === 'TIER2') return 'T2';
+		return '2B';
+	}
+
+	function stageClass(stage: string | null | undefined): string {
+		switch ((stage ?? '').toLowerCase()) {
+			case 'emergency':
+				return 'emergency';
+			case 'active':
+				return 'active';
+			case 'comparison':
+				return 'comparison';
+			case 'research':
+				return 'research';
 			default:
-				return Mail;
+				return 'na';
 		}
 	}
 
-	function getTypeDisplay(comm: Communication) {
-		return comm.type || comm.typeIcon || 'email';
+	function cap(s: string | null | undefined): string {
+		const v = (s ?? '').trim();
+		if (!v) return '—';
+		const lower = v.toLowerCase();
+		const pretty: Record<string, string> = {
+			water_heater: 'Water Heater',
+			'water heater': 'Water Heater',
+			hvac: 'HVAC',
+			emergency: 'Emergency'
+		};
+		if (pretty[lower]) return pretty[lower];
+		return v.charAt(0).toUpperCase() + v.slice(1);
 	}
 
 	function handleSummaryClick(comm: Communication) {
@@ -276,388 +315,292 @@
 
 	function handleActionClick(action: string, comm: any) {
 		onActionClick?.(action, comm);
-		openOptionsMenu = null;
 		openDropdownId = null;
+	}
+
+	// ── Column protocols (the ⓘ drawers) ──────────────────────────────────────
+	const COLS: Record<string, { title: string; what: string; src: string; logic: string[] }> = {
+		date: {
+			title: 'Date & Time',
+			what: 'When the session started.',
+			src: 'The timestamp of the first interaction in the session, stored ISO 8601 in UTC.',
+			logic: [
+				'A session opens on the first activity and this stamps it.',
+				'Web: a NEW session opens only after the inactivity window (~30 min) — a return after that is a new session.',
+				'Phone / SMS / Email: the session is bounded by that call or exchange.',
+				'We record when the session STARTED, not last activity.'
+			]
+		},
+		channel: {
+			title: 'Channel & Source',
+			what: 'One column, two stacked facts: the Channel (HOW it happened, on top) and the Source (WHERE it came from, underneath).',
+			src: 'Channel = the transport (web pixel, Telnyx voice/SMS, email). Source = the origin: web referrer + UTM, the tracking number / caller ID / GBP for phone, or the origin address/campaign for email & SMS.',
+			logic: [
+				'CHANNEL (top) = the medium + direction: Web, Voice, SMS, Email, Facebook, Chatbot, Leadform · IN if we received it, OUT if we initiated it.',
+				'SOURCE (under) = where it came from — one of the provider channels. Source is NOT the person (that is the Profile column).',
+				'Source is the strongest EARLY clue to intent: it sets the intent prior (Google/Bing Search = high; social/video = low).'
+			]
+		},
+		intent: {
+			title: 'Intent',
+			what: 'What the visitor is trying to do — a structure: buying stage + urgency + subtopic + status.',
+			src: 'A prior from Channel + Source, refined by the Journey behaviour and signals, and read retrospectively at session close.',
+			logic: [
+				'Buying stage: research → comparison → active — escalate-only.',
+				'Emergency is a SEPARATE urgency flag, not a stage.',
+				'Status lifecycle: ad_indicated → behaviour_supported / inferred → declared → confirmed, or contradicted.',
+				'The channel is only the opening hypothesis; the proof is the Journey + Signals.'
+			]
+		},
+		profile: {
+			title: 'Profile ID · Who',
+			what: 'Our best current answer to WHO this is — the Profile the session resolves to.',
+			src: 'The profile database: a device fingerprint while anonymous; a company or display name when partial; a named person with email/phone once an identifier is captured.',
+			logic: [
+				'Tier 2B: anonymous — a device only, not a person.',
+				'Tier 2: a company or display name is known, but not the individual.',
+				'Tier 1: identified — name + email/phone on file.',
+				'It upgrades over time: 2B → 1 the moment a form, call, or token supplies an identifier.',
+				'Source says where they came from; this says who they are — the Profile ID is the stable key everything hangs off.'
+			]
+		},
+		endpoint: {
+			title: 'Endpoint',
+			what: 'WHERE it was received, sent or transferred — the touchpoint on OUR side.',
+			src: 'Web: the landing-page URL. Phone: the number dialled plus the IVR/transfer path. Email/SMS: our inbox or number.',
+			logic: [
+				'A web endpoint = the landing page, which is strong Intent evidence.',
+				'A phone endpoint can be a PATH, not a point: Main number → IVR → Sales → Voicemail.',
+				'Ties to call-binding — which number or rep was involved.'
+			]
+		},
+		journey: {
+			title: 'Journey & Activity',
+			what: 'The ordered interactions in the session (Journey) and the measurable behaviour (Activity).',
+			src: 'Every interaction the pixel, telephony or email system logs within the session, and the signals each one generates.',
+			logic: [
+				'Session-bounded — the Journey never spans sessions; the Engagement is what crosses them.',
+				'Journey contains Activities; Activities generate Signals; Signals feed scoring.',
+				'Original interactions and observed signals are immutable.'
+			]
+		},
+		eng: {
+			title: 'Engagement ID',
+			what: 'The business episode this session belongs to (with the Session ID beneath it).',
+			src: 'Resolved when the session is logged, by the engagement-resolution rules — recorded with a reason and rules_version.',
+			logic: [
+				'Engagement = one business episode with the customer, which crosses sessions and channels.',
+				'Resolution is evidence before time: explicit project/quote/case ref → active (open) engagement → most recent within the inactivity window → else a NEW engagement.',
+				'A subtopic change never splits an engagement — it is recorded as a tag on it.',
+				'Session ID (SES-) is permanent and is never rewritten, even on a merge.'
+			]
+		},
+		summary: {
+			title: 'Summary',
+			what: 'The complete operational overview of the session — narrative, requests, tasks, actions, status, next step.',
+			src: 'AI interpretation (meaning) + Orchestrator decisions, built on the Journey. Tasks and Actions live in their own tables; the Summary references them.',
+			logic: [
+				'AI interprets meaning; it does NOT decide the next step — the Orchestrator does.',
+				'A presentation layer, versioned — not the authoritative record.',
+				'Shows completed, scheduled, blocked and failed work — nothing hidden.'
+			]
+		}
+	};
+
+	function openCol(key: string) {
+		openColKey = key;
+	}
+
+	function closeCol() {
+		openColKey = null;
 	}
 </script>
 
-<div class="overflow-hidden rounded-lg border border-gray-300 bg-white">
+<div class="clog">
 	{#if showFilters}
-		<div class="flex flex-wrap items-center gap-3 border-b border-gray-200 p-4">
+		<div class="tabs">
 			{#each filters as filter}
+				{@const count =
+					filter === 'All'
+						? communications.length
+						: communications.filter(
+								(c) => (c.type || c.typeIcon || '').toLowerCase() === filter.toLowerCase()
+							).length}
 				<button
 					type="button"
-					class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors {activeFilter ===
-					filter
-						? 'bg-slate-900 text-white'
-						: 'text-gray-600 hover:bg-gray-100'}"
+					class="tab {activeFilter === filter ? 'on' : ''}"
 					onclick={() => (activeFilter = filter)}
 				>
-					{filter}
+					{filter}<span class="n">{count}</span>
 				</button>
 			{/each}
 		</div>
 	{/if}
 
-	<div class="overflow-x-auto">
-		<table class="w-full min-w-[900px] border-collapse">
+	<div class="scroll">
+		<table>
 			<thead>
-				<tr class="bg-gray-100">
-					<th class="w-8 px-3 py-3 text-left">
-						<!-- Info icon -->
-						<div class="flex h-5 w-5 items-center justify-center rounded-full bg-gray-500 text-white font-serif text-[10px] font-bold">i</div>
+				<tr>
+					<th></th>
+					<th class="sortable" onclick={() => handleSort('date')}>
+						Date <button type="button" class="ci" onclick={(e) => { e.stopPropagation(); openCol('date'); }}>i</button>
 					</th>
-					<th
-						class="w-24 cursor-pointer whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 hover:bg-gray-200 transition-colors select-none"
-						onclick={() => handleSort('date')}
-					>
-						<div class="flex items-center gap-1">
-							Date
-							{#if sortColumn === 'date'}
-								{#if sortDirection === 'asc'}<ChevronUp class="h-3 w-3 text-gray-400" />{:else}<ChevronDown class="h-3 w-3 text-gray-400" />{/if}
-							{/if}
-						</div>
+					<th class="sortable" onclick={() => handleSort('type')}>
+						Channel &amp; Source <button type="button" class="ci" onclick={(e) => { e.stopPropagation(); openCol('channel'); }}>i</button>
 					</th>
-					<th
-						class="w-20 cursor-pointer whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 hover:bg-gray-200 transition-colors select-none"
-						onclick={() => handleSort('type')}
-					>
-						<div class="flex items-center gap-1">
-							Type
-							{#if sortColumn === 'type'}
-								{#if sortDirection === 'asc'}<ChevronUp class="h-3 w-3 text-gray-400" />{:else}<ChevronDown class="h-3 w-3 text-gray-400" />{/if}
-							{/if}
-						</div>
+					<th>Intent <button type="button" class="ci" onclick={() => openCol('intent')}>i</button></th>
+					<th>Profile ID · Who <button type="button" class="ci" onclick={() => openCol('profile')}>i</button></th>
+					<th class="sortable" onclick={() => handleSort('endpoint')}>
+						Endpoint <button type="button" class="ci" onclick={(e) => { e.stopPropagation(); openCol('endpoint'); }}>i</button>
 					</th>
-					<th
-						class="min-w-[120px] max-w-[160px] cursor-pointer whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 hover:bg-gray-200 transition-colors select-none"
-						onclick={() => handleSort('source')}
-					>
-						<div class="flex items-center gap-1">
-							Source
-							{#if sortColumn === 'source'}
-								{#if sortDirection === 'asc'}<ChevronUp class="h-3 w-3 text-gray-400" />{:else}<ChevronDown class="h-3 w-3 text-gray-400" />{/if}
-							{/if}
-						</div>
+					<th>Journey &amp; Activity <button type="button" class="ci" onclick={() => openCol('journey')}>i</button></th>
+					<th>Engagement ID <button type="button" class="ci" onclick={() => openCol('eng')}>i</button></th>
+					<th class="sortable" onclick={() => handleSort('summary')}>
+						Summary <button type="button" class="ci" onclick={(e) => { e.stopPropagation(); openCol('summary'); }}>i</button>
 					</th>
-					<th
-						class="min-w-[120px] max-w-[180px] cursor-pointer whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 hover:bg-gray-200 transition-colors select-none"
-						onclick={() => handleSort('endpoint')}
-					>
-						<div class="flex items-center gap-1">
-							Endpoint
-							{#if sortColumn === 'endpoint'}
-								{#if sortDirection === 'asc'}<ChevronUp class="h-3 w-3 text-gray-400" />{:else}<ChevronDown class="h-3 w-3 text-gray-400" />{/if}
-							{/if}
-						</div>
-					</th>
-					<th
-						class="min-w-[100px] max-w-[140px] cursor-pointer whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 hover:bg-gray-200 transition-colors select-none"
-						onclick={() => handleSort('purpose')}
-					>
-						<div class="flex items-center gap-1">
-							Purpose
-							{#if sortColumn === 'purpose'}
-								{#if sortDirection === 'asc'}<ChevronUp class="h-3 w-3 text-gray-400" />{:else}<ChevronDown class="h-3 w-3 text-gray-400" />{/if}
-							{/if}
-						</div>
-					</th>
-					<!-- Score column hidden to match mockup -->
-					<!--
-					<th
-						class="w-20 whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600"
-					>
-						Score
-					</th>
-					-->
-					<th
-						class="min-w-[180px] cursor-pointer whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 hover:bg-gray-200 transition-colors select-none"
-						onclick={() => handleSort('summary')}
-					>
-						<div class="flex items-center gap-1">
-							Summary
-							{#if sortColumn === 'summary'}
-								{#if sortDirection === 'asc'}<ChevronUp class="h-3 w-3 text-gray-400" />{:else}<ChevronDown class="h-3 w-3 text-gray-400" />{/if}
-							{/if}
-						</div>
-					</th>
-					<th
-						class="w-28 cursor-pointer whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 hover:bg-gray-200 transition-colors select-none"
-						onclick={() => handleSort('commId')}
-					>
-						<div class="flex items-center gap-1">
-							Comm ID
-							{#if sortColumn === 'commId'}
-								{#if sortDirection === 'asc'}<ChevronUp class="h-3 w-3 text-gray-400" />{:else}<ChevronDown class="h-3 w-3 text-gray-400" />{/if}
-							{/if}
-						</div>
-					</th>
-					<!-- Pipeline column hidden to match mockup -->
-					<!--
-					<th
-						class="w-24 whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600"
-					>
-						Pipeline
-					</th>
-					-->
-					<th
-						class="w-14 px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-gray-600"
-					>
-						Actions
-					</th>
+					<th></th>
 				</tr>
 			</thead>
 			<tbody>
 				{#if filteredCommunications.length === 0}
 					<tr>
-						<td colspan="9" class="px-3 py-8 text-center text-sm text-gray-500">
-							No communications found
-						</td>
+						<td colspan="10" class="empty">No communications on this channel.</td>
 					</tr>
 				{:else}
 					{#each filteredCommunications as comm}
-						{@const commType = getTypeDisplay(comm)}
-						{@const IconComponent = getTypeIcon(commType)}
-						{@const contactDetail = comm.raw?.raw?.customer?.phone || comm.raw?.raw?.customer?.email || comm.raw?.raw?.communicationThread?.contact?.phone || comm.raw?.raw?.communicationThread?.contact?.email || comm.raw?.raw?.phoneNumber || (comm.direction === 'In' ? comm.raw?.raw?.source : comm.raw?.raw?.destination)}
-						{@const dept = comm.raw?.metadata?.ivr_intent || comm.raw?.metadata?.intent}
-						{@const hasEmail = Boolean(comm.type === 'email' || comm.typeIcon === 'email' || comm.raw?.payload?.email || comm.raw?.customerProfile?.email || (contactDetail && typeof contactDetail === 'string' && contactDetail.includes('@')) || (comm.source && comm.source.includes('@')))}
-						<tr class="border-b border-gray-200 bg-white transition-colors hover:bg-gray-50/80">
-							<td class="px-3 py-2.5 pt-4 align-top">
-								<div
-									class="h-4 w-4 shrink-0 rounded-full {getStatusColor(comm.status)}"
-									title={comm.status}
-								></div>
+						{@const tierCls = tierClass(comm.profileTier)}
+						{@const signals = Array.isArray(comm.raw?.metadata?.signals) ? comm.raw.metadata.signals : []}
+						{@const hasEmail = Boolean(comm.type === 'email' || comm.typeIcon === 'email' || comm.raw?.payload?.email || (comm.source && comm.source.includes('@')))}
+						<tr class="row" onclick={() => handleSummaryClick(comm)}>
+							<td><span class={statusDotClass(comm.status)}></span></td>
+							<td class="date">
+								<b>{comm.date}</b><span>{comm.time}</span>
 							</td>
-							<td class="whitespace-nowrap px-3 py-2.5 text-sm text-gray-700">
-								<div class="font-semibold text-gray-900">{comm.date}</div>
-								<div class="text-xs text-gray-500 mt-0.5">{comm.time}</div>
-							</td>
-							<td class="whitespace-nowrap px-3 py-2.5">
-								<div class="flex items-center gap-1.5 text-sm text-gray-700">
-									<IconComponent class="h-4 w-4 shrink-0 text-gray-500" />
-									<span class="font-medium">{comm.direction === 'Out' ? 'Out' : 'In'}</span>
+							<td>
+								<div class="chan">
+									<span class="cico">{channelIcon(comm)}</span>
+									<div>
+										<b>{channelLabel(comm)}</b>
+										<span class="dir {comm.direction === 'Out' ? 'out' : 'in'}">{comm.direction === 'Out' ? 'OUT' : 'IN'}</span>
+									</div>
+								</div>
+								<div class="src">
+									<b>{comm.channelSource || '—'}</b>
+									{#if comm.channelSourceDetail}
+										<span>{comm.channelSourceDetail}</span>
+									{/if}
 								</div>
 								{#if comm.type === 'email' && comm.emailOpenedAt}
-									<div class="mt-0.5">
-										<span
-											class="inline-flex items-center rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-green-700"
-											title="Opened: {new Date(comm.emailOpenedAt).toLocaleString()}"
-										>
-											Opened
-										</span>
-										{#if comm.emailClickedAt}
-											<span
-												class="ml-1 inline-flex items-center rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-blue-700"
-											>
-												Clicked
-											</span>
-										{/if}
-									</div>
+									<span class="pill p-done">Opened</span>
+									{#if comm.emailClickedAt}
+										<span class="pill p-prog">Clicked</span>
+									{/if}
 								{/if}
 							</td>
-							<td
-								class="max-w-[160px] truncate px-3 py-2.5 text-sm text-gray-700"
-							>
-								{#if onProfileClick && comm.raw?.raw?.customer?.id}
-									{@const profileId = comm.raw?.raw?.customer?.id}
+							<td>
+								{#if comm.raw?.isDropCall}
+									<span class="stage emergency">dropped call</span>
+								{:else if comm.intentStage}
+									<span class="stage {stageClass(comm.intentStage)}">{comm.intentStage}</span>
+								{/if}
+								{#if comm.intentSubtopic}
+									<div class="sub">{cap(comm.intentSubtopic)}</div>
+								{/if}
+								{#if comm.intentStatus}
+									<div class="stat">{comm.intentStatus}{comm.intentConfidence ? ` · ${comm.intentConfidence}` : ''}</div>
+								{/if}
+								{#if comm.raw?.metadata?.message_category === 'emergency'}
+									<span class="stage emergency">emergency</span>
+								{/if}
+								{#if comm.purpose === 'Confirm' || comm.purpose === 'Confirm Email'}
 									<button
 										type="button"
-										class="block max-w-full cursor-pointer truncate text-left font-semibold text-gray-900 hover:text-blue-600 hover:underline"
-										title={comm.source}
-										onclick={() => onProfileClick(comm)}
+										class="confirm"
+										onclick={(e) => { e.stopPropagation(); onConfirmClick ? onConfirmClick(comm) : onReplyClick?.(comm); }}
 									>
-										{comm.source || '—'}
+										{comm.purpose === 'Confirm Email' ? 'Confirm Email' : (comm.raw?.metadata?.confirm_action === 'call' ? 'Confirm call' : 'Confirm')}
 									</button>
-								{:else}
-									<div class="font-semibold text-gray-900" title={comm.source}>{comm.source || '—'}</div>
+								{:else if comm.purpose}
+									<div class="sub">{comm.purpose}</div>
 								{/if}
-								{#if contactDetail && contactDetail !== comm.source}
-									<div class="text-xs text-gray-500 mt-0.5 truncate" title={contactDetail}>{contactDetail}</div>
+								{#if slaBadge(comm)}
+									{@const sla = slaBadge(comm)}
+									<span class="pill p-{sla?.tone}">🚨 {sla?.label}</span>
+								{/if}
+								{#if calendarGraceBadge(comm)}
+									{@const cal = calendarGraceBadge(comm)}
+									<span class="pill p-{cal?.tone}">⏳ {cal?.label}</span>
 								{/if}
 							</td>
-							<td class="max-w-[180px] px-3 py-2.5 text-sm text-gray-700">
+							<td>
+								{#if onProfileClick && comm.raw?.raw?.customer?.id}
+									<button type="button" class="prof" onclick={(e) => { e.stopPropagation(); onProfileClick(comm); }}>
+										<span class="mono profid">{comm.profileId ?? '—'}</span>
+										<span class="tier {tierCls}">{tierLabel(comm.profileTier)}</span>
+										<div class="fade">{comm.profileWho || comm.profileName || comm.source || '—'}</div>
+									</button>
+								{:else}
+									<span class="mono profid">{comm.profileId ?? '—'}</span>
+									<span class="tier {tierCls}">{tierLabel(comm.profileTier)}</span>
+									<div class="fade">{comm.profileWho || comm.profileName || comm.source || '—'}</div>
+								{/if}
+							</td>
+							<td>
 								{#if comm.endpoint}
-									<div class="font-medium text-gray-900 truncate" title={comm.endpoint}>{comm.endpoint}</div>
-								{:else if showAssignButton && onAssignClick && !comm.raw?.isDropCall && comm.summary !== 'Dropped Call' && comm.commId && !comm.commId.startsWith('DROP-')}
-									<div class="mt-0.5">
-										<button
-											type="button"
-											class="text-left text-xs text-blue-600 underline hover:no-underline"
-											onclick={() => onAssignClick(comm)}
-										>
-											Assign
-										</button>
-									</div>
+									<div class="endpoint">{comm.endpoint}</div>
+								{:else if showAssignButton && onAssignClick && !comm.raw?.isDropCall && comm.commId && !comm.commId.startsWith('DROP-')}
+									<button type="button" class="assign" onclick={(e) => { e.stopPropagation(); onAssignClick(comm); }}>Assign</button>
 								{/if}
 								{#if comm.assignedMemberNames && comm.assignedMemberNames.length > 0}
-									<div class="text-xs text-gray-500 mt-0.5 font-semibold text-gray-900" title={comm.assignedMemberNames.join(', ')}>
-										{comm.assignedMemberNames.join(', ')}
-									</div>
+									<div class="fade">{comm.assignedMemberNames.join(', ')}</div>
 								{/if}
 							</td>
-							<td class="max-w-[140px] truncate px-3 py-2.5 text-sm text-gray-700">
-								{#if comm.raw?.isDropCall}
-									<span class="inline-flex items-center rounded bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800">
-										Dropped Call
-									</span>
+							<td class="jrn">
+								{#if signals.length > 0}
+									{signals.slice(0, 6).join(' → ')}{signals.length > 6 ? ' …' : ''}
+								{:else if comm.summary}
+									{comm.summary}
 								{:else}
-									<div class="flex flex-col items-start gap-1">
-										{#if comm.purpose === 'Confirm' || comm.purpose === 'Confirm Email'}
-											<button
-												onclick={() => onConfirmClick ? onConfirmClick(comm) : onReplyClick?.(comm)}
-												class="inline-block rounded bg-[#4A72B2] hover:bg-[#3b5d95] px-3.5 py-1 text-xs font-semibold text-white transition-colors"
-											>
-												{comm.purpose === 'Confirm Email' ? 'Confirm Email' : (comm.raw?.metadata?.confirm_action === 'call' ? 'Confirm call' : 'Confirm')}
-											</button>
-										{:else if comm.purpose}
-											<span>{comm.purpose}</span>
-										{:else}
-											<span>—</span>
-										{/if}
-										{#if slaBadge(comm)}
-											{@const sla = slaBadge(comm)}
-											<span
-												class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold leading-none {sla?.tone}"
-												title="Emergency callback SLA — escalates if the tech doesn't call back in time"
-											>
-												🚨 {sla?.label}
-											</span>
-										{/if}
-										{#if calendarGraceBadge(comm)}
-											{@const cal = calendarGraceBadge(comm)}
-											<span
-												class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold leading-none {cal?.tone}"
-												title="Waiting 15 minutes for calendar verification"
-											>
-												⏳ {cal?.label}
-											</span>
-											{#if cal?.label !== 'Verification Failed'}
-												<button
-													class="ml-1 inline-flex items-center justify-center rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-600 hover:bg-indigo-100 border border-indigo-200"
-													title="Fast-forward timer for testing"
-													onclick={(e) => { e.stopPropagation(); fastForwardTimer(comm); }}
-												>
-													⏭️ FF
-												</button>
-											{/if}
-										{/if}
-										{#if dept}
-											<span class="inline-flex items-center rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 leading-none">
-												Dept: {dept}
-											</span>
-										{/if}
-									</div>
+									—
 								{/if}
 							</td>
-							<!-- Score hidden -->
-							<!--
-							<td class="whitespace-nowrap px-3 py-2.5 text-sm">
-								{#if comm.raw?.metadata?.score !== undefined}
-									<span class="font-semibold text-slate-800">{comm.raw.metadata.score}</span>
-									{#if comm.raw.metadata.scoreDelta}
-										<span class="ml-1 text-xs font-semibold text-emerald-600">+{comm.raw.metadata.scoreDelta}</span>
-									{/if}
+							<td class="eng">
+								{#if comm.engagementId}
+									<button type="button" class="englink" onclick={(e) => { e.stopPropagation(); handleSummaryClick(comm); }}>{comm.engagementId}</button>
+									<span>{comm.sessionId ?? '—'}</span>
 								{:else}
-									<span class="text-gray-400">—</span>
+									<span>Pending</span>
 								{/if}
 							</td>
-							-->
-							<td class="max-w-[240px] px-3 py-2.5 text-sm">
+							<td>
 								{#if comm.summary}
-									<button
-										type="button"
-										class="text-blue-600 underline hover:no-underline font-semibold"
-										onclick={() => handleSummaryClick(comm)}
-									>
-										Summary
-									</button>
+									<button type="button" class="lnk" onclick={(e) => { e.stopPropagation(); handleSummaryClick(comm); }}>Summary</button>
 								{:else}
-									<span class="text-gray-400">—</span>
+									<span class="fade">—</span>
+								{/if}
+								{#if comm.threadSubtopics && comm.threadSubtopics.length > 0}
+									<div class="sub">{comm.threadSubtopics.join(' · ')}</div>
 								{/if}
 							</td>
-							<td
-								class="max-w-[120px] truncate px-3 py-2.5 text-gray-700 text-sm"
-								title={comm.commId ?? ''}
-							>
-								{#if comm.commId}
-									<button
-										type="button"
-										class="text-left text-blue-600 hover:underline font-medium hover:text-blue-800"
-										onclick={() => handleSummaryClick(comm)}
-									>
-										{comm.commId.startsWith('DROP-') ? comm.commId : 'COM-' + comm.commId.slice(-5).toUpperCase()}
-									</button>
-								{:else}
-									<!-- No conversation anchor yet: threading resolves asynchronously, so showing a
-									     code here would mint one that changes moments later. -->
-									<span
-										class="inline-flex items-center gap-1.5 text-gray-400 italic"
-										title="Waiting for this message to be linked to a conversation"
-									>
-										<span class="h-1.5 w-1.5 animate-pulse rounded-full bg-gray-400"></span>
-										Pending
-									</span>
-								{/if}
-							</td>
-							<!-- Pipeline hidden -->
-							<!--
-							<td class="whitespace-nowrap px-3 py-2.5">
-								<div class="flex items-center gap-1.5">
-									<button
-										type="button"
-										class="inline-flex items-center gap-1 rounded bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors"
-										onclick={() => onPipelineClick?.(comm)}
-									>
-										⚡ Pipeline
-									</button>
-									{#if onReplyClick}
-										<button
-											type="button"
-											class="inline-flex items-center gap-1 rounded bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-700 hover:bg-sky-100 transition-colors"
-											onclick={() => onReplyClick(comm)}
-										>
-											<Reply class="h-3 w-3" /> Reply
-										</button>
-									{/if}
-								</div>
-							</td>
-							-->
-							<td class="px-3 py-2.5 text-right align-middle">
+							<td>
 								<DropdownMenu.Root
 									open={openDropdownId === comm.id}
 									onOpenChange={(open) => {
-										if (open) {
-											openDropdownId = comm.id;
-										} else if (openDropdownId === comm.id) {
-											openDropdownId = null;
-										}
+										if (open) openDropdownId = comm.id;
+										else if (openDropdownId === comm.id) openDropdownId = null;
 									}}
 								>
-									<DropdownMenu.Trigger class="inline-flex h-7 w-7 items-center justify-center rounded-full border border-gray-400 hover:bg-gray-100">
+									<DropdownMenu.Trigger class="more">
 										<span class="sr-only">Actions</span>
-										<span class="flex gap-0.5">
-											<span class="h-1 w-1 rounded-full bg-gray-500"></span>
-											<span class="h-1 w-1 rounded-full bg-gray-500"></span>
-											<span class="h-1 w-1 rounded-full bg-gray-500"></span>
-										</span>
+										<span class="dots"><span></span><span></span><span></span></span>
 									</DropdownMenu.Trigger>
 									<DropdownMenu.Content align="end" class="w-40">
-										<DropdownMenu.Item onclick={() => handleActionClick('view', comm)}>
-											View Details
-										</DropdownMenu.Item>
-										<DropdownMenu.Item onclick={() => onViewLogClick?.(comm)}>
-											View Log
-										</DropdownMenu.Item>
-										<DropdownMenu.Item onclick={() => handleActionClick('call', comm)}>
-											Call
-										</DropdownMenu.Item>
-										<DropdownMenu.Item onclick={() => handleActionClick('sms', comm)}>
-											SMS
-										</DropdownMenu.Item>
+										<DropdownMenu.Item onclick={() => handleActionClick('view', comm)}>View Details</DropdownMenu.Item>
+										<DropdownMenu.Item onclick={() => onViewLogClick?.(comm)}>View Log</DropdownMenu.Item>
+										<DropdownMenu.Item onclick={() => handleActionClick('call', comm)}>Call</DropdownMenu.Item>
+										<DropdownMenu.Item onclick={() => handleActionClick('sms', comm)}>SMS</DropdownMenu.Item>
 										{#if hasEmail}
-										<DropdownMenu.Item class="text-red-600 focus:text-red-600 focus:bg-red-50" onclick={() => handleActionClick('email', comm)}>
-											Email
-										</DropdownMenu.Item>
+										<DropdownMenu.Item class="text-red-600 focus:text-red-600 focus:bg-red-50" onclick={() => handleActionClick('email', comm)}>Email</DropdownMenu.Item>
 										{/if}
 									</DropdownMenu.Content>
 								</DropdownMenu.Root>
@@ -669,3 +612,521 @@
 		</table>
 	</div>
 </div>
+
+{#if openColKey}
+	{@const col = COLS[openColKey]}
+	<button type="button" class="clog-ov on" onclick={closeCol} aria-label="Close"></button>
+	<div class="clog-draw on">
+		<div class="dh">
+			<button class="x" onclick={closeCol}>×</button>
+			<h2>{col?.title ?? ''}</h2>
+			<div class="meta">Column protocol &amp; logic — how this value is derived</div>
+		</div>
+		<div class="db">
+			<div class="sec">What it is</div>
+			<div class="narr">{col?.what ?? ''}</div>
+			<div class="sec">Where the value comes from</div>
+			<div class="proof">{col?.src ?? ''}</div>
+			<div class="sec">How it's determined (the logic)</div>
+			{#each col?.logic ?? [] as line}
+				<div class="item">• {line}</div>
+			{/each}
+			<div class="sec">Reference</div>
+			<div class="jrn">Full definition: <span class="mono">specs/clearsky-communication-log-id-model.md</span></div>
+		</div>
+	</div>
+{/if}
+
+<style>
+	:global(.clog *) {
+		box-sizing: border-box;
+	}
+	:global(.clog) {
+		--ink: #1b2129;
+		--soft: #5a6570;
+		--faint: #8b95a0;
+		--paper: #f4f6f8;
+		--card: #fff;
+		--line: #e3e7ec;
+		--lsoft: #eef1f4;
+		--slate: #2d4a63;
+		--deep: #20374b;
+		--blue: #2563eb;
+		--green: #16a34a;
+		--amber: #e8920c;
+		--red: #cf3d3d;
+		--purple: #6d28d9;
+		--teal: #0d7f78;
+		font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+		background: var(--card);
+		border: 1px solid var(--line);
+		border-radius: 14px;
+		color: var(--ink);
+		font-size: 14px;
+		overflow: hidden;
+	}
+	:global(.clog .tabs) {
+		display: flex;
+		gap: 4px;
+		padding: 14px 16px;
+		border-bottom: 1px solid var(--line);
+		flex-wrap: wrap;
+	}
+	:global(.clog .tab) {
+		padding: 7px 14px;
+		border-radius: 8px;
+		border: none;
+		background: none;
+		cursor: pointer;
+		font-size: 13px;
+		font-weight: 600;
+		color: var(--soft);
+	}
+	:global(.clog .tab.on) {
+		background: var(--ink);
+		color: #fff;
+	}
+	:global(.clog .tab:not(.on):hover) {
+		background: var(--paper);
+	}
+	:global(.clog .tab .n) {
+		opacity: 0.6;
+		font-weight: 700;
+		margin-left: 4px;
+		font-size: 11px;
+	}
+	:global(.clog .ci) {
+		display: inline-grid;
+		place-items: center;
+		width: 15px;
+		height: 15px;
+		border-radius: 50%;
+		background: var(--blue);
+		color: #fff;
+		font-size: 10px;
+		font-weight: 700;
+		cursor: pointer;
+		margin-left: 5px;
+		vertical-align: middle;
+		border: none;
+		padding: 0;
+	}
+	:global(.clog .ci:hover) {
+		background: var(--slate);
+	}
+	:global(.clog .mono),
+	:global(.clog-draw .mono) {
+		font-family: ui-monospace, monospace;
+	}
+	:global(.clog .scroll) {
+		overflow-x: auto;
+	}
+	:global(.clog table) {
+		width: 100%;
+		border-collapse: collapse;
+		min-width: 1180px;
+	}
+	:global(.clog th) {
+		text-align: left;
+		font-size: 10.5px;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--faint);
+		font-weight: 700;
+		padding: 12px 14px;
+		border-bottom: 1px solid var(--line);
+		white-space: nowrap;
+	}
+	:global(.clog th.sortable) {
+		cursor: pointer;
+	}
+	:global(.clog th.sortable:hover) {
+		background: #fafcff;
+	}
+	:global(.clog td) {
+		padding: 13px 14px;
+		border-bottom: 1px solid var(--lsoft);
+		vertical-align: top;
+	}
+	:global(.clog tr.row) {
+		cursor: pointer;
+	}
+	:global(.clog tr.row:hover) {
+		background: #fafcff;
+	}
+	:global(.clog td.empty) {
+		padding: 40px;
+		text-align: center;
+		color: var(--faint);
+	}
+	:global(.clog .dot) {
+		width: 10px;
+		height: 10px;
+		border-radius: 50%;
+		background: var(--green);
+		display: inline-block;
+	}
+	:global(.clog .dot.red) {
+		background: var(--red);
+	}
+	:global(.clog .dot.blue) {
+		background: var(--blue);
+	}
+	:global(.clog .dot.green) {
+		background: var(--green);
+	}
+	:global(.clog .date b) {
+		display: block;
+		font-size: 13px;
+	}
+	:global(.clog .date span) {
+		color: var(--faint);
+		font-size: 11.5px;
+	}
+	:global(.clog .chan) {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+	:global(.clog .chan b) {
+		font-size: 13px;
+	}
+	:global(.clog .cico) {
+		width: 30px;
+		height: 30px;
+		border-radius: 8px;
+		display: grid;
+		place-items: center;
+		font-size: 15px;
+		background: var(--lsoft);
+		flex-shrink: 0;
+	}
+	:global(.clog .dir) {
+		font-size: 9.5px;
+		font-weight: 700;
+		letter-spacing: 0.04em;
+		padding: 2px 6px;
+		border-radius: 5px;
+	}
+	:global(.clog .dir.in) {
+		background: #e6efe9;
+		color: var(--green);
+	}
+	:global(.clog .dir.out) {
+		background: #eef2fb;
+		color: var(--blue);
+	}
+	:global(.clog .src b) {
+		display: block;
+		font-size: 13px;
+		margin-top: 5px;
+	}
+	:global(.clog .src span) {
+		color: var(--faint);
+		font-size: 11.5px;
+	}
+	:global(.clog .stage) {
+		font-size: 10.5px;
+		font-weight: 700;
+		padding: 3px 8px;
+		border-radius: 6px;
+		text-transform: capitalize;
+		display: inline-block;
+	}
+	:global(.clog .stage.research) {
+		background: #e8eefc;
+		color: #1d4ed8;
+	}
+	:global(.clog .stage.comparison) {
+		background: #f0eafc;
+		color: var(--purple);
+	}
+	:global(.clog .stage.active) {
+		background: #e6f4f1;
+		color: var(--teal);
+	}
+	:global(.clog .stage.emergency) {
+		background: #fbe9e9;
+		color: var(--red);
+	}
+	:global(.clog .stage.na) {
+		background: #eef1f4;
+		color: var(--faint);
+	}
+	:global(.clog .sub) {
+		font-size: 11px;
+		color: var(--soft);
+		margin-top: 3px;
+	}
+	:global(.clog .stat) {
+		font-size: 9.5px;
+		color: var(--faint);
+		margin-top: 3px;
+		font-family: ui-monospace, monospace;
+	}
+	:global(.clog .tier) {
+		font-size: 9.5px;
+		font-weight: 700;
+		padding: 1px 6px;
+		border-radius: 5px;
+		margin-left: 5px;
+	}
+	:global(.clog .tier.t1) {
+		background: #e6efe9;
+		color: #2e6a4a;
+	}
+	:global(.clog .tier.t2) {
+		background: #eef1f4;
+		color: var(--soft);
+	}
+	:global(.clog .tier.t2b) {
+		background: #fdf1dc;
+		color: #7a5405;
+	}
+	:global(.clog .jrn) {
+		font-size: 12px;
+		color: var(--soft);
+		line-height: 1.5;
+	}
+	:global(.clog .lnk) {
+		color: var(--blue);
+		font-weight: 600;
+		text-decoration: none;
+		cursor: pointer;
+		background: none;
+		border: none;
+		padding: 0;
+	}
+	:global(.clog .lnk:hover) {
+		text-decoration: underline;
+	}
+	:global(.clog .eng) {
+		font-family: ui-monospace, monospace;
+		font-size: 11.5px;
+		color: var(--blue);
+	}
+	:global(.clog .eng span) {
+		display: block;
+		color: var(--faint);
+		font-size: 10px;
+		margin-top: 2px;
+	}
+	:global(.clog .englink) {
+		font-family: ui-monospace, monospace;
+		font-size: 11.5px;
+		color: var(--blue);
+		background: none;
+		border: none;
+		padding: 0;
+		cursor: pointer;
+	}
+	:global(.clog .englink:hover) {
+		text-decoration: underline;
+	}
+	:global(.clog .prof) {
+		background: none;
+		border: none;
+		padding: 0;
+		text-align: left;
+		cursor: pointer;
+	}
+	:global(.clog .profid) {
+		color: var(--blue);
+		font-weight: 700;
+	}
+	:global(.clog .fade) {
+		color: var(--faint);
+		font-size: 11px;
+		margin-top: 2px;
+	}
+	:global(.clog .endpoint) {
+		font-weight: 600;
+	}
+	:global(.clog .assign) {
+		text-align: left;
+		font-size: 12px;
+		color: var(--blue);
+		text-decoration: underline;
+		background: none;
+		border: none;
+		padding: 0;
+		cursor: pointer;
+	}
+	:global(.clog .confirm) {
+		display: inline-block;
+		border-radius: 6px;
+		background: #4a72b2;
+		color: #fff;
+		padding: 4px 10px;
+		font-size: 11px;
+		font-weight: 600;
+		border: none;
+		cursor: pointer;
+		margin-top: 3px;
+	}
+	:global(.clog .pill) {
+		font-size: 10px;
+		font-weight: 700;
+		padding: 2px 7px;
+		border-radius: 20px;
+		white-space: nowrap;
+		display: inline-block;
+		margin-top: 3px;
+	}
+	:global(.clog .p-done) {
+		background: #e6f4ea;
+		color: var(--green);
+	}
+	:global(.clog .p-wait) {
+		background: #fdf1dc;
+		color: var(--amber);
+	}
+	:global(.clog .p-block) {
+		background: #fbe9e9;
+		color: var(--red);
+	}
+	:global(.clog .p-sched) {
+		background: #e8eefc;
+		color: var(--blue);
+	}
+	:global(.clog .p-prog) {
+		background: #f0eafc;
+		color: var(--purple);
+	}
+	:global(.clog .more) {
+		width: 30px;
+		height: 30px;
+		border-radius: 50%;
+		border: 1px solid var(--line);
+		background: var(--card);
+		cursor: pointer;
+		color: var(--soft);
+		display: inline-grid;
+		place-items: center;
+	}
+	:global(.clog .more:hover) {
+		background: var(--paper);
+	}
+	:global(.clog .dots) {
+		display: flex;
+		gap: 3px;
+	}
+	:global(.clog .dots span) {
+		width: 4px;
+		height: 4px;
+		border-radius: 50%;
+		background: var(--soft);
+	}
+	:global(.clog .sr-only) {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		white-space: nowrap;
+		border: 0;
+	}
+
+	:global(.clog-ov) {
+		position: fixed;
+		inset: 0;
+		background: rgba(16, 24, 40, 0.4);
+		opacity: 0;
+		pointer-events: none;
+		transition: 0.2s;
+		z-index: 50;
+		border: none;
+		padding: 0;
+		cursor: pointer;
+	}
+	:global(.clog-ov.on) {
+		opacity: 1;
+		pointer-events: auto;
+	}
+	:global(.clog-draw) {
+		position: fixed;
+		top: 0;
+		right: 0;
+		height: 100%;
+		width: 520px;
+		max-width: 94vw;
+		background: #fff;
+		box-shadow: -8px 0 40px rgba(16, 24, 40, 0.2);
+		transform: translateX(100%);
+		transition: 0.25s;
+		z-index: 51;
+		overflow-y: auto;
+	}
+	:global(.clog-draw.on) {
+		transform: translateX(0);
+	}
+	:global(.clog-draw .dh) {
+		padding: 18px 22px;
+		border-bottom: 1px solid var(--line);
+		position: sticky;
+		top: 0;
+		background: #fff;
+	}
+	:global(.clog-draw .dh .x) {
+		float: right;
+		border: none;
+		background: none;
+		font-size: 22px;
+		cursor: pointer;
+		color: #8b95a0;
+		line-height: 1;
+	}
+	:global(.clog-draw .dh h2) {
+		margin: 0 0 3px;
+		font-size: 17px;
+	}
+	:global(.clog-draw .dh .meta) {
+		font-family: ui-monospace, monospace;
+		font-size: 11.5px;
+		color: #8b95a0;
+	}
+	:global(.clog-draw .db) {
+		padding: 18px 22px;
+	}
+	:global(.clog-draw .sec) {
+		font-size: 10.5px;
+		letter-spacing: 0.07em;
+		text-transform: uppercase;
+		color: #8b95a0;
+		font-weight: 700;
+		margin: 20px 0 8px;
+	}
+	:global(.clog-draw .sec:first-child) {
+		margin-top: 0;
+	}
+	:global(.clog-draw .narr) {
+		background: #f4f6f8;
+		border-radius: 10px;
+		padding: 13px 15px;
+		line-height: 1.6;
+		font-size: 13.5px;
+	}
+	:global(.clog-draw .proof) {
+		background: #f7fafc;
+		border: 1px solid #e3e7ec;
+		border-radius: 10px;
+		padding: 12px 14px;
+		font-size: 12.5px;
+		line-height: 1.55;
+	}
+	:global(.clog-draw .item) {
+		display: flex;
+		gap: 10px;
+		align-items: flex-start;
+		padding: 9px 0;
+		border-bottom: 1px solid #eef1f4;
+		font-size: 13px;
+	}
+	:global(.clog-draw .jrn) {
+		font-size: 12px;
+		color: #5a6570;
+		line-height: 1.5;
+	}
+</style>
