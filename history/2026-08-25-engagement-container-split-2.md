@@ -222,3 +222,98 @@ that endpoint is reachable without a deliberate confirmation step.
 
 The Part 1 fix had already been verified against the database before this happened, but those
 evidence rows are gone.
+
+---
+
+# Part 3 — engagement logic on every channel, and the Session Summary blanks
+
+## Goal
+
+> "Will the same engagement logic work for calls? etc" → "good, now put it on every channel"
+>
+> "every channel should have … also journey and activity shortened … also see for every one, we
+> should have a subtopic, should not be blank! source too!, use the same source in the comm logs …
+> Stage too. Confidence too. where they apply!"
+>
+> "no I meant show the full message, no elipsis or shortening, full"
+
+## Root causes
+
+**The engagement rule was implemented four times.** Telemetry intake and `logCommunication` had it;
+the Telnyx call webhook had two hand-rolled copies. Site 1 (`:1630`) approximated rule 2 but ordered
+by `created` not `updated`, applied no inactivity window, took no advisory lock and stamped no
+`assignReason`/`rulesVersion` — which also left voice threads movable by the container matcher,
+since the Part 1 guard keys off `rulesVersion`. Site 2 (`recording.saved`) was an unconditional
+`create`: **every recorded call opened a new engagement.** The `/test` page had two more direct
+creates, so testing from `/test` never exercised production behaviour.
+
+**Subtopic was blank on everything except web telemetry.** Classification only ran in
+`intake.ts`, where a URL gives it away free. Anything arriving as text — SMS, email, voicemail
+transcript — got nothing, so those engagements read "(General)".
+
+**Stage / confidence / source were blank on outbound rows** because they are facts about the
+conversation, not about one message. Only the customer's inbound messages produce them.
+
+**Journey & Activity was clipped twice over.** The stored `summary` is
+`draftedResponse.substring(0, 40) + '...'`, and my first attempt routed the drawer through
+`journeyActivity` — which is deliberately the compact *table* label ("1 inbound SMS"). Wrong for a
+drawer that exists to show what was said.
+
+## Changed
+
+- **`src/lib/server/telemetry/resolve-engagement.ts` (new)** — `resolveEngagementForContact(tx, …)`,
+  the one implementation: advisory lock on the contact, full rule ladder, window, retire-on-lapse,
+  `assignReason` + `rulesVersion`. For callers that write their own `CommunicationLog`.
+- `src/routes/api/telnyx/call-webhook/+server.ts` — both voice sites now call it.
+- `src/routes/(app)/test/+page.server.ts` — both creates now call it, so `/test` matches production.
+- `src/lib/utils/communication-log.ts` —
+  - **contact back-fill**: when no `customer_id` is supplied, match the party at the other end of
+    the row (`destination` outbound, `source` inbound) against existing contacts by email or by the
+    last 10 phone digits. Matched, never created — `source: 'callback-router'` is a label, not a
+    person. Fixes all six orphan callers at once instead of six separate edits.
+  - **subtopic classification** for inbound text via the existing ladder (page/payload →
+    call-tracking category → Claude), run **outside** the transaction, skipping internal notices,
+    and rolled up onto the engagement's `subtopics`.
+- `src/lib/server/communication-surface.ts` — `applyEngagementFallbacks()`: fills an interaction's
+  blank stage/subtopic/confidence/attribution from the most recent row in the same engagement that
+  knows, preferring inbound. Invents nothing. `intentStatus` and `intentEmergency` are left alone —
+  those are properties of the message ("where they apply").
+- Both page loaders run it before pagination, so an outbound reply inherits from an inbound message
+  on another page. No extra queries.
+- `src/lib/components/session-summary-drawer.svelte` — Journey shows `content` **in full**
+  (`white-space: pre-wrap`, no clamp); Narrative prefers `content` over the truncated `summary`;
+  Source shows `comm.source`, the same value the comm-log column renders, with the attribution
+  channel below it when it differs.
+
+## Verified live
+
+Two SMS from one number through the real webhook:
+
+- **1 engagement** across both messages *and* the outbound dial row, `assignReason:
+  active_open_thread`, `rulesVersion: engagement_resolution_v1`.
+- Subtopics classified per message and rolled up: **`["drain", "bathroom"]`** — a subtopic change
+  did not fork the engagement.
+- "kitchen sink is backing up" classified as **`drain`**, not `kitchen` — the taxonomy prompt's
+  intended behaviour.
+- Bucket-promotion notices got `subtopic: null` — skipped, no model call spent.
+- **`orphan rows: 0`.** The `voice/outbound` "Outbound call not answered (45s ring)" row, written by
+  one of the six contactless callers, landed on the engagement. That is the back-fill working.
+
+Suite **28 failed / 834 passed** (floor). `svelte-check` **938 / 224** — held, after a +1 regression
+was traced (a `findUnique` where the old `create` guaranteed non-null) and fixed to
+`findUniqueOrThrow`. The measurement was taken by stashing the two route files and re-running, not
+by eyeballing.
+
+## Not verified
+
+- **No real inbound voice call.** Both call-webhook sites are changed and typecheck, but a live
+  Telnyx call was never placed — only SMS and the outbound dial row exercised the path. The
+  `recording.saved` branch in particular has never run with the new code.
+- **The `/test` page changes were not run.**
+- **The drawer was not opened in a browser.** Journey/Narrative/Source/Stage/Confidence were fixed
+  in the data and the template; the rendered result is unconfirmed.
+- **Cost.** Every inbound text message now makes a Claude call when the deterministic rungs miss.
+  Notices are excluded and the model is `CLAUDE_FAST`, but nobody has measured the volume.
+- **No backfill** for existing rows: subtopics only appear on messages written after this change.
+- The contact back-fill matches on the last 10 digits, which would collide across countries sharing
+  a 10-digit tail. Acceptable for the current single-region data; not safe in general.
