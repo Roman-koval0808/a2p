@@ -60,6 +60,12 @@ export interface ThreadResolution {
 	threadId?: string;
 	reason: string;
 	rulesVersion: string;
+	/**
+	 * A thread that was still marked open but whose inactivity window has lapsed. The caller should
+	 * mark it `closed` so the stored data matches the roadmap's definition of active
+	 * (`status != 'closed'`). Retiring it, never deleting it — the rows stay where they are.
+	 */
+	closeThreadId?: string;
 }
 
 /**
@@ -99,13 +105,30 @@ export function resolveEngagementThread(args: {
 		};
 	}
 
+	// Rule 2 — the contact's ACTIVE thread, whatever the subtopic.
+	//
+	// "Active" is two conditions, not one. The roadmap defines it as `status != 'closed'` and says
+	// that needs no migration — but nothing in the codebase ever sets a thread to `closed`, so on
+	// its own that test is always true and an engagement never ends. The roadmap's own acceptance
+	// list requires the opposite: "Same contact returns after the window -> new T2".
+	//
+	// So the inactivity window is applied here too. A thread silent past the longest window among
+	// its subtopics is not active, whatever its stored status says, and the caller is told to
+	// retire it (`closeThreadId`) so the stored status catches up with the decision.
+	let lapsedOpenThreadId: string | undefined;
 	if (args.openThread && args.openThread.status !== 'closed') {
-		return {
-			decision: 'open',
-			threadId: args.openThread.id,
-			reason: 'active_open_thread',
-			rulesVersion: ENGAGEMENT_RULES_VERSION
-		};
+		const windowDays = engagementWindowDays(args.openThread.subtopics ?? []);
+		const elapsedDays =
+			(now.getTime() - args.openThread.updated.getTime()) / (1000 * 60 * 60 * 24);
+		if (elapsedDays <= windowDays) {
+			return {
+				decision: 'open',
+				threadId: args.openThread.id,
+				reason: 'active_open_thread',
+				rulesVersion: ENGAGEMENT_RULES_VERSION
+			};
+		}
+		lapsedOpenThreadId = args.openThread.id;
 	}
 
 	if (args.recentThread) {
@@ -125,7 +148,8 @@ export function resolveEngagementThread(args: {
 	return {
 		decision: 'new',
 		reason: 'no_open_thread_or_window_lapsed',
-		rulesVersion: ENGAGEMENT_RULES_VERSION
+		rulesVersion: ENGAGEMENT_RULES_VERSION,
+		...(lapsedOpenThreadId ? { closeThreadId: lapsedOpenThreadId } : {})
 	};
 }
 

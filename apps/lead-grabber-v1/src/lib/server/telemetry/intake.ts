@@ -601,6 +601,16 @@ async function upsertSessionCommLog(
 				recentThread: toOpen(recentThread)
 			});
 
+			// Retire a thread whose window has lapsed, so the stored status agrees with the decision
+			// the rule just made. Point-and-retire, never delete: the rows stay on the old thread and
+			// it keeps its ENG code, it simply stops attracting new interactions.
+			if (decision.closeThreadId) {
+				await tx.communicationThread.update({
+					where: { id: decision.closeThreadId },
+					data: { status: 'closed' }
+				});
+			}
+
 			let threadId: string;
 			let threadIsNew = false;
 			if (decision.decision === 'new' || !decision.threadId) {

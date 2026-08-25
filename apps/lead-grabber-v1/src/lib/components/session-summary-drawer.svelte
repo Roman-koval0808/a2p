@@ -60,10 +60,32 @@
 		return comm?.purpose || comm?.summary || 'Watch for the next signal.';
 	}
 
+	// Journey & Activity shows the message IN FULL — no ellipsis, no shortening.
+	//
+	// Two things were clipping it. The stored `summary` is written by the orchestrator as
+	// `draftedResponse.substring(0, 40) + '...'`, so anything falling back to it showed a cut
+	// sentence. And `journeyActivity` deliberately produces the compact channel-shaped label the
+	// TABLE cell wants ("1 inbound SMS") — right for a dense row, wrong for the drawer, which has
+	// the room and is where you come to read what was actually said.
+	//
+	// So: the real message text first, at full length. The compact shapes are only a fallback for
+	// rows that have no body at all — a web telemetry row's journey IS its signal list.
 	function journey(comm: any): string {
+		const body = (comm?.raw?.content ?? '').toString().trim();
+		if (body) return body;
+
 		const signals = Array.isArray(comm?.raw?.metadata?.signals) ? comm.raw.metadata.signals : [];
 		if (signals.length) return signals.join(' → ');
-		return comm?.summary || '';
+
+		const j = comm?.journey;
+		if (j) {
+			const segs = Array.isArray(j.segments)
+				? j.segments.map((seg: any) => seg.text ?? seg).filter(Boolean)
+				: [];
+			const text = (j.full || '').trim() || segs.join(' · ');
+			if (text) return text;
+		}
+		return (comm?.summary ?? '').toString().trim();
 	}
 
 	function subtopics(): string[] {
@@ -84,11 +106,18 @@
 		</div>
 		<div class="db">
 			<div class="sec">Narrative</div>
-			<div class="narr">{comm.summary || comm.raw?.content || '—'}</div>
+			<div class="narr">{comm.raw?.content || comm.summary || '—'}</div>
 
 			<div class="sec">Channel · Source · Endpoint</div>
 			<div class="kv"><span class="k">Channel</span><span class="v">{channelLabel()} · {comm.direction === 'Out' ? 'out' : 'in'}</span></div>
-			<div class="kv"><span class="k">Source</span><span class="v">{comm.channelSource || '—'}</span></div>
+			<!-- The comm-log Source column renders `log.source` (the number/address the message came
+			     from). The drawer used to render the ATTRIBUTION channel instead, which only web
+			     telemetry rows carry — so every SMS, voice and email row showed a dash next to a
+			     populated column. Same value as the table first, attribution underneath. -->
+			<div class="kv"><span class="k">Source</span><span class="v">{comm.source || comm.channelSource || '—'}</span></div>
+			{#if comm.channelSource && comm.channelSource !== comm.source}
+				<div class="kv"><span class="k">Channel source</span><span class="v">{comm.channelSource}</span></div>
+			{/if}
 			{#if comm.channelSourceDetail}
 				<div class="kv"><span class="k">Source detail</span><span class="v">{comm.channelSourceDetail}</span></div>
 			{/if}
@@ -208,6 +237,10 @@
 		padding: 13px 15px;
 		line-height: 1.6;
 		font-size: 13.5px;
+		/* The full message goes here, so keep its line breaks and never let a long address or URL
+		   push the drawer sideways. No clamping — shortening is the thing being fixed. */
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
 	}
 	:global(.ss-draw .kv) {
 		display: flex;

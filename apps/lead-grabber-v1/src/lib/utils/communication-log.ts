@@ -5,6 +5,7 @@ import {
 } from '$lib/server/telemetry/engagement';
 import { createNotification } from '$lib/utils/notifications';
 import { isA2pDbEnabled, mirrorToA2p } from '$lib/server/a2p-db';
+import { isInternalNotice } from '$lib/server/communication-surface';
 
 export type CommunicationType =
 	| 'email'
@@ -51,6 +52,86 @@ export async function logCommunication(entry: CommunicationLogEntry) {
 		if (!entry.company_id) {
 			console.error('logCommunication failed: company_id is required');
 			return null;
+		}
+
+		// Attach the customer when the caller did not name one.
+		//
+		// Six writers — emergency-dial, callback-dispatch, the legacy SMS endpoint, notification
+		// replies, ad-hoc email sends and orchestrator approvals — call this with a company and a
+		// phone number but no `customer_id`. The engagement rule resolves against a CONTACT, so
+		// those rows fell straight through to "new thread, contactId null" and sat outside every
+		// engagement: real messages to a real customer, orphaned from their conversation.
+		//
+		// The customer is at the other end of the row: `destination` on an outbound message,
+		// `source` on an inbound one. Matched, never created — `source: 'callback-router'` is a
+		// label, not a person, and inventing contacts from it would be worse than an orphan row.
+		if (!entry.customer_id && entry.company_id) {
+			const other = entry.direction === 'outbound' ? entry.destination : entry.source;
+			const raw = (other ?? '').toString().trim();
+			// One destination can hold a rota ("+1555…, +1555…") — an ambiguous row gets no contact.
+			const single = raw.includes(',') ? '' : raw;
+			const digits = single.replace(/[^0-9]/g, '');
+			try {
+				if (single.includes('@')) {
+					const byEmail = await prisma.contact.findFirst({
+						where: { companyId: entry.company_id, email: single },
+						select: { id: true }
+					});
+					if (byEmail) entry.customer_id = byEmail.id;
+				} else if (digits.length >= 10) {
+					// Match on the last 10 digits so +1 / no-+1 / formatted variants all land.
+					const tail = digits.slice(-10);
+					const byPhone = await prisma.$queryRaw<{ id: string }[]>`
+						SELECT id FROM contacts
+						WHERE "companyId" = ${entry.company_id}
+						  AND (
+						    right(regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g'), 10) = ${tail}
+						    OR right(regexp_replace(COALESCE(cell, ''), '[^0-9]', '', 'g'), 10) = ${tail}
+						  )
+						LIMIT 1`;
+					if (byPhone.length) entry.customer_id = byPhone[0].id;
+				}
+			} catch (err: any) {
+				console.error('[communication-log] contact back-fill failed:', err?.message || err);
+			}
+		}
+
+		// Work out what this interaction is ABOUT before opening the transaction.
+		//
+		// Subtopic classification only ever ran in the telemetry intake, where a page address gives
+		// it away for free. Everything arriving as text — SMS, email, a voicemail transcript — got
+		// no subtopic at all, so those engagements showed "General" and every Session Summary had a
+		// blank Subtopic row.
+		//
+		// The ladder is cheapest-first (page/payload, then call-tracking category, then Claude), so
+		// this only costs a model call for text we cannot otherwise read. It is deliberately OUTSIDE
+		// the transaction: an API call inside a 20s interactive transaction is how the P2028s
+		// started.
+		let resolvedSubtopic: string | null = null;
+		if (entry.company_id && entry.direction === 'inbound') {
+			const text = (entry.content ?? '').toString().trim();
+			// System notices ("Visitor X entered Active Project bucket!") are our own writing, not
+			// the customer's — classifying them spends a model call to learn nothing.
+			const isNotice = isInternalNotice({ metadata: entry.metadata, content: text });
+			if (text.length >= 4 && !isNotice) {
+				try {
+					const { resolveSubtopic } = await import('$lib/server/telemetry/subtopic-classifier');
+					const res = await resolveSubtopic({
+						companyId: entry.company_id,
+						deterministic: (entry.metadata as { subtopic?: string })?.subtopic ?? null,
+						callTrackingCategory: (entry.metadata as { call_tracking_category?: string })
+							?.call_tracking_category ?? null,
+						text,
+						hints: [entry.type, (entry.metadata as { subject?: string })?.subject].filter(
+							Boolean
+						) as string[]
+					});
+					resolvedSubtopic = res.subtopic;
+				} catch (err: any) {
+					// Never fail a log write because classification could not run.
+					console.error('[communication-log] subtopic classification failed:', err?.message || err);
+				}
+			}
 		}
 
 		// Use a transaction to ensure log and thread are created together
@@ -155,6 +236,15 @@ export async function logCommunication(entry: CommunicationLogEntry) {
 					recentThread: toOpen(recentThread)
 				});
 
+				// Same retirement as the telemetry path: the lapsed thread keeps its rows and its
+				// ENG code, it just stops being the one new interactions land on.
+				if (decision.closeThreadId) {
+					await tx.communicationThread.update({
+						where: { id: decision.closeThreadId },
+						data: { status: 'closed' }
+					});
+				}
+
 				if (decision.decision !== 'new' && decision.threadId) {
 					threadId = decision.threadId;
 					await tx.communicationThread.update({
@@ -194,7 +284,8 @@ export async function logCommunication(entry: CommunicationLogEntry) {
 				summary: entry.summary || null,
 				content: entry.content || null,
 				duration: entry.duration ?? null,
-				metadata: entry.metadata || null
+				metadata: entry.metadata || null,
+				subtopic: resolvedSubtopic
 			};
 
 			if (threadId) {
@@ -212,6 +303,23 @@ export async function logCommunication(entry: CommunicationLogEntry) {
 			const newRecord = await tx.communicationLog.create({
 				data
 			});
+
+			// Roll the subject up onto the ENGAGEMENT. A subtopic is a tag on the episode, never a
+			// boundary — the thread accumulates every subject it has touched, which is what the
+			// header ("ENG-… (Roof, Drain)") and the inactivity window both read.
+			if (resolvedSubtopic && threadId) {
+				const t = await tx.communicationThread.findUnique({
+					where: { id: threadId },
+					select: { subtopics: true }
+				});
+				const current: string[] = Array.isArray(t?.subtopics) ? (t!.subtopics as string[]) : [];
+				if (!current.includes(resolvedSubtopic)) {
+					await tx.communicationThread.update({
+						where: { id: threadId },
+						data: { subtopics: [...current, resolvedSubtopic] }
+					});
+				}
+			}
 
 			// Handle assigned members if provided
 			if (entry.assigned_members && entry.assigned_members.length > 0) {

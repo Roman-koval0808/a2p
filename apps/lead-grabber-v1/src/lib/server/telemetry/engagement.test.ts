@@ -57,6 +57,46 @@ describe('resolveEngagementThread — evidence before time', () => {
 		expect(r.decision).toBe('open');
 	});
 
+	// The roadmap's acceptance list: "Same contact returns after the window -> new T2". Nothing
+	// ever sets a thread to `closed`, so testing `status != 'closed'` alone kept every engagement
+	// alive for ever. The window applies to the open thread too.
+	it('opens a new engagement when the OPEN thread has been silent past its window', () => {
+		const updated = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000); // 200 days
+		const r = resolveEngagementThread({
+			openThread: { id: 'T1', status: 'open', subtopics: ['drain'], updated }, // 30d window
+			recentThread: { id: 'T1', status: 'open', subtopics: ['drain'], updated }
+		});
+		expect(r.decision).toBe('new');
+		expect(r.reason).toBe('no_open_thread_or_window_lapsed');
+		// and the caller is told to retire the stale one
+		expect(r.closeThreadId).toBe('T1');
+	});
+
+	it('a long renovation stays active well past a repair window', () => {
+		const updated = new Date(Date.now() - 100 * 24 * 60 * 60 * 1000); // 100 days
+		const r = resolveEngagementThread({
+			openThread: { id: 'T1', status: 'open', subtopics: ['drain', 'roof'], updated } // 180d
+		});
+		expect(r.decision).toBe('open');
+		expect(r.threadId).toBe('T1');
+		expect(r.closeThreadId).toBeUndefined();
+	});
+
+	it('an emergency lapses after a week', () => {
+		const updated = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000); // 10 days
+		const r = resolveEngagementThread({
+			openThread: { id: 'T1', status: 'open', subtopics: ['emergency'], updated } // 7d
+		});
+		expect(r.decision).toBe('new');
+		expect(r.closeThreadId).toBe('T1');
+	});
+
+	it('does not ask to retire anything when it simply had no thread to reuse', () => {
+		const r = resolveEngagementThread({});
+		expect(r.decision).toBe('new');
+		expect(r.closeThreadId).toBeUndefined();
+	});
+
 	it('prefers the explicit reference above an open thread', () => {
 		const r = resolveEngagementThread({
 			explicitThreadId: 'ENG-404',

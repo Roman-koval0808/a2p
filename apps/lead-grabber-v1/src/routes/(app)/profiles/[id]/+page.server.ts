@@ -1,5 +1,9 @@
 import { prisma } from '$lib/db';
-import { communicationSurface, COMMUNICATION_SURFACE_INCLUDE } from '$lib/server/communication-surface';
+import {
+	communicationSurface,
+	applyEngagementFallbacks,
+	COMMUNICATION_SURFACE_INCLUDE
+} from '$lib/server/communication-surface';
 import { redirect, error } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { commCode } from '$lib/utils/comm-id';
@@ -288,7 +292,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			})
 			.sort((a, b) => b.created.localeCompare(a.created));
 
-		const comms = conversationLogs.map((log) => {
+		const comms = applyEngagementFallbacks(conversationLogs.map((log) => {
 			// Same surface the communication-log page renders, from the same helper, so the shared
 			// CommunicationTable shows identical cells on both pages.
 			const surface = communicationSurface(log);
@@ -369,7 +373,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				raw: log,
 				...surface
 			};
-		});
+		// Same engagement-level fill as the communication-log page, from the same helper, so the
+		// two render identical cells.
+		}));
 
 		// ClearSky Scheduled Intents (spec §10): this customer's schedule — a separate
 		// LOOK-UP list, deliberately not the agent queue ("the queue is today's work").

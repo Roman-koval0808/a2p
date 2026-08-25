@@ -1,6 +1,7 @@
 import { POST as handleSmsPost } from '../../api/telnyx/webhook/+server';
 import { PipelineSimulator } from '$lib/server/pipeline-simulator';
 import { prisma } from '$lib/db';
+import { resolveEngagementForContact } from '$lib/server/telemetry/resolve-engagement';
 import { redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -221,8 +222,20 @@ export const actions: Actions = {
 			}
 
 			// 4. Create the thread + CommunicationLog with the EXACT recording.saved shape.
-			const thread = await prisma.communicationThread.create({
-				data: { companyId, contactId: contact.id, status: 'open', summary: 'Voice Call' }
+			// Same engagement rule as the real call webhook — otherwise a /test run behaves
+			// differently from production, which is exactly how the dial-ladder and viewroom
+			// misdiagnoses happened.
+			const engV = await prisma.$transaction(
+				(tx) =>
+					resolveEngagementForContact(tx, {
+						companyId,
+						contactId: contact.id,
+						summary: 'Voice Call'
+					}),
+				{ timeout: 20_000, maxWait: 15_000 }
+			);
+			const thread = await prisma.communicationThread.findUniqueOrThrow({
+				where: { id: engV.threadId }
 			});
 			const finalDestination =
 				intentName && digit ? `${called} (Ext ${digit} - ${intentName})` : called;
@@ -437,8 +450,17 @@ export const actions: Actions = {
 			}
 
 			// 3. Create the communication thread
-			const thread = await prisma.communicationThread.create({
-				data: { companyId, contactId: contact.id, status: 'open', summary: `Email: ${subject}` }
+			const engE = await prisma.$transaction(
+				(tx) =>
+					resolveEngagementForContact(tx, {
+						companyId,
+						contactId: contact.id,
+						summary: `Email: ${subject}`
+					}),
+				{ timeout: 20_000, maxWait: 15_000 }
+			);
+			const thread = await prisma.communicationThread.findUniqueOrThrow({
+				where: { id: engE.threadId }
 			});
 
 			// 4. Create the inbound email log with complete metadata

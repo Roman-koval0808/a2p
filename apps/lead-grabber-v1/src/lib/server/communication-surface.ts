@@ -316,6 +316,91 @@ export function communicationSurface(log: any): CommunicationSurface {
 	};
 }
 
+/**
+ * Fill an interaction's blank intent fields from the ENGAGEMENT it belongs to.
+ *
+ * Stage, subtopic, confidence and the attribution source are facts about the conversation, not
+ * about one message in it. Only the customer's own inbound messages produce them: an outbound
+ * reply, a delivery receipt or a system notice has nothing of its own to report, so those rows
+ * rendered a column of dashes next to a fully-populated inbound row in the same engagement.
+ *
+ * The fallback is per-engagement and takes the most recent row that actually knows, preferring
+ * inbound rows — they are the ones carrying the customer's intent. Nothing is invented: if no row
+ * in the engagement ever had a subtopic, it stays null and the caller shows "—".
+ *
+ * Runs over rows already loaded for the page, so it costs no extra queries.
+ *
+ * "Where they apply" — an outbound row keeps `intentStatus: 'n/a'` and `intentEmergency` as they
+ * are. Those two are properties of the message, not the conversation.
+ */
+export function applyEngagementFallbacks<
+	T extends {
+		engagementId?: string | null;
+		direction?: string | null;
+		created?: Date | string | null;
+		intentStage?: string | null;
+		intentSubtopic?: string | null;
+		intentConfidence?: string | null;
+		channelSource?: string | null;
+		channelSourceDetail?: string | null;
+		threadSubtopics?: string[];
+	}
+>(rows: T[]): T[] {
+	type Known = {
+		intentStage: string | null;
+		intentSubtopic: string | null;
+		intentConfidence: string | null;
+		channelSource: string | null;
+		channelSourceDetail: string | null;
+	};
+	const best = new Map<string, Known>();
+
+	const time = (r: T) => (r.created ? new Date(r.created as any).getTime() : 0);
+	// Oldest first, inbound last within a timestamp, so a later/inbound value overwrites an
+	// earlier/outbound one and the map ends up holding the freshest thing that actually knows.
+	const ordered = [...rows].sort((a, b) => {
+		const d = time(a) - time(b);
+		if (d !== 0) return d;
+		return (a.direction === 'inbound' ? 1 : 0) - (b.direction === 'inbound' ? 1 : 0);
+	});
+
+	for (const row of ordered) {
+		const key = row.engagementId;
+		if (!key) continue;
+		const cur = best.get(key) ?? {
+			intentStage: null,
+			intentSubtopic: null,
+			intentConfidence: null,
+			channelSource: null,
+			channelSourceDetail: null
+		};
+		if (row.intentStage) cur.intentStage = row.intentStage;
+		if (row.intentSubtopic) cur.intentSubtopic = row.intentSubtopic;
+		if (row.intentConfidence) cur.intentConfidence = row.intentConfidence;
+		if (row.channelSource) cur.channelSource = row.channelSource;
+		if (row.channelSourceDetail) cur.channelSourceDetail = row.channelSourceDetail;
+		best.set(key, cur);
+	}
+
+	return rows.map((row) => {
+		const known = row.engagementId ? best.get(row.engagementId) : undefined;
+		// The engagement's own subtopic list is the last resort for a subtopic — it is the rollup
+		// of every subject the episode has touched.
+		const fromThread =
+			Array.isArray(row.threadSubtopics) && row.threadSubtopics.length
+				? row.threadSubtopics[row.threadSubtopics.length - 1]
+				: null;
+		return {
+			...row,
+			intentStage: row.intentStage ?? known?.intentStage ?? null,
+			intentSubtopic: row.intentSubtopic ?? known?.intentSubtopic ?? fromThread ?? null,
+			intentConfidence: row.intentConfidence ?? known?.intentConfidence ?? null,
+			channelSource: row.channelSource ?? known?.channelSource ?? null,
+			channelSourceDetail: row.channelSourceDetail ?? known?.channelSourceDetail ?? null
+		};
+	});
+}
+
 // ── Journey & Activity ───────────────────────────────────────────────────────
 //
 // The cell is a compact, channel-shaped read of what happened in the session — not a dump of

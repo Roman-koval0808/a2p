@@ -1,5 +1,9 @@
 import { prisma } from '$lib/db';
-import { communicationSurface, COMMUNICATION_SURFACE_INCLUDE } from '$lib/server/communication-surface';
+import {
+	communicationSurface,
+	applyEngagementFallbacks,
+	COMMUNICATION_SURFACE_INCLUDE
+} from '$lib/server/communication-surface';
 import type { PageServerLoad } from './$types';
 import { isA2pCommLogEnabled } from '$lib/server/a2p-client';
 import { commCode, engCode, sesCode, prfCode } from '$lib/utils/comm-id';
@@ -246,8 +250,14 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 			};
 		});
 
+		// Stage / subtopic / confidence / attribution belong to the ENGAGEMENT, not to one message
+		// in it. Fill an interaction's blanks from the conversation it is part of before slicing,
+		// so an outbound reply on this page can inherit from the inbound message that produced it
+		// even when that message falls on another page.
+		const withFallbacks = applyEngagementFallbacks(mappedLogs);
+
 		// Merge and sort in memory
-		const combined = [...mappedLogs, ...mappedDropCalls].sort(
+		const combined = [...withFallbacks, ...mappedDropCalls].sort(
 			(a, b) => b.created.getTime() - a.created.getTime()
 		);
 

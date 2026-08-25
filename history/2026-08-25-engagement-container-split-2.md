@@ -127,3 +127,98 @@ the container one runs last and wins.
   `Visitor "…" entered Active Project bucket!` rows for two real messages, each re-entering the
   orchestrator with `trigger: viewroom_entered` and spending an AI call analysing a system notice.
   They are filtered from the log view but not from the pipeline. Flagged twice now; not addressed.
+
+---
+
+# Part 2 — engagements now expire
+
+## Goal
+
+> "when do engagements expire?" … "please follow the docs and implement if it tells you they should
+> expire"
+
+## What the docs say
+
+`ENGAGEMENT-MODEL-PLAN.md` Phase 1 defines the resolution ladder and, in its acceptance list:
+
+> Same contact returns after the window → **new T2**.
+
+It also defines active as `CommunicationThread.status != 'closed'` and says that needs no migration.
+Both statements are in the doc; only the first was achievable, because **nothing in the codebase
+ever sets a thread to `closed`** — verified by grepping every `communicationThread.update` /
+`updateMany` / raw-SQL writer (the only status write, `confirm/+server.ts:372`, sets it back to
+`open`), and by the database: zero closed threads. The two `status: 'closed'` writes in `src/` are
+both on `Transaction`.
+
+So rule 2 matched any thread of the contact regardless of age, rule 3's inactivity window was
+unreachable, and engagements never ended. Note the pre-existing fallthrough reason was already
+called `no_open_thread_or_window_lapsed` — the intent was there, the path was not.
+
+The doc is not LOCKED and thread expiry is not in its "Blocked on a human" list, so this was
+implemented rather than raised.
+
+## Changed
+
+- `src/lib/server/telemetry/engagement.ts` — rule 2 now requires the open thread to be **within its
+  inactivity window** (longest among its subtopics) as well as not closed. When it has lapsed the
+  resolution falls through to rule 3/4 and returns `closeThreadId` naming the stale thread.
+- `src/lib/server/telemetry/intake.ts` and `src/lib/utils/communication-log.ts` — both writers act
+  on `closeThreadId` by setting `status: 'closed'`. **Point-and-retire, never delete**: the log rows
+  stay attached and the old engagement keeps its ENG code, it simply stops attracting new
+  interactions. This also makes the stored data satisfy the doc's own `status != 'closed'`
+  definition going forward.
+- `src/lib/server/telemetry/engagement.test.ts` — four cases: an open thread lapsing past its
+  window, a renovation (180 d) surviving well past a repair window, an emergency lapsing after
+  7 days, and "no thread at all" not asking to retire anything.
+
+Windows are unchanged (they were already correct): emergency 7 d; drain/plumbing/repair/water
+heater/furnace/HVAC/electrical/support 30 d; billing 60 d; quote 90 d; renovations 180 d; default
+30 d; longest-wins across an engagement's subtopics.
+
+## Verified
+
+- `scripts/verify-engagement-model.mjs` against the running dev server and real DB: **16 passed,
+  0 failed**, including "a return after the window opens a NEW engagement".
+- That check was **proved failing beforehand**, not assumed: rule 2 was temporarily reverted in
+  place, the script re-run (`FAIL … vt_vfy… vs vt_vfy…` — same thread id both sides), then the fix
+  restored and re-run to 16/16.
+- Retirement confirmed in the database: 2 threads now `closed`, each still holding its 3 log rows.
+- Suite **28 failed / 834 passed** (the 28 floor; +4 new tests). `svelte-check` **938 / 224**,
+  unchanged.
+
+## Rejected
+
+- **A scheduled sweep that closes threads on inactivity.** It would satisfy the doc's literal
+  definition, but makes the boundary depend on when the cron last ran, needs new infrastructure, and
+  risks mass-closing threads on first run. Deciding at resolution time is stateless and exact; the
+  status write then follows the decision instead of driving it.
+- **Leaving `status != 'closed'` as the sole test and adding a closer elsewhere.** Same problem —
+  correctness would depend on the closer having run.
+
+## Not verified
+
+- **No backfill.** Threads already dormant past their window stay `open` until the contact's next
+  interaction, which is when they are retired. Nothing sweeps historical data.
+- Only the telemetry path was exercised end to end. `logCommunication` has the identical retirement
+  block and is covered by the unit tests, but no live SMS/voice/email replay crossed a window
+  boundary (that needs an aged fixture on a contact, which the acceptance script only builds on the
+  telemetry side).
+- The UI was not checked for how a closed engagement renders — whether a retired ENG code is
+  visually distinguishable from an active one is unknown.
+- Whether 30/90/180 days are the right numbers is a product question; they were already in the code
+  and were not revisited.
+
+## Also observed — data loss, cause unknown
+
+Between 22:03 and 23:10 today, **all Total Trade Solutions (`cmkwntxej…`) contacts, communication
+logs and threads were deleted.** The table went from many rows to 3 contacts / 2 logs / 1 thread,
+all belonging to Reco Company, whose 2,883 `CommContainer` rows are untouched.
+
+The selective, single-company pattern matches `POST /api/company/wipe-data` (which deletes exactly
+contacts, logs, threads, messages, notifications, containers and pipeline profiles, `where:
+{ companyId }`). It was not the test suite — `wipe-data.test.ts` is fully mocked — and not the SMS
+replays, which only wrote rows. **I do not know who or what triggered it.** Worth checking whether
+that endpoint is reachable without a deliberate confirmation step.
+
+The Part 1 fix had already been verified against the database before this happened, but those
+evidence rows are gone.

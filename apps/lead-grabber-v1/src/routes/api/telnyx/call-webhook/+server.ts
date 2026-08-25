@@ -6,6 +6,7 @@ import { env } from '$env/dynamic/private';
 import { PipelineSimulator } from '$lib/server/pipeline-simulator';
 import { addPendingCall } from '$lib/utils/callStore';
 import { prisma } from '$lib/db';
+import { resolveEngagementForContact } from '$lib/server/telemetry/resolve-engagement';
 import { getActiveCallFlow, toAbsoluteAudioUrl } from '$lib/ivr';
 import { getCompanyAndFlowByPhoneNumber, toE164 } from '$lib/company-numbers';
 import { PUBLIC_BASE_URL } from '$env/static/public';
@@ -1627,24 +1628,24 @@ export const POST: RequestHandler = async ({ request }) => {
 						}
 
 						if (!commThread) {
-							commThread = await prisma.communicationThread.findFirst({
-								where: {
-									companyId: numberInfo.companyId,
-									contactId: contact.id,
-									status: 'open'
-								},
-								orderBy: { created: 'desc' }
-							});
+							// The engagement rule, shared with telemetry/SMS/email. This used to be a
+							// hand-rolled copy that ordered by `created`, applied no inactivity
+							// window, took no lock and stamped no rulesVersion.
+							commThread = null;
 						}
 
 						if (!commThread) {
-							commThread = await prisma.communicationThread.create({
-								data: {
-									companyId: numberInfo.companyId,
-									contactId: contact.id,
-									status: 'open',
-									summary: 'Voice Call'
-								}
+							const eng = await prisma.$transaction(
+								(tx) =>
+									resolveEngagementForContact(tx, {
+										companyId: numberInfo.companyId,
+										contactId: contact.id,
+										summary: 'Voice Call'
+									}),
+								{ timeout: 20_000, maxWait: 15_000 }
+							);
+							commThread = await prisma.communicationThread.findUnique({
+								where: { id: eng.threadId }
 							});
 						}
 
@@ -2652,13 +2653,24 @@ export const POST: RequestHandler = async ({ request }) => {
 										callControlId
 									);
 								} else {
-									let commThread = await prisma.communicationThread.create({
-										data: {
-											companyId: numberInfo.companyId,
-											contactId: contact.id,
-											status: 'open',
-											summary: 'Voice Call'
-										}
+									// This was an unconditional create, so every recorded call opened a
+									// brand-new engagement — the same defect as the SMS split, with no
+									// matching logic at all.
+									// Captured outside the closure: TypeScript's narrowing of `contact` does
+									// not survive into the transaction callback.
+									const engContactId = contact.id;
+									const engRec = await prisma.$transaction(
+										(tx) =>
+											resolveEngagementForContact(tx, {
+												companyId: numberInfo.companyId,
+												contactId: engContactId,
+												summary: 'Voice Call'
+											}),
+										{ timeout: 20_000, maxWait: 15_000 }
+									);
+									// resolveEngagementForContact just resolved or created it, so it exists.
+									let commThread = await prisma.communicationThread.findUniqueOrThrow({
+										where: { id: engRec.threadId }
 									});
 
 									let finalDestination = companyNumber || '';
