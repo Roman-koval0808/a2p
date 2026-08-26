@@ -90,6 +90,72 @@
 		return (comm?.summary ?? '').toString().trim();
 	}
 
+	function ordinalOf(n: number): string {
+		const s = ['th', 'st', 'nd', 'rd'];
+		const v = n % 100;
+		return n + (s[(v - 20) % 10] || s[v] || s[0]);
+	}
+
+	/**
+	 * "How the engine derived this" — lifted from `design/a2p-simulator.html`, which shows the
+	 * REASONING behind a row rather than only its result. Every line is read from data already on
+	 * the row; nothing is inferred here, and a step with nothing behind it is dropped rather than
+	 * padded with a dash.
+	 */
+	function derivation(comm: any): { w: string; v: string }[] {
+		const out: { w: string; v: string }[] = [];
+		const ri = comm?.returnInfo;
+		if (ri) {
+			out.push({
+				w: 'History',
+				v: ri.returning
+					? `${ri.deviceMatchOnly ? 'Likely returning (device match)' : 'Returning'} — ${ordinalOf(ri.ordinal)} session for ${comm.profileId ?? 'this profile'}; ${ri.startedEngagement ? 'started ' : 'continuing '}${comm.engagementId ?? ''}`
+					: `First touch for ${comm.profileId ?? 'this profile'}`
+			});
+		}
+		out.push({
+			w: 'Channel + direction',
+			v: `${channelLabel()} · ${comm.direction === 'Out' ? 'out' : 'in'}`
+		});
+		if (comm.channelSource) {
+			out.push({
+				w: 'Source (sets the prior)',
+				v: comm.channelSourceDetail
+					? `${comm.channelSource} — ${comm.channelSourceDetail}`
+					: comm.channelSource
+			});
+		}
+		const said = (comm?.raw?.content ?? '').toString().trim();
+		out.push({
+			w: 'Message read by AI',
+			v: said
+				? `"${said.slice(0, 240)}${said.length > 240 ? '…' : ''}"${comm.intentStage ? ` → ${comm.intentStage}` : ''}`
+				: '(no message — intent from behaviour/source)'
+		});
+		if (comm.intentStage || comm.intentStatus) {
+			const emg = emergencyLabel(comm) === 'Yes' ? ' · emergency' : '';
+			out.push({
+				w: 'Intent verdict',
+				v: `${comm.intentStage ?? '—'}${emg}${comm.intentStatus ? ` · ${comm.intentStatus}` : ''}${comm.intentConfidence ? ` · ${comm.intentConfidence}` : ''}`
+			});
+		}
+		if (comm.intentSubtopic || subtopics().length) {
+			out.push({
+				w: 'Subject',
+				v: cap(comm.intentSubtopic) || subtopics().join(', ')
+			});
+		}
+		out.push({ w: 'Tier', v: tierLabel(comm.profileTier) });
+		out.push({
+			w: 'Engagement (business episode)',
+			v: `${comm.engagementId ?? '—'} · types: ${subtopics().join(', ') || '—'}`
+		});
+		if (typeof comm.threadEngagementScore === 'number') {
+			out.push({ w: 'Engagement score', v: `${comm.threadEngagementScore} (flat-additive)` });
+		}
+		return out;
+	}
+
 	function subtopics(): string[] {
 		return Array.isArray(comm?.threadSubtopics) ? comm.threadSubtopics.map((s: string) => cap(s)) : [];
 	}
@@ -134,6 +200,11 @@
 			{#if comm.raw?.metadata?.ai_intent?.reason}
 				<div class="kv"><span class="k">Reason</span><span class="v">{comm.raw.metadata.ai_intent.reason}</span></div>
 			{/if}
+
+			<div class="sec">How the engine derived this</div>
+			{#each derivation(comm) as d}
+				<div class="step"><span class="w">{d.w}</span><div>{d.v}</div></div>
+			{/each}
 
 			<div class="sec">Journey &amp; Activity</div>
 			<div class="narr">{journey(comm) || '—'}</div>
@@ -245,6 +316,20 @@
 		   push the drawer sideways. No clamping — shortening is the thing being fixed. */
 		white-space: pre-wrap;
 		overflow-wrap: anywhere;
+	}
+	/* Derivation steps — label above, value beneath, per the simulator. */
+	:global(.ss-draw .step) {
+		padding: 7px 0;
+		border-bottom: 1px solid #eef1f4;
+		font-size: 13px;
+	}
+	:global(.ss-draw .step .w) {
+		display: block;
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: #7a8794;
+		margin-bottom: 2px;
 	}
 	:global(.ss-draw .kv) {
 		display: flex;

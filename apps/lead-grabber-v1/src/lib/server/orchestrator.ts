@@ -8,6 +8,7 @@ import {
 	bucketToCategory,
 	looksLikeActiveEmergency
 } from './message-intent';
+import { classifyEmergency } from '$lib/server/intent/emergency-protocol';
 import { deriveNextActionPlan } from './next-action';
 import { splitDraftSubject } from '$lib/utils/email-draft';
 import {
@@ -222,12 +223,55 @@ export async function process_orchestrator(commId: string, trigger: string) {
 		olog('[Orchestrator] No AI classification available; routing to support for human review.');
 	}
 
-	// Deterministic emergency backstop: never let an ACTIVE emergency (water coming in, gas, fire)
-	// be routed to booking/sales/support because the AI weighed a scheduling mention over the
-	// danger. This is exactly what happened to Brahma's roof leak ("water coming into my kitchen").
-	if (messageCategory !== 'emergency' && looksLikeActiveEmergency(rawMessage)) {
+	// ── Rung 1, EMERGENCY — the locked protocol ────────────────────────────────
+	//
+	// `specs/clearsky-intent-bucket-protocol.md`, LOCKED 2026-08-26. Route B: the AI reads the
+	// content and returns the two conditions separately, and the deterministic rule decides:
+	//
+	//     emergency = (critical & damaging) AND (must be fixed right away)
+	//                 OR a danger-to-life hazard
+	//
+	// This REPLACES the keyword backstop as the determinant, because the protocol forbids exactly
+	// what that did: "Saying the word 'emergency' does not make it one", and the content examples
+	// are "what the AI interprets under Route B — not a keyword match". The concrete difference is
+	// the customer's own timing: "busted pipe, book me next month" used to force emergency on the
+	// word "burst"; under the protocol it is a real job on a lower rung, not a dispatch.
+	//
+	// The keyword heuristic is KEPT, demoted to a fallback for when Route B cannot run (no API key,
+	// model error). Losing a real emergency because the model was unavailable is the worse failure.
+	const emergencyChannel: 'voice' | 'sms' | 'email' | 'voicemail' | 'chat' =
+		commLog.type === 'voice' ? 'voice' : commLog.type === 'email' ? 'email' : 'sms';
+	let emergencyRead: Awaited<ReturnType<typeof classifyEmergency>> = null;
+	try {
+		emergencyRead = await classifyEmergency({ channel: emergencyChannel, text: rawMessage });
+	} catch (err: any) {
+		oerr('[Orchestrator] Emergency protocol read failed:', err);
+	}
+
+	if (emergencyRead) {
+		const { result, read } = emergencyRead;
+		metadata.emergency_protocol = {
+			...result,
+			read,
+			rulesVersion: 'intent_bucket_protocol_rung1_2026_08_26'
+		};
 		olog(
-			`[Orchestrator] Emergency backstop: message describes an ACTIVE emergency but AI classified "${messageCategory}" — forcing emergency.`
+			`[Orchestrator] Emergency protocol: ${result.isEmergency ? 'EMERGENCY' : 'not emergency'} · ${result.status} — ${result.reasons.join('; ')}`
+		);
+		if (result.isEmergency && messageCategory !== 'emergency') {
+			olog(`[Orchestrator] Protocol escalates "${messageCategory}" → emergency.`);
+			messageCategory = 'emergency';
+		} else if (!result.isEmergency && messageCategory === 'emergency') {
+			// The AI's coarse bucket said emergency; the protocol's two conditions say otherwise.
+			// The protocol is the locked authority, so it wins — a schedulable burst pipe is a job.
+			olog(
+				'[Orchestrator] Protocol overrules the AI bucket: conditions not met — routing as a normal job.'
+			);
+			messageCategory = aiIntent?.wants_appointment ? 'sales' : 'support';
+		}
+	} else if (messageCategory !== 'emergency' && looksLikeActiveEmergency(rawMessage)) {
+		olog(
+			`[Orchestrator] Route B unavailable — keyword fallback: message describes an ACTIVE emergency but AI classified "${messageCategory}" — forcing emergency.`
 		);
 		messageCategory = 'emergency';
 	}
