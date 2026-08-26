@@ -338,8 +338,15 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				purpose = cap(meta.category_gpt);
 			} else if (meta.ivr_intent) {
 				purpose = cap(meta.ivr_intent);
+			} else if (meta.sub_intent && !['general', 'sales', 'support', 'quote', 'opportunity'].includes(meta.sub_intent.toLowerCase())) {
+				purpose = meta.sub_intent;
 			} else if (meta.intent || meta.sentiment) {
-				purpose = cap(meta.intent || meta.sentiment);
+				const raw = (meta.intent || meta.sentiment || '').toLowerCase();
+				let word = cap(meta.intent || meta.sentiment);
+				if (raw === 'quote') word = 'Quote Request';
+				else if (raw === 'sales' || raw === 'opportunity') word = 'Sales Opportunity';
+				else if (raw === 'support') word = 'Support Inquiry';
+				purpose = word;
 			} else if (summary) {
 				purpose = 'See Summary';
 			}

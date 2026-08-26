@@ -1,4 +1,5 @@
 import { engCode, sesCode, prfCode } from '$lib/utils/comm-id';
+import { formatDescriptiveIntent } from '$lib/utils/subtopic-labels';
 
 /**
  * The four-level model surface (Profile → Engagement → Session → Interaction) for one
@@ -457,6 +458,7 @@ export interface CommunicationSurface {
 	intentStatus: string | null;
 	intentStage: string | null;
 	intentSubtopic: string | null;
+	intentDescription: string | null;
 	intentConfidence: string | null;
 	intentEmergency: boolean;
 	recordingUrl: string | null;
@@ -525,6 +527,7 @@ export function communicationSurface(
 				: null,
 		threadEngagementScore: thread?.engagementScore ?? null,
 		...readIntent(log, meta),
+		intentDescription: formatDescriptiveIntent(log),
 		recordingUrl: recordingUrlFor(log),
 		isProcessing: isStillProcessing(log),
 		isInternalNotice: isInternalNotice(log),
@@ -556,6 +559,7 @@ export function applyEngagementFallbacks<
 		created?: Date | string | null;
 		intentStage?: string | null;
 		intentSubtopic?: string | null;
+		intentDescription?: string | null;
 		intentConfidence?: string | null;
 		channelSource?: string | null;
 		channelSourceDetail?: string | null;
@@ -565,6 +569,7 @@ export function applyEngagementFallbacks<
 	type Known = {
 		intentStage: string | null;
 		intentSubtopic: string | null;
+		intentDescription: string | null;
 		intentConfidence: string | null;
 		channelSource: string | null;
 		channelSourceDetail: string | null;
@@ -586,12 +591,14 @@ export function applyEngagementFallbacks<
 		const cur = best.get(key) ?? {
 			intentStage: null,
 			intentSubtopic: null,
+			intentDescription: null,
 			intentConfidence: null,
 			channelSource: null,
 			channelSourceDetail: null
 		};
 		if (row.intentStage) cur.intentStage = row.intentStage;
 		if (row.intentSubtopic) cur.intentSubtopic = row.intentSubtopic;
+		if (row.intentDescription) cur.intentDescription = row.intentDescription;
 		if (row.intentConfidence) cur.intentConfidence = row.intentConfidence;
 		if (row.channelSource) cur.channelSource = row.channelSource;
 		if (row.channelSourceDetail) cur.channelSourceDetail = row.channelSourceDetail;
@@ -615,6 +622,7 @@ export function applyEngagementFallbacks<
 			...row,
 			intentStage: row.intentStage ?? known?.intentStage ?? null,
 			intentSubtopic: row.intentSubtopic ?? known?.intentSubtopic ?? fromThread ?? null,
+			intentDescription: row.intentDescription ?? known?.intentDescription ?? null,
 			intentConfidence: row.intentConfidence ?? known?.intentConfidence ?? null,
 			channelSource: row.channelSource ?? (inbound ? known?.channelSource ?? null : null),
 			channelSourceDetail:

@@ -8,8 +8,9 @@ const globalForPrisma = globalThis as unknown as {
 function withPoolLimits(url: string): string {
 	try {
 		const u = new URL(url);
-		// Cap the pool so a few dev servers / hot reloads don't exhaust the DB connection slots.
-		u.searchParams.set('connection_limit', '10');
+		// Aiven direct connections have tight limits (~20 max across cluster).
+		// Cap local pool to 3 so dev servers, HMR, and background tasks do not exhaust slots.
+		u.searchParams.set('connection_limit', '3');
 		u.searchParams.set('pool_timeout', '15');
 		return u.toString();
 	} catch {

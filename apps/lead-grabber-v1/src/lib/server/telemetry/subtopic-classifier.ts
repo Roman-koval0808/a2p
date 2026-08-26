@@ -159,7 +159,8 @@ export async function classifySubtopicWithAI(
 			'dripping" is plumbing, not a kitchen renovation.\n' +
 			'- Prefer the most specific key that fits (furnace over hvac, bathroom over renovation).\n' +
 			'- "emergency" describes urgency, not a trade. Only use it when no trade is identifiable ' +
-			'and the text is plainly an emergency.',
+			'and the text is plainly an emergency.\n' +
+			'- "quote" is an intent, not a trade. Prefer the specific trade being quoted (e.g. plumbing, renovation, roof, etc.) whenever one is mentioned.',
 		user:
 			`Available services:\n${menu}\n\n` +
 			(input.hints?.length ? `Context already known: ${input.hints.join(' · ')}\n\n` : '') +

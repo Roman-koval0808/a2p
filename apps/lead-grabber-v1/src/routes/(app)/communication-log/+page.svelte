@@ -255,12 +255,14 @@
 				purpose = urgentPrefix + cap(meta.category_gpt);
 			} else if (meta.ivr_intent) {
 				purpose = urgentPrefix + (isSalesIntent ? 'Sales Opportunity' : cap(meta.ivr_intent));
+			} else if (meta.sub_intent && !['general', 'sales', 'support', 'quote', 'opportunity'].includes(meta.sub_intent.toLowerCase())) {
+				purpose = urgentPrefix + meta.sub_intent;
 			} else if (meta.intent || meta.sentiment) {
-				const word = meta.intent
-					? cap(meta.intent)
-					: meta.sentiment
-						? cap(meta.sentiment)
-						: 'General';
+				const raw = (meta.intent || meta.sentiment || '').toLowerCase();
+				let word = cap(meta.intent || meta.sentiment);
+				if (raw === 'quote') word = 'Quote Request';
+				else if (raw === 'sales' || raw === 'opportunity') word = 'Sales Opportunity';
+				else if (raw === 'support') word = 'Support Inquiry';
 				purpose = urgentPrefix + word;
 			} else {
 				purpose = log.summary ? urgentPrefix + 'See Summary' : urgentPrefix + 'General';
