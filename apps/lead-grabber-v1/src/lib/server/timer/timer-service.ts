@@ -63,7 +63,12 @@ export async function cancelTimer(id: string, reason: string, tx?: any) {
 	});
 }
 
-export async function cancelTimersForContainer(commId: string, type?: TimerType, reason = 'manual_cancel', tx?: any) {
+export async function cancelTimersForContainer(
+	commId: string,
+	type?: TimerType,
+	reason = 'manual_cancel',
+	tx?: any
+) {
 	const db = tx || prisma;
 	return await db.pipelineTimer.updateMany({
 		where: {
@@ -100,7 +105,9 @@ export function canAutoClose(
 	return true;
 }
 
-export async function sweepTimers(now = new Date()): Promise<{ due: number; fired: number; skipped: number }> {
+export async function sweepTimers(
+	now = new Date()
+): Promise<{ due: number; fired: number; skipped: number }> {
 	const dueTimers = await prisma.pipelineTimer.findMany({
 		where: {
 			status: 'registered',
@@ -132,6 +139,13 @@ export async function sweepTimers(now = new Date()): Promise<{ due: number; fire
 				continue;
 			}
 
+			if (timer.type === 'thread_inactivity') {
+				await prisma.commContainer.update({
+					where: { id: container.id },
+					data: { state: 'closed', closedAt: now }
+				});
+			}
+
 			// Fire synthetic event into Stage 1 Intake
 			const fireEventKey = timer.fireEventKey || `tmr_${timer.id}`;
 			const payload = {
@@ -143,7 +157,7 @@ export async function sweepTimers(now = new Date()): Promise<{ due: number; fire
 					comm_id: timer.commId,
 					timer_id: timer.id,
 					timer_type: timer.type,
-					...(timer.payload as object || {})
+					...((timer.payload as object) || {})
 				},
 				textContent: `Synthetic escalation event triggered: timer ${timer.type} for container ${container.commRef}`
 			};
@@ -175,7 +189,7 @@ export async function sweepTimers(now = new Date()): Promise<{ due: number; fire
 					err?.message || err
 				);
 			}
-			
+
 			// The customer promised to come back and hasn't. Turn the parked promise
 			// into work someone will actually see: the hold task is closed out and a
 			// follow-up takes its place, so the lead re-enters the active pipeline
@@ -227,17 +241,20 @@ async function evaluateTimerCondition(timer: any, container: any, now: Date): Pr
 
 		case 'thread_inactivity': {
 			// Unmet if container is inactive and closure guards pass
-			const hasOpenPromise = (await prisma.commTask.count({
-				where: { commId: container.id, category: 'customer_promise', status: 'open' }
-			})) > 0;
+			const hasOpenPromise =
+				(await prisma.commTask.count({
+					where: { commId: container.id, category: 'customer_promise', status: 'open' }
+				})) > 0;
 
-			const hasPendingApproval = (await prisma.commApproval.count({
-				where: { commId: container.id, state: 'pending' }
-			})) > 0;
+			const hasPendingApproval =
+				(await prisma.commApproval.count({
+					where: { commId: container.id, state: 'pending' }
+				})) > 0;
 
-			const hasTentativeHold = (await prisma.commHold.count({
-				where: { commId: container.id, status: 'tentative' }
-			})) > 0;
+			const hasTentativeHold =
+				(await prisma.commHold.count({
+					where: { commId: container.id, status: 'tentative' }
+				})) > 0;
 
 			const allowed = canAutoClose(container, {
 				hasOpenPromise,

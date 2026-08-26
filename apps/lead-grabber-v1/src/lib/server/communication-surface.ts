@@ -1,5 +1,6 @@
 import { engCode, sesCode, prfCode } from '$lib/utils/comm-id';
 import { formatDescriptiveIntent } from '$lib/utils/subtopic-labels';
+import { canonicalAttributionChannel } from '$lib/telemetry/attribution';
 
 /**
  * The four-level model surface (Profile → Engagement → Session → Interaction) for one
@@ -81,8 +82,11 @@ function mediumOf(log: any): 'web' | 'phone' | 'sms' | 'email' | 'chat' | 'other
 
 export function sourceChannelLabel(meta: Record<string, unknown>, log?: any): string | null {
 	const attribution = (meta.attribution as { channel?: string } | null) ?? null;
-	if (attribution?.channel) {
-		return ATTRIBUTION_CHANNEL_LABELS[attribution.channel] ?? attribution.channel.replace(/_/g, ' ');
+	const channel = attribution ? canonicalAttributionChannel(attribution) : null;
+	if (channel) {
+		return (
+			ATTRIBUTION_CHANNEL_LABELS[channel] ?? channel.replace(/_/g, ' ')
+		);
 	}
 
 	// A token link is a source in its own right — the customer arrived by following something we
@@ -255,7 +259,6 @@ export function profileWho(tier: string, fingerprint: string | null): string {
 	return fingerprint ? `Anonymous · ${fingerprint} — device only` : 'Anonymous — device only';
 }
 
-
 /**
  * A row is still being interpreted when the AI pipeline has not written its read yet.
  *
@@ -281,7 +284,12 @@ export function isStillProcessing(log: {
 	// complete the moment they are written; no interpreter runs over them afterwards, so they can
 	// never be "pending". Without this guard the callback-router's own voice rows were held back
 	// forever and the rep's dial simply never appeared in the log.
-	if (String(log.direction ?? '').toLowerCase().startsWith('out')) return false;
+	if (
+		String(log.direction ?? '')
+			.toLowerCase()
+			.startsWith('out')
+	)
+		return false;
 
 	// Telemetry rows are deterministic — they are never "interpreted" and so never pending.
 	const isTelemetry =
@@ -318,11 +326,10 @@ export function isStillProcessing(log: {
 // The surface previously read only the telemetry names, which is why an AI-interpreted voice call
 // showed Stage —, Status — and Confidence — while its metadata was full of exactly that data.
 //
-// `emergency` is the urgency axis, NOT a stage. A burst-pipe caller is Active *and* Emergency, so
-// an incoming bucket of "emergency" sets the flag and resolves the stage to `active` rather than
-// overwriting it — collapsing the two loses the urgent half.
+// `emergency` is the fourth, overriding intent bucket. Urgency evidence may remain in metadata, but
+// the rendered buying read must never be `active` plus `emergency`.
 
-const STAGES = new Set(['research', 'comparison', 'active']);
+const STAGES = new Set(['research', 'comparison', 'active', 'emergency']);
 
 /** A numeric model confidence (0.99) becomes the band the column renders. */
 function confidenceBand(value: unknown): string | null {
@@ -363,9 +370,12 @@ function readIntent(log: any, meta: Record<string, any>) {
 			ai.urgency === 'critical' ||
 			!!meta.emergency_type;
 
-	// Emergency is not a stage. Keep an explicit stage if we have one; otherwise an emergency
-	// caller is by definition acting now.
-	const stage = STAGES.has(rawBucket as string) ? (rawBucket as string) : emergency ? 'active' : null;
+	// Emergency replaces any lower buying-stage read.
+	const stage = emergency
+		? 'emergency'
+		: STAGES.has(rawBucket as string)
+			? (rawBucket as string)
+			: null;
 
 	// A voicemail, SMS or form message is the customer telling us — that is `declared`
 	// (Bug A's table). Telemetry never declares: it keeps the status telemetry gave it, or none.
@@ -506,7 +516,7 @@ export function communicationSurface(
 	const tier = identityTier(customer, lineTypes);
 
 	const profileFp = Array.isArray(customer?.metadata?.fingerprints)
-		? customer.metadata.fingerprints[0] ?? null
+		? (customer.metadata.fingerprints[0] ?? null)
 		: typeof log.source === 'string' && /^[a-z0-9]{8,}$/i.test(log.source)
 			? log.source
 			: null;
@@ -624,9 +634,9 @@ export function applyEngagementFallbacks<
 			intentSubtopic: row.intentSubtopic ?? known?.intentSubtopic ?? fromThread ?? null,
 			intentDescription: row.intentDescription ?? known?.intentDescription ?? null,
 			intentConfidence: row.intentConfidence ?? known?.intentConfidence ?? null,
-			channelSource: row.channelSource ?? (inbound ? known?.channelSource ?? null : null),
+			channelSource: row.channelSource ?? (inbound ? (known?.channelSource ?? null) : null),
 			channelSourceDetail:
-				row.channelSourceDetail ?? (inbound ? known?.channelSourceDetail ?? null : null)
+				row.channelSourceDetail ?? (inbound ? (known?.channelSourceDetail ?? null) : null)
 		};
 	});
 }
@@ -667,8 +677,13 @@ function fmtDuration(totalSeconds: number): string {
 
 function durationOf(log: any, meta: Record<string, any>): number | null {
 	const candidates = [
-		meta.durationSec, meta.duration_seconds, meta.duration, meta.callDuration,
-		meta.call_duration, log.durationSeconds, log.duration
+		meta.durationSec,
+		meta.duration_seconds,
+		meta.duration,
+		meta.callDuration,
+		meta.call_duration,
+		log.durationSeconds,
+		log.duration
 	];
 	for (const c of candidates) {
 		const n = typeof c === 'string' ? Number(c) : c;
@@ -682,7 +697,9 @@ const seg = (text: string, bold = false): JourneySegment => ({ text, bold });
 export function journeyActivity(log: any): JourneyActivity {
 	const meta = (log.metadata as Record<string, any>) || {};
 	const type = String(log.type ?? '').toLowerCase();
-	const outbound = String(log.direction ?? '').toLowerCase().startsWith('out');
+	const outbound = String(log.direction ?? '')
+		.toLowerCase()
+		.startsWith('out');
 	const signals: string[] = Array.isArray(meta.signals) ? meta.signals : [];
 	const dur = durationOf(log, meta);
 	const detail: string[] = [];
@@ -741,7 +758,10 @@ export function journeyActivity(log: any): JourneyActivity {
 			if (log.emailOpenedAt) segments.push(seg(' · opened'));
 			else segments.push(seg(' · delivered'));
 		} else if (atts.length) {
-			segments.push(seg('email + '), seg(`${atts.length} attachment${atts.length === 1 ? '' : 's'}`, true));
+			segments.push(
+				seg('email + '),
+				seg(`${atts.length} attachment${atts.length === 1 ? '' : 's'}`, true)
+			);
 		} else {
 			segments.push(seg('1 email'));
 		}

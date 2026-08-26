@@ -91,3 +91,39 @@ export async function resolveEngagementForContact(
 	});
 	return { threadId: created.id, isNew: true, reason: decision.reason };
 }
+
+/**
+ * Add a subtopic to an engagement's rollup, once.
+ *
+ * A subtopic is a TAG on the episode, never a boundary — the engagement accumulates every subject
+ * it has touched, and that array is what the log header renders ("ENG-… (Roof, Drain)") and what
+ * `engagementWindowDays` reads to decide how long the episode stays warm.
+ *
+ * This existed only inside `logCommunication`, so the two voice writers — the Telnyx call webhook
+ * and the /test simulator — set `CommunicationLog.subtopic` on the row but never rolled it onto the
+ * engagement. A call about a furnace followed by one about a drain therefore left the engagement
+ * showing no subjects at all.
+ *
+ * Idempotent, and never throws: a rollup failing must not lose the call that produced it.
+ */
+export async function rollUpSubtopic(
+	db: any,
+	threadId: string | null | undefined,
+	subtopic: string | null | undefined
+): Promise<void> {
+	if (!threadId || !subtopic) return;
+	try {
+		const thread = await db.communicationThread.findUnique({
+			where: { id: threadId },
+			select: { subtopics: true }
+		});
+		const current: string[] = Array.isArray(thread?.subtopics) ? (thread.subtopics as string[]) : [];
+		if (current.includes(subtopic)) return;
+		await db.communicationThread.update({
+			where: { id: threadId },
+			data: { subtopics: [...current, subtopic] }
+		});
+	} catch (err: any) {
+		console.error('[engagement] subtopic rollup failed:', err?.message || err);
+	}
+}

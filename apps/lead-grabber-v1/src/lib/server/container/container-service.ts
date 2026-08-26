@@ -15,7 +15,11 @@ import type {
 } from '@prisma/client';
 import { EMERGENCY_KEYWORDS } from '$lib/server/ai/emergency';
 
-export function classifyThreadType(input: { ivrOption?: number; keywordHit?: boolean; text?: string }): ThreadType {
+export function classifyThreadType(input: {
+	ivrOption?: number;
+	keywordHit?: boolean;
+	text?: string;
+}): ThreadType {
 	const textLower = (input.text || '').toLowerCase();
 	const hasKeyword =
 		input.keywordHit || EMERGENCY_KEYWORDS.some((kw) => textLower.includes(kw.toLowerCase()));
@@ -121,12 +125,15 @@ export async function createContainerAtIntake(
 	const now = input.now || new Date();
 
 	let openContainers: any[] = [];
-	if (input.customerProfileId) {
+	if (input.customerProfileId || input.contactId) {
 		openContainers = await db.commContainer.findMany({
 			where: {
 				companyId: input.companyId,
-				customerProfileId: input.customerProfileId,
-				state: { not: 'closed' }
+				state: { not: 'closed' },
+				OR: [
+					...(input.customerProfileId ? [{ customerProfileId: input.customerProfileId }] : []),
+					...(input.contactId ? [{ contactId: input.contactId }] : [])
+				]
 			}
 		});
 	}
@@ -392,7 +399,10 @@ export async function reassign(
 	const db = tx || prisma;
 	switch (input.recordType) {
 		case 'entry':
-			await db.commEntry.update({ where: { id: input.recordId }, data: { commId: input.toCommId } });
+			await db.commEntry.update({
+				where: { id: input.recordId },
+				data: { commId: input.toCommId }
+			});
 			break;
 		case 'task':
 			await db.commTask.update({ where: { id: input.recordId }, data: { commId: input.toCommId } });
@@ -401,10 +411,16 @@ export async function reassign(
 			await db.commHold.update({ where: { id: input.recordId }, data: { commId: input.toCommId } });
 			break;
 		case 'approval':
-			await db.commApproval.update({ where: { id: input.recordId }, data: { commId: input.toCommId } });
+			await db.commApproval.update({
+				where: { id: input.recordId },
+				data: { commId: input.toCommId }
+			});
 			break;
 		case 'timer':
-			await db.pipelineTimer.update({ where: { id: input.recordId }, data: { commId: input.toCommId } });
+			await db.pipelineTimer.update({
+				where: { id: input.recordId },
+				data: { commId: input.toCommId }
+			});
 			break;
 	}
 
@@ -431,10 +447,16 @@ export async function getContainerView(commId: string, tx?: any) {
 	});
 	if (!container) return null;
 
-	const entries = await db.commEntry.findMany({ where: { commId }, orderBy: { occurredAt: 'asc' } });
+	const entries = await db.commEntry.findMany({
+		where: { commId },
+		orderBy: { occurredAt: 'asc' }
+	});
 	const tasks = await db.commTask.findMany({ where: { commId }, orderBy: { createdAt: 'asc' } });
 	const holds = await db.commHold.findMany({ where: { commId }, orderBy: { createdAt: 'asc' } });
-	const approvals = await db.commApproval.findMany({ where: { commId }, orderBy: { createdAt: 'asc' } });
+	const approvals = await db.commApproval.findMany({
+		where: { commId },
+		orderBy: { createdAt: 'asc' }
+	});
 	const timers = await db.pipelineTimer.findMany({ where: { commId }, orderBy: { fireAt: 'asc' } });
 
 	return {
@@ -531,6 +553,9 @@ export async function createApproval(
 	return await db.commApproval.create({ data });
 }
 
-export function isCustomerFacing(entry: { fromPartyType: PartyType; toPartyType: PartyType }): boolean {
+export function isCustomerFacing(entry: {
+	fromPartyType: PartyType;
+	toPartyType: PartyType;
+}): boolean {
 	return entry.fromPartyType === 'customer' || entry.toPartyType === 'customer';
 }

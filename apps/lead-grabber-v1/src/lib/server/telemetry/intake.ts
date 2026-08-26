@@ -40,14 +40,8 @@ const COMM_LOG_MODE: 'all' | 'high_intent' | 'off' =
 const COMM_LOG_MIN_DELTA = 15;
 
 // ── Visit boundary ──────────────────────────────────────────────────────────
-// A visit is ONE BROWSER TAB. Every ClearSky emitter (site tracker, leadbox, leadform, viewroom)
-// resolves its `sessionId` from the same sessionStorage key, so they agree within a page and the
-// id survives navigation and reload — but sessionStorage dies with the tab, so closing and
-// reopening starts a new session and therefore a new comm-log row.
-//
-// The inactivity gap below is only a FALLBACK, for batches that arrive with no session id at all
-// (a cached pre-sessionStorage script, or storage blocked in private mode). Without it those
-// batches would all collapse into one endless row again.
+// A browser session id groups activity within a tab, but it does not override the session timeout.
+// A return after the inactivity gap gets a new Session row while retaining the Engagement.
 const VISIT_GAP_MINUTES = Number(process.env.TELEMETRY_VISIT_GAP_MINUTES) || 30;
 const COMM_LOG_CATEGORIES = new Set(['call_emergency', 'lead_form', 'reviews', 'viewroom']);
 
@@ -76,6 +70,12 @@ export interface SignalBatch {
 	name?: string | null;
 	email?: string | null;
 	phone?: string | null;
+	/** Existing engagement reference supplied by a quote, project, case, or work-order flow. */
+	engagementId?: string | null;
+	projectId?: string | null;
+	quoteId?: string | null;
+	caseId?: string | null;
+	workOrderId?: string | null;
 	attribution?: Attribution | null;
 	signals: TelemetrySignal[];
 }
@@ -123,7 +123,12 @@ async function followMerges(db: any, profile: any) {
 async function resolveProfile(
 	db: any,
 	companyId: string,
-	input: { fingerprintId?: string | null; name?: string | null; email?: string | null; phone?: string | null }
+	input: {
+		fingerprintId?: string | null;
+		name?: string | null;
+		email?: string | null;
+		phone?: string | null;
+	}
 ): Promise<{ profile: any; conflict?: { survivorId: string; duplicateId: string } }> {
 	const email = normalizeEmail(input.email);
 	const phone = input.phone ? toE164(input.phone) : null;
@@ -166,7 +171,11 @@ async function resolveProfile(
 		if (email && !identified.email) updates.email = email;
 		// Carry the device thread onto the identified record when it has none, so the visitor's
 		// next anonymous batch lands here instead of starting a fresh anonymous profile.
-		if (fingerprintId && !identified.externalId && (!byFingerprint || byFingerprint.id === identified.id)) {
+		if (
+			fingerprintId &&
+			!identified.externalId &&
+			(!byFingerprint || byFingerprint.id === identified.id)
+		) {
 			updates.externalId = fingerprintId;
 		}
 		const profile = Object.keys(updates).length
@@ -215,8 +224,9 @@ async function resolveProfile(
 	};
 }
 
-
-export async function ingestSignalBatch(batch: SignalBatch): Promise<{ status: number; body: any }> {
+export async function ingestSignalBatch(
+	batch: SignalBatch
+): Promise<{ status: number; body: any }> {
 	const { signals, attribution } = batch;
 
 	if (!Array.isArray(signals) || signals.length === 0) {
@@ -286,76 +296,76 @@ export async function ingestSignalBatch(batch: SignalBatch): Promise<{ status: n
 	// on the first failed statement, so recovering in place is impossible — the re-read fails too.
 	// On the second attempt the winner is committed, so the lookups find it and take the
 	// `identified` path instead.
-	const runIngest = () => prisma.$transaction(async (tx: any) => {
-		const { profile, conflict } = await resolveProfile(tx, company.id, {
-			fingerprintId: batch.fingerprintId,
-			name: batch.name,
-			email: batch.email,
-			phone: batch.phone
-		});
-
-		const attrs = (profile.attributes as Record<string, unknown>) || {};
-		const currentScore = typeof attrs.engagementScore === 'number' ? attrs.engagementScore : 0;
-		const newScore = Math.min(100, currentScore + scoreDelta);
-
-		const now = new Date();
-		for (const ev of eventIds) {
-			await tx.pipelineEvent.create({
-				data: {
-					id: ev.id,
-					eventId: `evt_${randomUUID()}`,
-					provider: 'clearsky_pixel',
-					providerEventName: ev.name,
-					eventType: ev.name,
-					// The subject this interaction was about, resolved from its own page/payload.
-					// Null = nothing identified a subject; scored separately as `unknown`.
-					subtopic: ev.subtopic ?? null,
-					networkCategory: ev.category === 'viewroom' ? 'Viewroom' : 'Web',
-					companyId: company.id,
-					customerProfileId: profile.id,
-					occurredAt: now,
-					receivedAt: now,
-					unstructuredText: JSON.stringify({
-						signal: ev.name,
-						category: ev.category,
-						scoreDelta: ev.delta,
-						sessionId: batch.sessionId,
-						fingerprintId: batch.fingerprintId,
-						attribution
-					}),
-					payload: (ev.payload ?? undefined) as any,
-					requiresAiExtraction: false,
-					aiExtractionCompleted: false,
-					processingStatus: 'received',
-					handoffEligible: false
-				}
+	const runIngest = () =>
+		prisma.$transaction(async (tx: any) => {
+			const { profile, conflict } = await resolveProfile(tx, company.id, {
+				fingerprintId: batch.fingerprintId,
+				name: batch.name,
+				email: batch.email,
+				phone: batch.phone
 			});
 
-			await tx.pipelineSignal.create({
-				data: {
-					eventId: ev.id,
-					name: ev.name,
-					bucket: ev.category,
-					priority: 2,
-					confidence: 1.0,
-					status: 'candidate'
-				}
-			});
-		}
+			const attrs = (profile.attributes as Record<string, unknown>) || {};
+			const currentScore = typeof attrs.engagementScore === 'number' ? attrs.engagementScore : 0;
+			const newScore = Math.min(100, currentScore + scoreDelta);
 
-		if (scoreDelta !== 0) {
-			await tx.pipelineCustomerProfile.update({
-				where: { id: profile.id },
-				data: { attributes: { ...attrs, engagementScore: newScore } as any }
-			});
-		}
+			const now = new Date();
+			for (const ev of eventIds) {
+				await tx.pipelineEvent.create({
+					data: {
+						id: ev.id,
+						eventId: `evt_${randomUUID()}`,
+						provider: 'clearsky_pixel',
+						providerEventName: ev.name,
+						eventType: ev.name,
+						// The subject this interaction was about, resolved from its own page/payload.
+						// Null = nothing identified a subject; scored separately as `unknown`.
+						subtopic: ev.subtopic ?? null,
+						networkCategory: ev.category === 'viewroom' ? 'Viewroom' : 'Web',
+						companyId: company.id,
+						customerProfileId: profile.id,
+						occurredAt: now,
+						receivedAt: now,
+						unstructuredText: JSON.stringify({
+							signal: ev.name,
+							category: ev.category,
+							scoreDelta: ev.delta,
+							sessionId: batch.sessionId,
+							fingerprintId: batch.fingerprintId,
+							attribution
+						}),
+						payload: (ev.payload ?? undefined) as any,
+						requiresAiExtraction: false,
+						aiExtractionCompleted: false,
+						processingStatus: 'received',
+						handoffEligible: false
+					}
+				});
 
-		return { profileId: profile.id, newEngagementScore: newScore, mergeConflict: conflict };
-	}, TX_OPTS);
+				await tx.pipelineSignal.create({
+					data: {
+						eventId: ev.id,
+						name: ev.name,
+						bucket: ev.category,
+						priority: 2,
+						confidence: 1.0,
+						status: 'candidate'
+					}
+				});
+			}
+
+			if (scoreDelta !== 0) {
+				await tx.pipelineCustomerProfile.update({
+					where: { id: profile.id },
+					data: { attributes: { ...attrs, engagementScore: newScore } as any }
+				});
+			}
+
+			return { profileId: profile.id, newEngagementScore: newScore, mergeConflict: conflict };
+		}, TX_OPTS);
 
 	const isIdentityClash = (err: any) =>
-		err?.code === 'P2002' &&
-		/phoneNumber|email/.test(String(err?.meta?.target ?? ''));
+		err?.code === 'P2002' && /phoneNumber|email/.test(String(err?.meta?.target ?? ''));
 
 	let ingested;
 	try {
@@ -374,7 +384,8 @@ export async function ingestSignalBatch(batch: SignalBatch): Promise<{ status: n
 			companyId: company.id,
 			primaryProfileId: mergeConflict.survivorId,
 			duplicateProfileId: mergeConflict.duplicateId,
-			reason: 'Telemetry: device fingerprint matches a different profile than the submitted phone/email'
+			reason:
+				'Telemetry: device fingerprint matches a different profile than the submitted phone/email'
 		});
 	}
 
@@ -406,9 +417,14 @@ export async function ingestSignalBatch(batch: SignalBatch): Promise<{ status: n
 
 	const shouldLog = shouldLogBatch(eventIds);
 	if (shouldLog) {
-		await upsertSessionCommLog(company, profileId, batch, eventIds, newEngagementScore, contact).catch(
-			(err: any) => console.error('[telemetry] comm log write failed:', err?.message || err)
-		);
+		await upsertSessionCommLog(
+			company,
+			profileId,
+			batch,
+			eventIds,
+			newEngagementScore,
+			contact
+		).catch((err: any) => console.error('[telemetry] comm log write failed:', err?.message || err));
 	}
 
 	return {
@@ -593,10 +609,28 @@ async function upsertSessionCommLog(
 						}
 					: null;
 
-			// Rule #1 (explicit engagement/project/quote/case/work-order ref) is not wired here: the
-			// web SignalBatch carries no such field. When explicit refs arrive (project/quote/case
-			// records), pass them into resolveEngagementThread and they'll take priority.
+			const explicitRefs = [
+				['projectId', batch.projectId],
+				['quoteId', batch.quoteId],
+				['caseId', batch.caseId],
+				['workOrderId', batch.workOrderId]
+			].filter((entry): entry is [string, string] => Boolean(entry[1]));
+			let explicitThreadId = batch.engagementId || null;
+			if (!explicitThreadId && explicitRefs.length) {
+				const prior = await tx.communicationLog.findFirst({
+					where: {
+						companyId: company.id,
+						communicationThreadId: { not: null },
+						OR: explicitRefs.map(([field, value]) => ({
+							metadata: { path: [field], equals: value }
+						}))
+					},
+					select: { communicationThreadId: true }
+				});
+				explicitThreadId = prior?.communicationThreadId || null;
+			}
 			const decision = resolveEngagementThread({
+				explicitThreadId,
 				openThread: toOpen(openThread),
 				recentThread: toOpen(recentThread)
 			});
@@ -629,11 +663,18 @@ async function upsertSessionCommLog(
 			let sessionRef: string;
 			let existing: any = null;
 			if (sessionId) {
-				sessionRef = `SES-WEB-${sessionId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase()}`;
+				sessionRef = `SES-WEB-${sessionId
+					.replace(/[^a-zA-Z0-9]/g, '')
+					.slice(0, 10)
+					.toUpperCase()}`;
 				existing = await tx.communicationLog.findFirst({
 					where: { companyId: company.id, communicationThreadId: threadId, sessionRef },
 					orderBy: { updated: 'desc' }
 				});
+				if (existing && Date.now() - existing.updated.getTime() > VISIT_GAP_MINUTES * 60_000) {
+					sessionRef = `SES-WEB-${Date.now().toString(36).toUpperCase()}`;
+					existing = null;
+				}
 			} else {
 				const previous = await tx.communicationLog.findFirst({
 					where: { companyId: company.id, communicationThreadId: threadId },
@@ -727,6 +768,14 @@ async function upsertSessionCommLog(
 				scoreLive: newEngagementScore,
 				source_signal: type,
 				attribution: batch.attribution ?? meta.attribution,
+				...(batch.engagementId || explicitRefs.length
+					? {
+							engagementReferences: {
+								engagementId: batch.engagementId ?? null,
+								...Object.fromEntries(explicitRefs)
+							}
+						}
+					: {}),
 				intentStatus,
 				subtopic,
 				notified: !!meta.notified || notify

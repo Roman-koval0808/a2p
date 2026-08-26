@@ -141,6 +141,10 @@ export function formatDescriptiveIntent(comm: any): string | null {
 	const aiReason = (ai.reason || '').toString().trim();
 	const content = (comm.raw?.content || comm.content || '').toString().trim();
 	const summary = (comm.summary || comm.raw?.summary || '').toString().trim();
+	const evidence = [content, summary, serviceRequested, subIntent, aiReason].join(' ');
+	if (rawSubtopic === 'furnace' && /replace|replacement|install|new furnace/i.test(evidence)) {
+		return 'Furnace Replacement';
+	}
 
 	// Check if this is a quote / estimate request
 	const isQuote =
@@ -300,4 +304,3 @@ export function formatDescriptiveIntent(comm: any): string | null {
 
 	return 'General Inquiry';
 }
-

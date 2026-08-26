@@ -82,6 +82,7 @@ export class UnifiedPipeline {
 			let customerProfile: any = null;
 			let containerResult: any = null;
 			let commContainer: any = null;
+			let commEntry: any = null;
 			let actionsSuppressed = false;
 
 			const hasIdentity = !!(
@@ -140,7 +141,7 @@ export class UnifiedPipeline {
 			);
 
 			// Create CommEntry immediately (§1.1.2)
-			await createEntry(prisma, {
+			commEntry = await createEntry(prisma, {
 				commId: commContainer.id,
 				customerProfileId: customerProfile?.id || null,
 				direction: payload.provider.includes('inbound') ? 'inbound' : 'outbound',
@@ -225,6 +226,22 @@ export class UnifiedPipeline {
 
 			if (!isDuplicate && !isSuppressed) {
 				log(`[Step 4] Suppression: CLEAN - No previous record or similar content found`);
+			}
+
+			// Keep the raw communication for audit, but mark duplicate deliveries so downstream
+			// action/notification code can never mistake them for a new customer event.
+			if ((isDuplicate || isSuppressed) && commEntry?.id) {
+				await prisma.commEntry.update({
+					where: { id: commEntry.id },
+					data: {
+						dedupSuppressed: true,
+						analysisJson: {
+							...((commEntry.analysisJson as Record<string, unknown>) || {}),
+							suppressionReason,
+							similarityScore
+						}
+					}
+				});
 			}
 
 			// STEP 5: AI Extraction (SKIP if duplicate)
@@ -352,11 +369,12 @@ export class UnifiedPipeline {
 				// won instead of dying on the constraint. try/catch rather than .catch() on the
 				// transaction, because a non-promise return (mocked $transaction) would break that.
 				const isProviderIdClash =
-					err?.code === 'P2002' &&
-					String(err?.meta?.target ?? '').includes('providerEventId');
+					err?.code === 'P2002' && String(err?.meta?.target ?? '').includes('providerEventId');
 				if (!isProviderIdClash) throw err;
 
-				log(`[Step 6] Storage: duplicate providerEventId ${providerEventId} — another delivery won the race`);
+				log(
+					`[Step 6] Storage: duplicate providerEventId ${providerEventId} — another delivery won the race`
+				);
 				isDuplicate = true;
 				suppressionReason = 'duplicate_provider_id';
 				const winner = await prisma.pipelineEvent.findUnique({ where: { providerEventId } });

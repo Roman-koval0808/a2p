@@ -528,21 +528,14 @@
 								{/if}
 							</td>
 							<td>
-								<!-- Two axes, shown as two DIFFERENT things.
-								     Stage (research -> comparison -> active) is where the customer is in
-								     deciding. Emergency is urgency, and is deliberately NOT a stage
-								     (spec: two-axis intent). Rendering the emergency flag with the same
-								     `stage` class made one row look like it held two buckets — "Active"
-								     and "Emergency" side by side, as if the record contradicted itself.
-								     It is one bucket plus one urgency flag, so the flag now reads as a
-								     flag. -->
+								<!-- Emergency is the override bucket, never a second label beside Active. -->
 								{#if comm.raw?.isDropCall}
 									<span class="stage emergency">dropped call</span>
 								{:else if comm.intentStage}
 									<span class="stage {stageClass(comm.intentStage)}">{comm.intentStage}</span>
 								{/if}
-								{#if isEmergency}
-									<span class="urgentflag" title="Urgency, not a stage">🚨 Urgent</span>
+								{#if isEmergency && comm.intentStage !== 'emergency'}
+									<span class="urgentflag" title="Emergency evidence">🚨 Urgent</span>
 								{/if}
 								<!-- The intent line: what the customer actually wants, not the storage key.
 								     "bathroom" was the tag; "Bathroom renovation" is the intent. -->

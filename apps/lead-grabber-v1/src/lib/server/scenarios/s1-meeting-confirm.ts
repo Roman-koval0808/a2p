@@ -147,8 +147,7 @@ export async function processSupportCallMeetingConfirmation(input: {
 		companyId: input.companyId,
 		customerProfileId: input.customerProfileId,
 		contactId: input.contactId,
-		threadType: 'support',
-		sourceCommId: input.commId
+		threadType: 'support'
 	});
 	const containerId = containerResult.container.id;
 
@@ -217,28 +216,35 @@ export async function processSupportCallMeetingConfirmation(input: {
 
 export async function processGraceExpiration(prisma: any, timer: any) {
 	console.log(`[Scenario 1] Processing calendar grace expiration for timer ${timer.id}`);
-	
+
 	const { targetTime, email, customerName } = (timer.payload as any) || {};
 	if (!targetTime) return;
 
 	const { getUpcomingAppointments } = await import('$lib/server/google-calendar');
 	const rawAppts = await getUpcomingAppointments(timer.companyId, 7);
-	
-	console.log(`[Scenario 1] Fetched ${rawAppts.length} calendar entries for company ${timer.companyId}`);
-	
-	const calendarEntries = rawAppts.map(a => ({
+
+	console.log(
+		`[Scenario 1] Fetched ${rawAppts.length} calendar entries for company ${timer.companyId}`
+	);
+
+	const calendarEntries = rawAppts.map((a) => ({
 		id: a.id,
 		title: a.summary || 'Appointment',
 		startTime: new Date(a.start?.dateTime || a.start?.date),
 		attendees: (a.attendees || []).map((att: any) => att.email)
 	}));
 
-	console.log(`[Scenario 1] Calendar entries:`, calendarEntries.map(e => ({
-		title: e.title,
-		startTime: e.startTime.toISOString(),
-		attendees: e.attendees
-	})));
-	console.log(`[Scenario 1] Looking for targetTime=${targetTime}, email=${email}, customerName=${customerName}`);
+	console.log(
+		`[Scenario 1] Calendar entries:`,
+		calendarEntries.map((e) => ({
+			title: e.title,
+			startTime: e.startTime.toISOString(),
+			attendees: e.attendees
+		}))
+	);
+	console.log(
+		`[Scenario 1] Looking for targetTime=${targetTime}, email=${email}, customerName=${customerName}`
+	);
 
 	const calMatch = searchCalendarForMeeting(
 		calendarEntries,
@@ -246,16 +252,22 @@ export async function processGraceExpiration(prisma: any, timer: any) {
 		customerName,
 		email
 	);
-	
+
 	console.log(`[Scenario 1] Match result: status=${calMatch.status}, score=${calMatch.score}`);
 
 	if (calMatch.status === 'found') {
 		console.log(`[Scenario 1] Meeting FOUND after grace period!`);
-		
+
 		const dateRes = new Date(targetTime);
-		const dateLabel = dateRes.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+		const dateLabel = dateRes.toLocaleString('en-US', {
+			weekday: 'short',
+			month: 'short',
+			day: 'numeric',
+			hour: 'numeric',
+			minute: '2-digit'
+		});
 		const draftContent = `Subject: Appointment Confirmation for ${dateLabel}\n\nHi, confirming our meeting scheduled for ${dateLabel}.`;
-		
+
 		await createCustomerFacingApproval(prisma, {
 			commId: timer.commId,
 			draftType: 'email',
@@ -269,15 +281,17 @@ export async function processGraceExpiration(prisma: any, timer: any) {
 		});
 
 		// Clear pending state
-		const comm = await prisma.communicationLog.findFirst({ where: { communicationThreadId: timer.commId } }) || 
-					 await prisma.communicationLog.findFirst({ where: { id: timer.commId } });
-		
+		const comm =
+			(await prisma.communicationLog.findFirst({
+				where: { communicationThreadId: timer.commId }
+			})) || (await prisma.communicationLog.findFirst({ where: { id: timer.commId } }));
+
 		if (comm) {
 			const m = (comm.metadata as any) || {};
 			delete m.waiting_for_calendar;
 			delete m.timer_due_at;
 			m.calendar_verified_after_grace = true;
-			
+
 			await prisma.communicationLog.update({
 				where: { id: comm.id },
 				data: { metadata: m }
@@ -285,17 +299,19 @@ export async function processGraceExpiration(prisma: any, timer: any) {
 		}
 	} else {
 		console.log(`[Scenario 1] Meeting still NOT FOUND after grace period.`);
-		
+
 		// Clear pending state but mark as failed
-		const comm = await prisma.communicationLog.findFirst({ where: { communicationThreadId: timer.commId } }) || 
-					 await prisma.communicationLog.findFirst({ where: { id: timer.commId } });
-		
+		const comm =
+			(await prisma.communicationLog.findFirst({
+				where: { communicationThreadId: timer.commId }
+			})) || (await prisma.communicationLog.findFirst({ where: { id: timer.commId } }));
+
 		if (comm) {
 			const m = (comm.metadata as any) || {};
 			// We DO NOT delete waiting_for_calendar if we want the badge to show "Verification Failed",
 			// but wait! If it's left there, it stays red forever. That's fine for the UI.
 			m.calendar_failed_after_grace = true;
-			
+
 			await prisma.communicationLog.update({
 				where: { id: comm.id },
 				data: { metadata: m }

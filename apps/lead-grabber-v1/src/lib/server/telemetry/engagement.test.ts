@@ -105,6 +105,12 @@ describe('resolveEngagementThread — evidence before time', () => {
 		expect(r.decision).toBe('explicit');
 		expect(r.threadId).toBe('ENG-404');
 	});
+
+	it('accepts non-engagement references as explicit evidence', () => {
+		const r = resolveEngagementThread({ explicitRef: 'QUOTE-404' });
+		expect(r.decision).toBe('explicit');
+		expect(r.reason).toBe('explicit_reference');
+	});
 });
 
 describe('engagementWindowDays — longest window wins', () => {
@@ -241,12 +247,17 @@ describe('subtopicForSignal', () => {
 
 	it('prefers a named subject over the page', () => {
 		expect(
-			subtopicForSignal({ name: 'svc_click', payload: { service: 'Water Heater', url: '/kitchen' } }, null)
+			subtopicForSignal(
+				{ name: 'svc_click', payload: { service: 'Water Heater', url: '/kitchen' } },
+				null
+			)
 		).toBe('water_heater');
 	});
 
 	it('falls back to the landing page when the signal carries no page', () => {
-		expect(subtopicForSignal({ name: 'scroll_25', payload: {} }, '/kitchen-remodel')).toBe('kitchen');
+		expect(subtopicForSignal({ name: 'scroll_25', payload: {} }, '/kitchen-remodel')).toBe(
+			'kitchen'
+		);
 	});
 
 	it('returns null when nothing identifies a subject', () => {
@@ -257,11 +268,19 @@ describe('subtopicForSignal', () => {
 describe('the worked example, attributed end to end', () => {
 	it('splits one session across kitchen and bathroom from each signal own page', () => {
 		const signals = [
-			...Array.from({ length: 6 }, () => ({ name: 'page_load', payload: { url: '/kitchen-remodel' }, delta: 0 })),
+			...Array.from({ length: 6 }, () => ({
+				name: 'page_load',
+				payload: { url: '/kitchen-remodel' },
+				delta: 0
+			})),
 			{ name: 'scroll_50', payload: { url: '/kitchen-remodel' }, delta: 5 },
 			{ name: 'dwell_60', payload: { url: '/kitchen-remodel' }, delta: 7 },
 			{ name: 'svc_click', payload: { url: '/kitchen-remodel' }, delta: 8 },
-			...Array.from({ length: 3 }, () => ({ name: 'page_load', payload: { url: '/bathroom-renovations' }, delta: 0 })),
+			...Array.from({ length: 3 }, () => ({
+				name: 'page_load',
+				payload: { url: '/bathroom-renovations' },
+				delta: 0
+			})),
 			{ name: 'form_submit', payload: { url: '/bathroom-renovations' }, delta: 20 },
 			{ name: 'lg_open', payload: { url: '/bathroom-renovations' }, delta: 8 },
 			{ name: 'scroll_25', payload: {}, delta: 2 } // no page — recorded separately
@@ -269,7 +288,8 @@ describe('the worked example, attributed end to end', () => {
 
 		const deltas: Record<string, number> = {};
 		for (const sig of signals) {
-			const st = subtopicForSignal({ name: sig.name, payload: sig.payload }, null) ?? UNKNOWN_SUBTOPIC;
+			const st =
+				subtopicForSignal({ name: sig.name, payload: sig.payload }, null) ?? UNKNOWN_SUBTOPIC;
 			deltas[st] = (deltas[st] ?? 0) + sig.delta;
 		}
 
@@ -278,7 +298,9 @@ describe('the worked example, attributed end to end', () => {
 		expect(deltas[UNKNOWN_SUBTOPIC]).toBe(2);
 
 		// the subject list excludes UNKNOWN, and agrees with the scored keys
-		const subjects = Object.keys(deltas).filter((k) => k !== UNKNOWN_SUBTOPIC).sort();
+		const subjects = Object.keys(deltas)
+			.filter((k) => k !== UNKNOWN_SUBTOPIC)
+			.sort();
 		expect(subjects).toEqual(['bathroom', 'kitchen']);
 	});
 });
