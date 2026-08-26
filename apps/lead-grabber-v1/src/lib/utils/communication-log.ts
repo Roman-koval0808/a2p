@@ -6,6 +6,7 @@ import {
 import { createNotification } from '$lib/utils/notifications';
 import { isA2pDbEnabled, mirrorToA2p } from '$lib/server/a2p-db';
 import { isInternalNotice } from '$lib/server/communication-surface';
+import { rollUpSubtopic } from '$lib/server/telemetry/resolve-engagement';
 
 export type CommunicationType =
 	| 'email'
@@ -304,22 +305,9 @@ export async function logCommunication(entry: CommunicationLogEntry) {
 				data
 			});
 
-			// Roll the subject up onto the ENGAGEMENT. A subtopic is a tag on the episode, never a
-			// boundary — the thread accumulates every subject it has touched, which is what the
-			// header ("ENG-… (Roof, Drain)") and the inactivity window both read.
-			if (resolvedSubtopic && threadId) {
-				const t = await tx.communicationThread.findUnique({
-					where: { id: threadId },
-					select: { subtopics: true }
-				});
-				const current: string[] = Array.isArray(t?.subtopics) ? (t!.subtopics as string[]) : [];
-				if (!current.includes(resolvedSubtopic)) {
-					await tx.communicationThread.update({
-						where: { id: threadId },
-						data: { subtopics: [...current, resolvedSubtopic] }
-					});
-				}
-			}
+			// Roll the subject up onto the ENGAGEMENT — shared with the voice writers, which had no
+			// rollup at all until now.
+			await rollUpSubtopic(tx, threadId, resolvedSubtopic);
 
 			// Handle assigned members if provided
 			if (entry.assigned_members && entry.assigned_members.length > 0) {

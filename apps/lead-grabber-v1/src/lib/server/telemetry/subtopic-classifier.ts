@@ -109,6 +109,20 @@ export function subtopicFromCategory(
 	return null;
 }
 
+/** Deterministic transcript seed used before the optional AI classifier. */
+export function subtopicFromText(text: string | null | undefined): string | null {
+	const value = (text ?? '').toLowerCase();
+	if (/\bfurnace\b|no heat|heating system|air condition|\bhvac\b/.test(value)) return 'furnace';
+	if (/blocked drain|clogged drain|\bdrain\b/.test(value)) return 'drain';
+	if (/water heater|hot water tank/.test(value)) return 'water_heater';
+	if (/\bplumb(?:ing|er)\b|burst pipe|leak(?:ing)? pipe/.test(value)) return 'plumbing';
+	if (/\bbathroom\b/.test(value)) return 'bathroom';
+	if (/\bkitchen\b/.test(value)) return 'kitchen';
+	if (/\broof\b/.test(value)) return 'roof';
+	if (/\belectrical\b|\bwiring\b/.test(value)) return 'electrical';
+	return null;
+}
+
 // ── 3. Claude — the paid path ───────────────────────────────────────────────
 
 export interface ClassifyInput {
@@ -212,6 +226,11 @@ export async function resolveSubtopic(args: {
 
 	const fromCategory = subtopicFromCategory(args.callTrackingCategory, taxonomy);
 	if (fromCategory) return { subtopic: fromCategory, source: 'category' };
+
+	const fromText = subtopicFromText(args.text);
+	if (fromText && taxonomy.some((entry) => entry.key === fromText)) {
+		return { subtopic: fromText, source: 'deterministic' };
+	}
 
 	if (args.text && args.text.trim().length >= 4) {
 		const ai = await classifySubtopicWithAI({ text: args.text, hints: args.hints }, taxonomy);

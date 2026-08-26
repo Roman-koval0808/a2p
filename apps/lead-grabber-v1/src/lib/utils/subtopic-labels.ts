@@ -141,6 +141,13 @@ export function formatDescriptiveIntent(comm: any): string | null {
 	const aiReason = (ai.reason || '').toString().trim();
 	const content = (comm.raw?.content || comm.content || '').toString().trim();
 	const summary = (comm.summary || comm.raw?.summary || '').toString().trim();
+	const evidence = [content, summary, serviceRequested, subIntent, aiReason].join(' ');
+	// `replac` not `replace`: the natural phrasing is "I need help replacing my furnace", and
+	// /replace/ does not match "replacing". The test for this case was written before the regex and
+	// had been failing ever since.
+	if (rawSubtopic === 'furnace' && /replac|install|new furnace/i.test(evidence)) {
+		return 'Furnace Replacement';
+	}
 
 	// Check if this is a quote / estimate request
 	const isQuote =
@@ -300,4 +307,3 @@ export function formatDescriptiveIntent(comm: any): string | null {
 
 	return 'General Inquiry';
 }
-

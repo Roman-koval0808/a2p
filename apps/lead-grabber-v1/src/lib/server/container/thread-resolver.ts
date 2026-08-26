@@ -104,6 +104,7 @@ export async function openContainerCandidatesFor(
 		phone?: string | null;
 		email?: string | null;
 		excludeCommIds?: string[];
+		windowDays?: number;
 		tx?: any;
 	},
 	limit = MAX_CANDIDATES
@@ -164,6 +165,9 @@ export async function openContainerCandidatesFor(
 		companyId: input.companyId,
 		state: { not: 'closed' },
 		lifecycle: { not: 'merged' },
+		...(input.windowDays != null
+			? { lastActivityAt: { gte: new Date(Date.now() - input.windowDays * 24 * 3600 * 1000) } }
+			: {}),
 		OR: orParts
 	};
 	if (input.excludeCommIds && input.excludeCommIds.length > 0) {
@@ -207,7 +211,7 @@ export async function companyOpenCandidatesFor(
 	companyId: string,
 	opts?: { excludeCommIds?: string[]; windowDays?: number; limit?: number }
 ): Promise<ContainerCandidate[]> {
-	const windowDays = opts?.windowDays ?? 14;
+	const windowDays = opts?.windowDays ?? 180;
 	const where: Record<string, unknown> = {
 		companyId,
 		state: { not: 'closed' },
@@ -346,7 +350,8 @@ export async function resolveContextContainer(
 		customerProfileId: input.customerProfileId,
 		phone: input.phone,
 		email: input.email,
-		excludeCommIds
+		excludeCommIds,
+		windowDays: input.windowDays ?? 180
 	});
 
 	// ALWAYS also include the company's recent open conversations (not only as a fallback): the

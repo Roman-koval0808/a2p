@@ -69,19 +69,27 @@ export async function processSalesVoicemailBooking(input: {
 	minute?: number;
 	productInterest?: string;
 	callStartTime: Date;
-	availableResources: { personnel: string[]; assets: string[] };
+	availableResources: {
+		personnel?: string[];
+		assets?: string[];
+		salespeople?: string[];
+		vehicles?: string[];
+	};
 	requestedContactMethod?: string;
 	aiExtractedEmail?: string;
 	now?: Date;
 }) {
 	const now = input.now || new Date();
+	const personnel =
+		input.availableResources.personnel ?? input.availableResources.salespeople ?? [];
+	const assets = input.availableResources.assets ?? input.availableResources.vehicles ?? [];
 
 	// Test 4-10: Landline handling -> skip SMS, create phone-call task for rep!
 	if (input.isLandline) {
 		const task = await createTask(prisma, {
 			commId: input.commId,
 			description: `Call customer back at ${input.customerPhone} (Landline cannot receive SMS) regarding appointment request for ${input.productInterest || 'product/service'}.`,
-			ownerUserId: input.availableResources.personnel[0] || 'u_sales_owner',
+			ownerUserId: personnel[0] || 'u_sales_owner',
 			due: new Date(now.getTime() + 2 * 3600 * 1000),
 			category: 'internal_followup',
 			confidence: 0.95
@@ -108,10 +116,7 @@ export async function processSalesVoicemailBooking(input: {
 	const explicitDateText = formatDateExplicit(proposedDate);
 
 	// Availability check on resource (personnel + asset)
-	if (
-		input.availableResources.personnel.length === 0 ||
-		input.availableResources.assets.length === 0
-	) {
+	if (personnel.length === 0 || assets.length === 0) {
 		// Slot taken / no resource -> DO NOT send confirmation, create human task (Test 4-3)
 		const task = await createTask(prisma, {
 			commId: input.commId,
@@ -136,8 +141,8 @@ export async function processSalesVoicemailBooking(input: {
 	const hold = await createHold(prisma, {
 		commId: input.commId,
 		resourceIds: {
-			personnel: input.availableResources.personnel[0],
-			asset: input.availableResources.assets[0]
+			personnel: personnel[0],
+			asset: assets[0]
 		},
 		startTime: proposedDate,
 		endTime: new Date(proposedDate.getTime() + 60 * 60 * 1000),
@@ -163,8 +168,15 @@ export async function processSalesVoicemailBooking(input: {
 		draftType = 'email';
 		draftContent = `Subject: Appointment Confirmation — ${reason} for ${explicitDateText}\n\nHi!\n\nYour appointment regarding ${reason} on ${explicitDateText} is confirmed.\n\nWe look forward to seeing you then.\n\nBest,\nThe Team`;
 	} else if (contactMethodResolved === 'phone' || input.isLandline) {
-		draftType = 'call';
-		draftContent = `[CALL SCRIPT]\n\n"Hi, this is [Your Name]. I'm calling to confirm your appointment for ${reason} on ${explicitDateText}. Does this time still work for you?"`;
+		const task = await createTask(prisma, {
+			commId: input.commId,
+			description: `Call customer back to confirm ${reason} on ${explicitDateText}.`,
+			ownerUserId: personnel[0] || 'u_sales_owner',
+			due: new Date(now.getTime() + 30 * 60 * 1000),
+			category: 'internal_followup',
+			confidence: 0.95
+		});
+		return { slotAvailable: true, smsDrafted: false, taskCreated: true, task };
 	} else {
 		draftType = 'sms';
 		draftContent = `Okay, appointment confirmed for ${reason} at ${explicitDateText}.`;
@@ -240,14 +252,21 @@ export async function handleInboundSmsReply(input: {
 						let contactName: string | undefined = undefined;
 						try {
 							const c = await prisma.contact.findFirst({
-								where: { companyId: input.companyId, OR: [{ phone: input.customerPhone }, { cell: input.customerPhone }] },
+								where: {
+									companyId: input.companyId,
+									OR: [{ phone: input.customerPhone }, { cell: input.customerPhone }]
+								},
 								select: { name: true }
 							});
 							if (c?.name) contactName = c.name;
 						} catch (e) {}
 
 						const displayName = contactName || input.customerPhone;
-						const reason = (activeHold as any).booking_reason || (activeHold as any).product || (activeHold as any).purpose || 'Sales Opportunity';
+						const reason =
+							(activeHold as any).booking_reason ||
+							(activeHold as any).product ||
+							(activeHold as any).purpose ||
+							'Sales Opportunity';
 						const description = `Subject / Reason: ${reason}\n\nBooked via AI Assistant (SMS Confirmation)`;
 
 						const { createEvent } = await import('$lib/server/google-calendar');
@@ -282,11 +301,15 @@ export async function handleInboundSmsReply(input: {
 								hour: 'numeric',
 								minute: '2-digit'
 							});
-							await notifyRepsOfBooking(input.companyId, `New appointment: ${displayName} (${reason}) — ${dateLabel}`, {
-								contactName: displayName,
-								reason,
-								commId: input.commId
-							});
+							await notifyRepsOfBooking(
+								input.companyId,
+								`New appointment: ${displayName} (${reason}) — ${dateLabel}`,
+								{
+									contactName: displayName,
+									reason,
+									commId: input.commId
+								}
+							);
 						} catch (nErr) {
 							console.error('[SMS Booking] Rep notification failed:', nErr);
 						}

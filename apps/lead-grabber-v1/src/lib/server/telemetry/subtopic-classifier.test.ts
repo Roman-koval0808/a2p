@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_TAXONOMY, subtopicFromCategory } from './subtopic-classifier';
+import { DEFAULT_TAXONOMY, subtopicFromCategory, subtopicFromText } from './subtopic-classifier';
 
 describe('the taxonomy', () => {
 	it('is two levels, with children pointing at real parents', () => {
@@ -40,5 +40,15 @@ describe('subtopicFromCategory — the free path for calls', () => {
 		expect(subtopicFromCategory('General enquiries', t)).toBeNull();
 		expect(subtopicFromCategory('', t)).toBeNull();
 		expect(subtopicFromCategory(null, t)).toBeNull();
+	});
+});
+
+describe('subtopicFromText — deterministic transcript seed', () => {
+	it('recognizes furnace replacement language', () => {
+		expect(subtopicFromText('I need help replacing my furnace')).toBe('furnace');
+	});
+
+	it('recognizes blocked drain language', () => {
+		expect(subtopicFromText('Please clear my blocked drain')).toBe('drain');
 	});
 });

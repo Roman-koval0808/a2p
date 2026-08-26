@@ -69,6 +69,16 @@ describe('formatDescriptiveIntent', () => {
 		expect(formatDescriptiveIntent(comm)).toBe('Quote: Bathroom renovation');
 	});
 
+	it('describes furnace replacement instead of the generic equipment label', () => {
+		expect(
+			formatDescriptiveIntent({
+				content: 'I need help replacing my furnace.',
+				subtopic: 'furnace',
+				purpose: 'Sales Opportunity'
+			})
+		).toBe('Furnace Replacement');
+	});
+
 	it('formats a quote request with service_requested in metadata', () => {
 		const comm = {
 			metadata: {

@@ -118,8 +118,7 @@ export function resolveEngagementThread(args: {
 	let lapsedOpenThreadId: string | undefined;
 	if (args.openThread && args.openThread.status !== 'closed') {
 		const windowDays = engagementWindowDays(args.openThread.subtopics ?? []);
-		const elapsedDays =
-			(now.getTime() - args.openThread.updated.getTime()) / (1000 * 60 * 60 * 24);
+		const elapsedDays = (now.getTime() - args.openThread.updated.getTime()) / (1000 * 60 * 60 * 24);
 		if (elapsedDays <= windowDays) {
 			return {
 				decision: 'open',
@@ -161,10 +160,14 @@ export function resolveEngagementThread(args: {
 
 export type IntentStatus =
 	| 'n/a'
+	| 'unknown'
 	| 'declared'
 	| 'ad_indicated'
 	| 'behaviour_inferred'
-	| 'source_indicated';
+	| 'behaviour_supported'
+	| 'source_indicated'
+	| 'confirmed'
+	| 'contradicted';
 
 const PAID_AD_CHANNELS = new Set([
 	'google_paid',
@@ -217,7 +220,11 @@ const URL_SUBTOPIC_PATTERNS: [RegExp, string][] = [
 
 /** Lowercase, spaces→underscore, strip anything but alnum/underscore. */
 export function normalizeSubtopic(raw: string | null | undefined): string | null {
-	const v = (raw ?? '').trim().toLowerCase().replace(/[\s\-]+/g, '_').replace(/[^a-z0-9_]/g, '');
+	const v = (raw ?? '')
+		.trim()
+		.toLowerCase()
+		.replace(/[\s\-]+/g, '_')
+		.replace(/[^a-z0-9_]/g, '');
 	return v || null;
 }
 

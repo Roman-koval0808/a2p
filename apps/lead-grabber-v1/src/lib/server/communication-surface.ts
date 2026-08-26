@@ -1,5 +1,6 @@
 import { engCode, sesCode, prfCode } from '$lib/utils/comm-id';
 import { formatDescriptiveIntent } from '$lib/utils/subtopic-labels';
+import { canonicalAttributionChannel } from '$lib/telemetry/attribution';
 
 /**
  * The four-level model surface (Profile → Engagement → Session → Interaction) for one
@@ -81,8 +82,11 @@ function mediumOf(log: any): 'web' | 'phone' | 'sms' | 'email' | 'chat' | 'other
 
 export function sourceChannelLabel(meta: Record<string, unknown>, log?: any): string | null {
 	const attribution = (meta.attribution as { channel?: string } | null) ?? null;
-	if (attribution?.channel) {
-		return ATTRIBUTION_CHANNEL_LABELS[attribution.channel] ?? attribution.channel.replace(/_/g, ' ');
+	const channel = attribution ? canonicalAttributionChannel(attribution) : null;
+	if (channel) {
+		return (
+			ATTRIBUTION_CHANNEL_LABELS[channel] ?? channel.replace(/_/g, ' ')
+		);
 	}
 
 	// A token link is a source in its own right — the customer arrived by following something we
@@ -255,7 +259,6 @@ export function profileWho(tier: string, fingerprint: string | null): string {
 	return fingerprint ? `Anonymous · ${fingerprint} — device only` : 'Anonymous — device only';
 }
 
-
 /**
  * A row is still being interpreted when the AI pipeline has not written its read yet.
  *
@@ -281,7 +284,12 @@ export function isStillProcessing(log: {
 	// complete the moment they are written; no interpreter runs over them afterwards, so they can
 	// never be "pending". Without this guard the callback-router's own voice rows were held back
 	// forever and the rep's dial simply never appeared in the log.
-	if (String(log.direction ?? '').toLowerCase().startsWith('out')) return false;
+	if (
+		String(log.direction ?? '')
+			.toLowerCase()
+			.startsWith('out')
+	)
+		return false;
 
 	// Telemetry rows are deterministic — they are never "interpreted" and so never pending.
 	const isTelemetry =
@@ -318,11 +326,10 @@ export function isStillProcessing(log: {
 // The surface previously read only the telemetry names, which is why an AI-interpreted voice call
 // showed Stage —, Status — and Confidence — while its metadata was full of exactly that data.
 //
-// `emergency` is the urgency axis, NOT a stage. A burst-pipe caller is Active *and* Emergency, so
-// an incoming bucket of "emergency" sets the flag and resolves the stage to `active` rather than
-// overwriting it — collapsing the two loses the urgent half.
+// `emergency` is the fourth, overriding intent bucket. Urgency evidence may remain in metadata, but
+// the rendered buying read must never be `active` plus `emergency`.
 
-const STAGES = new Set(['research', 'comparison', 'active']);
+const STAGES = new Set(['research', 'comparison', 'active', 'emergency']);
 
 /** A numeric model confidence (0.99) becomes the band the column renders. */
 function confidenceBand(value: unknown): string | null {
@@ -363,9 +370,12 @@ function readIntent(log: any, meta: Record<string, any>) {
 			ai.urgency === 'critical' ||
 			!!meta.emergency_type;
 
-	// Emergency is not a stage. Keep an explicit stage if we have one; otherwise an emergency
-	// caller is by definition acting now.
-	const stage = STAGES.has(rawBucket as string) ? (rawBucket as string) : emergency ? 'active' : null;
+	// Emergency replaces any lower buying-stage read.
+	const stage = emergency
+		? 'emergency'
+		: STAGES.has(rawBucket as string)
+			? (rawBucket as string)
+			: null;
 
 	// A voicemail, SMS or form message is the customer telling us — that is `declared`
 	// (Bug A's table). Telemetry never declares: it keeps the status telemetry gave it, or none.
@@ -465,6 +475,7 @@ export interface CommunicationSurface {
 	isProcessing: boolean;
 	isInternalNotice: boolean;
 	journey: JourneyActivity;
+	returnInfo: ReturnInfo | null;
 }
 
 /**
@@ -497,7 +508,8 @@ export async function loadLineTypes(prismaClient: any, logs: any[]): Promise<Map
 
 export function communicationSurface(
 	log: any,
-	lineTypes?: Map<string, string>
+	lineTypes?: Map<string, string>,
+	history?: ReturnHistory
 ): CommunicationSurface {
 	const meta = (log.metadata as Record<string, any>) || {};
 	const thread = log.communicationThread ?? null;
@@ -506,7 +518,7 @@ export function communicationSurface(
 	const tier = identityTier(customer, lineTypes);
 
 	const profileFp = Array.isArray(customer?.metadata?.fingerprints)
-		? customer.metadata.fingerprints[0] ?? null
+		? (customer.metadata.fingerprints[0] ?? null)
 		: typeof log.source === 'string' && /^[a-z0-9]{8,}$/i.test(log.source)
 			? log.source
 			: null;
@@ -531,7 +543,159 @@ export function communicationSurface(
 		recordingUrl: recordingUrlFor(log),
 		isProcessing: isStillProcessing(log),
 		isInternalNotice: isInternalNotice(log),
-		journey: journeyActivity(log)
+		journey: journeyActivity(log),
+		returnInfo: returnInfo(log, tier, history)
+	};
+}
+
+/**
+ * "Returning" — the simulator's most useful cell, and the one thing the log could not say.
+ *
+ * From `design/a2p-simulator.html`:
+ *
+ *   ↩ Returning · 3rd session
+ *   continuing ENG-0002              (or "new engagement ENG-0003")
+ *
+ *   ↩ Likely returning · 2nd session · device match      (Tier 2B — a device, not a person)
+ *
+ * Two facts: how many sessions this profile has had up to and including this row, and whether this
+ * row opened its engagement or joined one. A 2B profile is only ever "likely" returning — the match
+ * is a fingerprint, and a fingerprint is a device, not a person.
+ *
+ * Computed from one lightweight query per page (`loadReturnHistory`), not per row.
+ */
+export interface ReturnInfo {
+	returning: boolean;
+	/** 1-based session ordinal for this profile, this row included. */
+	ordinal: number;
+	/** True when this row is the first on its engagement — i.e. it started the episode. */
+	startedEngagement: boolean;
+	/** A 2B match is a device, so the claim is softened. */
+	deviceMatchOnly: boolean;
+}
+
+export interface ReturnHistory {
+	/** log id -> the ordinal of its session for that contact */
+	ordinalByLog: Map<string, number>;
+	/** thread id -> the log id that opened it */
+	firstLogByThread: Map<string, string>;
+}
+
+/**
+ * A row addressed to OUR OWN staff rather than to the customer.
+ *
+ * The dial-ladder legs (`workOrder` + `tech_name`, one per rung), the emergency dispatch and its
+ * escalations (`recipients`). They belong to the engagement — that is why they appear in the log —
+ * but they are the business talking to itself, not an exchange with the customer. Counting them as
+ * the customer's sessions turned one inbound SMS into "3rd session" for a profile that had made
+ * contact exactly once.
+ */
+export function isStaffDirected(log: any): boolean {
+	const meta = (log?.metadata as Record<string, any>) || {};
+	if (meta.workOrder === true || meta.tech_name) return true;
+	if (Array.isArray(meta.recipients) && meta.recipients.length > 0) return true;
+	return meta.is_emergency_dispatch === true || meta.is_escalation === true;
+}
+
+export async function loadReturnHistory(
+	prismaClient: any,
+	companyId: string,
+	logs: any[]
+): Promise<ReturnHistory> {
+	const empty: ReturnHistory = { ordinalByLog: new Map(), firstLogByThread: new Map() };
+	const contactIds = [
+		...new Set(
+			logs
+				.map((l) => l?.customerId ?? l?.customer?.id ?? l?.communicationThread?.contactId)
+				.filter(Boolean)
+		)
+	] as string[];
+	if (!contactIds.length) return empty;
+
+	try {
+		// Two corrections over the first version, both of which produced sequences that did not add
+		// up when read down the page:
+		//
+		// 1. It filtered on `customerId` alone. A row attached to the engagement but with no
+		//    customer FK — the dial-ladder legs are the common case — was missing from the map
+		//    entirely, defaulted to ordinal 1, and so rendered as a FIRST touch in the middle of a
+		//    run of returns. Matching the thread's contact as well fixes that.
+		// 2. It counted every row, including the internal notices the log never displays
+		//    ("Visitor … entered Active Project bucket!"). Those are system writes, not visits, so
+		//    the visible ordinals jumped — 2nd then 4th, 3rd then 5th, with the missing numbers
+		//    belonging to rows nobody can see. A session is "one continuous visit, call or active
+		//    exchange"; a notice is none of those.
+		const rows = await prismaClient.communicationLog.findMany({
+			where: {
+				companyId,
+				OR: [
+					{ customerId: { in: contactIds } },
+					{ communicationThread: { contactId: { in: contactIds } } }
+				]
+			},
+			select: {
+				id: true,
+				customerId: true,
+				created: true,
+				sessionRef: true,
+				communicationThreadId: true,
+				content: true,
+				metadata: true,
+				communicationThread: { select: { contactId: true } }
+			},
+			orderBy: { created: 'asc' }
+		});
+
+		const ordinalByLog = new Map<string, number>();
+		const firstLogByThread = new Map<string, string>();
+		// A SESSION is one visit/call/exchange — several log rows can share a sessionRef and must
+		// not each count as a return. A row with no sessionRef is its own session.
+		const seenSessions = new Map<string, Set<string>>();
+
+		for (const r of rows) {
+			// The engagement's contact stands in when the row has no customer FK of its own.
+			const key = (r.customerId ?? r.communicationThread?.contactId) as string | undefined;
+			if (!key) continue;
+
+			// First-on-thread is tracked for EVERY row, notices included — the question it answers
+			// is "did this row open the engagement", and a notice can legitimately be the opener.
+			if (r.communicationThreadId && !firstLogByThread.has(r.communicationThreadId)) {
+				firstLogByThread.set(r.communicationThreadId, r.id);
+			}
+
+			// Notices and staff-directed legs are not the customer's sessions.
+			if (isInternalNotice(r) || isStaffDirected(r)) continue;
+
+			const set = seenSessions.get(key) ?? new Set<string>();
+			set.add(r.sessionRef || r.id);
+			seenSessions.set(key, set);
+			ordinalByLog.set(r.id, set.size);
+		}
+		return { ordinalByLog, firstLogByThread };
+	} catch (err: any) {
+		console.error('[communication-surface] return history failed:', err?.message || err);
+		return empty;
+	}
+}
+
+function returnInfo(log: any, tier: string, history?: ReturnHistory): ReturnInfo | null {
+	if (!history) return null;
+	// No entry means this row was not counted as a session (an internal notice, or a row with no
+	// resolvable contact). Claim nothing rather than defaulting to 1, which rendered a mid-sequence
+	// row as a first touch.
+	const ordinal = history.ordinalByLog.get(log.id);
+	if (ordinal === undefined) return null;
+	const startedEngagement =
+		!log.communicationThreadId ||
+		history.firstLogByThread.get(log.communicationThreadId) === log.id;
+	// "↩ Returning" is a claim about the CUSTOMER coming back. An outbound leg is us reaching out,
+	// so it carries its session ordinal (the drawer still reports it) but never the returning line.
+	const inbound = (log.direction ?? '').toString().toLowerCase() === 'inbound';
+	return {
+		returning: inbound && ordinal > 1,
+		ordinal,
+		startedEngagement,
+		deviceMatchOnly: tier === 'T2B'
 	};
 }
 
@@ -624,9 +788,9 @@ export function applyEngagementFallbacks<
 			intentSubtopic: row.intentSubtopic ?? known?.intentSubtopic ?? fromThread ?? null,
 			intentDescription: row.intentDescription ?? known?.intentDescription ?? null,
 			intentConfidence: row.intentConfidence ?? known?.intentConfidence ?? null,
-			channelSource: row.channelSource ?? (inbound ? known?.channelSource ?? null : null),
+			channelSource: row.channelSource ?? (inbound ? (known?.channelSource ?? null) : null),
 			channelSourceDetail:
-				row.channelSourceDetail ?? (inbound ? known?.channelSourceDetail ?? null : null)
+				row.channelSourceDetail ?? (inbound ? (known?.channelSourceDetail ?? null) : null)
 		};
 	});
 }
@@ -667,8 +831,13 @@ function fmtDuration(totalSeconds: number): string {
 
 function durationOf(log: any, meta: Record<string, any>): number | null {
 	const candidates = [
-		meta.durationSec, meta.duration_seconds, meta.duration, meta.callDuration,
-		meta.call_duration, log.durationSeconds, log.duration
+		meta.durationSec,
+		meta.duration_seconds,
+		meta.duration,
+		meta.callDuration,
+		meta.call_duration,
+		log.durationSeconds,
+		log.duration
 	];
 	for (const c of candidates) {
 		const n = typeof c === 'string' ? Number(c) : c;
@@ -682,7 +851,9 @@ const seg = (text: string, bold = false): JourneySegment => ({ text, bold });
 export function journeyActivity(log: any): JourneyActivity {
 	const meta = (log.metadata as Record<string, any>) || {};
 	const type = String(log.type ?? '').toLowerCase();
-	const outbound = String(log.direction ?? '').toLowerCase().startsWith('out');
+	const outbound = String(log.direction ?? '')
+		.toLowerCase()
+		.startsWith('out');
 	const signals: string[] = Array.isArray(meta.signals) ? meta.signals : [];
 	const dur = durationOf(log, meta);
 	const detail: string[] = [];
@@ -741,7 +912,10 @@ export function journeyActivity(log: any): JourneyActivity {
 			if (log.emailOpenedAt) segments.push(seg(' · opened'));
 			else segments.push(seg(' · delivered'));
 		} else if (atts.length) {
-			segments.push(seg('email + '), seg(`${atts.length} attachment${atts.length === 1 ? '' : 's'}`, true));
+			segments.push(
+				seg('email + '),
+				seg(`${atts.length} attachment${atts.length === 1 ? '' : 's'}`, true)
+			);
 		} else {
 			segments.push(seg('1 email'));
 		}

@@ -6,7 +6,10 @@ import { env } from '$env/dynamic/private';
 import { PipelineSimulator } from '$lib/server/pipeline-simulator';
 import { addPendingCall } from '$lib/utils/callStore';
 import { prisma } from '$lib/db';
-import { resolveEngagementForContact } from '$lib/server/telemetry/resolve-engagement';
+import {
+	resolveEngagementForContact,
+	rollUpSubtopic
+} from '$lib/server/telemetry/resolve-engagement';
 import { getActiveCallFlow, toAbsoluteAudioUrl } from '$lib/ivr';
 import { getCompanyAndFlowByPhoneNumber, toE164 } from '$lib/company-numbers';
 import { PUBLIC_BASE_URL } from '$env/static/public';
@@ -28,6 +31,7 @@ import {
 } from '$lib/server/call-state';
 import { logCommunication } from '$lib/utils/communication-log';
 import { ingestTelemetryEvent } from '$lib/server/profiledb/telemetry';
+import { DEFAULT_TAXONOMY, subtopicFromCategory } from '$lib/server/telemetry/subtopic-classifier';
 const TELNYX_PUBLIC_KEY = process.env.TELNYX_PUBLIC_KEY;
 
 const playPublic = false;
@@ -1614,7 +1618,10 @@ export const POST: RequestHandler = async ({ request }) => {
 						const numberRow = companyNumberE164
 							? await prisma.companyPhoneNumber.findUnique({
 									where: { phoneNumber: companyNumberE164 },
-									select: { callTrackingCategoryId: true }
+									select: {
+										callTrackingCategoryId: true,
+										callTrackingCategory: { select: { name: true } }
+									}
 								})
 							: null;
 
@@ -1680,6 +1687,10 @@ export const POST: RequestHandler = async ({ request }) => {
 								companyId: numberInfo.companyId,
 								customerId: contact.id,
 								callTrackingCategoryId: numberRow?.callTrackingCategoryId ?? undefined,
+								subtopic: subtopicFromCategory(
+									numberRow?.callTrackingCategory?.name,
+									DEFAULT_TAXONOMY
+								),
 								communicationThreadId: commThread.id,
 								duration: hangupDuration,
 								content:
@@ -1997,7 +2008,10 @@ export const POST: RequestHandler = async ({ request }) => {
 							const numberRow = companyNumberE164
 								? await prisma.companyPhoneNumber.findUnique({
 										where: { phoneNumber: companyNumberE164 },
-										select: { callTrackingCategoryId: true }
+										select: {
+											callTrackingCategoryId: true,
+											callTrackingCategory: { select: { name: true } }
+										}
 									})
 								: null;
 
@@ -2044,6 +2058,10 @@ export const POST: RequestHandler = async ({ request }) => {
 							let datetime: string | null = null;
 							let ai_extracted_email: string | null = null;
 							let requested_contact_method: string | null = null;
+							let resolvedCallSubtopic: string | null = subtopicFromCategory(
+								numberRow?.callTrackingCategory?.name,
+								DEFAULT_TAXONOMY
+							);
 							// Declared HERE, not inside the pipeline's .then() callback: recordingMetadata
 							// below references it on every path, including the one where the pipeline is
 							// skipped. Scoping it to the callback threw "webhookTrace is not defined" and
@@ -2186,6 +2204,14 @@ export const POST: RequestHandler = async ({ request }) => {
 										datetime = analysis.datetime;
 										ai_extracted_email = analysis.ai_extracted_email;
 										requested_contact_method = analysis.requested_contact_method;
+										const subtopicResult = await resolveSubtopic({
+											companyId: numberInfo.companyId,
+											deterministic: resolvedCallSubtopic,
+											callTrackingCategory: numberRow?.callTrackingCategory?.name,
+											text: transcript,
+											hints: [analysis.intent, analysis.sub_intent].filter(Boolean) as string[]
+										});
+										resolvedCallSubtopic = subtopicResult.subtopic;
 										const callerName = analysis.callerName;
 										const buyingSignals = analysis.buyingSignals;
 
@@ -2602,6 +2628,7 @@ export const POST: RequestHandler = async ({ request }) => {
 											existingLog.content ||
 											`Call recording available (${recDurationSeconds}s)`,
 										summary: summary || existingLog.summary || null,
+										subtopic: resolvedCallSubtopic || existingLog.subtopic,
 										metadata: {
 											...((existingLog.metadata as Record<string, unknown>) || {}),
 											...recordingMetadata
@@ -2609,6 +2636,13 @@ export const POST: RequestHandler = async ({ request }) => {
 									}
 								});
 								finalLogId = updatedLog.id;
+								// The hangup row already carries the engagement; `commThread` is not in
+								// scope on this branch.
+								await rollUpSubtopic(
+									prisma,
+									updatedLog.communicationThreadId ?? existingLog.communicationThreadId,
+									resolvedCallSubtopic
+								);
 								console.log('📝 Updated CommunicationLog with recording link', callControlId);
 
 								// Create notification for updated call log with recording/voicemail.
@@ -2695,6 +2729,7 @@ export const POST: RequestHandler = async ({ request }) => {
 											customerId: contact.id,
 											communicationThreadId: commThread.id,
 											callTrackingCategoryId: numberRow?.callTrackingCategoryId ?? undefined,
+											subtopic: resolvedCallSubtopic,
 											duration: recDurationSeconds > 0 ? recDurationSeconds : null,
 											content: transcript || `Call recording available (${recDurationSeconds}s)`,
 											summary: summary || null,
@@ -2708,6 +2743,7 @@ export const POST: RequestHandler = async ({ request }) => {
 											} as any
 										}
 									});
+									await rollUpSubtopic(prisma, commThread.id, resolvedCallSubtopic);
 									console.log(
 										'📝 Created CommunicationLog for call (no hangup log found)',
 										callControlId

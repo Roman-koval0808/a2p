@@ -3,6 +3,7 @@ import {
 	communicationSurface,
 	applyEngagementFallbacks,
 	loadLineTypes,
+	loadReturnHistory,
 	COMMUNICATION_SURFACE_INCLUDE
 } from '$lib/server/communication-surface';
 import { redirect, error } from '@sveltejs/kit';
@@ -294,10 +295,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			.sort((a, b) => b.created.localeCompare(a.created));
 
 		const lineTypes = await loadLineTypes(prisma, conversationLogs);
+		// "Returning · 3rd session" — one query for the page, as the simulator shows it.
+		const returnHistory = await loadReturnHistory(prisma, companyId, conversationLogs);
 		const comms = applyEngagementFallbacks(conversationLogs.map((log) => {
 			// Same surface the communication-log page renders, from the same helper, so the shared
 			// CommunicationTable shows identical cells on both pages.
-			const surface = communicationSurface(log, lineTypes);
+			const surface = communicationSurface(log, lineTypes, returnHistory);
 			const dateObj = new Date(log.created);
 			const date = dateObj.toLocaleDateString('en-US', {
 				month: 'short',

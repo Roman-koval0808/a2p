@@ -32,6 +32,12 @@
 		intentSubtopic?: string | null;
 		intentDescription?: string | null;
 		intentEmergency?: boolean;
+		returnInfo?: {
+			returning: boolean;
+			ordinal: number;
+			startedEngagement: boolean;
+			deviceMatchOnly: boolean;
+		} | null;
 		intentConfidence?: string | null;
 		threadSubtopics?: string[];
 		isProcessing?: boolean;
@@ -240,21 +246,28 @@
 		return CHANNEL_LABELS[t] || comm.type || 'Web';
 	}
 
-	function statusDotClass(status: string): string {
-		switch (status) {
-			case 'red':
-				return 'dot red';
-			case 'green':
-				return 'dot green';
-			case 'blue':
-				return 'dot blue';
-			case 'in':
-				return 'dot green';
-			case 'out':
-				return 'dot red';
-			default:
-				return 'dot';
-		}
+	/**
+	 * The dot encodes INTENT, matching `design/a2p-simulator.html`:
+	 *
+	 *   red   emergency      teal  active      blue  research / comparison      grey  n/a
+	 *
+	 * It used to encode row direction — inbound green, outbound red — which made every outbound
+	 * message look like a problem and told you nothing you could not already see from the IN/OUT
+	 * badge. Intent is the fact worth scanning a column of dots for.
+	 */
+	function statusDotClass(status: string, comm?: any): string {
+		const emergency =
+			comm?.intentEmergency ||
+			comm?.intentStage === 'emergency' ||
+			comm?.raw?.metadata?.message_category === 'emergency';
+		if (emergency || status === 'red') return 'dot red';
+		const stage = (comm?.intentStage ?? '').toLowerCase();
+		if (stage === 'active') return 'dot teal';
+		if (stage === 'research' || stage === 'comparison') return 'dot blue';
+		if (status === 'blue') return 'dot blue';
+		// Outbound has no intent of its own — the simulator greys it.
+		if (comm?.direction === 'Out') return 'dot';
+		return 'dot';
 	}
 
 	function tierClass(tier: string | null | undefined): string {
@@ -291,6 +304,28 @@
 			return true;
 		}
 		return line.toLowerCase().includes(purpose.toLowerCase());
+	}
+
+	function ordinal(n: number): string {
+		const s = ['th', 'st', 'nd', 'rd'];
+		const v = n % 100;
+		return n + (s[(v - 20) % 10] || s[v] || s[0]);
+	}
+
+	/**
+	 * The simulator's returning-visitor lines:
+	 *   ↩ Returning · 3rd session   /   continuing ENG-0002
+	 *   ↩ Likely returning · 2nd session · device match   (Tier 2B — a device, not a person)
+	 */
+	function returnLines(comm: any): { head: string; sub: string } | null {
+		const ri = comm?.returnInfo;
+		if (!ri?.returning) return null;
+		const head = `↩ ${ri.deviceMatchOnly ? 'Likely returning' : 'Returning'} · ${ordinal(ri.ordinal)} session`;
+		const eng = comm?.engagementId ?? '';
+		const sub =
+			(ri.startedEngagement ? `new engagement ${eng}` : `continuing ${eng}`) +
+			(ri.deviceMatchOnly ? ' · device match' : '');
+		return { head, sub };
 	}
 
 	function stageClass(stage: string | null | undefined): string {
@@ -502,7 +537,7 @@
 						{@const signals = Array.isArray(comm.raw?.metadata?.signals) ? comm.raw.metadata.signals : []}
 						{@const hasEmail = Boolean(comm.type === 'email' || comm.typeIcon === 'email' || comm.raw?.payload?.email || (comm.source && comm.source.includes('@')))}
 						<tr class="row" onclick={() => handleSummaryClick(comm)}>
-							<td><span class={statusDotClass(comm.status)}></span></td>
+							<td><span class={statusDotClass(comm.status, comm)}></span></td>
 							<td class="date">
 								<b>{comm.date}</b><span>{comm.time}</span>
 							</td>
@@ -528,21 +563,22 @@
 								{/if}
 							</td>
 							<td>
-								<!-- Two axes, shown as two DIFFERENT things.
-								     Stage (research -> comparison -> active) is where the customer is in
-								     deciding. Emergency is urgency, and is deliberately NOT a stage
-								     (spec: two-axis intent). Rendering the emergency flag with the same
-								     `stage` class made one row look like it held two buckets — "Active"
-								     and "Emergency" side by side, as if the record contradicted itself.
-								     It is one bucket plus one urgency flag, so the flag now reads as a
-								     flag. -->
+								<!-- Emergency is the override bucket, never a second label beside Active. -->
 								{#if comm.raw?.isDropCall}
 									<span class="stage emergency">dropped call</span>
 								{:else if comm.intentStage}
 									<span class="stage {stageClass(comm.intentStage)}">{comm.intentStage}</span>
 								{/if}
-								{#if isEmergency}
-									<span class="urgentflag" title="Urgency, not a stage">🚨 Urgent</span>
+								<!-- No separate urgency chip. The Intent Bucket Protocol (LOCKED 2026-08-26)
+								     makes emergency the fourth, OVERRIDE bucket — "a session reads as
+								     exactly one bucket" — superseding the earlier two-axis model this
+								     chip belonged to. A row that IS an emergency already says so in its
+								     stage pill; showing a second marker beside it was what made one row
+								     look like it held two buckets.
+								     Kept only for the case the protocol cannot reach: a row flagged
+								     emergency by a writer that never set the stage. -->
+								{#if isEmergency && !comm.intentStage}
+									<span class="urgentflag" title="Emergency evidence, bucket not set">🚨 Urgent</span>
 								{/if}
 								<!-- The intent line: what the customer actually wants, not the storage key.
 								     "bathroom" was the tag; "Bathroom renovation" is the intent. -->
@@ -584,11 +620,21 @@
 										<span class="mono profid">{comm.profileId ?? '—'}</span>
 										<span class="tier {tierCls}">{tierLabel(comm.profileTier)}</span>
 										<div class="fade">{comm.profileWho || comm.profileName || comm.source || '—'}</div>
+										{#if returnLines(comm)}
+											{@const rl = returnLines(comm)}
+											<div class="ret {comm.returnInfo?.deviceMatchOnly ? 'ret2b' : ''}">{rl?.head}</div>
+											<div class="fade">{rl?.sub}</div>
+										{/if}
 									</button>
 								{:else}
 									<span class="mono profid">{comm.profileId ?? '—'}</span>
 									<span class="tier {tierCls}">{tierLabel(comm.profileTier)}</span>
 									<div class="fade">{comm.profileWho || comm.profileName || comm.source || '—'}</div>
+									{#if returnLines(comm)}
+										{@const rl = returnLines(comm)}
+										<div class="ret {comm.returnInfo?.deviceMatchOnly ? 'ret2b' : ''}">{rl?.head}</div>
+										<div class="fade">{rl?.sub}</div>
+									{/if}
 								{/if}
 							</td>
 							<td>
@@ -844,6 +890,19 @@
 	}
 	:global(.clog .dot.red) {
 		background: var(--red);
+	}
+	/* Returning-visitor marker, per the simulator. Amber for 2B — a device match, not a person. */
+	:global(.clog .ret) {
+		margin-top: 3px;
+		font-size: 11.5px;
+		font-weight: 600;
+		color: #14a3a3;
+	}
+	:global(.clog .ret.ret2b) {
+		color: #b8860b;
+	}
+	:global(.clog .dot.teal) {
+		background: #14a3a3;
 	}
 	:global(.clog .dot.blue) {
 		background: var(--blue);

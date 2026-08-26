@@ -11,6 +11,29 @@ export interface Attribution {
 	landingUrl: string | null;
 }
 
+/** Corrects persisted attribution from clients that still have an older classifier in memory. */
+export function canonicalAttributionChannel(attribution: {
+	channel?: string | null;
+	source?: string | null;
+	medium?: string | null;
+	referrer?: string | null;
+}): string | null {
+	const source = attribution.source?.toLowerCase();
+	const medium = attribution.medium?.toLowerCase();
+	const referrer = attribution.referrer?.toLowerCase() || '';
+	const paid = medium === 'cpc' || medium === 'ppc' || medium === 'paid';
+	if (source === 'bing' && !paid && medium === 'organic') return 'organic_bing';
+	if (source === 'google' && !paid && medium === 'organic') return 'organic_google';
+	if (source === 'facebook' && !paid) return 'referral';
+	if (attribution.channel === 'bing_paid' && medium === 'organic') return 'organic_bing';
+	if (attribution.channel === 'google_paid' && medium === 'organic') return 'organic_google';
+	if (attribution.channel === 'facebook_ad' && medium !== 'paid') return 'referral';
+	if (attribution.channel) return attribution.channel;
+	if (referrer.includes('bing') && medium === 'organic') return 'organic_bing';
+	if (referrer.includes('google') && medium === 'organic') return 'organic_google';
+	return null;
+}
+
 const LLM_DOMAINS = [
 	'chatgpt.com',
 	'chat.openai.com',
@@ -63,18 +86,37 @@ export function resolveAttribution(
 	const refHost = hostOf(ref);
 
 	let channel = 'direct';
+	const normalizedSource = source?.toLowerCase();
+	const normalizedMedium = medium?.toLowerCase();
+	const isPaidMedium =
+		normalizedMedium === 'cpc' || normalizedMedium === 'ppc' || normalizedMedium === 'paid';
 
-	if (gclid) {
+	if (gclid || (normalizedSource === 'google' && isPaidMedium)) {
 		channel = 'google_paid';
-	} else if (source?.toLowerCase() === 'bing' || (medium === 'cpc' && refHost?.includes('bing'))) {
+	} else if (
+		(normalizedSource === 'bing' && isPaidMedium) ||
+		(normalizedMedium === 'cpc' && refHost?.includes('bing'))
+	) {
 		channel = 'bing_paid';
-	} else if (source?.toLowerCase() === 'google' || medium === 'organic') {
+	} else if (
+		normalizedSource === 'google' ||
+		(normalizedMedium === 'organic' && refHost?.includes('google'))
+	) {
 		channel = 'organic_google';
-	} else if (source?.toLowerCase() === 'bing' && medium === 'organic') {
+	} else if (
+		normalizedSource === 'bing' ||
+		(normalizedMedium === 'organic' && refHost?.includes('bing'))
+	) {
 		channel = 'organic_bing';
-	} else if (source?.toLowerCase() === 'facebook' || (medium === 'paid' && refHost?.includes('facebook'))) {
+	} else if (
+		(normalizedSource === 'facebook' && isPaidMedium) ||
+		(isPaidMedium && refHost?.includes('facebook'))
+	) {
 		channel = 'facebook_ad';
-	} else if (YOUTUBE_DOMAINS.includes(refHost ?? '') && (medium === 'paid' || content === 'nonskip')) {
+	} else if (
+		YOUTUBE_DOMAINS.includes(refHost ?? '') &&
+		(medium === 'paid' || content === 'nonskip')
+	) {
 		channel = 'youtube_paid';
 	} else if (YOUTUBE_DOMAINS.includes(refHost ?? '')) {
 		channel = 'youtube_organic';
@@ -89,7 +131,7 @@ export function resolveAttribution(
 	}
 
 	return {
-		channel,
+		channel: canonicalAttributionChannel({ channel, source, medium, referrer: refHost }) || channel,
 		source,
 		medium,
 		campaign,
@@ -101,9 +143,5 @@ export function resolveAttribution(
 
 export function captureBrowserAttribution(): Attribution | null {
 	if (typeof window === 'undefined' || typeof document === 'undefined') return null;
-	return resolveAttribution(
-		document.referrer,
-		window.location.href,
-		window.location.search
-	);
+	return resolveAttribution(document.referrer, window.location.href, window.location.search);
 }

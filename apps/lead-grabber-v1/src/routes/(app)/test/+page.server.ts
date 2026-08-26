@@ -1,7 +1,10 @@
 import { POST as handleSmsPost } from '../../api/telnyx/webhook/+server';
 import { PipelineSimulator } from '$lib/server/pipeline-simulator';
 import { prisma } from '$lib/db';
-import { resolveEngagementForContact } from '$lib/server/telemetry/resolve-engagement';
+import {
+	resolveEngagementForContact,
+	rollUpSubtopic
+} from '$lib/server/telemetry/resolve-engagement';
 import { redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -239,6 +242,26 @@ export const actions: Actions = {
 			});
 			const finalDestination =
 				intentName && digit ? `${called} (Ext ${digit} - ${intentName})` : called;
+
+			// Same subtopic ladder the real call webhook runs (tracking category -> deterministic
+			// transcript seeds -> AI). /test wrote its log row directly and set no subtopic at all,
+			// so every simulated call landed with a blank Subtopic and its engagement never rolled
+			// one up — which is exactly what "both calls have no subtopics" was reporting. The
+			// production fix was real; this path just never reached it.
+			let simSubtopic: string | null = null;
+			try {
+				const { resolveSubtopic } = await import('$lib/server/telemetry/subtopic-classifier');
+				const res = await resolveSubtopic({
+					companyId,
+					text: transcript,
+					hints: [intentName, 'voice call'].filter(Boolean) as string[]
+				});
+				simSubtopic = res.subtopic;
+				logs.push(`🏷️ Subtopic: ${simSubtopic ?? 'none'} (${res.source})`);
+			} catch (err: any) {
+				logs.push(`⚠️ Subtopic classification failed: ${err?.message || err}`);
+			}
+
 			const commLog = await prisma.communicationLog.create({
 				data: {
 					type: 'voice',
@@ -249,6 +272,7 @@ export const actions: Actions = {
 					companyId,
 					customerId: contact.id,
 					communicationThreadId: thread.id,
+					subtopic: simSubtopic,
 					duration: 45,
 					content: transcript,
 					summary: analysis?.summary || null,
@@ -273,6 +297,10 @@ export const actions: Actions = {
 					}
 				}
 			});
+
+			// The engagement accumulates every subject it has touched (shared helper — the webhook
+			// and logCommunication use the same one).
+			await rollUpSubtopic(prisma, thread.id, simSubtopic);
 			logs.push(`📝 Created CommunicationLog ${commLog.id} (dest: ${finalDestination})`);
 
 			// 5. Run the orchestrator — the same call the real recording.saved path fires (there it
