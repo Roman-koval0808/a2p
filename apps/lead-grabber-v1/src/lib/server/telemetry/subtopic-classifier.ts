@@ -2,6 +2,7 @@ import { ANTHROPIC_AI_KEY } from '$env/static/private';
 import { claudeJSON, CLAUDE_FAST } from '$lib/server/anthropic';
 import { prisma } from '$lib/db';
 import { normalizeSubtopic, subtopicWindowDays } from './engagement';
+import { SUBTOPIC_LABELS } from '$lib/utils/subtopic-labels';
 
 /**
  * Works out what type of business an interaction was about, when the cheap deterministic paths
@@ -36,18 +37,18 @@ export interface TaxonomyEntry {
 }
 
 export const DEFAULT_TAXONOMY: TaxonomyEntry[] = [
-	{ key: 'emergency', label: 'Emergency call-out', inactivityDays: subtopicWindowDays('emergency') },
-	{ key: 'plumbing', label: 'Plumbing', inactivityDays: subtopicWindowDays('plumbing') },
-	{ key: 'drain', label: 'Drains', parent: 'plumbing', inactivityDays: subtopicWindowDays('drain') },
-	{ key: 'water_heater', label: 'Water heater', parent: 'plumbing', inactivityDays: subtopicWindowDays('water_heater') },
-	{ key: 'hvac', label: 'Heating & cooling', inactivityDays: subtopicWindowDays('hvac') },
-	{ key: 'furnace', label: 'Furnace', parent: 'hvac', inactivityDays: subtopicWindowDays('furnace') },
-	{ key: 'electrical', label: 'Electrical', inactivityDays: subtopicWindowDays('electrical') },
-	{ key: 'renovation', label: 'Renovations', inactivityDays: subtopicWindowDays('renovation') },
-	{ key: 'bathroom', label: 'Bathroom renovation', parent: 'renovation', inactivityDays: subtopicWindowDays('bathroom') },
-	{ key: 'kitchen', label: 'Kitchen renovation', parent: 'renovation', inactivityDays: subtopicWindowDays('kitchen') },
-	{ key: 'roof', label: 'Roofing', parent: 'renovation', inactivityDays: subtopicWindowDays('roof') },
-	{ key: 'quote', label: 'Quote request', inactivityDays: subtopicWindowDays('quote') }
+	{ key: 'emergency', label: SUBTOPIC_LABELS['emergency'], inactivityDays: subtopicWindowDays('emergency') },
+	{ key: 'plumbing', label: SUBTOPIC_LABELS['plumbing'], inactivityDays: subtopicWindowDays('plumbing') },
+	{ key: 'drain', label: SUBTOPIC_LABELS['drain'], parent: 'plumbing', inactivityDays: subtopicWindowDays('drain') },
+	{ key: 'water_heater', label: SUBTOPIC_LABELS['water_heater'], parent: 'plumbing', inactivityDays: subtopicWindowDays('water_heater') },
+	{ key: 'hvac', label: SUBTOPIC_LABELS['hvac'], inactivityDays: subtopicWindowDays('hvac') },
+	{ key: 'furnace', label: SUBTOPIC_LABELS['furnace'], parent: 'hvac', inactivityDays: subtopicWindowDays('furnace') },
+	{ key: 'electrical', label: SUBTOPIC_LABELS['electrical'], inactivityDays: subtopicWindowDays('electrical') },
+	{ key: 'renovation', label: SUBTOPIC_LABELS['renovation'], inactivityDays: subtopicWindowDays('renovation') },
+	{ key: 'bathroom', label: SUBTOPIC_LABELS['bathroom'], parent: 'renovation', inactivityDays: subtopicWindowDays('bathroom') },
+	{ key: 'kitchen', label: SUBTOPIC_LABELS['kitchen'], parent: 'renovation', inactivityDays: subtopicWindowDays('kitchen') },
+	{ key: 'roof', label: SUBTOPIC_LABELS['roof'], parent: 'renovation', inactivityDays: subtopicWindowDays('roof') },
+	{ key: 'quote', label: SUBTOPIC_LABELS['quote'], inactivityDays: subtopicWindowDays('quote') }
 ];
 
 /**

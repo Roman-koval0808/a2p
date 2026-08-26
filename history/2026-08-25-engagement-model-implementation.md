@@ -6,7 +6,7 @@
 `design/LOG-CHANGES-FOR-ROMAN.md` + the Engagement/subtopic roadmap
 `specs/ROADMAP-engagement-business-episode-FOR-ROMAN.md` + subtopic scoring). Authoritative model:
 `specs/clearsky-communication-log-id-model.md`. Reference repo for docs/prototype:
-`/Users/n3rd/code/fullsaasclearsky` (NOT part of this repo).
+`/Users/{user}/code/fullsaasclearsky` (NOT part of this repo).
 
 Two human decisions settled up front: **cap the total at 100** (not per-subtopic), and **skip the
 ServiceTaxonomy table** (no seed, no classification table).
@@ -46,7 +46,7 @@ ServiceTaxonomy table** (no seed, no classification table).
   column-protocol drawers. Styles are namespaced under `:global(.clog …)` so Svelte's class scoping
   doesn't break the runtime-generated `stage`/`tier`/`pill` modifier classes. Intent cell now shows
   subtopic + status·confidence; Source cell shows the keyword/query detail; Profile cell shows the
-  tier "who" note ("Anonymous · fp_… — device only").
+  tier "who" note ("Anonymous · fp\_… — device only").
 - `src/lib/components/session-summary-drawer.svelte` (new) — prototype-style Session Summary drawer
   (Narrative · Channel·Source·Endpoint · Intent AI interpretation · Journey & Activity · Status & next
   step). Wired in `communication-log/+page.svelte`: row/Summary/ENG click opens this drawer; the a2p
@@ -60,7 +60,7 @@ was missing from the workspace (only a `runtime/` dir), which was the source of 
 ## Root causes
 
 - **The visit-split was at the wrong level.** 2026-08-20 made `CommunicationThread` split per browser
-  tab (`vt_<fp>_<sessionId>`), so a thread *was* a session. Under the new model the thread is the
+  tab (`vt_<fp>_<sessionId>`), so a thread _was_ a session. Under the new model the thread is the
   engagement; the fix was a move, not a rewrite — thread selection switched to evidence-before-time,
   and the 30-min gap moved down to decide the log row.
 - **Bug B (bare return forked a new engagement):** the old exact-subject match treated "no detectable
@@ -116,7 +116,7 @@ was missing from the workspace (only a `runtime/` dir), which was the source of 
 1. **ServiceTaxonomy** — skipped by user request. No classification table exists; web subtopics come
    only from the URL map + signal payload fields.
 2. **CallTrackingCategory → subtopic key** on the voice intake path — NOT done; I only surfaced the
-   category *name* in the log's Source column fallback. Mapping it to a taxonomy key needs the (skipped)
+   category _name_ in the log's Source column fallback. Mapping it to a taxonomy key needs the (skipped)
    taxonomy.
 3. **AI session-close subtopic extraction** — not done (needs the taxonomy keys to constrain to).
 4. **Backfill** — not done; existing `vt_*` threads are still sessions, not engagements. Two eras of
@@ -136,15 +136,15 @@ was missing from the workspace (only a `runtime/` dir), which was the source of 
 
 # Review pass — three attribution gaps found and fixed
 
-Reviewed the implementation against both 2026-08-25 docs plus the clarification that *interactions
-and signals carry a subtopic where identifiable, and are recorded separately as unknown where not*.
+Reviewed the implementation against both 2026-08-25 docs plus the clarification that _interactions
+and signals carry a subtopic where identifiable, and are recorded separately as unknown where not_.
 Everything in the docs checked out except subtopic attribution, which had three defects.
 
 ## Root cause — the worked example could not have worked
 
 `SUBTOPIC_PAYLOAD_FIELDS` was `['service','problem','interest','emergencyType']`. **`url` was not in
 it**, but `page_load`'s payload is `['url','title']`. So for a web session no signal ever matched on
-its own payload, and every signal fell back to the *same* `batch.attribution.landingUrl`.
+its own payload, and every signal fell back to the _same_ `batch.attribution.landingUrl`.
 
 Every signal in a batch therefore inherited one subtopic — the landing page. The worked example
 (6 kitchen pages, then a bathroom quote, in ONE session → kitchen 20 / bathroom 30) collapses to a

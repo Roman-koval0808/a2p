@@ -2,6 +2,7 @@ import { prisma } from '$lib/db';
 import {
 	communicationSurface,
 	applyEngagementFallbacks,
+	loadLineTypes,
 	COMMUNICATION_SURFACE_INCLUDE
 } from '$lib/server/communication-surface';
 import type { PageServerLoad } from './$types';
@@ -117,6 +118,10 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 
 		const totalCount = logCount + dropCallCount;
 
+		// §4.3a: the identity tier turns on the phone LINE type, so load them all in one query
+		// rather than one per row.
+		const lineTypes = await loadLineTypes(prisma, dbLogs);
+
 		// Map communication logs
 		const mappedLogs = dbLogs.map((log) => {
 			const assignedMemberNames = log.assignedMembers.map((am) => am.user.name || am.user.email);
@@ -201,7 +206,7 @@ export const load: PageServerLoad = async ({ locals, depends, fetch, url }) => {
 
 			// Four-level model surface (Profile → Engagement → Session → Interaction). The thread is
 			// the engagement; the log row is the session. Identifiers are stable display codes.
-			const surface = communicationSurface(log);
+			const surface = communicationSurface(log, lineTypes);
 
 			return {
 				id: log.id,

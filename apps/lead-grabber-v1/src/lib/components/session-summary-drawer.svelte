@@ -110,14 +110,12 @@
 
 			<div class="sec">Channel · Source · Endpoint</div>
 			<div class="kv"><span class="k">Channel</span><span class="v">{channelLabel()} · {comm.direction === 'Out' ? 'out' : 'in'}</span></div>
-			<!-- The comm-log Source column renders `log.source` (the number/address the message came
-			     from). The drawer used to render the ATTRIBUTION channel instead, which only web
-			     telemetry rows carry — so every SMS, voice and email row showed a dash next to a
-			     populated column. Same value as the table first, attribution underneath. -->
-			<div class="kv"><span class="k">Source</span><span class="v">{comm.source || comm.channelSource || '—'}</span></div>
-			{#if comm.channelSource && comm.channelSource !== comm.source}
-				<div class="kv"><span class="k">Channel source</span><span class="v">{comm.channelSource}</span></div>
-			{/if}
+			<!-- Source is the PROVIDER CHANNEL, never a bare number and never a person:
+			     "Source is NOT the person — the person is the Profile"
+			     (specs/clearsky-communication-log-id-model.md, and the prototype's Source ⓘ).
+			     The counterpart's number or address is the detail line, not the value. Same helper
+			     the table uses, so the two cannot disagree. -->
+			<div class="kv"><span class="k">Source</span><span class="v">{comm.channelSource || '—'}</span></div>
 			{#if comm.channelSourceDetail}
 				<div class="kv"><span class="k">Source detail</span><span class="v">{comm.channelSourceDetail}</span></div>
 			{/if}

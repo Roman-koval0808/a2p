@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { subtopicLabel } from '$lib/utils/subtopic-labels';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
 
 	export interface Communication {
@@ -29,6 +30,7 @@
 		intentStatus?: string | null;
 		intentStage?: string | null;
 		intentSubtopic?: string | null;
+		intentEmergency?: boolean;
 		intentConfidence?: string | null;
 		threadSubtopics?: string[];
 		isProcessing?: boolean;
@@ -261,11 +263,43 @@
 		return 't2b';
 	}
 
+	// The badge used to read "T1" / "T2" / "2B", which means nothing unless you already know the
+	// tier model. Spell it out.
 	function tierLabel(tier: string | null | undefined): string {
 		const t = (tier ?? '').replace(/\s/g, '').toUpperCase();
-		if (t === 'T1' || t === 'TIER1') return 'T1';
-		if (t === 'T2' || t === 'TIER2') return 'T2';
-		return '2B';
+		if (t === 'T1' || t === 'TIER1') return 'Tier 1';
+		if (t === 'T2' || t === 'TIER2') return 'Tier 2';
+		return 'Tier 2B';
+	}
+
+	// What the customer actually wants, in words.
+	//
+	// The cell used to print the raw subtopic key capitalised — "Bathroom", "Drain" — which is the
+	// storage tag, not an intent. `subtopicLabel` turns it into the taxonomy's own wording
+	// ("Bathroom renovation", "Blocked drain"). The orchestrator's purpose ("Sales Opportunity")
+	// answers a different question — what WE should do about it — so when both exist they are
+	// joined rather than stacked as two look-alike lines.
+	function intentLine(comm: any): string | null {
+		const subject = subtopicLabel(comm?.intentSubtopic);
+		const purpose = (comm?.purpose ?? '').toString().trim();
+		// "Urgent Support" is the emergency flag restated; the flag above already says it.
+		const purposeAdds =
+			purpose &&
+			purpose !== 'General' &&
+			purpose !== 'See Summary' &&
+			purpose !== 'Urgent Support' &&
+			purpose.toLowerCase() !== (subject ?? '').toLowerCase();
+		if (subject && purposeAdds) return `${subject} · ${purpose}`;
+		if (subject) return subject;
+		return purposeAdds ? purpose : null;
+	}
+
+	/** True when the purpose line would only repeat what the intent line already said. */
+	function purposeIsRedundant(comm: any): boolean {
+		const line = intentLine(comm);
+		if (!line) return false;
+		const purpose = (comm?.purpose ?? '').toString().trim();
+		return !purpose || line.includes(purpose) || purpose === 'Urgent Support';
 	}
 
 	function stageClass(stage: string | null | undefined): string {
@@ -473,6 +507,7 @@
 				{:else}
 					{#each filteredCommunications as comm}
 						{@const tierCls = tierClass(comm.profileTier)}
+						{@const isEmergency = comm.intentEmergency || comm.raw?.metadata?.message_category === 'emergency'}
 						{@const signals = Array.isArray(comm.raw?.metadata?.signals) ? comm.raw.metadata.signals : []}
 						{@const hasEmail = Boolean(comm.type === 'email' || comm.typeIcon === 'email' || comm.raw?.payload?.email || (comm.source && comm.source.includes('@')))}
 						<tr class="row" onclick={() => handleSummaryClick(comm)}>
@@ -502,19 +537,29 @@
 								{/if}
 							</td>
 							<td>
+								<!-- Two axes, shown as two DIFFERENT things.
+								     Stage (research -> comparison -> active) is where the customer is in
+								     deciding. Emergency is urgency, and is deliberately NOT a stage
+								     (spec: two-axis intent). Rendering the emergency flag with the same
+								     `stage` class made one row look like it held two buckets — "Active"
+								     and "Emergency" side by side, as if the record contradicted itself.
+								     It is one bucket plus one urgency flag, so the flag now reads as a
+								     flag. -->
 								{#if comm.raw?.isDropCall}
 									<span class="stage emergency">dropped call</span>
 								{:else if comm.intentStage}
 									<span class="stage {stageClass(comm.intentStage)}">{comm.intentStage}</span>
 								{/if}
-								{#if comm.intentSubtopic}
-									<div class="sub">{cap(comm.intentSubtopic)}</div>
+								{#if isEmergency}
+									<span class="urgentflag" title="Urgency, not a stage">🚨 Urgent</span>
+								{/if}
+								<!-- The intent line: what the customer actually wants, not the storage key.
+								     "bathroom" was the tag; "Bathroom renovation" is the intent. -->
+								{#if intentLine(comm)}
+									<div class="sub intent">{intentLine(comm)}</div>
 								{/if}
 								{#if comm.intentStatus}
 									<div class="stat">{comm.intentStatus}{comm.intentConfidence ? ` · ${comm.intentConfidence}` : ''}</div>
-								{/if}
-								{#if comm.raw?.metadata?.message_category === 'emergency'}
-									<span class="stage emergency">emergency</span>
 								{/if}
 								{#if comm.purpose === 'Confirm' || comm.purpose === 'Confirm Email'}
 									<button
@@ -524,7 +569,7 @@
 									>
 										{comm.purpose === 'Confirm Email' ? 'Confirm Email' : (comm.raw?.metadata?.confirm_action === 'call' ? 'Confirm call' : 'Confirm')}
 									</button>
-								{:else if comm.purpose}
+								{:else if comm.purpose && !purposeIsRedundant(comm)}
 									<div class="sub">{comm.purpose}</div>
 								{/if}
 								{#if slaBadge(comm)}
@@ -537,6 +582,12 @@
 								{/if}
 							</td>
 							<td>
+								<!-- The prototype's `profileCell()` leads with the code, not the name:
+								       PRF-####  [T1]
+								       Identified — name + email/phone
+								     The column is "Profile ID · Who", and the "Who" is the identity-TIER
+								     descriptor, not the person's name. Reverted to that shape on request
+								     after a spell showing the name on top. -->
 								{#if onProfileClick && comm.raw?.raw?.customer?.id}
 									<button type="button" class="prof" onclick={(e) => { e.stopPropagation(); onProfileClick(comm); }}>
 										<span class="mono profid">{comm.profileId ?? '—'}</span>
@@ -769,6 +820,29 @@
 		padding: 40px;
 		text-align: center;
 		color: var(--faint);
+	}
+	/* The person's name leads the Profile column; it should read as a name, not a code. */
+	:global(.clog .pname) {
+		font-weight: 600;
+		color: #16324f;
+		margin-right: 6px;
+	}
+	/* Urgency is not a stage, so it must not look like one of the stage pills. */
+	:global(.clog .urgentflag) {
+		display: inline-block;
+		margin-left: 6px;
+		padding: 1px 7px;
+		border-radius: 999px;
+		border: 1px solid #f3b4b4;
+		background: #fff5f5;
+		color: #b02a2a;
+		font-size: 11px;
+		font-weight: 600;
+		white-space: nowrap;
+	}
+	:global(.clog .sub.intent) {
+		font-weight: 600;
+		color: #26384a;
 	}
 	:global(.clog .dot) {
 		width: 10px;

@@ -224,6 +224,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				destination: formattedPhone,
 				company_id: companyId,
 				customer_id: callee?.id,
+				// The rep who clicked to call. `placed_by` recorded this in metadata only, so the
+				// log had no relation to follow and the Source column could not tell a rep-placed
+				// call from a system-placed one — every one of them read "Outbound Call". On the
+				// FK it resolves to a name, which is what "Rep-bound number · Dave R." needs.
+				user_id: locals.user?.id,
 				summary: `Outbound call to ${callee?.name || formattedPhone}`,
 				metadata: {
 					dialer_outbound: true,

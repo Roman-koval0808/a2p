@@ -326,6 +326,7 @@
 			intentStatus: c.intentStatus ?? c.raw?.intentStatus ?? null,
 			intentStage: c.intentStage ?? c.raw?.intentStage ?? null,
 			intentSubtopic: c.intentSubtopic ?? c.raw?.intentSubtopic ?? null,
+			intentEmergency: c.intentEmergency ?? c.raw?.intentEmergency ?? false,
 			intentConfidence: c.intentConfidence ?? c.raw?.intentConfidence ?? null,
 			threadSubtopics: c.threadSubtopics ?? c.raw?.threadSubtopics ?? [],
 			threadSubtopicScores: c.threadSubtopicScores ?? c.raw?.threadSubtopicScores ?? null,
