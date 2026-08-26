@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { formatDescriptiveIntent } from '$lib/utils/subtopic-labels';
+
 	// Prototype-style Session Summary drawer (mirrors design/a2p-log-prototype.html openDraw).
 	interface Props {
 		comm?: any;
@@ -122,12 +124,16 @@
 			<div class="kv"><span class="k">Endpoint</span><span class="v">{comm.endpoint || '—'}</span></div>
 
 			<div class="sec">Intent (AI interpretation)</div>
+			<div class="kv"><span class="k">Intent</span><span class="v">{comm.intentDescription || formatDescriptiveIntent(comm) || '—'}</span></div>
 			<div class="kv"><span class="k">Stage</span><span class="v">{cap(comm.intentStage) || '—'}</span></div>
 			<div class="kv"><span class="k">Subtopic</span><span class="v">{cap(comm.intentSubtopic) || subtopics().join(', ') || '—'}</span></div>
 			<div class="kv"><span class="k">Emergency</span><span class="v">{emergencyLabel(comm)}</span></div>
 			<div class="kv"><span class="k">Status</span><span class="v">{comm.intentStatus || '—'}</span></div>
 			<div class="kv"><span class="k">Confidence</span><span class="v">{comm.intentConfidence || '—'}</span></div>
 			<div class="kv"><span class="k">Tier</span><span class="v">{tierLabel(comm.profileTier)}</span></div>
+			{#if comm.raw?.metadata?.ai_intent?.reason}
+				<div class="kv"><span class="k">Reason</span><span class="v">{comm.raw.metadata.ai_intent.reason}</span></div>
+			{/if}
 
 			<div class="sec">Journey &amp; Activity</div>
 			<div class="narr">{journey(comm) || '—'}</div>

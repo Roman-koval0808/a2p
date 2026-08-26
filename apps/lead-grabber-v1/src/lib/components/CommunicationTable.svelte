@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { subtopicLabel } from '$lib/utils/subtopic-labels';
+	import { subtopicLabel, formatDescriptiveIntent } from '$lib/utils/subtopic-labels';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
 
 	export interface Communication {
@@ -30,6 +30,7 @@
 		intentStatus?: string | null;
 		intentStage?: string | null;
 		intentSubtopic?: string | null;
+		intentDescription?: string | null;
 		intentEmergency?: boolean;
 		intentConfidence?: string | null;
 		threadSubtopics?: string[];
@@ -272,26 +273,13 @@
 		return 'Tier 2B';
 	}
 
-	// What the customer actually wants, in words.
+	// What the customer actually wants, in descriptive words.
 	//
-	// The cell used to print the raw subtopic key capitalised — "Bathroom", "Drain" — which is the
-	// storage tag, not an intent. `subtopicLabel` turns it into the taxonomy's own wording
-	// ("Bathroom renovation", "Blocked drain"). The orchestrator's purpose ("Sales Opportunity")
-	// answers a different question — what WE should do about it — so when both exist they are
-	// joined rather than stacked as two look-alike lines.
+	// Shows the rich descriptive intent (e.g. "Quote: Plumbing pipe renovation", "Quote: Bathroom renovation",
+	// "Vehicle Purchase / Test Drive", "Inquiry: Business Hours", "Emergency: Roof leak") rather than
+	// a bare single word like "Quote", "Sales", "Support", or "General".
 	function intentLine(comm: any): string | null {
-		const subject = subtopicLabel(comm?.intentSubtopic);
-		const purpose = (comm?.purpose ?? '').toString().trim();
-		// "Urgent Support" is the emergency flag restated; the flag above already says it.
-		const purposeAdds =
-			purpose &&
-			purpose !== 'General' &&
-			purpose !== 'See Summary' &&
-			purpose !== 'Urgent Support' &&
-			purpose.toLowerCase() !== (subject ?? '').toLowerCase();
-		if (subject && purposeAdds) return `${subject} · ${purpose}`;
-		if (subject) return subject;
-		return purposeAdds ? purpose : null;
+		return comm?.intentDescription || formatDescriptiveIntent(comm);
 	}
 
 	/** True when the purpose line would only repeat what the intent line already said. */
@@ -299,7 +287,10 @@
 		const line = intentLine(comm);
 		if (!line) return false;
 		const purpose = (comm?.purpose ?? '').toString().trim();
-		return !purpose || line.includes(purpose) || purpose === 'Urgent Support';
+		if (!purpose || purpose === 'Urgent Support' || purpose === 'Quote' || purpose === 'General' || purpose === 'See Summary') {
+			return true;
+		}
+		return line.toLowerCase().includes(purpose.toLowerCase());
 	}
 
 	function stageClass(stage: string | null | undefined): string {
